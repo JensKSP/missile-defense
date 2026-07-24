@@ -15,10 +15,36 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # ---- Options -----------------------------------------------------------------
 option(MD_SANITIZE "Enable AddressSanitizer + UBSan" OFF)
+option(MD_WERROR "Treat warnings as errors" ON)
 
-# ---- Global warning flags (project code only; see per-target settings) -------
-add_compile_options(-Wall -Wextra -Wpedantic -Wshadow -Wconversion)
+# ---- Warnings ----------------------------------------------------------------
+# Opt-in via `target_link_libraries(<t> PRIVATE md::warnings)`. Keeps strict
+# flags on our own code without imposing them on third-party deps (e.g. Catch2).
+add_library(md_warnings INTERFACE)
+add_library(md::warnings ALIAS md_warnings)
+target_compile_options(md_warnings INTERFACE
+  -Wall
+  -Wextra
+  -Wpedantic
+  -Wshadow
+  -Wconversion
+  -Wsign-conversion
+  -Wold-style-cast
+  -Wcast-align
+  -Wunused
+  -Woverloaded-virtual
+  -Wnon-virtual-dtor
+  -Wnull-dereference
+  -Wdouble-promotion
+  -Wformat=2
+  -Wimplicit-fallthrough
+  -Wmisleading-indentation)
+if(MD_WERROR)
+  target_compile_options(md_warnings INTERFACE -Werror)
+endif()
 
+# ---- Sanitizers --------------------------------------------------------------
+# Global on purpose: instrument our code *and* the deps it links under test.
 if(MD_SANITIZE)
   add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
   add_link_options(-fsanitize=address,undefined)

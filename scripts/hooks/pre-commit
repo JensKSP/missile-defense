@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Fast pre-commit quality gate. Install with: poe install-hooks
+#
+# Runs the quick checks (format, lint, build, fast unit tests). The full gate,
+# including clang-tidy / e2e / type-checking, is `poe check` (run in CI / before push).
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+
+if [[ -d .venv ]]; then
+  # shellcheck disable=SC1091
+  source .venv/bin/activate
+fi
+
+poe format-check
+poe fmt-py-chk
+poe lint
+poe build
+poe test-unit

@@ -11,15 +11,38 @@ requires-python = ">=3.11"
 # ---- Task runner (poe) -------------------------------------------------------
 # Run with: poe <task>   (after `pip install poethepoet ruff pytest`)
 [tool.poe.tasks]
+# --- Build (build auto-configures; tests/tidy auto-build — one-command TDD) ---
 configure = { cmd = "cmake --preset debug", help = "Configure the Debug build" }
-build     = { cmd = "cmake --build --preset debug", help = "Build (Debug + sanitizers)" }
+build     = { cmd = "cmake --build --preset debug", deps = ["configure"], help = "Build (Debug + sanitizers)" }
 release   = { cmd = "cmake --build --preset release", help = "Build RelWithDebInfo" }
-test      = { cmd = "ctest --preset debug", help = "Run C++ tests via CTest" }
-rebuild   = { sequence = ["clean", "configure", "build"], help = "Clean reconfigure + build" }
+rebuild   = { sequence = ["clean", "build"], help = "Clean reconfigure + build" }
 clean     = { shell = "rm -rf build", help = "Remove the build directory" }
-format    = { shell = "find core bindings app -type f \\( -name '*.cpp' -o -name '*.hpp' \\) 2>/dev/null | xargs -r clang-format-21 -i", help = "clang-format all C++ sources" }
-tidy      = { shell = "find core -type f -name '*.cpp' 2>/dev/null | xargs -r clang-tidy-21 -p build/debug", help = "clang-tidy the core sources" }
-lint      = { cmd = "ruff check python", help = "Ruff lint the Python code" }
+
+# --- Tests (the TDD inner loop is just: `poe test-unit`) ---
+test      = { cmd = "ctest --preset debug", deps = ["build"], help = "Run all C++ tests (unit + e2e)" }
+test-unit = { cmd = "ctest --preset debug -L unit", deps = ["build"], help = "Run fast C++ unit tests only" }
+test-e2e  = { cmd = "ctest --preset debug -L e2e", deps = ["build"], help = "Run C++ end-to-end tests only" }
+pytest    = { cmd = "pytest", help = "Run Python tests" }
+test-all  = { sequence = ["test", "pytest"], help = "Build, then run every test" }
+
+# --- Quality gates (C++) ---
+format       = { shell = "find core bindings app -type f \\( -name '*.cpp' -o -name '*.hpp' \\) 2>/dev/null | xargs -r clang-format-21 -i", help = "clang-format all C++ sources" }
+format-check = { shell = "find core bindings app -type f \\( -name '*.cpp' -o -name '*.hpp' \\) 2>/dev/null | xargs -r clang-format-21 --dry-run --Werror", help = "Fail if any C++ is unformatted" }
+tidy         = { shell = "find core -type d -name tests -prune -o -type f -name '*.cpp' -print 2>/dev/null | xargs -r clang-tidy-21 -p build/debug --warnings-as-errors=*", deps = ["build"], help = "clang-tidy production sources (warnings = errors)" }
+
+# --- Quality gates (Python) ---
+lint       = { cmd = "ruff check python", help = "Ruff lint the Python code" }
+format-py  = { cmd = "ruff format python", help = "Ruff-format the Python code" }
+fmt-py-chk = { cmd = "ruff format --check python", help = "Fail if any Python is unformatted" }
+typecheck  = { cmd = "mypy", help = "Static type-check the Python package (strict)" }
+
+# --- Aggregate gates ---
+check = { sequence = [
+  "format-check", "fmt-py-chk", "lint", "typecheck",
+  "tidy", "test", "pytest",
+], help = "Full local CI gate — everything must pass, zero warnings" }
+
+install-hooks = { shell = "ln -sf ../../scripts/hooks/pre-commit .git/hooks/pre-commit && chmod +x scripts/hooks/pre-commit && echo 'git pre-commit hook installed'", help = "Install the git pre-commit quality hook" }
 
 # ---- Ruff (Python lint + format) --------------------------------------------
 [tool.ruff]
@@ -28,3 +51,15 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+# ---- mypy (strict static typing for the package) ----------------------------
+[tool.mypy]
+python_version = "3.11"
+files = ["python/md"]
+strict = true
+
+# ---- pytest ------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["python/tests"]
+pythonpath = ["python"]
+addopts = "-q"
