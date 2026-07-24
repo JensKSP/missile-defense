@@ -38,9 +38,8 @@ A complete, fun arcade game. **Acceptance gate: the human plays it and confirms.
 - ✅ Rocket trails — missile lines from launch point to a glowing head
 - ✅ Blast glow + dangerous fireball explosions (ground impacts + interceptor blasts)
 - ✅ Game-over screen (dim overlay, spaced text)
-- ⬜ **Sound** — SFX driven by a deterministic `md::core` event stream (the same
-  stream also gives the AI observation parity); backend TBD (vendored miniaudio +
-  procedural retro SFX, or Qt 6 Multimedia)
+- ✅ **Sound** — procedural retro SFX via vendored miniaudio, driven by the
+  deterministic `md::core` event stream (which also gives AI observation parity)
 
 **Gameplay completeness** (faithful mechanics)
 - ✅ **Destructible bases** — threats target/destroy batteries (render as rubble)
