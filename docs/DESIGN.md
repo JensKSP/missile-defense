@@ -140,6 +140,58 @@ set/attention encoder) is a Step-2 decision.
 - City weighting (equal vs. valued).
 - Reward shaping details (Step 2), observation encoding (Step 2), curriculum (Step 3).
 
+## 9. Architecture & performance
+
+**One sim, three drivers.** The pure C++ core (`md::core`) is driven by the Qt+Vulkan app
+(human), the nanobind/Python layer (training), and recorded-action playback. `core/` depends
+on nothing — no Qt, no Vulkan, no Python.
+
+**A `Sim` is a self-contained POD value.** All state lives inline at fixed capacity (bounded by
+`max_threats`, `max_interceptors`, `max_blasts`, …), with no pointers, no heap allocation in
+`step()`, no globals, and its own `Pcg32`. Consequences:
+- snapshot = `memcpy`; serialize = write the bytes;
+- cheap to construct/copy/move → **massive parallelism** by stepping N independent sims;
+- combined with determinism, a full run is just `(seed, actions)`.
+
+**Loop ownership.** `Sim::step(action)` advances exactly one fixed `dt` tick and owns no timing.
+*Drivers* own the loop: the human app uses a fixed-timestep accumulator with render
+interpolation; training calls `step` as fast as possible; replay feeds recorded actions.
+
+**Hot-path rules (production).** No virtual dispatch — threat variants are an enum tag, not a
+class hierarchy. No allocation and no exceptions in `step()`.
+
+**Parallelism.** A `VecSim` owns N independent sims and steps them across a thread pool with the
+Python GIL released; observations are written into one contiguous buffer exposed zero-copy to
+NumPy (nanobind/DLPack). Sims run on CPU; the policy trains on GPU (EnvPool-style).
+
+**Determinism, including floating point.** Same `(seed, actions)` ⇒ identical trajectory on this
+machine. FP behavior is pinned consistently across Debug/Release (consistent `-ffp-contract`, no
+fast-math) so a run recorded by Release training replays bit-identically in the UI. The
+determinism test asserts Debug == Release.
+
+## 10. Recording & replay
+
+- **Primary format:** `(seed, config-version, action-log)` — kilobytes per episode, so millions
+  of training runs can be recorded and later filtered by outcome (best score, worst loss).
+- **Playback:** deterministic re-simulation. For pause / scrub / variable-speed the UI
+  materializes the trajectory into a buffer of POD snapshots on load (each snapshot a `memcpy`).
+- **Takeover:** because a `Sim` is a value, the UI re-sims a recording to any tick, then switches
+  the action source from the recording to human input and continues — the timeline diverges from
+  that point on.
+- *(Optional)* full per-tick state recording for debugging when determinism is in question.
+
+## 11. UI modes (one mechanism)
+
+Every mode is just "a driver feeds `Action`s into a `Sim`; the renderer draws the `Sim`":
+1. **Fresh play** — human, from `reset(seed)`.
+2. **Replay** — recorded actions, no input.
+3. **Takeover** — replay to tick T, then hand control to the human.
+
+## 12. Milestones
+
+**M1 (current target): a human can play a fresh game in the Vulkan UI.** Full milestone list and
+the path to M1 are in [`ROADMAP.md`](ROADMAP.md).
+
 ---
 *Freeze this spec before Step 2. Every mechanics change after the freeze invalidates
 trained models and bumps the env version.*
