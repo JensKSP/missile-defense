@@ -81,11 +81,18 @@ std::string_view GameWindow::active_label(int index) const {
 }
 
 float GameWindow::menu_text_px() const noexcept {
-    return sim_.config().world_height * 0.017f;
+    return sim_.config().world_height * 0.015f;
 }
 
 float GameWindow::menu_item_top_y(int index) const noexcept {
-    return sim_.config().world_height * (0.60f - (static_cast<float>(index) * 0.11f));
+    // Center the list block vertically between the title and the bottom hint,
+    // sized to the item count so it never overlaps them (5-6 menu items or 3
+    // options). `first_top` is the top item's top edge.
+    const float h = sim_.config().world_height;
+    const float spacing = h * 0.09f;
+    const float block = static_cast<float>(active_count() - 1) * spacing;
+    const float first_top = (h * 0.47f) + (block * 0.5f);
+    return first_top - (static_cast<float>(index) * spacing);
 }
 
 int GameWindow::menu_hit(Vec2 world) const noexcept {
@@ -93,7 +100,7 @@ int GameWindow::menu_hit(Vec2 world) const noexcept {
     const float advance = px * 4.0f; // per-glyph horizontal step (matches draw_text)
     const float center_x = sim_.config().world_width * 0.5f;
     const float pad_x = advance * 0.5f;
-    const float pad_y = px * 0.8f;
+    const float pad_y = px * 0.5f;
     for (int i = 0; i < active_count(); ++i) {
         const float top_y = menu_item_top_y(i);
         const float bottom_y = top_y - (5.0f * px); // glyphs span ~5 rows below top_y
