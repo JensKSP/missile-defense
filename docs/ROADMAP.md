@@ -36,18 +36,17 @@ A complete, fun arcade game. **Acceptance gate: the human plays it and confirms.
 - ✅ Restart — new game from the menu
 - ✅ Pause → menu (RESUME / NEW GAME), Help screen
 - ✅ Rocket trails — missile lines from launch point to a glowing head
-- ✅ Blast glow (alpha blending)
-- ⬜ Game-over polish
+- ✅ Blast glow + dangerous fireball explosions (ground impacts + interceptor blasts)
+- ✅ Game-over screen (dim overlay, spaced text)
 - ⬜ **Sound** — SFX driven by a deterministic `md::core` event stream (the same
   stream also gives the AI observation parity); backend TBD (vendored miniaudio +
   procedural retro SFX, or Qt 6 Multimedia)
 
-**Gameplay completeness** (faithful mechanics — the game isn't "finished" without these)
-- ⬜ **Destructible bases** — threats can target and destroy batteries (currently
-  invulnerable; a flagged v0.1 simplification)
-- ⬜ **MIRV threats** — warheads that split into several mid-descent
-- ⬜ **Smart-bomb threats** — decoys that steer to dodge blasts
-- ⬜ **Bonus cities** — earn a city back at score thresholds
+**Gameplay completeness** (faithful mechanics)
+- ✅ **Destructible bases** — threats target/destroy batteries (render as rubble)
+- ✅ **MIRV threats** — warheads that split into several mid-descent (purple)
+- ✅ **Smart-bomb threats** — decoys that steer to dodge blasts (green)
+- ✅ **Bonus cities** — rebuild a destroyed city at score thresholds
 
 **Also requested**
 - ⬜ **Highscores** — persist top scores locally + arcade-style initials entry
