@@ -37,8 +37,9 @@ struct Threat {
     Vec2 origin{}; // where it entered/split from (for the trail)
     Vec2 velocity{};
     ThreatType type = ThreatType::Icbm;
-    std::uint32_t target_city = 0; // index into the city array
-    float split_altitude = 0.0f;   // MIRV: y at which it splits (0 = never)
+    TargetKind target_kind = TargetKind::City;
+    std::uint32_t target_index = 0; // index into cities or bases, per target_kind
+    float split_altitude = 0.0f;    // MIRV: y at which it splits (0 = never)
     bool active = false;
 };
 

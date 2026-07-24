@@ -12,6 +12,10 @@ inline constexpr std::uint32_t base_count = 3;
 /// and the step loop free of virtual dispatch.
 enum class ThreatType : std::uint8_t { Icbm = 0, Mirv = 1, SmartBomb = 2 };
 
+/// What a threat is aimed at — both cities and bases sit on the ground and can be
+/// destroyed by a threat that reaches them.
+enum class TargetKind : std::uint8_t { City = 0, Base = 1 };
+
 // Fixed capacities. These bound the inline simulation state so a snapshot is a memcpy
 // and the step loop never allocates.
 inline constexpr std::uint32_t max_cities = 6;

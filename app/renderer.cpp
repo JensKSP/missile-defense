@@ -367,6 +367,10 @@ void Renderer::startNextFrame() {
         }
     }
     for (const auto& base : sim.bases()) {
+        if (!base.alive) {
+            inst.push_back(rect(base.pos.x, 1.5f, 6.0f, 1.5f, 0.22f, 0.20f, 0.24f)); // rubble
+            continue;
+        }
         const bool empty = base.ammo == 0;
         inst.push_back(rect(base.pos.x, 6.0f, 6.0f, 6.0f, empty ? 0.40f : 0.95f,
                             empty ? 0.35f : 0.65f, empty ? 0.15f : 0.20f));
@@ -393,6 +397,9 @@ void Renderer::startNextFrame() {
         draw_number(inst, sim.wave(), world_w * 0.98f, hud_top, digit_px, 0.95f, 0.75f, 0.30f,
                     true);
         for (const auto& base : sim.bases()) {
+            if (!base.alive) {
+                continue;
+            }
             const float spacing = 1.6f;
             const float base_x0 =
                 base.pos.x - ((static_cast<float>(base.ammo) - 1.0f) * spacing * 0.5f);

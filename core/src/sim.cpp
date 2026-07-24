@@ -79,7 +79,7 @@ StepResult Sim::step(const Action& action) noexcept {
     advance_blasts();               // age blasts, update radius, expire
     move_threats();                 // integrate threat positions
     score_ += resolve_blast_hits(); // blasts kill threats (blasts win ties)
-    resolve_city_hits();            // surviving threats at ground destroy cities
+    resolve_ground_hits();          // surviving threats at ground destroy cities/bases
     update_waves();                 // spawn, and advance waves with end-of-wave bonus
     update_termination();           // all cities destroyed?
 
@@ -191,12 +191,20 @@ std::int32_t Sim::resolve_blast_hits() noexcept {
     return reward;
 }
 
-void Sim::resolve_city_hits() noexcept {
+void Sim::resolve_ground_hits() noexcept {
     std::uint32_t i = 0;
     while (i < threat_count_) {
-        const std::uint32_t target = threats_[i].target_city;
-        if (threats_[i].pos.y <= cities_[target].pos.y) {
-            cities_[target].alive = false; // a threat reaching its city destroys it
+        const Threat& threat = threats_[i];
+        const bool city = threat.target_kind == TargetKind::City;
+        const Vec2 target_pos =
+            city ? cities_[threat.target_index].pos : bases_[threat.target_index].pos;
+        if (threat.pos.y <= target_pos.y) {
+            // A threat reaching its target destroys it (a dead base can no longer fire).
+            if (city) {
+                cities_[threat.target_index].alive = false;
+            } else {
+                bases_[threat.target_index].alive = false;
+            }
             threats_[i] = threats_[threat_count_ - 1];
             --threat_count_;
         } else {
@@ -240,19 +248,21 @@ void Sim::start_wave(std::uint32_t wave) noexcept {
 }
 
 void Sim::spawn_threat() noexcept {
-    const std::uint32_t city = pick_alive_city();
-    if (city >= max_cities) {
+    TargetKind kind = TargetKind::City;
+    std::uint32_t index = 0;
+    if (!pick_target(kind, index)) {
         return; // nothing left to attack
     }
+    const Vec2 target = (kind == TargetKind::City) ? cities_[index].pos : bases_[index].pos;
     const Vec2 origin{rng_.uniform(0.0f, config_.world_width), config_.world_height};
-    const Vec2 target = cities_[city].pos;
     const float speed =
         config_.threat_base_speed + (static_cast<float>(wave_ - 1) * config_.threat_speed_per_wave);
     threats_[threat_count_] = Threat{.pos = origin,
                                      .origin = origin,
                                      .velocity = (target - origin).normalized() * speed,
                                      .type = ThreatType::Icbm,
-                                     .target_city = city,
+                                     .target_kind = kind,
+                                     .target_index = index,
                                      .split_altitude = 0.0f,
                                      .active = true};
     ++threat_count_;
@@ -261,7 +271,9 @@ void Sim::spawn_threat() noexcept {
 void Sim::award_end_of_wave_bonus() noexcept {
     std::int32_t bonus = 0;
     for (const auto& base : bases_) {
-        bonus += (static_cast<std::int32_t>(base.ammo) * config_.score_per_unused_interceptor);
+        if (base.alive) {
+            bonus += (static_cast<std::int32_t>(base.ammo) * config_.score_per_unused_interceptor);
+        }
     }
     for (const auto& city : cities_) {
         if (city.alive) {
@@ -271,26 +283,40 @@ void Sim::award_end_of_wave_bonus() noexcept {
     score_ += bonus;
 }
 
-std::uint32_t Sim::pick_alive_city() noexcept {
+bool Sim::pick_target(TargetKind& kind, std::uint32_t& index) noexcept {
+    // Threats target any alive city or base, uniformly at random.
     std::uint32_t alive = 0;
     for (const auto& city : cities_) {
-        if (city.alive) {
-            ++alive;
-        }
+        alive += city.alive ? 1u : 0u;
+    }
+    for (const auto& base : bases_) {
+        alive += base.alive ? 1u : 0u;
     }
     if (alive == 0) {
-        return max_cities; // sentinel: no valid target
+        return false;
     }
     std::uint32_t nth = rng_.below(alive);
     for (std::uint32_t idx = 0; idx < max_cities; ++idx) {
         if (cities_[idx].alive) {
             if (nth == 0) {
-                return idx;
+                kind = TargetKind::City;
+                index = idx;
+                return true;
             }
             --nth;
         }
     }
-    return max_cities;
+    for (std::uint32_t idx = 0; idx < base_count; ++idx) {
+        if (bases_[idx].alive) {
+            if (nth == 0) {
+                kind = TargetKind::Base;
+                index = idx;
+                return true;
+            }
+            --nth;
+        }
+    }
+    return false;
 }
 
 void Sim::update_termination() noexcept {

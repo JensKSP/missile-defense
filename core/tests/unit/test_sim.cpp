@@ -213,6 +213,24 @@ TEST_CASE("A threat reaching its city destroys it", "[unit][sim]") {
     REQUIRE(city_lost);
 }
 
+TEST_CASE("Threats can destroy bases, not just cities", "[unit][sim]") {
+    Config cfg;
+    cfg.threat_base_speed = 2500.0f;
+    cfg.spawn_interval = 0.05f;
+    cfg.wave_base_threats = 40;
+    Sim sim{cfg};
+    sim.reset(4);
+
+    bool base_destroyed = false;
+    for (int i = 0; i < 5000 && !base_destroyed; ++i) {
+        sim.step(Action::noop());
+        for (const auto& base : sim.bases()) {
+            base_destroyed = base_destroyed || !base.alive;
+        }
+    }
+    REQUIRE(base_destroyed);
+}
+
 TEST_CASE("The episode terminates when every city is destroyed", "[unit][sim]") {
     Config cfg;
     cfg.threat_base_speed = 3000.0f;

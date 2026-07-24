@@ -73,12 +73,12 @@ class Sim {
     void spawn_blast(Vec2 center) noexcept;
     void move_threats() noexcept;
     std::int32_t resolve_blast_hits() noexcept;
-    void resolve_city_hits() noexcept;
+    void resolve_ground_hits() noexcept;
     void update_waves() noexcept;
     void start_wave(std::uint32_t wave) noexcept;
     void spawn_threat() noexcept;
     void award_end_of_wave_bonus() noexcept;
-    [[nodiscard]] std::uint32_t pick_alive_city() noexcept;
+    [[nodiscard]] bool pick_target(TargetKind& kind, std::uint32_t& index) noexcept;
     void update_termination() noexcept;
 
     Config config_{};
