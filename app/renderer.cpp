@@ -5,6 +5,7 @@
 
 #include "game_window.hpp"
 #include "md/rng.hpp"
+#include "md/version.hpp"
 #include "projection.hpp"
 
 #include <QVulkanDeviceFunctions>
@@ -252,6 +253,9 @@ std::array<std::uint8_t, 5> glyph_for(char c) {
     }
     if (c >= 'A' && c <= 'Z') {
         return letter_font[static_cast<std::size_t>(c - 'A')];
+    }
+    if (c == '.') {
+        return {{0, 0, 0, 0, 2}}; // period: a single bottom-centre pixel (for "0.1.0")
     }
     return {{0, 0, 0, 0, 0}};
 }
@@ -631,6 +635,28 @@ void Renderer::startNextFrame() {
                       0.85f, 0.9f, true);
         }
         draw_text(inst, "PRESS ENTER", cx, world_h * 0.09f, world_h * 0.011f, 0.6f, 0.65f, 0.7f,
+                  true);
+    } else if (state == GameWindow::State::About) {
+        draw_text(inst, "ABOUT", cx, world_h * 0.94f, world_h * 0.024f, 0.85f, 0.92f, 1.0f, true);
+        const std::string version_line = "VERSION " + std::string(version());
+        // Uppercase-only legal notices + credits (the pixel font has no lower case
+        // or punctuation beyond the period added for the version string). Lines are
+        // kept short so none overflows the width, and spaced so none overlaps.
+        const std::array<std::string_view, 9> lines{"MISSILE DEFENSE",
+                                                     version_line,
+                                                     "COPYRIGHT 2026 JENS KOEHLER",
+                                                     "MIT LICENSE",
+                                                     "DEVELOPED WITH CLAUDE CODE",
+                                                     "USES QT MINIAUDIO VULKAN",
+                                                     "MISSILE COMMAND IS AN",
+                                                     "ATARI TRADEMARK",
+                                                     "INDEPENDENT NON COMMERCIAL HOMAGE"};
+        for (int i = 0; i < static_cast<int>(lines.size()); ++i) {
+            const float y = world_h * (0.79f - (static_cast<float>(i) * 0.08f));
+            draw_text(inst, lines[static_cast<std::size_t>(i)], cx, y, world_h * 0.011f, 0.78f,
+                      0.83f, 0.9f, true);
+        }
+        draw_text(inst, "PRESS ENTER", cx, world_h * 0.05f, world_h * 0.010f, 0.6f, 0.65f, 0.7f,
                   true);
     } else if (state == GameWindow::State::Options) {
         draw_text(inst, "OPTIONS", cx, world_h * 0.88f, world_h * 0.026f, 0.85f, 0.92f, 1.0f, true);

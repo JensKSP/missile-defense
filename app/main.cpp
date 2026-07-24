@@ -30,7 +30,11 @@ int main(int argc, char** argv) {
             window.play_now(); // boot straight into a game (skip the menu)
         }
     }
-    window.show();
+    if (window.fullscreen()) { // restore the persisted window mode (see QSettings)
+        window.showFullScreen();
+    } else {
+        window.show();
+    }
 
     return QGuiApplication::exec();
 }

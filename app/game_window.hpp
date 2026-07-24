@@ -32,6 +32,7 @@ class GameWindow : public QVulkanWindow {
         GameOver,
         Highscores,
         Help,
+        About,
         Options,
         EnterScore
     };
@@ -90,7 +91,15 @@ class GameWindow : public QVulkanWindow {
     void keyPressEvent(QKeyEvent* event) override;
 
   private:
-    enum class MenuAction : std::uint8_t { Resume, NewGame, Help, Options, Highscores, Exit };
+    enum class MenuAction : std::uint8_t {
+        Resume,
+        NewGame,
+        Help,
+        Options,
+        Highscores,
+        About,
+        Exit
+    };
 
     void update_aim(float px, float py);
     void start_game();
@@ -99,6 +108,8 @@ class GameWindow : public QVulkanWindow {
     void toggle_fullscreen();
     void toggle_audio();
     void toggle_music();
+    void load_settings();       // restore persisted audio/music/fullscreen on startup
+    void save_settings() const; // persist audio/music/fullscreen after a toggle
     void open_menu();
     void open_options();
     void activate(int index); // activate the item at index in the active list

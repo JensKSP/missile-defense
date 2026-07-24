@@ -15,6 +15,10 @@ target_include_directories(md_core PUBLIC include)
 target_compile_features(md_core PUBLIC cxx_std_23)
 target_link_libraries(md_core PRIVATE md::warnings)
 
+# Single-source the semantic version from the top-level project(VERSION ...),
+# so version.cpp and the CMake project version can never drift apart.
+target_compile_definitions(md_core PRIVATE MD_VERSION="${PROJECT_VERSION}")
+
 if(BUILD_TESTING)
   add_subdirectory(tests)
 endif()

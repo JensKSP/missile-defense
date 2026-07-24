@@ -9,6 +9,7 @@
 #include <QCursor>
 #include <QKeyEvent>
 #include <QMouseEvent>
+#include <QSettings>
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -19,6 +20,26 @@ GameWindow::GameWindow() {
     sim_.reset(seed_);
     aim_ = Vec2{sim_.config().world_width * 0.5f, sim_.config().world_height * 0.5f};
     highscores_.load();
+    load_settings(); // restore audio/music/fullscreen from the previous session
+}
+
+// Persisted via QSettings — QGuiApplication's organization/application name (set
+// in main) route this to the platform store (registry on Windows, INI elsewhere).
+void GameWindow::load_settings() {
+    const QSettings settings;
+    audio_on_ = settings.value("audio/sfx", audio_on_).toBool();
+    music_on_ = settings.value("audio/music", music_on_).toBool();
+    fullscreen_ = settings.value("video/fullscreen", fullscreen_).toBool();
+    audio_.set_enabled(audio_on_);
+    audio_.set_music_enabled(music_on_);
+    // Fullscreen is applied by main() at startup (before the window is shown).
+}
+
+void GameWindow::save_settings() const {
+    QSettings settings;
+    settings.setValue("audio/sfx", audio_on_);
+    settings.setValue("audio/music", music_on_);
+    settings.setValue("video/fullscreen", fullscreen_);
 }
 
 QVulkanWindowRenderer* GameWindow::createRenderer() {
@@ -27,7 +48,8 @@ QVulkanWindowRenderer* GameWindow::createRenderer() {
 }
 
 int GameWindow::menu_count() const noexcept {
-    return in_progress_ ? 6 : 5;
+    return 6; // paused: RESUME NEW-GAME HELP OPTIONS HIGHSCORES EXIT
+              // main:   START HELP OPTIONS HIGHSCORES ABOUT EXIT
 }
 
 GameWindow::MenuAction GameWindow::action_at(int index) const {
@@ -37,8 +59,10 @@ GameWindow::MenuAction GameWindow::action_at(int index) const {
                                              MenuAction::Highscores, MenuAction::Exit};
         return acts[static_cast<std::size_t>(index)];
     }
-    const std::array<MenuAction, 5> acts{MenuAction::NewGame, MenuAction::Help, MenuAction::Options,
-                                         MenuAction::Highscores, MenuAction::Exit};
+    // ABOUT (legal notices + version) lives in the main menu only, arcade-style.
+    const std::array<MenuAction, 6> acts{MenuAction::NewGame,    MenuAction::Help,
+                                         MenuAction::Options,    MenuAction::Highscores,
+                                         MenuAction::About,      MenuAction::Exit};
     return acts[static_cast<std::size_t>(index)];
 }
 
@@ -54,6 +78,8 @@ std::string_view GameWindow::menu_label(int index) const {
         return "OPTIONS";
     case MenuAction::Highscores:
         return "HIGHSCORES";
+    case MenuAction::About:
+        return "ABOUT";
     case MenuAction::Exit:
         return "EXIT";
     }
@@ -159,16 +185,19 @@ void GameWindow::toggle_fullscreen() {
     } else {
         showNormal();
     }
+    save_settings();
 }
 
 void GameWindow::toggle_audio() {
     audio_on_ = !audio_on_;
     audio_.set_enabled(audio_on_);
+    save_settings();
 }
 
 void GameWindow::toggle_music() {
     music_on_ = !music_on_;
     audio_.set_music_enabled(music_on_);
+    save_settings();
 }
 
 void GameWindow::open_menu() {
@@ -224,6 +253,9 @@ void GameWindow::activate(int index) {
         break;
     case MenuAction::Highscores:
         state_ = State::Highscores;
+        break;
+    case MenuAction::About:
+        state_ = State::About;
         break;
     case MenuAction::Exit:
         close();
@@ -300,6 +332,7 @@ void GameWindow::mousePressEvent(QMouseEvent* event) {
     case State::GameOver:
     case State::Highscores:
     case State::Help:
+    case State::About:
         open_menu(); // a click dismisses these screens back to the menu
         break;
     case State::EnterScore:
@@ -353,6 +386,7 @@ void GameWindow::keyPressEvent(QKeyEvent* event) {
     case State::GameOver:
     case State::Highscores:
     case State::Help:
+    case State::About:
         if (key == Qt::Key_Return || key == Qt::Key_Enter || key == Qt::Key_Escape) {
             open_menu();
         }
