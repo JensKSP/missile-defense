@@ -29,10 +29,21 @@ endfunction()
 md_embed_shader(shaders/quad.vert quad_vert_spv)
 md_embed_shader(shaders/quad.frag quad_frag_spv)
 
+# Vendored miniaudio (single header) compiled in its own library with warnings
+# off — it is large third-party C. Its include dir is SYSTEM so our own code
+# (audio.cpp) can use miniaudio.h while staying under strict -Werror.
+find_package(Threads REQUIRED)
+add_library(md_miniaudio STATIC miniaudio_impl.cpp)
+target_include_directories(md_miniaudio SYSTEM PUBLIC
+  "${CMAKE_SOURCE_DIR}/third_party/miniaudio")
+target_compile_options(md_miniaudio PRIVATE -w)
+target_link_libraries(md_miniaudio PUBLIC Threads::Threads ${CMAKE_DL_LIBS} m)
+
 add_executable(md_app
   main.cpp
   game_window.cpp
   renderer.cpp
+  audio.cpp
   ${shader_headers})
 
 target_include_directories(md_app PRIVATE "${shader_hdr_dir}")
@@ -40,6 +51,6 @@ target_include_directories(md_app PRIVATE "${shader_hdr_dir}")
 # Qt/Vulkan headers are imported targets → their includes are SYSTEM, so our
 # strict -Werror only holds our own code to account.
 target_link_libraries(md_app
-  PRIVATE md::core md::warnings Qt6::Gui Vulkan::Vulkan)
+  PRIVATE md::core md::warnings Qt6::Gui Vulkan::Vulkan md_miniaudio)
 
 set_target_properties(md_app PROPERTIES AUTOMOC ON)

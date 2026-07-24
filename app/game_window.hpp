@@ -1,5 +1,6 @@
 #pragma once
 
+#include "audio.hpp"
 #include "md/sim.hpp"
 
 #include <QElapsedTimer>
@@ -61,6 +62,7 @@ class GameWindow : public QVulkanWindow {
     [[nodiscard]] BaseId nearest_base_with_ammo(Vec2 target) const;
 
     Sim sim_;
+    AudioEngine audio_;
     QElapsedTimer clock_;
     double accumulator_ = 0.0;
     bool started_ = false;

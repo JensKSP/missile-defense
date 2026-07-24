@@ -104,7 +104,8 @@ void GameWindow::advance() {
     const double dt = static_cast<double>(sim_.config().dt);
     while (accumulator_ >= dt) {
         sim_.step(pending_);
-        pending_ = Action::noop(); // a click fires exactly once
+        audio_.handle_events(sim_.events()); // play SFX for this step's events
+        pending_ = Action::noop();           // a click fires exactly once
         accumulator_ -= dt;
         if (sim_.terminated()) {
             state_ = State::GameOver;
