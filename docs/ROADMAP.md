@@ -3,7 +3,11 @@
 Milestones, ordered so that **a human can play first**. Each builds on the pure,
 headless, deterministic `md::core` simulation.
 
-## M1 — Human can play ✅
+> **Acceptance gate:** a milestone is *passed* only when **the human confirms it** by
+> playing/using it. "Implementation complete + gate green" is not "passed" — it means
+> *ready for human sign-off*.
+
+## M1 — Human can play *(implementation complete — awaiting human sign-off)*
 
 A person plays a fresh game of Missile Command in the Vulkan UI: waves of descending
 threats, three batteries with limited ammo, interceptors with travel time + expanding
@@ -21,9 +25,9 @@ Path:
    mapped to the shared `Action` (crosshair aim, click to fire) → HUD (score / wave /
    ammo) via a quad-based pixel font.
 
-→ **M1 reached.** *(Firing path — interceptors/blasts — verified by build + code; awaiting
-a human click to confirm on-screen, since the agent can't inject mouse input without
-`xdotool`.)*
+→ **Implementation complete; not yet accepted.** Passes only when a human plays it and
+confirms. The firing path (interceptors/blasts) in particular is verified by build + code
+but not yet by a human click — the agent can't inject mouse input without `xdotool`.
 
 Follow-up polish (post-M1): trajectory/blast trails, glow via alpha blending, game-over
 screen, MIRV / smart-bomb threats, deterministic offscreen render→PNG for golden-image tests.
