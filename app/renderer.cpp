@@ -64,6 +64,19 @@ InstanceData line(Vec2 from, Vec2 to, float thick, float r, float g, float b, fl
         (from.x + to.x) * 0.5f, (from.y + to.y) * 0.5f, len * 0.5f, thick, angle, r, g, b, a, 0.0f};
 }
 
+// A dangerous-looking fireball: an opaque body + white-hot core + outer glow,
+// shifting yellow -> orange -> deep red over its life (`t` in [0, 1]).
+void add_fireball(std::vector<InstanceData>& inst, float cx, float cy, float radius, float t) {
+    const float fade = t < 0.6f ? 1.0f : (1.0f - ((t - 0.6f) / 0.4f)); // opaque, fades late
+    const float body_g = 0.85f - (0.72f * t);                          // yellow -> red
+    const float body_b = 0.18f - (0.16f * t);
+    const float hot = 1.0f - t; // white-hot when young
+    inst.push_back(glow(cx, cy, radius * 1.3f, 1.0f, body_g * 0.5f, body_b * 0.4f, 0.85f * fade));
+    inst.push_back(circle(cx, cy, radius * 0.78f, 1.0f, body_g, body_b, 0.98f * fade));
+    inst.push_back(
+        circle(cx, cy, radius * 0.4f, 1.0f, 0.78f + (0.22f * hot), 0.32f + (0.58f * hot), fade));
+}
+
 // A 3x5 pixel font for digits, drawn as small quads (no font textures). Each
 // row's low 3 bits are the lit pixels; most-significant bit = leftmost column.
 constexpr std::array<std::array<std::uint8_t, 5>, 10> digit_font = {{
@@ -394,15 +407,12 @@ void Renderer::startNextFrame() {
             inst.push_back(circle(it.pos.x, it.pos.y, 0.9f, 0.9f, 0.97f, 1.0f));
         }
         for (const auto& blast : sim.blasts()) {
-            inst.push_back(
-                glow(blast.center.x, blast.center.y, blast.radius, 1.0f, 0.65f, 0.20f, 0.9f));
+            add_fireball(inst, blast.center.x, blast.center.y, blast.radius,
+                         blast.age / sim.config().blast_lifetime);
         }
         for (const auto& explosion : sim.explosions()) {
-            const float fade = 1.0f - (explosion.age / sim.config().explosion_lifetime);
-            inst.push_back(glow(explosion.center.x, explosion.center.y, explosion.radius, 1.0f,
-                                0.50f, 0.12f, 0.9f * fade)); // orange outer
-            inst.push_back(glow(explosion.center.x, explosion.center.y, explosion.radius * 0.55f,
-                                1.0f, 0.92f, 0.55f, 0.95f * fade)); // hot core
+            add_fireball(inst, explosion.center.x, explosion.center.y, explosion.radius,
+                         explosion.age / sim.config().explosion_lifetime);
         }
         if (!game_over) { // HUD: score / wave / ammo — hidden on the game-over screen
             const float digit_px = world_h * 0.013f;

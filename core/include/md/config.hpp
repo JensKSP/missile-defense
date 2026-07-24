@@ -42,9 +42,9 @@ struct Config {
     float blast_lifetime = 0.9f;      // seconds: expand -> linger -> collapse
 
     // Ground-impact explosions (cosmetic — do not destroy threats).
-    float explosion_lifetime = 0.8f;       // seconds
-    float explosion_radius_ground = 7.0f;  // nuke hits already-ruined ground
-    float explosion_radius_target = 18.0f; // nuke destroys a live city or base (bigger)
+    float explosion_lifetime = 0.9f;       // seconds
+    float explosion_radius_ground = 9.0f;  // nuke hits already-ruined ground
+    float explosion_radius_target = 22.0f; // nuke destroys a live city or base (bigger)
 
     // Threats.
     float threat_base_speed = 30.0f;    // wave-1 descent speed, world units / second
