@@ -59,6 +59,12 @@ target_link_libraries(md_app
 
 set_target_properties(md_app PROPERTIES AUTOMOC ON)
 
+# Vulkan validation layers are opt-in (dev builds); never requested in a
+# release/package build, so shipped binaries don't depend on the layer package.
+if(MD_VULKAN_VALIDATION)
+  target_compile_definitions(md_app PRIVATE MD_VULKAN_VALIDATION)
+endif()
+
 # ---- Install (for `cpack -G DEB`) --------------------------------------------
 # The binary is built as `md_app` (scripts reference it) but installs to the
 # Debian games dir as `missile-defense`, with a desktop entry.

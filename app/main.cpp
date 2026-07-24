@@ -13,8 +13,8 @@ int main(int argc, char** argv) {
     QGuiApplication::setApplicationName("MissileDefense"); // stable app-data path for highscores
 
     QVulkanInstance instance;
-#ifndef NDEBUG
-    instance.setLayers({"VK_LAYER_KHRONOS_validation"});
+#ifdef MD_VULKAN_VALIDATION
+    instance.setLayers({"VK_LAYER_KHRONOS_validation"}); // dev builds only (opt-in)
 #endif
     if (!instance.create()) {
         qFatal("Failed to create Vulkan instance: %d", static_cast<int>(instance.errorCode()));

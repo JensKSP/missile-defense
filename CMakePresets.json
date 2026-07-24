@@ -17,7 +17,8 @@
       "displayName": "Clang Debug (ASan+UBSan)",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "MD_SANITIZE": "ON"
+        "MD_SANITIZE": "ON",
+        "MD_VULKAN_VALIDATION": "ON"
       }
     },
     {
