@@ -430,7 +430,7 @@ void Renderer::startNextFrame() {
             draw_text(inst, window_->menu_label(i), cx, y, world_h * 0.017f, sel ? 0.95f : 0.45f,
                       sel ? 0.75f : 0.45f, sel ? 0.25f : 0.50f, true);
         }
-        draw_text(inst, "ARROWS ENTER", cx, world_h * 0.05f, world_h * 0.010f, 0.4f, 0.45f, 0.5f,
+        draw_text(inst, "ARROWS ENTER", cx, world_h * 0.09f, world_h * 0.010f, 0.4f, 0.45f, 0.5f,
                   true);
     } else if (state == GameWindow::State::GameOver) {
         draw_text(inst, "GAME OVER", cx, world_h * 0.64f, world_h * 0.036f, 0.95f, 0.30f, 0.25f,
@@ -450,7 +450,7 @@ void Renderer::startNextFrame() {
             draw_text(inst, lines[static_cast<std::size_t>(i)], cx, y, world_h * 0.014f, 0.8f,
                       0.85f, 0.9f, true);
         }
-        draw_text(inst, "PRESS ENTER", cx, world_h * 0.05f, world_h * 0.011f, 0.6f, 0.65f, 0.7f,
+        draw_text(inst, "PRESS ENTER", cx, world_h * 0.09f, world_h * 0.011f, 0.6f, 0.65f, 0.7f,
                   true);
     } else if (state == GameWindow::State::Highscores) {
         draw_text(inst, "HIGHSCORES", cx, world_h * 0.80f, world_h * 0.030f, 0.85f, 0.92f, 1.0f,
