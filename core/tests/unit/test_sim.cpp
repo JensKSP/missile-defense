@@ -14,6 +14,7 @@ using md::Action;
 using md::BaseId;
 using md::Config;
 using md::Sim;
+using md::ThreatType;
 using md::Vec2;
 
 TEST_CASE("Sim whole-state is trivially copyable (snapshot == memcpy)", "[unit][sim]") {
@@ -248,6 +249,51 @@ TEST_CASE("MIRV threats split into multiple warheads", "[unit][sim]") {
         prev = now;
     }
     REQUIRE(split_seen);
+}
+
+TEST_CASE("Smart bombs spawn from the configured wave", "[unit][sim]") {
+    Config cfg;
+    cfg.smart_bomb_wave = 1;
+    cfg.smart_bomb_chance = 1.0f;
+    Sim sim{cfg};
+    sim.reset(1);
+    sim.step(Action::noop());
+
+    REQUIRE(sim.threats().size() >= 1);
+    bool has_smart = false;
+    for (const auto& threat : sim.threats()) {
+        has_smart = has_smart || (threat.type == ThreatType::SmartBomb);
+    }
+    REQUIRE(has_smart);
+}
+
+TEST_CASE("Smart bombs steer away from a nearby blast", "[unit][sim]") {
+    Config cfg;
+    cfg.smart_bomb_wave = 1;
+    cfg.smart_bomb_chance = 1.0f;
+    cfg.wave_base_threats = 1;     // a single smart bomb to track
+    cfg.threat_base_speed = 20.0f; // slow, so it lingers
+    cfg.blast_lifetime = 3.0f;     // long-lived blast
+    cfg.blast_max_radius = 10.0f;
+    cfg.interceptor_speed = 800.0f; // near-instant detonation
+    cfg.base_cooldown = 0.0f;
+    Sim sim{cfg};
+    sim.reset(11);
+    sim.step(Action::noop());
+    REQUIRE(sim.threats().size() == 1);
+    const Vec2 p = sim.threats()[0].pos;
+
+    // Detonate a blast to the LEFT of the smart bomb (near, but out of kill range).
+    sim.step(Action::fire(BaseId::Delta, Vec2{p.x - 18.0f, p.y}));
+
+    float vx = 0.0f;
+    for (int i = 0; i < 80; ++i) {
+        sim.step(Action::noop());
+        if (!sim.threats().empty()) {
+            vx = sim.threats()[0].velocity.x;
+        }
+    }
+    REQUIRE(vx > 0.0f); // steering right, away from the blast on its left
 }
 
 TEST_CASE("The episode terminates when every city is destroyed", "[unit][sim]") {

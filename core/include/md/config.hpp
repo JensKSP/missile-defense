@@ -61,6 +61,12 @@ struct Config {
     float mirv_max_chance = 0.40f;      // cap on that chance
     std::uint32_t mirv_splits = 3;      // warheads a MIRV splits into
 
+    // Smart bombs — decoys that steer to dodge blasts, appearing from wave 5.
+    std::uint32_t smart_bomb_wave = 5;    // first wave they can appear
+    float smart_bomb_chance = 0.15f;      // chance a wave>=smart_bomb_wave spawn is one
+    float smart_bomb_dodge_range = 22.0f; // reacts to blasts within this (world units)
+    float smart_bomb_dodge_accel = 90.0f; // lateral steering accel (world units / s^2)
+
     // Scoring (DESIGN.md §4.3).
     std::int32_t score_per_kill = 25;
     std::int32_t score_per_unused_interceptor = 5;

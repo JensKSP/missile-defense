@@ -396,6 +396,10 @@ void Renderer::startNextFrame() {
                 inst.push_back(line(threat.origin, threat.pos, 0.4f, 0.6f, 0.3f, 0.85f, 0.5f));
                 inst.push_back(glow(threat.pos.x, threat.pos.y, 4.5f, 0.8f, 0.4f, 1.0f, 0.75f));
                 inst.push_back(circle(threat.pos.x, threat.pos.y, 1.7f, 0.9f, 0.55f, 1.0f));
+            } else if (threat.type == ThreatType::SmartBomb) { // dodger — green
+                inst.push_back(line(threat.origin, threat.pos, 0.4f, 0.3f, 0.8f, 0.4f, 0.45f));
+                inst.push_back(glow(threat.pos.x, threat.pos.y, 4.5f, 0.4f, 1.0f, 0.5f, 0.75f));
+                inst.push_back(circle(threat.pos.x, threat.pos.y, 1.7f, 0.6f, 1.0f, 0.6f));
             } else { // ICBM — red
                 inst.push_back(line(threat.origin, threat.pos, 0.35f, 0.85f, 0.25f, 0.20f, 0.45f));
                 inst.push_back(glow(threat.pos.x, threat.pos.y, 4.0f, 0.95f, 0.35f, 0.30f, 0.7f));

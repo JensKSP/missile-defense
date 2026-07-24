@@ -79,6 +79,7 @@ StepResult Sim::step(const Action& action) noexcept {
     advance_interceptors();         // may spawn blasts
     advance_blasts();               // age blasts, update radius, expire
     advance_explosions();           // age cosmetic ground-impact fireballs
+    steer_smart_bombs();            // smart bombs adjust heading to dodge blasts
     move_threats();                 // integrate threat positions
     split_mirvs();                  // MIRVs split into child warheads at altitude
     score_ += resolve_blast_hits(); // blasts kill threats (blasts win ties)
@@ -187,6 +188,34 @@ void Sim::advance_explosions() noexcept {
             explosion.radius = explosion.peak_radius * std::min(1.0f, explosion.age / expand);
             ++i;
         }
+    }
+}
+
+void Sim::steer_smart_bombs() noexcept {
+    const float range_sq = config_.smart_bomb_dodge_range * config_.smart_bomb_dodge_range;
+    const float max_vx = threat_speed();
+    for (std::uint32_t i = 0; i < threat_count_; ++i) {
+        Threat& threat = threats_[i];
+        if (threat.type != ThreatType::SmartBomb) {
+            continue;
+        }
+        // Steer laterally away from the nearest blast within reach.
+        float best_sq = range_sq;
+        std::int32_t nearest = -1;
+        for (std::uint32_t b = 0; b < blast_count_; ++b) {
+            const float d2 = distance_sq(threat.pos, blasts_[b].center);
+            if (d2 < best_sq) {
+                best_sq = d2;
+                nearest = static_cast<std::int32_t>(b);
+            }
+        }
+        if (nearest < 0) {
+            continue;
+        }
+        const Blast& blast = blasts_[static_cast<std::uint32_t>(nearest)];
+        const float away = threat.pos.x >= blast.center.x ? 1.0f : -1.0f;
+        threat.velocity.x += away * config_.smart_bomb_dodge_accel * config_.dt;
+        threat.velocity.x = std::clamp(threat.velocity.x, -max_vx, max_vx);
     }
 }
 
@@ -301,7 +330,9 @@ void Sim::spawn_threat() noexcept {
 
     ThreatType type = ThreatType::Icbm;
     float split_altitude = 0.0f;
-    if (wave_ >= 2 && rng_.next_float() < mirv_probability()) {
+    if (wave_ >= config_.smart_bomb_wave && rng_.next_float() < config_.smart_bomb_chance) {
+        type = ThreatType::SmartBomb;
+    } else if (wave_ >= 2 && rng_.next_float() < mirv_probability()) {
         type = ThreatType::Mirv;
         split_altitude = config_.world_height * rng_.uniform(0.45f, 0.65f);
     }

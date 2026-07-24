@@ -78,6 +78,7 @@ class Sim {
     void spawn_explosion(Vec2 center, float peak_radius) noexcept;
     void advance_explosions() noexcept;
     void move_threats() noexcept;
+    void steer_smart_bombs() noexcept;
     void split_mirvs() noexcept;
     std::int32_t resolve_blast_hits() noexcept;
     void resolve_ground_hits() noexcept;
