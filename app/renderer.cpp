@@ -14,6 +14,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <string>
+#include <string_view>
 #include <vector>
 
 namespace md {
@@ -93,6 +95,39 @@ void draw_number(std::vector<InstanceData>& inst, std::uint32_t value, float x, 
         const auto d = static_cast<std::size_t>(digits[static_cast<std::size_t>(count - 1 - i)]);
         draw_glyph(inst, digit_font[d], start_x + (static_cast<float>(i) * advance), top_y, px, r,
                    g, b);
+    }
+}
+
+// 3x5 uppercase letters A-Z (same encoding as digit_font). Cramped but readable.
+constexpr std::array<std::array<std::uint8_t, 5>, 26> letter_font = {{
+    {{2, 5, 7, 5, 5}}, {{6, 5, 6, 5, 6}}, {{3, 4, 4, 4, 3}}, {{6, 5, 5, 5, 6}}, {{7, 4, 6, 4, 7}},
+    {{7, 4, 6, 4, 4}}, {{3, 4, 5, 5, 3}}, {{5, 5, 7, 5, 5}}, {{7, 2, 2, 2, 7}}, {{1, 1, 1, 5, 2}},
+    {{5, 6, 4, 6, 5}}, {{4, 4, 4, 4, 7}}, {{5, 7, 7, 5, 5}}, {{5, 7, 7, 7, 5}}, {{7, 5, 5, 5, 7}},
+    {{6, 5, 6, 4, 4}}, {{7, 5, 5, 7, 3}}, {{6, 5, 6, 5, 5}}, {{3, 4, 2, 1, 6}}, {{7, 2, 2, 2, 2}},
+    {{5, 5, 5, 5, 7}}, {{5, 5, 5, 5, 2}}, {{5, 5, 7, 7, 5}}, {{5, 5, 2, 5, 5}}, {{5, 5, 2, 2, 2}},
+    {{7, 1, 2, 4, 7}},
+}};
+
+std::array<std::uint8_t, 5> glyph_for(char c) {
+    if (c >= '0' && c <= '9') {
+        return digit_font[static_cast<std::size_t>(c - '0')];
+    }
+    if (c >= 'A' && c <= 'Z') {
+        return letter_font[static_cast<std::size_t>(c - 'A')];
+    }
+    return {{0, 0, 0, 0, 0}};
+}
+
+// Draw a string with the pixel font. `centered` treats x as the horizontal centre.
+void draw_text(std::vector<InstanceData>& inst, std::string_view text, float x, float top_y,
+               float px, float r, float g, float b, bool centered) {
+    const float advance = px * 4.0f;
+    float cursor = centered ? (x - (static_cast<float>(text.size()) * advance * 0.5f)) : x;
+    for (const char c : text) {
+        if (c != ' ') {
+            draw_glyph(inst, glyph_for(c), cursor, top_y, px, r, g, b);
+        }
+        cursor += advance;
     }
 }
 
@@ -286,9 +321,15 @@ void Renderer::startNextFrame() {
     const float world_w = sim.config().world_width;
     const float world_h = sim.config().world_height;
 
-    // Build this frame's instances from the current sim state.
+    const auto state = window_->state();
+    const bool in_game = state == GameWindow::State::Playing ||
+                         state == GameWindow::State::Paused || state == GameWindow::State::GameOver;
+    const float cx = world_w * 0.5f;
+
     std::vector<InstanceData> inst;
     inst.reserve(max_instances);
+
+    // Field backdrop (drawn in every state).
     inst.push_back(rect(world_w * 0.5f, 1.0f, world_w * 0.5f, 1.0f, 0.10f, 0.11f, 0.18f)); // ground
     for (const auto& city : sim.cities()) {
         if (city.alive) {
@@ -302,33 +343,69 @@ void Renderer::startNextFrame() {
         inst.push_back(rect(base.pos.x, 6.0f, 6.0f, 6.0f, empty ? 0.40f : 0.95f,
                             empty ? 0.35f : 0.65f, empty ? 0.15f : 0.20f));
     }
-    for (const auto& threat : sim.threats()) {
-        inst.push_back(circle(threat.pos.x, threat.pos.y, 1.6f, 0.95f, 0.30f, 0.25f));
-    }
-    for (const auto& it : sim.interceptors()) {
-        inst.push_back(circle(it.pos.x, it.pos.y, 1.0f, 0.85f, 0.95f, 1.0f));
-    }
-    for (const auto& blast : sim.blasts()) {
-        inst.push_back(circle(blast.center.x, blast.center.y, blast.radius, 1.0f, 0.6f, 0.15f));
-    }
-    // HUD: score (top-left, white), wave (top-right, amber), ammo pips per base.
-    const float digit_px = world_h * 0.013f;
-    const float hud_top = world_h * 0.97f;
-    draw_number(inst, static_cast<std::uint32_t>(sim.score() < 0 ? 0 : sim.score()),
-                world_w * 0.02f, hud_top, digit_px, 1.0f, 1.0f, 1.0f, false);
-    draw_number(inst, sim.wave(), world_w * 0.98f, hud_top, digit_px, 0.95f, 0.75f, 0.30f, true);
-    for (const auto& base : sim.bases()) {
-        const float spacing = 1.6f;
-        const float base_x0 =
-            base.pos.x - ((static_cast<float>(base.ammo) - 1.0f) * spacing * 0.5f);
-        for (std::uint32_t k = 0; k < base.ammo; ++k) {
-            inst.push_back(rect(base_x0 + (static_cast<float>(k) * spacing), 14.0f, 0.55f, 0.55f,
-                                0.40f, 0.90f, 0.55f));
+
+    if (in_game) {
+        for (const auto& threat : sim.threats()) {
+            inst.push_back(circle(threat.pos.x, threat.pos.y, 1.6f, 0.95f, 0.30f, 0.25f));
+        }
+        for (const auto& it : sim.interceptors()) {
+            inst.push_back(circle(it.pos.x, it.pos.y, 1.0f, 0.85f, 0.95f, 1.0f));
+        }
+        for (const auto& blast : sim.blasts()) {
+            inst.push_back(circle(blast.center.x, blast.center.y, blast.radius, 1.0f, 0.6f, 0.15f));
+        }
+        const float digit_px = world_h * 0.013f;
+        const float hud_top = world_h * 0.97f;
+        draw_number(inst, static_cast<std::uint32_t>(sim.score() < 0 ? 0 : sim.score()),
+                    world_w * 0.02f, hud_top, digit_px, 1.0f, 1.0f, 1.0f, false);
+        draw_number(inst, sim.wave(), world_w * 0.98f, hud_top, digit_px, 0.95f, 0.75f, 0.30f,
+                    true);
+        for (const auto& base : sim.bases()) {
+            const float spacing = 1.6f;
+            const float base_x0 =
+                base.pos.x - ((static_cast<float>(base.ammo) - 1.0f) * spacing * 0.5f);
+            for (std::uint32_t k = 0; k < base.ammo; ++k) {
+                inst.push_back(rect(base_x0 + (static_cast<float>(k) * spacing), 14.0f, 0.55f,
+                                    0.55f, 0.40f, 0.90f, 0.55f));
+            }
+        }
+        if (state == GameWindow::State::Playing) {
+            const Vec2 aim = window_->aim();
+            inst.push_back(circle(aim.x, aim.y, 2.2f, 1.0f, 1.0f, 1.0f)); // crosshair
         }
     }
 
-    const Vec2 aim = window_->aim();
-    inst.push_back(circle(aim.x, aim.y, 2.2f, 1.0f, 1.0f, 1.0f)); // crosshair
+    if (state == GameWindow::State::Menu) {
+        draw_text(inst, "MISSILE DEFENSE", cx, world_h * 0.86f, world_h * 0.023f, 0.85f, 0.92f,
+                  1.0f, true);
+        const std::array<std::string_view, 3> items{"START", "HIGHSCORES", "EXIT"};
+        for (int i = 0; i < 3; ++i) {
+            const bool sel = window_->menu_index() == i;
+            const float y = world_h * (0.56f - (static_cast<float>(i) * 0.13f));
+            draw_text(inst, items[static_cast<std::size_t>(i)], cx, y, world_h * 0.018f,
+                      sel ? 0.95f : 0.45f, sel ? 0.75f : 0.45f, sel ? 0.25f : 0.50f, true);
+        }
+        draw_text(inst, "ARROWS ENTER", cx, world_h * 0.10f, world_h * 0.011f, 0.4f, 0.45f, 0.5f,
+                  true);
+    } else if (state == GameWindow::State::GameOver) {
+        draw_text(inst, "GAME OVER", cx, world_h * 0.64f, world_h * 0.036f, 0.95f, 0.30f, 0.25f,
+                  true);
+        draw_text(inst, "SCORE", cx, world_h * 0.46f, world_h * 0.016f, 0.8f, 0.85f, 0.9f, true);
+        draw_text(inst, std::to_string(sim.score() < 0 ? 0 : sim.score()), cx, world_h * 0.40f,
+                  world_h * 0.022f, 1.0f, 1.0f, 1.0f, true);
+        draw_text(inst, "PRESS ENTER", cx, world_h * 0.22f, world_h * 0.013f, 0.6f, 0.65f, 0.7f,
+                  true);
+    } else if (state == GameWindow::State::Paused) {
+        draw_text(inst, "PAUSED", cx, world_h * 0.56f, world_h * 0.032f, 0.95f, 0.9f, 0.4f, true);
+    } else if (state == GameWindow::State::Highscores) {
+        draw_text(inst, "HIGHSCORES", cx, world_h * 0.80f, world_h * 0.030f, 0.85f, 0.92f, 1.0f,
+                  true);
+        draw_text(inst, "COMING SOON", cx, world_h * 0.50f, world_h * 0.016f, 0.6f, 0.65f, 0.7f,
+                  true);
+        draw_text(inst, "PRESS ENTER", cx, world_h * 0.28f, world_h * 0.013f, 0.6f, 0.65f, 0.7f,
+                  true);
+    }
+
     if (inst.size() > max_instances) {
         inst.resize(max_instances);
     }
