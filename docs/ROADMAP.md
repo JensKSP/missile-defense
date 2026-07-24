@@ -11,15 +11,16 @@ blast, six cities to defend, score, and win/lose.
 
 Path:
 1. ✅ Core primitives — `Vec2`, `Pcg32` RNG — + TDD / zero-warning quality harness.
-2. **Entity state model** — POD, fixed-capacity (`Config`, enums, entities, `Action`). *(in progress)*
-3. **`Sim` core loop** — `reset(seed)` / `step(action)`, waves & spawning, motion,
-   collisions (blast ↔ threat, threat ↔ city), scoring, termination. Ships with unit +
-   e2e + **determinism** tests → the game is fully playable *headless*.
+2. ✅ Entity state model — POD, fixed-capacity (`Config`, enums, entities, `Action`).
+3. ✅ `Sim` core loop — `reset(seed)` / `step(action)`, waves & spawning, motion,
+   collisions (blast ↔ threat, threat ↔ city), scoring, termination. Unit + e2e +
+   **determinism** tests (Debug == Release, `-ffp-contract=off`). **The game is fully
+   playable headless.** *(MIRV / smart-bomb threat variants deferred to a follow-up.)*
 4. **Vulkan / Qt app** — `QVulkanWindow` device bring-up → 2D renderer (instanced quads
    for entities, a line/circle pipeline for trajectories & blasts) → fixed-timestep loop
-   with render interpolation → input → `Action` + HUD (score / ammo / wave).
+   with render interpolation → input → `Action` + HUD (score / ammo / wave). *(next)*
 
-→ **M1 reached.**
+→ **M1 reached** once the app lands.
 
 ## M2 — Record & replay in the UI
 
