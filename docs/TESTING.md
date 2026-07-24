@@ -41,8 +41,13 @@ Tests and glue code share the same warnings but are not held to clang-tidy.
 Run **everything** with:
 
 ```bash
-poe check     # format + lint + types + tidy + all tests — the full local CI gate
+poe check     # format + lint + types + tidy + tests (Debug AND Release) — full local CI
 ```
+
+Both configurations are built and tested: **Debug** (`-O0`, ASan/UBSan) and **Release**
+(`-O2`, `NDEBUG`). This matters because `-Werror` is on in both and several warnings are
+optimization-sensitive (they only fire under `-O2`), and because `NDEBUG` changes code
+paths. `poe test-release` runs the Release build + tests on their own.
 
 ## Optional: git pre-commit hook
 

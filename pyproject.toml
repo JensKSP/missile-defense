@@ -12,18 +12,20 @@ requires-python = ">=3.11"
 # Run with: poe <task>   (after `pip install poethepoet ruff pytest`)
 [tool.poe.tasks]
 # --- Build (build auto-configures; tests/tidy auto-build — one-command TDD) ---
-configure = { cmd = "cmake --preset debug", help = "Configure the Debug build" }
+configure         = { cmd = "cmake --preset debug", help = "Configure the Debug build" }
+configure-release = { cmd = "cmake --preset release", help = "Configure the Release build" }
 build     = { cmd = "cmake --build --preset debug", deps = ["configure"], help = "Build (Debug + sanitizers)" }
-release   = { cmd = "cmake --build --preset release", help = "Build RelWithDebInfo" }
+release   = { cmd = "cmake --build --preset release", deps = ["configure-release"], help = "Build RelWithDebInfo (-O2, NDEBUG)" }
 rebuild   = { sequence = ["clean", "build"], help = "Clean reconfigure + build" }
 clean     = { shell = "rm -rf build", help = "Remove the build directory" }
 
 # --- Tests (the TDD inner loop is just: `poe test-unit`) ---
-test      = { cmd = "ctest --preset debug", deps = ["build"], help = "Run all C++ tests (unit + e2e)" }
-test-unit = { cmd = "ctest --preset debug -L unit", deps = ["build"], help = "Run fast C++ unit tests only" }
-test-e2e  = { cmd = "ctest --preset debug -L e2e", deps = ["build"], help = "Run C++ end-to-end tests only" }
-pytest    = { cmd = "pytest", help = "Run Python tests" }
-test-all  = { sequence = ["test", "pytest"], help = "Build, then run every test" }
+test         = { cmd = "ctest --preset debug", deps = ["build"], help = "Run all C++ tests (unit + e2e), Debug" }
+test-unit    = { cmd = "ctest --preset debug -L unit", deps = ["build"], help = "Run fast C++ unit tests only" }
+test-e2e     = { cmd = "ctest --preset debug -L e2e", deps = ["build"], help = "Run C++ end-to-end tests only" }
+test-release = { cmd = "ctest --preset release", deps = ["release"], help = "Build + run all tests in Release (-O2, NDEBUG)" }
+pytest       = { cmd = "pytest", help = "Run Python tests" }
+test-all     = { sequence = ["test", "test-release", "pytest"], help = "Run every test in Debug and Release" }
 
 # --- Quality gates (C++) ---
 format       = { shell = "find core bindings app -type f \\( -name '*.cpp' -o -name '*.hpp' \\) 2>/dev/null | xargs -r clang-format-21 -i", help = "clang-format all C++ sources" }
@@ -39,8 +41,8 @@ typecheck  = { cmd = "mypy", help = "Static type-check the Python package (stric
 # --- Aggregate gates ---
 check = { sequence = [
   "format-check", "fmt-py-chk", "lint", "typecheck",
-  "tidy", "test", "pytest",
-], help = "Full local CI gate — everything must pass, zero warnings" }
+  "tidy", "test", "test-release", "pytest",
+], help = "Full local CI gate — Debug + Release, everything must pass, zero warnings" }
 
 install-hooks = { shell = "ln -sf ../../scripts/hooks/pre-commit .git/hooks/pre-commit && chmod +x scripts/hooks/pre-commit && echo 'git pre-commit hook installed'", help = "Install the git pre-commit quality hook" }
 
