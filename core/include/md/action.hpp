@@ -20,7 +20,7 @@ struct Action {
     [[nodiscard]] static constexpr Action noop() noexcept { return Action{}; }
 
     [[nodiscard]] static constexpr Action fire(BaseId b, Vec2 t) noexcept {
-        return Action{Kind::Fire, b, t};
+        return Action{.kind = Kind::Fire, .base = b, .target = t};
     }
 };
 

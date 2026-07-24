@@ -34,7 +34,7 @@ struct Vec2 {
     }
 
     /// Squared magnitude — constexpr, avoids the sqrt when only comparing.
-    [[nodiscard]] constexpr float length_sq() const noexcept { return x * x + y * y; }
+    [[nodiscard]] constexpr float length_sq() const noexcept { return (x * x) + (y * y); }
 
     /// Euclidean magnitude.
     [[nodiscard]] float length() const noexcept { return std::sqrt(length_sq()); }
@@ -69,7 +69,7 @@ constexpr Vec2 operator*(float s, Vec2 a) noexcept {
 }
 
 constexpr float dot(Vec2 a, Vec2 b) noexcept {
-    return a.x * b.x + a.y * b.y;
+    return (a.x * b.x) + (a.y * b.y);
 }
 
 constexpr float distance_sq(Vec2 a, Vec2 b) noexcept {

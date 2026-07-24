@@ -12,8 +12,8 @@ namespace md {
 class Pcg32 {
   public:
     constexpr explicit Pcg32(std::uint64_t seed = default_seed,
-                             std::uint64_t stream = default_stream) noexcept {
-        inc_ = (stream << 1u) | 1u; // inc must be odd
+                             std::uint64_t stream = default_stream) noexcept
+        : inc_{(stream << 1u) | 1u} { // inc must be odd
         advance();
         state_ += seed;
         advance();
@@ -22,7 +22,7 @@ class Pcg32 {
     /// Next 32-bit output.
     constexpr std::uint32_t next_u32() noexcept {
         const std::uint64_t old = state_;
-        state_ = old * multiplier + inc_;
+        state_ = (old * multiplier) + inc_;
         const auto xorshifted = static_cast<std::uint32_t>(((old >> 18u) ^ old) >> 27u);
         const auto rot = static_cast<std::uint32_t>(old >> 59u);
         return (xorshifted >> rot) | (xorshifted << ((~rot + 1u) & 31u));
@@ -34,7 +34,7 @@ class Pcg32 {
     }
 
     /// Uniform float in [lo, hi).
-    float uniform(float lo, float hi) noexcept { return lo + (hi - lo) * next_float(); }
+    float uniform(float lo, float hi) noexcept { return lo + ((hi - lo) * next_float()); }
 
     /// Unbiased integer in [0, bound). Rejection-samples to remove modulo bias.
     std::uint32_t below(std::uint32_t bound) noexcept {
@@ -52,7 +52,7 @@ class Pcg32 {
     static constexpr std::uint64_t default_seed = 0x853c49e6748fea9bULL;
     static constexpr std::uint64_t default_stream = 0xda3e39cb94b95bdbULL;
 
-    constexpr void advance() noexcept { state_ = state_ * multiplier + inc_; }
+    constexpr void advance() noexcept { state_ = (state_ * multiplier) + inc_; }
 
     std::uint64_t state_ = 0;
     std::uint64_t inc_ = 0;
