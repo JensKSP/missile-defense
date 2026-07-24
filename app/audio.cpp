@@ -15,6 +15,13 @@
 #include <numbers>
 #include <vector>
 
+#ifdef _WIN32
+// Audio device init must run in a COM multi-threaded apartment — see AudioEngine().
+#  define NOMINMAX
+#  include <objbase.h>
+#  include <thread>
+#endif
+
 namespace md {
 
 namespace {
@@ -355,6 +362,29 @@ struct AudioEngine::Impl {
     }
 };
 
+namespace {
+
+// Initialise the miniaudio device, running `fn` in a context where COM is usable
+// for WASAPI. Qt puts the GUI thread in a single-threaded apartment (STA), where
+// miniaudio's WASAPI device enumeration faults; run it on a throwaway thread that
+// joins a multi-threaded apartment (MTA) instead. On other platforms, run inline.
+template <class Fn> void init_audio_device(Fn&& fn) {
+#ifdef _WIN32
+    std::thread worker([&] {
+        const HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        fn();
+        if (SUCCEEDED(hr)) {
+            CoUninitialize();
+        }
+    });
+    worker.join(); // join before returning: synchronises fn's writes to impl_
+#else
+    fn();
+#endif
+}
+
+} // namespace
+
 AudioEngine::AudioEngine() : impl_{std::make_unique<Impl>()} {
     ma_device_config config = ma_device_config_init(ma_device_type_playback);
     config.playback.format = ma_format_f32;
@@ -362,9 +392,11 @@ AudioEngine::AudioEngine() : impl_{std::make_unique<Impl>()} {
     config.sampleRate = 48000;
     config.dataCallback = &Impl::data_callback;
     config.pUserData = impl_.get();
-    if (ma_device_init(nullptr, &config, &impl_->device) == MA_SUCCESS) {
-        impl_->running = (ma_device_start(&impl_->device) == MA_SUCCESS);
-    }
+    init_audio_device([&] {
+        if (ma_device_init(nullptr, &config, &impl_->device) == MA_SUCCESS) {
+            impl_->running = (ma_device_start(&impl_->device) == MA_SUCCESS);
+        }
+    });
 }
 
 AudioEngine::~AudioEngine() {

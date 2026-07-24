@@ -3,17 +3,14 @@
   "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
   "configurePresets": [
     {
-      "name": "clang",
+      "name": "base",
       "hidden": true,
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/${presetName}",
-      "cacheVariables": {
-        "CMAKE_CXX_COMPILER": "clang++-21"
-      }
+      "binaryDir": "${sourceDir}/build/${presetName}"
     },
     {
       "name": "debug",
-      "inherits": "clang",
+      "inherits": "base",
       "displayName": "Clang Debug (ASan+UBSan)",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
@@ -23,7 +20,7 @@
     },
     {
       "name": "release",
-      "inherits": "clang",
+      "inherits": "base",
       "displayName": "Clang RelWithDebInfo",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo"
@@ -31,7 +28,7 @@
     },
     {
       "name": "coverage",
-      "inherits": "clang",
+      "inherits": "base",
       "displayName": "Clang Coverage (core only)",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",

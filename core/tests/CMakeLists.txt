@@ -28,6 +28,16 @@ else()
 endif()
 include(Catch)
 
+# Clang 22+ (newer than the pinned Debian clang-21) flags Catch2's __COUNTER__
+# use under -Wpedantic as a C2y extension. It comes from Catch2 (SYSTEM, third-
+# party), so silence it — but the -Wno must sit AFTER md::warnings' -Wpedantic/
+# -Werror on the command line, so carry it on its own interface target that each
+# test links *after* md::warnings. Scoped to the tests; the rest of the tree keeps
+# the pedantic check. No-op on compilers that don't emit the warning.
+add_library(md_test_warnings INTERFACE)
+target_compile_options(md_test_warnings INTERFACE
+  "$<$<AND:$<CXX_COMPILER_ID:Clang>,$<VERSION_GREATER_EQUAL:$<CXX_COMPILER_VERSION>,22>>:-Wno-c2y-extensions>")
+
 # ---- Unit tests: fast, isolated (CTest label: unit) --------------------------
 add_executable(md_core_unit_tests
   unit/test_vec2.cpp
@@ -36,12 +46,12 @@ add_executable(md_core_unit_tests
   unit/test_action.cpp
   unit/test_sim.cpp)
 target_link_libraries(md_core_unit_tests
-  PRIVATE md::core md::warnings Catch2::Catch2WithMain)
+  PRIVATE md::core md::warnings md_test_warnings Catch2::Catch2WithMain)
 catch_discover_tests(md_core_unit_tests PROPERTIES LABELS unit)
 
 # ---- End-to-end tests: full-episode / integration (CTest label: e2e) ---------
 add_executable(md_core_e2e_tests
   e2e/test_smoke_e2e.cpp)
 target_link_libraries(md_core_e2e_tests
-  PRIVATE md::core md::warnings Catch2::Catch2WithMain)
+  PRIVATE md::core md::warnings md_test_warnings Catch2::Catch2WithMain)
 catch_discover_tests(md_core_e2e_tests PROPERTIES LABELS e2e)

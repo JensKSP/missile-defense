@@ -76,6 +76,11 @@ target_include_directories(md_app PRIVATE "${shader_hdr_dir}")
 target_link_libraries(md_app
   PRIVATE md::core md::warnings Qt6::Gui Vulkan::Vulkan md_miniaudio)
 
+# Windows: the audio device init explicitly manages a COM apartment (audio.cpp).
+if(WIN32)
+  target_link_libraries(md_app PRIVATE ole32)
+endif()
+
 set_target_properties(md_app PROPERTIES AUTOMOC ON)
 
 # Vulkan validation layers are opt-in (dev builds); never requested in a

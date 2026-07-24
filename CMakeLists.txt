@@ -3,6 +3,19 @@
 # Assisted-by: Claude Code (Anthropic)
 cmake_minimum_required(VERSION 3.25)
 
+# ---- Compiler selection ------------------------------------------------------
+# The project targets Clang (LLVM source-based coverage + clang-tidy). Windows
+# (MSYS2 CLANG64) and macOS already default to Clang; only Linux defaults to GCC,
+# so nudge it there. An explicit -DCMAKE_CXX_COMPILER or a $CXX in the environment
+# always wins. Must run before project() so it takes effect at compiler detection.
+if(NOT DEFINED CMAKE_CXX_COMPILER AND NOT DEFINED ENV{CXX}
+   AND CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
+  find_program(MD_CLANGXX NAMES clang++-21 clang++)
+  if(MD_CLANGXX)
+    set(CMAKE_CXX_COMPILER "${MD_CLANGXX}" CACHE FILEPATH "C++ compiler")
+  endif()
+endif()
+
 project(missile_defense
   VERSION 0.1.0
   DESCRIPTION "Faithful Atari Missile Command clone — game + RL environment"
@@ -57,7 +70,11 @@ add_compile_options(-ffp-contract=off)
 
 # ---- Sanitizers --------------------------------------------------------------
 # Global on purpose: instrument our code *and* the deps it links under test.
-if(MD_SANITIZE)
+if(MD_SANITIZE AND WIN32)
+  # ASan/UBSan are unreliable under MinGW (no LeakSanitizer runtime), so the
+  # sanitized debug preset degrades to a plain Debug build here rather than fail.
+  message(WARNING "MD_SANITIZE: not enabling ASan/UBSan on Windows (MinGW).")
+elseif(MD_SANITIZE)
   add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
   add_link_options(-fsanitize=address,undefined)
 endif()
