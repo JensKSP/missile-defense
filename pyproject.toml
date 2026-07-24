@@ -18,8 +18,10 @@ build     = { cmd = "cmake --build --preset debug", deps = ["configure"], help =
 release   = { cmd = "cmake --build --preset release", deps = ["configure-release"], help = "Build RelWithDebInfo (-O2, NDEBUG)" }
 rebuild   = { sequence = ["clean", "build"], help = "Clean reconfigure + build" }
 clean     = { shell = "rm -rf build", help = "Remove the build directory" }
-app       = { cmd = "./build/release/app/md_app", deps = ["release"], help = "Build + run the Qt/Vulkan app (Release)" }
-shot      = { cmd = "bash scripts/screenshot.sh", deps = ["release"], help = "Capture a frame of the running app to shot.png" }
+app       = { cmd = "env QT_QPA_PLATFORM=xcb ./build/release/app/md_app", deps = ["release"], help = "Build + run the app (xcb, so it's screenshot/record-able)" }
+shot      = { cmd = "bash scripts/screenshot.sh", help = "Screenshot the running app -> shot.png (append --launch to spawn one)" }
+rec       = { cmd = "bash scripts/record.sh", help = "Record the running app -> clip.mp4 (append --launch to spawn one)" }
+contact   = { cmd = "bash scripts/frames.sh", help = "Contact-sheet PNG from a video, e.g. `poe contact clip.mp4`" }
 
 # --- Tests (the TDD inner loop is just: `poe test-unit`) ---
 test         = { cmd = "ctest --preset debug", deps = ["build"], help = "Run all C++ tests (unit + e2e), Debug" }

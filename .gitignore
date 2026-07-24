@@ -2,8 +2,10 @@
 /build/
 /compile_commands.json
 
-# Screenshot captures
+# Capture outputs
 /shot*.png
+/clip*.mp4
+/contact*.png
 
 # Python
 .venv/
