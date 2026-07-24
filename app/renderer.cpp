@@ -322,8 +322,11 @@ void Renderer::startNextFrame() {
     const float world_h = sim.config().world_height;
 
     const auto state = window_->state();
-    const bool in_game = state == GameWindow::State::Playing ||
-                         state == GameWindow::State::Paused || state == GameWindow::State::GameOver;
+    const bool playing = state == GameWindow::State::Playing;
+    // Draw the game (and freeze it) while playing, on game over, and behind the
+    // pause menu (Menu state with a game in progress).
+    const bool show_game = playing || state == GameWindow::State::GameOver ||
+                           (state == GameWindow::State::Menu && window_->in_progress());
     const float cx = world_w * 0.5f;
 
     std::vector<InstanceData> inst;
@@ -344,7 +347,7 @@ void Renderer::startNextFrame() {
                             empty ? 0.35f : 0.65f, empty ? 0.15f : 0.20f));
     }
 
-    if (in_game) {
+    if (show_game) {
         for (const auto& threat : sim.threats()) {
             inst.push_back(circle(threat.pos.x, threat.pos.y, 1.6f, 0.95f, 0.30f, 0.25f));
         }
@@ -369,23 +372,23 @@ void Renderer::startNextFrame() {
                                     0.55f, 0.40f, 0.90f, 0.55f));
             }
         }
-        if (state == GameWindow::State::Playing) {
+        if (playing) {
             const Vec2 aim = window_->aim();
             inst.push_back(circle(aim.x, aim.y, 2.2f, 1.0f, 1.0f, 1.0f)); // crosshair
         }
     }
 
     if (state == GameWindow::State::Menu) {
-        draw_text(inst, "MISSILE DEFENSE", cx, world_h * 0.86f, world_h * 0.023f, 0.85f, 0.92f,
+        draw_text(inst, "MISSILE DEFENSE", cx, world_h * 0.88f, world_h * 0.023f, 0.85f, 0.92f,
                   1.0f, true);
-        const std::array<std::string_view, 3> items{"START", "HIGHSCORES", "EXIT"};
-        for (int i = 0; i < 3; ++i) {
+        const int count = window_->menu_count();
+        for (int i = 0; i < count; ++i) {
             const bool sel = window_->menu_index() == i;
-            const float y = world_h * (0.56f - (static_cast<float>(i) * 0.13f));
-            draw_text(inst, items[static_cast<std::size_t>(i)], cx, y, world_h * 0.018f,
-                      sel ? 0.95f : 0.45f, sel ? 0.75f : 0.45f, sel ? 0.25f : 0.50f, true);
+            const float y = world_h * (0.60f - (static_cast<float>(i) * 0.11f));
+            draw_text(inst, window_->menu_label(i), cx, y, world_h * 0.017f, sel ? 0.95f : 0.45f,
+                      sel ? 0.75f : 0.45f, sel ? 0.25f : 0.50f, true);
         }
-        draw_text(inst, "ARROWS ENTER", cx, world_h * 0.10f, world_h * 0.011f, 0.4f, 0.45f, 0.5f,
+        draw_text(inst, "ARROWS ENTER", cx, world_h * 0.05f, world_h * 0.010f, 0.4f, 0.45f, 0.5f,
                   true);
     } else if (state == GameWindow::State::GameOver) {
         draw_text(inst, "GAME OVER", cx, world_h * 0.64f, world_h * 0.036f, 0.95f, 0.30f, 0.25f,
@@ -395,8 +398,18 @@ void Renderer::startNextFrame() {
                   world_h * 0.022f, 1.0f, 1.0f, 1.0f, true);
         draw_text(inst, "PRESS ENTER", cx, world_h * 0.22f, world_h * 0.013f, 0.6f, 0.65f, 0.7f,
                   true);
-    } else if (state == GameWindow::State::Paused) {
-        draw_text(inst, "PAUSED", cx, world_h * 0.56f, world_h * 0.032f, 0.95f, 0.9f, 0.4f, true);
+    } else if (state == GameWindow::State::Help) {
+        draw_text(inst, "HELP", cx, world_h * 0.88f, world_h * 0.026f, 0.85f, 0.92f, 1.0f, true);
+        const std::array<std::string_view, 5> lines{"MOUSE TO AIM", "CLICK TO FIRE",
+                                                    "DEFEND YOUR CITIES", "ESC PAUSE MENU",
+                                                    "ENTER SELECT"};
+        for (int i = 0; i < 5; ++i) {
+            const float y = world_h * (0.66f - (static_cast<float>(i) * 0.11f));
+            draw_text(inst, lines[static_cast<std::size_t>(i)], cx, y, world_h * 0.014f, 0.8f,
+                      0.85f, 0.9f, true);
+        }
+        draw_text(inst, "PRESS ENTER", cx, world_h * 0.05f, world_h * 0.011f, 0.6f, 0.65f, 0.7f,
+                  true);
     } else if (state == GameWindow::State::Highscores) {
         draw_text(inst, "HIGHSCORES", cx, world_h * 0.80f, world_h * 0.030f, 0.85f, 0.92f, 1.0f,
                   true);

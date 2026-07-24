@@ -6,13 +6,10 @@
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <algorithm>
+#include <array>
 #include <cmath>
 
 namespace md {
-
-namespace {
-constexpr int menu_item_count = 3; // START, HIGHSCORES, EXIT
-}
 
 GameWindow::GameWindow() {
     sim_.reset(seed_);
@@ -24,12 +21,71 @@ QVulkanWindowRenderer* GameWindow::createRenderer() {
     return new Renderer(this);
 }
 
+int GameWindow::menu_count() const noexcept {
+    return in_progress_ ? 5 : 4;
+}
+
+GameWindow::MenuAction GameWindow::action_at(int index) const {
+    if (in_progress_) {
+        const std::array<MenuAction, 5> acts{MenuAction::Resume, MenuAction::NewGame,
+                                             MenuAction::Help, MenuAction::Highscores,
+                                             MenuAction::Exit};
+        return acts[static_cast<std::size_t>(index)];
+    }
+    const std::array<MenuAction, 4> acts{MenuAction::NewGame, MenuAction::Help,
+                                         MenuAction::Highscores, MenuAction::Exit};
+    return acts[static_cast<std::size_t>(index)];
+}
+
+std::string_view GameWindow::menu_label(int index) const {
+    switch (action_at(index)) {
+    case MenuAction::Resume:
+        return "RESUME";
+    case MenuAction::NewGame:
+        return in_progress_ ? "NEW GAME" : "START";
+    case MenuAction::Help:
+        return "HELP";
+    case MenuAction::Highscores:
+        return "HIGHSCORES";
+    case MenuAction::Exit:
+        return "EXIT";
+    }
+    return "";
+}
+
+void GameWindow::open_menu() {
+    state_ = State::Menu;
+    menu_index_ = 0;
+}
+
 void GameWindow::start_game() {
     sim_.reset(++seed_);
     state_ = State::Playing;
+    in_progress_ = true;
     started_ = false;
     accumulator_ = 0.0;
     pending_ = Action::noop();
+}
+
+void GameWindow::select_menu() {
+    switch (action_at(menu_index_)) {
+    case MenuAction::Resume:
+        state_ = State::Playing;
+        started_ = false;
+        break;
+    case MenuAction::NewGame:
+        start_game();
+        break;
+    case MenuAction::Help:
+        state_ = State::Help;
+        break;
+    case MenuAction::Highscores:
+        state_ = State::Highscores;
+        break;
+    case MenuAction::Exit:
+        close();
+        break;
+    }
 }
 
 void GameWindow::advance() {
@@ -52,6 +108,7 @@ void GameWindow::advance() {
         accumulator_ -= dt;
         if (sim_.terminated()) {
             state_ = State::GameOver;
+            in_progress_ = false;
             accumulator_ = 0.0;
             break;
         }
@@ -84,40 +141,26 @@ void GameWindow::keyPressEvent(QKeyEvent* event) {
     switch (state_) {
     case State::Menu:
         if (key == Qt::Key_Up || key == Qt::Key_W) {
-            menu_index_ = (menu_index_ + menu_item_count - 1) % menu_item_count;
+            menu_index_ = (menu_index_ + menu_count() - 1) % menu_count();
         } else if (key == Qt::Key_Down || key == Qt::Key_S) {
-            menu_index_ = (menu_index_ + 1) % menu_item_count;
+            menu_index_ = (menu_index_ + 1) % menu_count();
         } else if (key == Qt::Key_Return || key == Qt::Key_Enter) {
-            if (menu_index_ == 0) {
-                start_game();
-            } else if (menu_index_ == 1) {
-                state_ = State::Highscores;
-            } else {
-                close();
-            }
-        } else if (key == Qt::Key_Escape) {
-            close();
+            select_menu();
+        } else if (key == Qt::Key_Escape && in_progress_) {
+            state_ = State::Playing; // Escape resumes the paused game
+            started_ = false;
         }
         break;
     case State::Playing:
-        if (key == Qt::Key_P || key == Qt::Key_Space) {
-            state_ = State::Paused;
-        } else if (key == Qt::Key_Escape) {
-            state_ = State::Menu;
-        }
-        break;
-    case State::Paused:
-        if (key == Qt::Key_P || key == Qt::Key_Space) {
-            state_ = State::Playing;
-            started_ = false; // resume without a time jump
-        } else if (key == Qt::Key_Escape) {
-            state_ = State::Menu;
+        if (key == Qt::Key_Escape || key == Qt::Key_P) {
+            open_menu(); // pause -> menu (game frozen and preserved)
         }
         break;
     case State::GameOver:
     case State::Highscores:
+    case State::Help:
         if (key == Qt::Key_Return || key == Qt::Key_Enter || key == Qt::Key_Escape) {
-            state_ = State::Menu;
+            open_menu();
         }
         break;
     }
