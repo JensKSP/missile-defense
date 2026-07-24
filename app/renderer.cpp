@@ -1,6 +1,7 @@
 #include "renderer.hpp"
 
 #include "game_window.hpp"
+#include "md/rng.hpp"
 #include "projection.hpp"
 
 #include <QVulkanDeviceFunctions>
@@ -250,7 +251,26 @@ void alloc_buffer(QVulkanWindow* win, QVulkanDeviceFunctions* dev, VkDeviceSize 
 
 } // namespace
 
-Renderer::Renderer(GameWindow* window) noexcept : window_{window} {}
+Renderer::Renderer(GameWindow* window) noexcept : window_{window} {
+    build_stars();
+}
+
+// Scatter a fixed set of stars across the upper sky, each with its own dim base
+// brightness and slow twinkle. Seeded so the field is stable run to run.
+void Renderer::build_stars() {
+    const float w = window_->sim().config().world_width;
+    const float h = window_->sim().config().world_height;
+    Pcg32 rng{1337};
+    stars_.reserve(80);
+    for (int i = 0; i < 80; ++i) {
+        stars_.push_back(Star{.x = rng.uniform(0.0f, w),
+                              .y = rng.uniform(h * 0.16f, h * 0.98f), // above the skyline
+                              .base = rng.uniform(0.10f, 0.40f),      // dim, not distracting
+                              .phase = rng.uniform(0.0f, 6.2831853f),
+                              .speed = rng.uniform(0.4f, 1.8f), // slow twinkle
+                              .size = rng.uniform(0.35f, 0.8f)});
+    }
+}
 
 void Renderer::initResources() {
     dev_ = window_->vulkanInstance()->deviceFunctions(window_->device());
@@ -424,6 +444,14 @@ void Renderer::startNextFrame() {
 
     std::vector<InstanceData> inst;
     inst.reserve(max_instances);
+
+    // Twinkling starfield, behind everything (drawn in every state).
+    const float tsec =
+        std::chrono::duration<float>(std::chrono::steady_clock::now() - start_).count();
+    for (const auto& star : stars_) {
+        const float tw = 0.55f + (0.45f * std::sin(star.phase + (star.speed * tsec)));
+        inst.push_back(glow(star.x, star.y, star.size, 0.85f, 0.9f, 1.0f, star.base * tw));
+    }
 
     // Field backdrop (drawn in every state).
     inst.push_back(rect(world_w * 0.5f, 1.0f, world_w * 0.5f, 1.0f, 0.10f, 0.11f, 0.18f)); // ground
