@@ -253,14 +253,19 @@ TEST_CASE("MIRV threats split into multiple warheads", "[unit][sim]") {
     // A split removes one parent and adds several children, so the active-threat
     // count jumps by >= 2 in a single step (a plain spawn only adds one).
     bool split_seen = false;
+    bool split_event_seen = false;
     std::size_t prev = sim.threats().size();
     for (int i = 0; i < 8000 && !split_seen; ++i) {
         sim.step(Action::noop());
         const std::size_t now = sim.threats().size();
         split_seen = now >= prev + 2;
+        if (split_seen) {
+            split_event_seen = has_event(sim, EventType::MirvSplit);
+        }
         prev = now;
     }
     REQUIRE(split_seen);
+    REQUIRE(split_event_seen); // the split emits a MirvSplit event (for audio / AI)
 }
 
 TEST_CASE("Smart bombs spawn from the configured wave", "[unit][sim]") {

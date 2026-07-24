@@ -49,7 +49,7 @@ struct Config {
 
     // Threats.
     float threat_base_speed = 30.0f;    // wave-1 descent speed, world units / second
-    float threat_speed_per_wave = 4.0f; // added to descent speed each wave
+    float threat_speed_per_wave = 2.5f; // added to descent speed each wave (gentle ramp)
 
     // Waves & spawning.
     std::uint32_t wave_base_threats = 8;      // threats spawned in wave 1
@@ -58,7 +58,7 @@ struct Config {
     float wave_break = 2.0f;                  // seconds of calm between waves
 
     // MIRV — splitting warheads, appearing from wave 2.
-    float mirv_chance_per_wave = 0.06f; // added chance per wave that a spawn is a MIRV
+    float mirv_chance_per_wave = 0.04f; // added chance per wave that a spawn is a MIRV
     float mirv_max_chance = 0.40f;      // cap on that chance
     std::uint32_t mirv_splits = 3;      // warheads a MIRV splits into
 

@@ -379,6 +379,7 @@ void Sim::split_mirvs() noexcept {
         }
         // Split: remove the parent, then spawn child ICBMs from the split point.
         const Vec2 split_pos = threat.pos;
+        push_event(EventType::MirvSplit, split_pos);
         threats_[i] = threats_[threat_count_ - 1];
         --threat_count_;
         for (std::uint32_t c = 0; c < config_.mirv_splits && threat_count_ < max_threats; ++c) {

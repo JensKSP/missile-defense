@@ -19,6 +19,7 @@ enum class EventType : std::uint8_t {
     WaveCleared,  // a wave was completed
     BonusCity,    // a destroyed city was rebuilt
     GameOver,     // the last city fell
+    MirvSplit,    // a MIRV split into child warheads
 };
 
 struct Event {

@@ -77,6 +77,40 @@ void add_fireball(std::vector<InstanceData>& inst, float cx, float cy, float rad
         circle(cx, cy, radius * 0.4f, 1.0f, 0.78f + (0.22f * hot), 0.32f + (0.58f * hot), fade));
 }
 
+// A little skyline filling [cx-half_w, cx+half_w]: `towers` vertical buildings of
+// stable, pseudo-random heights. The tallest reaches `top_y` exactly so the
+// silhouette keeps its full height. `lit` adds warm window rows.
+void add_building(std::vector<InstanceData>& inst, float cx, float half_w, float top_y, int towers,
+                  float r, float g, float b, bool lit) {
+    const float slot = (half_w * 2.0f) / static_cast<float>(towers);
+    const auto h_frac = [cx](int i) {
+        const float s =
+            (std::sin((cx * 0.7f) + (static_cast<float>(i) * 2.3999632f)) * 0.5f) + 0.5f;
+        return 0.5f + (0.5f * s); // 0.5 .. 1.0 of the full height
+    };
+    int tallest = 0;
+    for (int i = 1; i < towers; ++i) {
+        if (h_frac(i) > h_frac(tallest)) {
+            tallest = i;
+        }
+    }
+    for (int i = 0; i < towers; ++i) {
+        const float frac = (i == tallest) ? 1.0f : h_frac(i);
+        const float th = top_y * frac; // this tower's height
+        const float tcx = (cx - half_w) + (slot * (static_cast<float>(i) + 0.5f));
+        const float hx = slot * 0.40f; // leaves a thin gap between towers
+        const float shade = 0.80f + (0.20f * h_frac(i));
+        inst.push_back(rect(tcx, th * 0.5f, hx, th * 0.5f, r * shade, g * shade, b * shade));
+        if (lit) {
+            const int rows = static_cast<int>((th - 0.7f) / 1.8f);
+            for (int rw = 0; rw < rows; ++rw) {
+                const float wy = 1.6f + (static_cast<float>(rw) * 1.8f);
+                inst.push_back(rect(tcx, wy, hx * 0.55f, 0.26f, 1.0f, 0.9f, 0.5f, 0.85f));
+            }
+        }
+    }
+}
+
 // A 3x5 pixel font for digits, drawn as small quads (no font textures). Each
 // row's low 3 bits are the lit pixels; most-significant bit = leftmost column.
 constexpr std::array<std::array<std::uint8_t, 5>, 10> digit_font = {{
@@ -375,7 +409,7 @@ void Renderer::startNextFrame() {
     inst.push_back(rect(world_w * 0.5f, 1.0f, world_w * 0.5f, 1.0f, 0.10f, 0.11f, 0.18f)); // ground
     for (const auto& city : sim.cities()) {
         if (city.alive) {
-            inst.push_back(rect(city.pos.x, 4.0f, 7.0f, 4.0f, 0.25f, 0.75f, 0.95f));
+            add_building(inst, city.pos.x, 7.0f, 8.0f, 5, 0.25f, 0.62f, 0.95f, true); // skyscrapers
         } else {
             inst.push_back(rect(city.pos.x, 1.5f, 6.0f, 1.5f, 0.22f, 0.20f, 0.24f)); // rubble
         }
@@ -386,8 +420,8 @@ void Renderer::startNextFrame() {
             continue;
         }
         const bool empty = base.ammo == 0;
-        inst.push_back(rect(base.pos.x, 6.0f, 6.0f, 6.0f, empty ? 0.40f : 0.95f,
-                            empty ? 0.35f : 0.65f, empty ? 0.15f : 0.20f));
+        add_building(inst, base.pos.x, 6.0f, 12.0f, 3, empty ? 0.42f : 0.85f, empty ? 0.38f : 0.58f,
+                     empty ? 0.32f : 0.24f, !empty); // launch towers
     }
 
     if (show_game) {

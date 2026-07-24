@@ -16,7 +16,7 @@ namespace {
 
 constexpr float kPi = 3.14159265358979f;
 constexpr float kSampleRate = 48000.0f;
-constexpr std::size_t kEventCount = 8; // EventType values, Fire..GameOver
+constexpr std::size_t kEventCount = 9; // EventType values, Fire..MirvSplit
 constexpr std::size_t kVoiceCount = 16;
 
 std::size_t ix(EventType type) noexcept {
@@ -53,19 +53,28 @@ std::array<std::vector<float>, kEventCount> build_sfx() {
         return ((0.22f * noise()) + (0.22f * sine(130.0f, t))) * decay(t, 26.0f);
     });
 
-    // ThreatKilled — a satisfying crackle.
-    add(sfx[ix(EventType::ThreatKilled)], 0.18f, [&noise](float t) {
-        return ((0.32f * noise()) + (0.15f * sine(220.0f, t))) * decay(t, 13.0f);
+    // ThreatKilled — a punchy crackle with some low-end.
+    add(sfx[ix(EventType::ThreatKilled)], 0.2f, [&noise](float t) {
+        return ((0.3f * noise()) + (0.18f * sine(110.0f, t)) + (0.12f * sine(220.0f, t))) *
+               decay(t, 11.0f);
     });
 
-    // CityLost — a low, heavy boom.
-    add(sfx[ix(EventType::CityLost)], 0.5f, [&noise](float t) {
-        return ((0.35f * sine(70.0f, t)) + (0.25f * noise())) * decay(t, 6.0f);
+    // CityLost — a deep, scary boom: descending sub-bass + rumble.
+    add(sfx[ix(EventType::CityLost)], 0.8f, [&noise](float t) {
+        const float f = 62.0f - (30.0f * (t / 0.8f)); // descending 62 -> 32 Hz
+        const float sub = 0.55f * sine(f, t);
+        const float body = 0.22f * sine(f * 2.0f, t);
+        const float rumble = 0.35f * noise() * decay(t, 3.5f);
+        return (sub + body + rumble) * decay(t, 3.6f);
     });
 
-    // BaseLost — a deeper boom.
-    add(sfx[ix(EventType::BaseLost)], 0.5f, [&noise](float t) {
-        return ((0.35f * sine(52.0f, t)) + (0.22f * noise())) * decay(t, 6.0f);
+    // BaseLost — an even deeper, longer boom.
+    add(sfx[ix(EventType::BaseLost)], 0.9f, [&noise](float t) {
+        const float f = 50.0f - (24.0f * (t / 0.9f)); // descending 50 -> 26 Hz
+        const float sub = 0.6f * sine(f, t);
+        const float body = 0.2f * sine(f * 1.5f, t);
+        const float rumble = 0.3f * noise() * decay(t, 3.0f);
+        return (sub + body + rumble) * decay(t, 3.3f);
     });
 
     // WaveCleared — a rising two-note chime.
@@ -81,6 +90,12 @@ std::array<std::vector<float>, kEventCount> build_sfx() {
     // GameOver — a descending tone.
     add(sfx[ix(EventType::GameOver)], 0.75f,
         [](float t) { return 0.28f * sine(660.0f - (500.0f * (t / 0.75f)), t) * decay(t, 2.5f); });
+
+    // MirvSplit — a warbling "shhk" as it fragments.
+    add(sfx[ix(EventType::MirvSplit)], 0.22f, [&noise](float t) {
+        const float warble = sine(620.0f + (140.0f * sine(30.0f, t)), t);
+        return ((0.2f * warble) + (0.12f * noise())) * decay(t, 10.0f);
+    });
 
     return sfx;
 }
