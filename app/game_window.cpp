@@ -3,6 +3,7 @@
 #include "projection.hpp"
 #include "renderer.hpp"
 
+#include <QCursor>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <algorithm>
@@ -116,6 +117,12 @@ void GameWindow::select_menu() {
 }
 
 void GameWindow::advance() {
+    // Hide the OS cursor while playing so the on-screen crosshair is the pointer.
+    const bool hide = (state_ == State::Playing);
+    if (hide != cursor_hidden_) {
+        setCursor(hide ? Qt::BlankCursor : Qt::ArrowCursor);
+        cursor_hidden_ = hide;
+    }
     if (state_ != State::Playing) {
         started_ = false; // restart the wall clock when (re)entering play
         return;

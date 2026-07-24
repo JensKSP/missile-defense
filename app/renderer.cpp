@@ -556,8 +556,16 @@ void Renderer::startNextFrame() {
             }
         }
         if (playing) {
-            const Vec2 aim = window_->aim();
-            inst.push_back(circle(aim.x, aim.y, 2.2f, 1.0f, 1.0f, 1.0f)); // crosshair
+            const Vec2 aim = window_->aim(); // a simple crosshair: four arms + a centre dot
+            constexpr float arm = 3.0f;      // arm length
+            constexpr float gap = 1.3f;      // centre gap
+            constexpr float th = 0.3f;       // line thickness
+            const float off = gap + (arm * 0.5f);
+            inst.push_back(rect(aim.x - off, aim.y, arm * 0.5f, th, 1.0f, 1.0f, 1.0f)); // left
+            inst.push_back(rect(aim.x + off, aim.y, arm * 0.5f, th, 1.0f, 1.0f, 1.0f)); // right
+            inst.push_back(rect(aim.x, aim.y - off, th, arm * 0.5f, 1.0f, 1.0f, 1.0f)); // down
+            inst.push_back(rect(aim.x, aim.y + off, th, arm * 0.5f, 1.0f, 1.0f, 1.0f)); // up
+            inst.push_back(circle(aim.x, aim.y, 0.35f, 1.0f, 1.0f, 1.0f)); // centre dot
         }
     }
 

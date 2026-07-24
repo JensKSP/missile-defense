@@ -78,6 +78,7 @@ class GameWindow : public QVulkanWindow {
     Vec2 aim_{};
     State state_ = State::Menu;
     int menu_index_ = 0;
+    bool cursor_hidden_ = false;
 };
 
 } // namespace md
