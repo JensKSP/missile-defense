@@ -15,7 +15,7 @@ void Renderer::startNextFrame() {
     // Night-sky clear. The default render pass has a colour + depth/stencil
     // attachment, plus a colour resolve attachment when MSAA is enabled.
     std::array<VkClearValue, 3> clear{};
-    clear[0].color = {{0.02f, 0.02f, 0.06f, 1.0f}};
+    clear[0].color = {{0.12f, 0.16f, 0.34f, 1.0f}}; // clearly visible navy
     clear[1].depthStencil = {1.0f, 0};
     clear[2].color = clear[0].color;
 

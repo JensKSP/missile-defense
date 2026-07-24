@@ -19,6 +19,7 @@ release   = { cmd = "cmake --build --preset release", deps = ["configure-release
 rebuild   = { sequence = ["clean", "build"], help = "Clean reconfigure + build" }
 clean     = { shell = "rm -rf build", help = "Remove the build directory" }
 app       = { cmd = "./build/release/app/md_app", deps = ["release"], help = "Build + run the Qt/Vulkan app (Release)" }
+shot      = { cmd = "bash scripts/screenshot.sh", deps = ["release"], help = "Capture a frame of the running app to shot.png" }
 
 # --- Tests (the TDD inner loop is just: `poe test-unit`) ---
 test         = { cmd = "ctest --preset debug", deps = ["build"], help = "Run all C++ tests (unit + e2e), Debug" }
