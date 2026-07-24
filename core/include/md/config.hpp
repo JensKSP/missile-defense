@@ -22,6 +22,7 @@ inline constexpr std::uint32_t max_cities = 6;
 inline constexpr std::uint32_t max_threats = 128;
 inline constexpr std::uint32_t max_interceptors = 64;
 inline constexpr std::uint32_t max_blasts = 64;
+inline constexpr std::uint32_t max_explosions = 64;
 
 /// Tunable simulation constants (see DESIGN.md §2–4). Values here are the v0.1
 /// strawman defaults, finalized during playtest before the mechanics freeze.
@@ -39,6 +40,11 @@ struct Config {
     float interceptor_speed = 220.0f; // world units / second
     float blast_max_radius = 14.0f;   // world units
     float blast_lifetime = 0.9f;      // seconds: expand -> linger -> collapse
+
+    // Ground-impact explosions (cosmetic — do not destroy threats).
+    float explosion_lifetime = 0.8f;       // seconds
+    float explosion_radius_ground = 7.0f;  // nuke hits already-ruined ground
+    float explosion_radius_target = 18.0f; // nuke destroys a live city or base (bigger)
 
     // Threats.
     float threat_base_speed = 30.0f;    // wave-1 descent speed, world units / second

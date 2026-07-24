@@ -65,12 +65,18 @@ class Sim {
         return {blasts_.data(), blast_count_};
     }
 
+    [[nodiscard]] std::span<const Explosion> explosions() const noexcept {
+        return {explosions_.data(), explosion_count_};
+    }
+
   private:
     void update_cooldowns() noexcept;
     bool try_fire(const Action& action) noexcept;
     void advance_interceptors() noexcept;
     void advance_blasts() noexcept;
     void spawn_blast(Vec2 center) noexcept;
+    void spawn_explosion(Vec2 center, float peak_radius) noexcept;
+    void advance_explosions() noexcept;
     void move_threats() noexcept;
     void split_mirvs() noexcept;
     std::int32_t resolve_blast_hits() noexcept;
@@ -91,9 +97,11 @@ class Sim {
     std::array<Threat, max_threats> threats_{};
     std::array<Interceptor, max_interceptors> interceptors_{};
     std::array<Blast, max_blasts> blasts_{};
+    std::array<Explosion, max_explosions> explosions_{};
     std::uint32_t threat_count_ = 0;
     std::uint32_t interceptor_count_ = 0;
     std::uint32_t blast_count_ = 0;
+    std::uint32_t explosion_count_ = 0;
     std::int32_t score_ = 0;
     std::uint64_t tick_ = 0;
     std::uint32_t wave_ = 0;

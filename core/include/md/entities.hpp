@@ -51,6 +51,16 @@ struct Blast {
     bool active = false;
 };
 
+/// A cosmetic ground-impact fireball (does NOT destroy threats). Spawned when a
+/// threat reaches the ground; bigger when it destroyed a city or base.
+struct Explosion {
+    Vec2 center{};
+    float age = 0.0f;
+    float radius = 0.0f;
+    float peak_radius = 0.0f;
+    bool active = false;
+};
+
 // The determinism / parallelism contract requires every entity to be trivially
 // copyable, so the whole Sim state can be snapshotted with a plain memcpy.
 static_assert(std::is_trivially_copyable_v<City>);

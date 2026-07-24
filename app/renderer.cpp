@@ -348,10 +348,11 @@ void Renderer::startNextFrame() {
 
     const auto state = window_->state();
     const bool playing = state == GameWindow::State::Playing;
+    const bool game_over = state == GameWindow::State::GameOver;
+    const bool paused_menu = state == GameWindow::State::Menu && window_->in_progress();
     // Draw the game (and freeze it) while playing, on game over, and behind the
     // pause menu (Menu state with a game in progress).
-    const bool show_game = playing || state == GameWindow::State::GameOver ||
-                           (state == GameWindow::State::Menu && window_->in_progress());
+    const bool show_game = playing || game_over || paused_menu;
     const float cx = world_w * 0.5f;
 
     std::vector<InstanceData> inst;
@@ -396,28 +397,43 @@ void Renderer::startNextFrame() {
             inst.push_back(
                 glow(blast.center.x, blast.center.y, blast.radius, 1.0f, 0.65f, 0.20f, 0.9f));
         }
-        const float digit_px = world_h * 0.013f;
-        const float hud_top = world_h * 0.97f;
-        draw_number(inst, static_cast<std::uint32_t>(sim.score() < 0 ? 0 : sim.score()),
-                    world_w * 0.02f, hud_top, digit_px, 1.0f, 1.0f, 1.0f, false);
-        draw_number(inst, sim.wave(), world_w * 0.98f, hud_top, digit_px, 0.95f, 0.75f, 0.30f,
-                    true);
-        for (const auto& base : sim.bases()) {
-            if (!base.alive) {
-                continue;
-            }
-            const float spacing = 1.6f;
-            const float base_x0 =
-                base.pos.x - ((static_cast<float>(base.ammo) - 1.0f) * spacing * 0.5f);
-            for (std::uint32_t k = 0; k < base.ammo; ++k) {
-                inst.push_back(rect(base_x0 + (static_cast<float>(k) * spacing), 14.0f, 0.55f,
-                                    0.55f, 0.40f, 0.90f, 0.55f));
+        for (const auto& explosion : sim.explosions()) {
+            const float fade = 1.0f - (explosion.age / sim.config().explosion_lifetime);
+            inst.push_back(glow(explosion.center.x, explosion.center.y, explosion.radius, 1.0f,
+                                0.50f, 0.12f, 0.9f * fade)); // orange outer
+            inst.push_back(glow(explosion.center.x, explosion.center.y, explosion.radius * 0.55f,
+                                1.0f, 0.92f, 0.55f, 0.95f * fade)); // hot core
+        }
+        if (!game_over) { // HUD: score / wave / ammo — hidden on the game-over screen
+            const float digit_px = world_h * 0.013f;
+            const float hud_top = world_h * 0.97f;
+            draw_number(inst, static_cast<std::uint32_t>(sim.score() < 0 ? 0 : sim.score()),
+                        world_w * 0.02f, hud_top, digit_px, 1.0f, 1.0f, 1.0f, false);
+            draw_number(inst, sim.wave(), world_w * 0.98f, hud_top, digit_px, 0.95f, 0.75f, 0.30f,
+                        true);
+            for (const auto& base : sim.bases()) {
+                if (!base.alive) {
+                    continue;
+                }
+                const float spacing = 1.6f;
+                const float base_x0 =
+                    base.pos.x - ((static_cast<float>(base.ammo) - 1.0f) * spacing * 0.5f);
+                for (std::uint32_t k = 0; k < base.ammo; ++k) {
+                    inst.push_back(rect(base_x0 + (static_cast<float>(k) * spacing), 14.0f, 0.55f,
+                                        0.55f, 0.40f, 0.90f, 0.55f));
+                }
             }
         }
         if (playing) {
             const Vec2 aim = window_->aim();
             inst.push_back(circle(aim.x, aim.y, 2.2f, 1.0f, 1.0f, 1.0f)); // crosshair
         }
+    }
+
+    // Dim the frozen game behind the game-over screen and the pause menu.
+    if (game_over || paused_menu) {
+        inst.push_back(rect(cx, world_h * 0.5f, world_w * 0.5f, world_h * 0.5f, 0.02f, 0.02f, 0.05f,
+                            game_over ? 0.74f : 0.55f));
     }
 
     if (state == GameWindow::State::Menu) {
@@ -432,13 +448,13 @@ void Renderer::startNextFrame() {
         }
         draw_text(inst, "ARROWS ENTER", cx, world_h * 0.09f, world_h * 0.010f, 0.4f, 0.45f, 0.5f,
                   true);
-    } else if (state == GameWindow::State::GameOver) {
-        draw_text(inst, "GAME OVER", cx, world_h * 0.64f, world_h * 0.036f, 0.95f, 0.30f, 0.25f,
+    } else if (game_over) {
+        draw_text(inst, "GAME OVER", cx, world_h * 0.70f, world_h * 0.042f, 0.95f, 0.30f, 0.25f,
                   true);
-        draw_text(inst, "SCORE", cx, world_h * 0.46f, world_h * 0.016f, 0.8f, 0.85f, 0.9f, true);
-        draw_text(inst, std::to_string(sim.score() < 0 ? 0 : sim.score()), cx, world_h * 0.40f,
-                  world_h * 0.022f, 1.0f, 1.0f, 1.0f, true);
-        draw_text(inst, "PRESS ENTER", cx, world_h * 0.22f, world_h * 0.013f, 0.6f, 0.65f, 0.7f,
+        draw_text(inst, "SCORE", cx, world_h * 0.46f, world_h * 0.015f, 0.75f, 0.80f, 0.88f, true);
+        draw_text(inst, std::to_string(sim.score() < 0 ? 0 : sim.score()), cx, world_h * 0.36f,
+                  world_h * 0.028f, 1.0f, 1.0f, 1.0f, true);
+        draw_text(inst, "PRESS ENTER", cx, world_h * 0.12f, world_h * 0.013f, 0.6f, 0.65f, 0.7f,
                   true);
     } else if (state == GameWindow::State::Help) {
         draw_text(inst, "HELP", cx, world_h * 0.88f, world_h * 0.026f, 0.85f, 0.92f, 1.0f, true);

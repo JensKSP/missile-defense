@@ -57,6 +57,7 @@ void Sim::reset(std::uint64_t seed) noexcept {
     threat_count_ = 0;
     interceptor_count_ = 0;
     blast_count_ = 0;
+    explosion_count_ = 0;
     score_ = 0;
     tick_ = 0;
     terminated_ = false;
@@ -77,6 +78,7 @@ StepResult Sim::step(const Action& action) noexcept {
     try_fire(action);
     advance_interceptors();         // may spawn blasts
     advance_blasts();               // age blasts, update radius, expire
+    advance_explosions();           // age cosmetic ground-impact fireballs
     move_threats();                 // integrate threat positions
     split_mirvs();                  // MIRVs split into child warheads at altitude
     score_ += resolve_blast_hits(); // blasts kill threats (blasts win ties)
@@ -163,6 +165,31 @@ void Sim::advance_blasts() noexcept {
     }
 }
 
+void Sim::spawn_explosion(Vec2 center, float peak_radius) noexcept {
+    if (explosion_count_ >= max_explosions) {
+        return;
+    }
+    explosions_[explosion_count_] = Explosion{
+        .center = center, .age = 0.0f, .radius = 0.0f, .peak_radius = peak_radius, .active = true};
+    ++explosion_count_;
+}
+
+void Sim::advance_explosions() noexcept {
+    const float expand = 0.25f * config_.explosion_lifetime;
+    std::uint32_t i = 0;
+    while (i < explosion_count_) {
+        Explosion& explosion = explosions_[i];
+        explosion.age += config_.dt;
+        if (explosion.age >= config_.explosion_lifetime) {
+            explosions_[i] = explosions_[explosion_count_ - 1];
+            --explosion_count_;
+        } else {
+            explosion.radius = explosion.peak_radius * std::min(1.0f, explosion.age / expand);
+            ++i;
+        }
+    }
+}
+
 void Sim::move_threats() noexcept {
     for (std::uint32_t i = 0; i < threat_count_; ++i) {
         threats_[i].pos += threats_[i].velocity * config_.dt;
@@ -201,6 +228,11 @@ void Sim::resolve_ground_hits() noexcept {
             city ? cities_[threat.target_index].pos : bases_[threat.target_index].pos;
         if (threat.pos.y <= target_pos.y) {
             // A threat reaching its target destroys it (a dead base can no longer fire).
+            // A bigger fireball if it actually took out a live city/base.
+            const bool hit_live =
+                city ? cities_[threat.target_index].alive : bases_[threat.target_index].alive;
+            spawn_explosion({threat.pos.x, 2.0f}, hit_live ? config_.explosion_radius_target
+                                                           : config_.explosion_radius_ground);
             if (city) {
                 cities_[threat.target_index].alive = false;
             } else {
