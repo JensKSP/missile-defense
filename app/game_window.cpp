@@ -167,7 +167,8 @@ void GameWindow::activate(int index) {
             audio_.set_enabled(audio_on_);
             break;
         case 1:
-            music_on_ = !music_on_; // music t.b.d.
+            music_on_ = !music_on_;
+            audio_.set_music_enabled(music_on_);
             break;
         default:
             open_menu(); // BACK

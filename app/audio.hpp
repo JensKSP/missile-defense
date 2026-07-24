@@ -28,6 +28,11 @@ class AudioEngine {
 
     [[nodiscard]] bool enabled() const noexcept;
 
+    /// Enable or mute the looping background music (independent of the SFX).
+    void set_music_enabled(bool on) noexcept;
+
+    [[nodiscard]] bool music_enabled() const noexcept;
+
   private:
     struct Impl;
     std::unique_ptr<Impl> impl_; // pimpl keeps miniaudio out of this header

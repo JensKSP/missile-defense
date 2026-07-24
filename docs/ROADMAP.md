@@ -50,8 +50,8 @@ A complete, fun arcade game. **Acceptance gate: the human plays it and confirms.
 **Also requested**
 - ✅ **Highscores** — persistent top-10 table (pre-seeded with defaults) + arcade
   initials entry on a qualifying score
-- ✅ **Options** — menu screen with Audio on/off (mutes the mixer) and a Music
-  on/off placeholder (music t.b.d.)
+- ✅ **Options** — menu screen with Audio on/off (mutes the SFX) and Music on/off
+  (looping procedural FM-synth soundtrack)
 - ✅ **Polish** — animated starfield, missile-shaped threats with a distinct look
   per type (ICBM / MIRV / smart bomb), thunder on city loss, WWII E57 siren on
   each wave, crosshair reticle

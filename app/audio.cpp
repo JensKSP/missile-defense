@@ -121,6 +121,101 @@ void add_siren(std::vector<float>& v) {
     }
 }
 
+// A short looping chiptune track: tense A-minor FM synthesis — a driving bass, a
+// bright sixteenth-note arpeggio, a sparse bell lead, and noise drums. Rendered
+// once; the mixer loops it seamlessly (note tails wrap around the loop end).
+std::vector<float> build_music() {
+    constexpr float bpm = 142.0f;
+    constexpr int steps_per_bar = 16; // sixteenth-note grid
+    constexpr int bars = 8;
+    constexpr int total_steps = steps_per_bar * bars;
+    const std::size_t step_n = static_cast<std::size_t>((60.0f / bpm / 4.0f) * kSampleRate);
+    const std::size_t total_n = step_n * static_cast<std::size_t>(total_steps);
+    std::vector<float> buf(total_n, 0.0f);
+
+    struct Chord {
+        int bass;
+        std::array<int, 4> arp;
+    };
+
+    // i - VI - VII - V in A minor (the major V = E adds the tension), 2 bars each.
+    const std::array<Chord, 4> prog = {{
+        {33, {{57, 60, 64, 69}}}, // Am
+        {29, {{53, 57, 60, 65}}}, // F
+        {31, {{55, 59, 62, 67}}}, // G
+        {28, {{52, 56, 59, 64}}}, // E
+    }};
+
+    const auto midi = [](int n) {
+        return 440.0f * std::pow(2.0f, static_cast<float>(n - 69) / 12.0f);
+    };
+
+    // A 2-operator FM voice with an exponential decay, added into the looping buffer.
+    const auto add_note = [&](std::size_t start, std::size_t dur, float freq, float ratio,
+                              float index, float decay_rate, float amp) {
+        for (std::size_t i = 0; i < dur; ++i) {
+            const float t = static_cast<float>(i) / kSampleRate;
+            const float env = std::exp(-decay_rate * t);
+            const float mod = index * std::sin(2.0f * kPi * freq * ratio * t);
+            buf[(start + i) % total_n] += amp * env * std::sin((2.0f * kPi * freq * t) + mod);
+        }
+    };
+
+    Pcg32 drng{99};
+    const auto add_kick = [&](std::size_t start) {
+        for (std::size_t i = 0; i < step_n * 2; ++i) {
+            const float t = static_cast<float>(i) / kSampleRate;
+            const float pitch = (140.0f * std::exp(-32.0f * t)) + 46.0f; // pitch drop
+            buf[(start + i) % total_n] +=
+                0.5f * std::exp(-8.0f * t) * std::sin(2.0f * kPi * pitch * t);
+        }
+    };
+    const auto add_noise_hit = [&](std::size_t start, float amp, float decay_rate) {
+        for (std::size_t i = 0; i < step_n; ++i) {
+            const float t = static_cast<float>(i) / kSampleRate;
+            buf[(start + i) % total_n] +=
+                amp * std::exp(-decay_rate * t) * ((drng.next_float() * 2.0f) - 1.0f);
+        }
+    };
+
+    for (int s = 0; s < total_steps; ++s) {
+        const std::size_t at = step_n * static_cast<std::size_t>(s);
+        const int bar = s / steps_per_bar;
+        const Chord& ch = prog[static_cast<std::size_t>((bar / 2) % 4)];
+        const int in_bar = s % steps_per_bar;
+        const auto arp_note = ch.arp[static_cast<std::size_t>(s % 4)];
+
+        if (in_bar % 2 == 0) { // driving eighth-note FM bass on the chord root
+            add_note(at, step_n * 2, midi(ch.bass), 1.0f, 3.0f, 4.5f, 0.30f);
+        }
+        // Sixteenth-note bright arpeggio through the chord tones.
+        add_note(at, step_n, midi(arp_note), 2.0f, 2.2f, 8.0f, 0.13f);
+        if (in_bar == 6 || in_bar == 14) { // sparse bell lead, an octave up
+            add_note(at, step_n * 3, midi(arp_note + 12), 3.5f, 3.5f, 5.0f, 0.10f);
+        }
+        // Drums: kick on beats 1 & 3, snare on 2 & 4, hats on the offbeats.
+        if (in_bar == 0 || in_bar == 8) {
+            add_kick(at);
+        }
+        if (in_bar == 4 || in_bar == 12) {
+            add_noise_hit(at, 0.22f, 22.0f); // snare
+        }
+        if (in_bar % 2 == 1) {
+            add_noise_hit(at, 0.07f, 55.0f); // hi-hat
+        }
+    }
+
+    float peak = 1.0e-6f;
+    for (const float v : buf) {
+        peak = std::max(peak, std::fabs(v));
+    }
+    const float gain = 0.9f / peak;
+    for (float& v : buf) {
+        v *= gain;
+    }
+    return buf;
+}
+
 std::array<std::vector<float>, kEventCount> build_sfx() {
     std::array<std::vector<float>, kEventCount> sfx;
     Pcg32 rng{7};
@@ -193,28 +288,39 @@ struct AudioEngine::Impl {
 
     std::array<Voice, kVoiceCount> voices{};
     std::mutex mutex;
-    std::atomic<bool> enabled{true};
+    std::atomic<bool> enabled{true};  // SFX
+    std::atomic<bool> music_on{true}; // background music
+    std::vector<float> music = build_music();
+    std::size_t music_pos = 0; // audio thread only
 
-    // Runs on the audio thread: sum the active voices into the output buffer.
+    // Runs on the audio thread: sum the active SFX voices + looping music.
     void mix(float* out, ma_uint32 frames) {
         for (ma_uint32 f = 0; f < frames; ++f) {
             out[f] = 0.0f;
         }
-        if (!enabled.load(std::memory_order_relaxed)) {
-            return; // muted: output silence
-        }
-        const std::lock_guard<std::mutex> lock(mutex);
-        for (auto& voice : voices) {
-            if (voice.buffer == nullptr) {
-                continue;
-            }
-            for (ma_uint32 f = 0; f < frames; ++f) {
-                if (voice.pos >= voice.buffer->size()) {
-                    voice.buffer = nullptr;
-                    break;
+        if (enabled.load(std::memory_order_relaxed)) {
+            const std::lock_guard<std::mutex> lock(mutex);
+            for (auto& voice : voices) {
+                if (voice.buffer == nullptr) {
+                    continue;
                 }
-                out[f] += (*voice.buffer)[voice.pos];
-                ++voice.pos;
+                for (ma_uint32 f = 0; f < frames; ++f) {
+                    if (voice.pos >= voice.buffer->size()) {
+                        voice.buffer = nullptr;
+                        break;
+                    }
+                    out[f] += (*voice.buffer)[voice.pos];
+                    ++voice.pos;
+                }
+            }
+        }
+        if (music_on.load(std::memory_order_relaxed) && !music.empty()) {
+            constexpr float music_gain = 0.38f; // sits under the SFX
+            for (ma_uint32 f = 0; f < frames; ++f) {
+                out[f] += music[music_pos] * music_gain;
+                if (++music_pos >= music.size()) {
+                    music_pos = 0; // seamless loop
+                }
             }
         }
         for (ma_uint32 f = 0; f < frames; ++f) {
@@ -284,6 +390,14 @@ void AudioEngine::set_enabled(bool on) noexcept {
 
 bool AudioEngine::enabled() const noexcept {
     return impl_->enabled.load(std::memory_order_relaxed);
+}
+
+void AudioEngine::set_music_enabled(bool on) noexcept {
+    impl_->music_on.store(on, std::memory_order_relaxed);
+}
+
+bool AudioEngine::music_enabled() const noexcept {
+    return impl_->music_on.load(std::memory_order_relaxed);
 }
 
 } // namespace md

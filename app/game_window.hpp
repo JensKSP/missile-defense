@@ -105,7 +105,7 @@ class GameWindow : public QVulkanWindow {
     int menu_index_ = 0;
     bool cursor_hidden_ = false;
     bool audio_on_ = true;
-    bool music_on_ = true; // music is t.b.d.; the toggle stores the preference
+    bool music_on_ = true; // looping FM-synth background music
     int final_score_ = 0;  // score captured at game over (for the entry screen)
     std::array<char, 3> entry_initials_{{'A', 'A', 'A'}};
     int entry_slot_ = 0;
