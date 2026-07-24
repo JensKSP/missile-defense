@@ -27,25 +27,41 @@ Path:
 
 → **Passed** — played and accepted by the human on 2026-07-24.
 
-Follow-up polish (post-M1): trajectory/blast trails, glow via alpha blending, game-over
-screen, MIRV / smart-bomb threats, deterministic offscreen render→PNG for golden-image tests.
+## M2 — Polished game *(in progress)*
 
-## M2 — Record & replay in the UI
+A complete, fun arcade game. **Acceptance gate: the human plays it and confirms.**
+
+- ✅ Menu (start / help / highscores / exit)
+- ✅ Restart — new game from the menu
+- ✅ Pause → menu (RESUME / NEW GAME), Help screen
+- ⬜ **Sound** — SFX driven by a deterministic `md::core` event stream (the same
+  stream also gives the AI observation parity); backend TBD (vendored miniaudio +
+  procedural retro SFX, or Qt 6 Multimedia)
+- ⬜ **Rocket trails** — missile lines from launch point to head (needs `origin`
+  stored on Threat/Interceptor in core)
+- ⬜ **Nicer graphics** — blast glow (alpha blending), game-over polish, MIRV +
+  smart-bomb threats
+
+*Also requested, planned alongside M2:* **highscores** (persist top scores locally +
+arcade-style initials entry).
+
+## M3 — Record & replay in the UI
 
 Record every run as `(seed, action-log)`; load a run and replay it with pause / scrub /
 variable speed; **take over** from any point and continue playing.
 
-## M3 — ML infrastructure
+## M4 — ML infrastructure
 
 nanobind bindings; Gymnasium environment; `VecSim` (N parallel sims, thread pool, GIL
 released, zero-copy batched observations); a scripted baseline agent; reward design and
-an evaluation protocol.
+an evaluation protocol. *(The headless sim is already sufficient to start this — it does
+not depend on M2/M3.)*
 
-## M4 — Train
+## M5 — Train
 
 Custom PPO (PyTorch) with a curriculum; beat the scripted baseline.
 
-## M5 — Watch the AI / takeover
+## M6 — Watch the AI / takeover
 
 Export the policy → in-process C++ inference; live spectator mode; human takeover from any
 point in an AI-played game.
