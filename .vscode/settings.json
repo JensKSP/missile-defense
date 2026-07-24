@@ -1,0 +1,18 @@
+{
+  "clangd.path": "clangd-21",
+  "clangd.arguments": [
+    "--compile-commands-dir=build/debug",
+    "--clang-tidy",
+    "--header-insertion=iwyu",
+    "--background-index"
+  ],
+  "cmake.configurePreset": "debug",
+  "cmake.buildPreset": "debug",
+  "cmake.testPreset": "debug",
+  "files.associations": {
+    "*.hpp": "cpp"
+  },
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff"
+  }
+}

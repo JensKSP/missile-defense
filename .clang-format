@@ -1,0 +1,19 @@
+---
+Language: Cpp
+BasedOnStyle: LLVM
+Standard: Latest
+ColumnLimit: 100
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+PointerAlignment: Left
+ReferenceAlignment: Left
+AlignAfterOpenBracket: Align
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+BreakBeforeBraces: Attach
+IncludeBlocks: Regroup
+SeparateDefinitionBlocks: Always
+SpaceAfterCStyleCast: true
+FixNamespaceComments: true
+...

@@ -1,0 +1,43 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "clang",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "clang++-21"
+      }
+    },
+    {
+      "name": "debug",
+      "inherits": "clang",
+      "displayName": "Clang Debug (ASan+UBSan)",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "MD_SANITIZE": "ON"
+      }
+    },
+    {
+      "name": "release",
+      "inherits": "clang",
+      "displayName": "Clang RelWithDebInfo",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "debug", "configurePreset": "debug" },
+    { "name": "release", "configurePreset": "release" }
+  ],
+  "testPresets": [
+    {
+      "name": "debug",
+      "configurePreset": "debug",
+      "output": { "outputOnFailure": true }
+    }
+  ]
+}

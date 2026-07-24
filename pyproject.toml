@@ -1,0 +1,30 @@
+# Step 0: this file drives dev tooling + task running only.
+# The Python package build (scikit-build-core + nanobind) is added in Step 2,
+# when there is an actual compiled extension module to build.
+
+[project]
+name = "missile-defense"
+version = "0.1.0"
+description = "Faithful Atari Missile Command clone — game + RL environment"
+requires-python = ">=3.11"
+
+# ---- Task runner (poe) -------------------------------------------------------
+# Run with: poe <task>   (after `pip install poethepoet ruff pytest`)
+[tool.poe.tasks]
+configure = { cmd = "cmake --preset debug", help = "Configure the Debug build" }
+build     = { cmd = "cmake --build --preset debug", help = "Build (Debug + sanitizers)" }
+release   = { cmd = "cmake --build --preset release", help = "Build RelWithDebInfo" }
+test      = { cmd = "ctest --preset debug", help = "Run C++ tests via CTest" }
+rebuild   = { sequence = ["clean", "configure", "build"], help = "Clean reconfigure + build" }
+clean     = { shell = "rm -rf build", help = "Remove the build directory" }
+format    = { shell = "find core bindings app -type f \\( -name '*.cpp' -o -name '*.hpp' \\) 2>/dev/null | xargs -r clang-format-21 -i", help = "clang-format all C++ sources" }
+tidy      = { shell = "find core -type f -name '*.cpp' 2>/dev/null | xargs -r clang-tidy-21 -p build/debug", help = "clang-tidy the core sources" }
+lint      = { cmd = "ruff check python", help = "Ruff lint the Python code" }
+
+# ---- Ruff (Python lint + format) --------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

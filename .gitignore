@@ -1,1 +1,15 @@
+# Build output
+/build/
+/compile_commands.json
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Local Claude Code settings (machine-specific)
 .claude/settings.local.json
