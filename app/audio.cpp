@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstddef>
 #include <miniaudio.h>
@@ -192,11 +193,15 @@ struct AudioEngine::Impl {
 
     std::array<Voice, kVoiceCount> voices{};
     std::mutex mutex;
+    std::atomic<bool> enabled{true};
 
     // Runs on the audio thread: sum the active voices into the output buffer.
     void mix(float* out, ma_uint32 frames) {
         for (ma_uint32 f = 0; f < frames; ++f) {
             out[f] = 0.0f;
+        }
+        if (!enabled.load(std::memory_order_relaxed)) {
+            return; // muted: output silence
         }
         const std::lock_guard<std::mutex> lock(mutex);
         for (auto& voice : voices) {
@@ -259,12 +264,26 @@ AudioEngine::~AudioEngine() {
 }
 
 void AudioEngine::handle_events(std::span<const Event> events) noexcept {
-    if (!impl_->running) {
+    if (!impl_->running || !impl_->enabled.load(std::memory_order_relaxed)) {
         return;
     }
     for (const auto& event : events) {
         impl_->play(event.type);
     }
+}
+
+void AudioEngine::set_enabled(bool on) noexcept {
+    impl_->enabled.store(on, std::memory_order_relaxed);
+    if (!on) { // silence anything already playing
+        const std::lock_guard<std::mutex> lock(impl_->mutex);
+        for (auto& voice : impl_->voices) {
+            voice.buffer = nullptr;
+        }
+    }
+}
+
+bool AudioEngine::enabled() const noexcept {
+    return impl_->enabled.load(std::memory_order_relaxed);
 }
 
 } // namespace md

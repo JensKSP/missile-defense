@@ -607,6 +607,17 @@ void Renderer::startNextFrame() {
         }
         draw_text(inst, "PRESS ENTER", cx, world_h * 0.09f, world_h * 0.011f, 0.6f, 0.65f, 0.7f,
                   true);
+    } else if (state == GameWindow::State::Options) {
+        draw_text(inst, "OPTIONS", cx, world_h * 0.88f, world_h * 0.026f, 0.85f, 0.92f, 1.0f, true);
+        const int count = window_->options_count();
+        for (int i = 0; i < count; ++i) {
+            const bool sel = window_->menu_index() == i;
+            const float y = window_->menu_item_top_y(i);
+            draw_text(inst, window_->options_label(i), cx, y, window_->menu_text_px(),
+                      sel ? 0.95f : 0.45f, sel ? 0.75f : 0.45f, sel ? 0.25f : 0.50f, true);
+        }
+        draw_text(inst, "ARROWS ENTER OR MOUSE", cx, world_h * 0.09f, world_h * 0.010f, 0.4f, 0.45f,
+                  0.5f, true);
     } else if (state == GameWindow::State::Highscores) {
         draw_text(inst, "HIGHSCORES", cx, world_h * 0.80f, world_h * 0.030f, 0.85f, 0.92f, 1.0f,
                   true);

@@ -21,7 +21,7 @@ namespace md {
 /// and preserved); from there RESUME continues it, NEW GAME abandons it.
 class GameWindow : public QVulkanWindow {
   public:
-    enum class State { Menu, Playing, GameOver, Highscores, Help };
+    enum class State { Menu, Playing, GameOver, Highscores, Help, Options };
 
     GameWindow();
 
@@ -46,11 +46,19 @@ class GameWindow : public QVulkanWindow {
     [[nodiscard]] int menu_count() const noexcept;
     [[nodiscard]] std::string_view menu_label(int index) const;
 
-    // Menu layout in world units — the single source of truth shared by the
-    // renderer (drawing) and mouse hit-testing (hover / click).
+    // Options screen (a second centered list): AUDIO / MUSIC toggles + BACK.
+    [[nodiscard]] int options_count() const noexcept;
+    [[nodiscard]] std::string_view options_label(int index) const;
+
+    [[nodiscard]] bool audio_on() const noexcept { return audio_on_; }
+
+    [[nodiscard]] bool music_on() const noexcept { return music_on_; }
+
+    // Menu/Options share a centered vertical-list layout (world units) — the
+    // single source of truth for the renderer (drawing) and mouse hit-testing.
     [[nodiscard]] float menu_text_px() const noexcept;
     [[nodiscard]] float menu_item_top_y(int index) const noexcept;
-    [[nodiscard]] int menu_hit(Vec2 world) const noexcept; // item under a point, or -1
+    [[nodiscard]] int menu_hit(Vec2 world) const noexcept; // item under a point in the active list
 
   protected:
     void mouseMoveEvent(QMouseEvent* event) override;
@@ -58,13 +66,16 @@ class GameWindow : public QVulkanWindow {
     void keyPressEvent(QKeyEvent* event) override;
 
   private:
-    enum class MenuAction { Resume, NewGame, Help, Highscores, Exit };
+    enum class MenuAction { Resume, NewGame, Help, Options, Highscores, Exit };
 
     void update_aim(float px, float py);
     void start_game();
     void open_menu();
-    void select_menu();
+    void open_options();
+    void activate(int index); // activate the item at index in the active list
     [[nodiscard]] MenuAction action_at(int index) const;
+    [[nodiscard]] int active_count() const noexcept; // active list length (menu/options)
+    [[nodiscard]] std::string_view active_label(int index) const; // active list label
     [[nodiscard]] BaseId nearest_base_with_ammo(Vec2 target) const;
 
     Sim sim_;
@@ -79,6 +90,8 @@ class GameWindow : public QVulkanWindow {
     State state_ = State::Menu;
     int menu_index_ = 0;
     bool cursor_hidden_ = false;
+    bool audio_on_ = true;
+    bool music_on_ = true; // music is t.b.d.; the toggle stores the preference
 };
 
 } // namespace md

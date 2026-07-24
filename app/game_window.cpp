@@ -23,17 +23,17 @@ QVulkanWindowRenderer* GameWindow::createRenderer() {
 }
 
 int GameWindow::menu_count() const noexcept {
-    return in_progress_ ? 5 : 4;
+    return in_progress_ ? 6 : 5;
 }
 
 GameWindow::MenuAction GameWindow::action_at(int index) const {
     if (in_progress_) {
-        const std::array<MenuAction, 5> acts{MenuAction::Resume, MenuAction::NewGame,
-                                             MenuAction::Help, MenuAction::Highscores,
-                                             MenuAction::Exit};
+        const std::array<MenuAction, 6> acts{MenuAction::Resume,     MenuAction::NewGame,
+                                             MenuAction::Help,       MenuAction::Options,
+                                             MenuAction::Highscores, MenuAction::Exit};
         return acts[static_cast<std::size_t>(index)];
     }
-    const std::array<MenuAction, 4> acts{MenuAction::NewGame, MenuAction::Help,
+    const std::array<MenuAction, 5> acts{MenuAction::NewGame, MenuAction::Help, MenuAction::Options,
                                          MenuAction::Highscores, MenuAction::Exit};
     return acts[static_cast<std::size_t>(index)];
 }
@@ -46,12 +46,37 @@ std::string_view GameWindow::menu_label(int index) const {
         return in_progress_ ? "NEW GAME" : "START";
     case MenuAction::Help:
         return "HELP";
+    case MenuAction::Options:
+        return "OPTIONS";
     case MenuAction::Highscores:
         return "HIGHSCORES";
     case MenuAction::Exit:
         return "EXIT";
     }
     return "";
+}
+
+int GameWindow::options_count() const noexcept {
+    return 3; // AUDIO, MUSIC, BACK
+}
+
+std::string_view GameWindow::options_label(int index) const {
+    switch (index) {
+    case 0:
+        return audio_on_ ? "AUDIO ON" : "AUDIO OFF";
+    case 1:
+        return music_on_ ? "MUSIC ON" : "MUSIC OFF";
+    default:
+        return "BACK";
+    }
+}
+
+int GameWindow::active_count() const noexcept {
+    return state_ == State::Options ? options_count() : menu_count();
+}
+
+std::string_view GameWindow::active_label(int index) const {
+    return state_ == State::Options ? options_label(index) : menu_label(index);
 }
 
 float GameWindow::menu_text_px() const noexcept {
@@ -68,10 +93,10 @@ int GameWindow::menu_hit(Vec2 world) const noexcept {
     const float center_x = sim_.config().world_width * 0.5f;
     const float pad_x = advance * 0.5f;
     const float pad_y = px * 0.8f;
-    for (int i = 0; i < menu_count(); ++i) {
+    for (int i = 0; i < active_count(); ++i) {
         const float top_y = menu_item_top_y(i);
         const float bottom_y = top_y - (5.0f * px); // glyphs span ~5 rows below top_y
-        const auto chars = static_cast<float>(menu_label(i).size());
+        const auto chars = static_cast<float>(active_label(i).size());
         const float half_w = (chars * advance * 0.5f) + pad_x;
         if (std::abs(world.x - center_x) <= half_w && world.y <= (top_y + pad_y) &&
             world.y >= (bottom_y - pad_y)) {
@@ -86,6 +111,11 @@ void GameWindow::open_menu() {
     menu_index_ = 0;
 }
 
+void GameWindow::open_options() {
+    state_ = State::Options;
+    menu_index_ = 0;
+}
+
 void GameWindow::start_game() {
     sim_.reset(++seed_);
     state_ = State::Playing;
@@ -95,8 +125,23 @@ void GameWindow::start_game() {
     pending_ = Action::noop();
 }
 
-void GameWindow::select_menu() {
-    switch (action_at(menu_index_)) {
+void GameWindow::activate(int index) {
+    if (state_ == State::Options) {
+        switch (index) {
+        case 0:
+            audio_on_ = !audio_on_;
+            audio_.set_enabled(audio_on_);
+            break;
+        case 1:
+            music_on_ = !music_on_; // music t.b.d.
+            break;
+        default:
+            open_menu(); // BACK
+            break;
+        }
+        return;
+    }
+    switch (action_at(index)) {
     case MenuAction::Resume:
         state_ = State::Playing;
         started_ = false;
@@ -106,6 +151,9 @@ void GameWindow::select_menu() {
         break;
     case MenuAction::Help:
         state_ = State::Help;
+        break;
+    case MenuAction::Options:
+        open_options();
         break;
     case MenuAction::Highscores:
         state_ = State::Highscores;
@@ -160,7 +208,7 @@ void GameWindow::update_aim(float px, float py) {
 void GameWindow::mouseMoveEvent(QMouseEvent* event) {
     update_aim(static_cast<float>(event->position().x()),
                static_cast<float>(event->position().y()));
-    if (state_ == State::Menu) {
+    if (state_ == State::Menu || state_ == State::Options) {
         const int hit = menu_hit(aim_); // aim_ is the world point under the cursor
         if (hit >= 0) {
             menu_index_ = hit; // hover highlights the item under the pointer
@@ -172,11 +220,12 @@ void GameWindow::mousePressEvent(QMouseEvent* event) {
     update_aim(static_cast<float>(event->position().x()),
                static_cast<float>(event->position().y()));
     switch (state_) {
-    case State::Menu: {
+    case State::Menu:
+    case State::Options: {
         const int hit = menu_hit(aim_);
         if (hit >= 0) {
             menu_index_ = hit;
-            select_menu(); // click an item to activate it
+            activate(hit); // click an item to activate it
         }
         break;
     }
@@ -195,15 +244,20 @@ void GameWindow::keyPressEvent(QKeyEvent* event) {
     const int key = event->key();
     switch (state_) {
     case State::Menu:
+    case State::Options:
         if (key == Qt::Key_Up || key == Qt::Key_W) {
-            menu_index_ = (menu_index_ + menu_count() - 1) % menu_count();
+            menu_index_ = (menu_index_ + active_count() - 1) % active_count();
         } else if (key == Qt::Key_Down || key == Qt::Key_S) {
-            menu_index_ = (menu_index_ + 1) % menu_count();
+            menu_index_ = (menu_index_ + 1) % active_count();
         } else if (key == Qt::Key_Return || key == Qt::Key_Enter) {
-            select_menu();
-        } else if (key == Qt::Key_Escape && in_progress_) {
-            state_ = State::Playing; // Escape resumes the paused game
-            started_ = false;
+            activate(menu_index_);
+        } else if (key == Qt::Key_Escape) {
+            if (state_ == State::Options) {
+                open_menu(); // Escape leaves options
+            } else if (in_progress_) {
+                state_ = State::Playing; // Escape resumes the paused game
+                started_ = false;
+            }
         }
         break;
     case State::Playing:
