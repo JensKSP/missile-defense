@@ -29,6 +29,9 @@ class GameWindow : public QVulkanWindow {
     /// Advance the sim by real elapsed time (fixed `dt`); only while Playing.
     void advance();
 
+    /// Start a game immediately, skipping the menu (used by the `--play` flag).
+    void play_now() { start_game(); }
+
     [[nodiscard]] const Sim& sim() const noexcept { return sim_; }
 
     [[nodiscard]] Vec2 aim() const noexcept { return aim_; }

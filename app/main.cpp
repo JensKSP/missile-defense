@@ -2,6 +2,7 @@
 
 #include <QGuiApplication>
 #include <QVulkanInstance>
+#include <string_view>
 
 int main(int argc, char** argv) {
     QGuiApplication app(argc, argv);
@@ -19,6 +20,11 @@ int main(int argc, char** argv) {
     window.setVulkanInstance(&instance);
     window.resize(1280, 720);
     window.setTitle("Missile Defense");
+    for (int i = 1; i < argc; ++i) {
+        if (std::string_view(argv[i]) == "--play") {
+            window.play_now(); // boot straight into a game (skip the menu)
+        }
+    }
     window.show();
 
     return app.exec();

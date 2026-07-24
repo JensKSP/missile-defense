@@ -109,6 +109,7 @@ bool Sim::try_fire(const Action& action) noexcept {
     const Vec2 direction = (action.target - base.pos).normalized();
     interceptors_[interceptor_count_] =
         Interceptor{.pos = base.pos,
+                    .origin = base.pos,
                     .velocity = direction * config_.interceptor_speed,
                     .target = action.target,
                     .active = true};
@@ -248,6 +249,7 @@ void Sim::spawn_threat() noexcept {
     const float speed =
         config_.threat_base_speed + (static_cast<float>(wave_ - 1) * config_.threat_speed_per_wave);
     threats_[threat_count_] = Threat{.pos = origin,
+                                     .origin = origin,
                                      .velocity = (target - origin).normalized() * speed,
                                      .type = ThreatType::Icbm,
                                      .target_city = city,

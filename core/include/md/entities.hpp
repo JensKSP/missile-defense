@@ -25,6 +25,7 @@ struct Base {
 /// A player interceptor in flight toward its detonation point.
 struct Interceptor {
     Vec2 pos{};
+    Vec2 origin{}; // launch point (for the trail)
     Vec2 velocity{};
     Vec2 target{}; // point at which it detonates
     bool active = false;
@@ -33,6 +34,7 @@ struct Interceptor {
 /// An incoming enemy warhead.
 struct Threat {
     Vec2 pos{};
+    Vec2 origin{}; // where it entered/split from (for the trail)
     Vec2 velocity{};
     ThreatType type = ThreatType::Icbm;
     std::uint32_t target_city = 0; // index into the city array

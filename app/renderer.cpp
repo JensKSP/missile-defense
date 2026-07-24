@@ -11,6 +11,7 @@
 #include "quad_vert_spv.h"
 
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -22,12 +23,13 @@ namespace md {
 
 namespace {
 
-// Per-instance vertex data: an axis-aligned box (world units), a colour, and a
-// shape flag (0 = rectangle, 1 = circle).
+// Per-instance vertex data: an oriented box (world units), an RGBA colour, and a
+// shape flag (0 = rectangle, 1 = solid circle, 2 = radial-glow circle).
 struct InstanceData {
     float cx, cy;
     float hx, hy;
-    float r, g, b;
+    float angle;
+    float r, g, b, a;
     float shape;
 };
 
@@ -37,14 +39,29 @@ struct PushConstants {
     float b[2];
 };
 
-constexpr std::size_t max_instances = 1024;
+constexpr std::size_t max_instances = 2048;
 
-InstanceData rect(float cx, float cy, float hx, float hy, float r, float g, float b) {
-    return InstanceData{cx, cy, hx, hy, r, g, b, 0.0f};
+InstanceData rect(float cx, float cy, float hx, float hy, float r, float g, float b,
+                  float a = 1.0f) {
+    return InstanceData{cx, cy, hx, hy, 0.0f, r, g, b, a, 0.0f};
 }
 
-InstanceData circle(float cx, float cy, float radius, float r, float g, float b) {
-    return InstanceData{cx, cy, radius, radius, r, g, b, 1.0f};
+InstanceData circle(float cx, float cy, float radius, float r, float g, float b, float a = 1.0f) {
+    return InstanceData{cx, cy, radius, radius, 0.0f, r, g, b, a, 1.0f};
+}
+
+InstanceData glow(float cx, float cy, float radius, float r, float g, float b, float a) {
+    return InstanceData{cx, cy, radius, radius, 0.0f, r, g, b, a, 2.0f};
+}
+
+// An oriented line segment from `from` to `to`, drawn as a thin rotated rect.
+InstanceData line(Vec2 from, Vec2 to, float thick, float r, float g, float b, float a) {
+    const float dx = to.x - from.x;
+    const float dy = to.y - from.y;
+    const float len = std::sqrt((dx * dx) + (dy * dy));
+    const float angle = std::atan2(dy, dx);
+    return InstanceData{
+        (from.x + to.x) * 0.5f, (from.y + to.y) * 0.5f, len * 0.5f, thick, angle, r, g, b, a, 0.0f};
 }
 
 // A 3x5 pixel font for digits, drawn as small quads (no font textures). Each
@@ -233,15 +250,17 @@ void Renderer::createPipeline() {
     bindings[1].stride = static_cast<std::uint32_t>(sizeof(InstanceData));
     bindings[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
 
-    std::array<VkVertexInputAttributeDescription, 5> attrs{};
+    std::array<VkVertexInputAttributeDescription, 6> attrs{};
     attrs[0] = {0, 0, VK_FORMAT_R32G32_SFLOAT, 0};
     attrs[1] = {1, 1, VK_FORMAT_R32G32_SFLOAT,
                 static_cast<std::uint32_t>(offsetof(InstanceData, cx))};
     attrs[2] = {2, 1, VK_FORMAT_R32G32_SFLOAT,
                 static_cast<std::uint32_t>(offsetof(InstanceData, hx))};
-    attrs[3] = {3, 1, VK_FORMAT_R32G32B32_SFLOAT,
+    attrs[3] = {3, 1, VK_FORMAT_R32_SFLOAT,
+                static_cast<std::uint32_t>(offsetof(InstanceData, angle))};
+    attrs[4] = {4, 1, VK_FORMAT_R32G32B32A32_SFLOAT,
                 static_cast<std::uint32_t>(offsetof(InstanceData, r))};
-    attrs[4] = {4, 1, VK_FORMAT_R32_SFLOAT,
+    attrs[5] = {5, 1, VK_FORMAT_R32_SFLOAT,
                 static_cast<std::uint32_t>(offsetof(InstanceData, shape))};
 
     VkPipelineVertexInputStateCreateInfo vin{};
@@ -277,7 +296,13 @@ void Renderer::createPipeline() {
     dss.depthWriteEnable = VK_FALSE;
 
     VkPipelineColorBlendAttachmentState blend{};
-    blend.blendEnable = VK_FALSE;
+    blend.blendEnable = VK_TRUE;
+    blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    blend.colorBlendOp = VK_BLEND_OP_ADD;
+    blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    blend.alphaBlendOp = VK_BLEND_OP_ADD;
     blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
                            VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 
@@ -349,13 +374,17 @@ void Renderer::startNextFrame() {
 
     if (show_game) {
         for (const auto& threat : sim.threats()) {
-            inst.push_back(circle(threat.pos.x, threat.pos.y, 1.6f, 0.95f, 0.30f, 0.25f));
+            inst.push_back(line(threat.origin, threat.pos, 0.35f, 0.85f, 0.25f, 0.20f, 0.45f));
+            inst.push_back(glow(threat.pos.x, threat.pos.y, 4.0f, 0.95f, 0.35f, 0.30f, 0.7f));
+            inst.push_back(circle(threat.pos.x, threat.pos.y, 1.4f, 1.0f, 0.55f, 0.45f));
         }
         for (const auto& it : sim.interceptors()) {
-            inst.push_back(circle(it.pos.x, it.pos.y, 1.0f, 0.85f, 0.95f, 1.0f));
+            inst.push_back(line(it.origin, it.pos, 0.3f, 0.6f, 0.85f, 1.0f, 0.5f));
+            inst.push_back(circle(it.pos.x, it.pos.y, 0.9f, 0.9f, 0.97f, 1.0f));
         }
         for (const auto& blast : sim.blasts()) {
-            inst.push_back(circle(blast.center.x, blast.center.y, blast.radius, 1.0f, 0.6f, 0.15f));
+            inst.push_back(
+                glow(blast.center.x, blast.center.y, blast.radius, 1.0f, 0.65f, 0.20f, 0.9f));
         }
         const float digit_px = world_h * 0.013f;
         const float hud_top = world_h * 0.97f;
