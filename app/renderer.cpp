@@ -154,6 +154,21 @@ void add_mirv(std::vector<InstanceData>& inst, Vec2 origin, Vec2 pos, float len,
                           1.0f, 0.85f, 0.95f));
 }
 
+// A warhead / re-entry vehicle: a compact, finless, pointed projectile — a
+// short tapered body with a rounded base and a white-hot nose tip + aura. Used
+// for the children a MIRV splits into (kept purple to show their lineage).
+void add_warhead(std::vector<InstanceData>& inst, Vec2 origin, Vec2 pos, float len, float width,
+                 float r, float g, float b) {
+    Vec2 d{pos.x - origin.x, pos.y - origin.y};
+    const float dl = std::sqrt((d.x * d.x) + (d.y * d.y));
+    d = (dl > 1.0e-4f) ? Vec2{d.x / dl, d.y / dl} : Vec2{0.0f, -1.0f};
+    const Vec2 tail{pos.x - (d.x * len), pos.y - (d.y * len)};
+    inst.push_back(glow(pos.x, pos.y, width * 2.6f, r, g, b, 0.5f));                // aura
+    inst.push_back(line(tail, pos, width, r, g, b, 1.0f));                          // body
+    inst.push_back(circle(tail.x, tail.y, width * 1.05f, r * 0.85f, g * 0.85f, b)); // base
+    inst.push_back(circle(pos.x, pos.y, width * 0.72f, 1.0f, 0.95f, 0.9f));         // hot nose
+}
+
 // A smart bomb: a maneuvering decoy, drawn as a spinning diamond pod with a
 // bright counter-rotating core and an aura — visually agile, not ballistic.
 void add_smartbomb(std::vector<InstanceData>& inst, Vec2 pos, float radius, float spin, float r,
@@ -517,6 +532,9 @@ void Renderer::startNextFrame() {
                 inst.push_back(line(threat.origin, threat.pos, 0.4f, 0.3f, 0.8f, 0.4f, 0.4f));
                 const float pulse = 1.7f + (0.25f * std::sin((tsec * 6.0f) + threat.pos.x));
                 add_smartbomb(inst, threat.pos, pulse, tsec * 3.0f, 0.35f, 0.95f, 0.5f);
+            } else if (threat.type == ThreatType::Warhead) { // MIRV child — purple warhead
+                inst.push_back(line(threat.origin, threat.pos, 0.3f, 0.6f, 0.35f, 0.85f, 0.4f));
+                add_warhead(inst, threat.origin, threat.pos, 2.8f, 1.0f, 0.82f, 0.45f, 1.0f);
             } else { // ICBM — red rocket
                 inst.push_back(line(threat.origin, threat.pos, 0.35f, 0.85f, 0.25f, 0.20f, 0.45f));
                 inst.push_back(glow(threat.pos.x, threat.pos.y, 4.0f, 0.95f, 0.35f, 0.30f, 0.55f));

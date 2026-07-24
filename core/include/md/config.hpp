@@ -10,7 +10,7 @@ inline constexpr std::uint32_t base_count = 3;
 
 /// Enemy variants. Encoded as a tag (no class hierarchy) to keep entity state POD
 /// and the step loop free of virtual dispatch.
-enum class ThreatType : std::uint8_t { Icbm = 0, Mirv = 1, SmartBomb = 2 };
+enum class ThreatType : std::uint8_t { Icbm = 0, Mirv = 1, SmartBomb = 2, Warhead = 3 };
 
 /// What a threat is aimed at — both cities and bases sit on the ground and can be
 /// destroyed by a threat that reaches them.

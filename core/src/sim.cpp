@@ -399,7 +399,7 @@ void Sim::split_mirvs() noexcept {
                 Threat{.pos = split_pos,
                        .origin = split_pos,
                        .velocity = (target - split_pos).normalized() * threat_speed(),
-                       .type = ThreatType::Icbm,
+                       .type = ThreatType::Warhead, // child re-entry vehicles
                        .target_kind = kind,
                        .target_index = index,
                        .split_altitude = 0.0f,
