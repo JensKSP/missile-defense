@@ -296,6 +296,50 @@ TEST_CASE("Smart bombs steer away from a nearby blast", "[unit][sim]") {
     REQUIRE(vx > 0.0f); // steering right, away from the blast on its left
 }
 
+TEST_CASE("A destroyed city is rebuilt at the bonus-score threshold", "[unit][sim]") {
+    Config cfg;
+    cfg.bonus_city_score = 50; // low threshold for the test
+    cfg.threat_base_speed = 2000.0f;
+    cfg.spawn_interval = 0.1f;
+    cfg.blast_max_radius = 50.0f; // big blast to rack up kills
+    cfg.blast_lifetime = 3.0f;
+    cfg.interceptor_speed = 1500.0f;
+    cfg.base_cooldown = 0.0f;
+    cfg.wave_base_threats = 80;
+    Sim sim{cfg};
+    sim.reset(6);
+
+    const auto alive_cities = [&sim] {
+        std::size_t n = 0;
+        for (const auto& city : sim.cities()) {
+            n += city.alive ? 1u : 0u;
+        }
+        return n;
+    };
+
+    // Phase 1: no defence — let at least one city fall.
+    for (int i = 0; i < 40 && alive_cities() == sim.cities().size(); ++i) {
+        sim.step(Action::noop());
+    }
+    REQUIRE(alive_cities() < sim.cities().size());
+
+    // Phase 2: defend to earn points. A bonus city is the ONLY thing that can raise
+    // the alive-city count (threats only destroy), so an increase proves the rebuild.
+    bool rebuilt = false;
+    std::size_t prev = alive_cities();
+    for (int i = 0; i < 2000 && !rebuilt && !sim.terminated(); ++i) {
+        if (!sim.threats().empty()) {
+            sim.step(Action::fire(BaseId::Delta, sim.threats()[0].pos));
+        } else {
+            sim.step(Action::noop());
+        }
+        const std::size_t now = alive_cities();
+        rebuilt = now > prev;
+        prev = now;
+    }
+    REQUIRE(rebuilt);
+}
+
 TEST_CASE("The episode terminates when every city is destroyed", "[unit][sim]") {
     Config cfg;
     cfg.threat_base_speed = 3000.0f;

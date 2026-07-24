@@ -63,6 +63,7 @@ void Sim::reset(std::uint64_t seed) noexcept {
     terminated_ = false;
     break_timer_ = 0.0f;
     spawn_timer_ = 0.0f;
+    next_bonus_score_ = config_.bonus_city_score;
     start_wave(1);
 }
 
@@ -85,6 +86,7 @@ StepResult Sim::step(const Action& action) noexcept {
     score_ += resolve_blast_hits(); // blasts kill threats (blasts win ties)
     resolve_ground_hits();          // surviving threats at ground destroy cities/bases
     update_waves();                 // spawn, and advance waves with end-of-wave bonus
+    award_bonus_cities();           // restore a destroyed city at score thresholds
     update_termination();           // all cities destroyed?
 
     ++tick_;
@@ -431,6 +433,18 @@ bool Sim::pick_target(TargetKind& kind, std::uint32_t& index) noexcept {
         }
     }
     return false;
+}
+
+void Sim::award_bonus_cities() noexcept {
+    while (score_ >= next_bonus_score_) {
+        for (auto& city : cities_) {
+            if (!city.alive) {
+                city.alive = true; // rebuild the first destroyed city
+                break;
+            }
+        }
+        next_bonus_score_ += config_.bonus_city_score;
+    }
 }
 
 void Sim::update_termination() noexcept {

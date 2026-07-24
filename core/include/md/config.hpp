@@ -71,6 +71,7 @@ struct Config {
     std::int32_t score_per_kill = 25;
     std::int32_t score_per_unused_interceptor = 5;
     std::int32_t score_per_surviving_city = 100;
+    std::int32_t bonus_city_score = 10000; // restore a destroyed city every N points
 };
 
 } // namespace md

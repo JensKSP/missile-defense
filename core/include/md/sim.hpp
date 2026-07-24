@@ -86,6 +86,7 @@ class Sim {
     void start_wave(std::uint32_t wave) noexcept;
     void spawn_threat() noexcept;
     void award_end_of_wave_bonus() noexcept;
+    void award_bonus_cities() noexcept;
     [[nodiscard]] bool pick_target(TargetKind& kind, std::uint32_t& index) noexcept;
     [[nodiscard]] float threat_speed() const noexcept;
     [[nodiscard]] float mirv_probability() const noexcept;
@@ -109,6 +110,7 @@ class Sim {
     bool terminated_ = false;
 
     // Wave/spawn progression.
+    std::int32_t next_bonus_score_ = 0;  // score at which the next bonus city is earned
     std::uint32_t threats_to_spawn_ = 0; // remaining spawns in the current wave
     float spawn_timer_ = 0.0f;           // countdown to the next spawn
     float break_timer_ = 0.0f;           // >0 while between waves
