@@ -69,6 +69,37 @@ void add_thunder(std::vector<float>& v, Pcg32& rng) {
     }
 }
 
+// A German WWII "Fliegeralarm" air-raid siren: a low tone whose pitch howls up
+// and down, built from a rich harmonic stack (the mechanical rotor is nearly a
+// pulse train) plus a slightly detuned second rotor for a rough, beating wail.
+// It winds up from a low, ominous pitch. Peak-normalised. Deliberately menacing.
+void add_siren(std::vector<float>& v) {
+    constexpr float dur = 3.4f;
+    constexpr float fc = 380.0f; // centre pitch (low)
+    constexpr float fd = 150.0f; // wail depth -> sweeps ~230..530 Hz
+    constexpr float fm = 0.42f;  // wail rate (~2.4 s per up-and-down)
+    const auto rotor = [](float ph) {
+        return std::sin(ph) + (0.6f * std::sin(2.0f * ph)) + (0.4f * std::sin(3.0f * ph)) +
+               (0.24f * std::sin(4.0f * ph)) + (0.15f * std::sin(5.0f * ph));
+    };
+    const std::size_t n = static_cast<std::size_t>(dur * kSampleRate);
+    std::vector<float> buf(n);
+    float peak = 1e-6f;
+    for (std::size_t i = 0; i < n; ++i) {
+        const float t = static_cast<float>(i) / kSampleRate;
+        // Phase = exact integral of fc - fd*cos(2*pi*fm*t): starts low, winds up.
+        const float phase = (2.0f * kPi * fc * t) - ((fd / fm) * std::sin(2.0f * kPi * fm * t));
+        const float env = std::min(1.0f, t / 0.5f) * std::min(1.0f, (dur - t) / 0.6f);
+        const float s = env * (rotor(phase) + (0.7f * rotor(phase * 1.008f)));
+        buf[i] = s;
+        peak = std::max(peak, std::fabs(s));
+    }
+    const float gain = 0.85f / peak;
+    for (const float s : buf) {
+        v.push_back(s * gain);
+    }
+}
+
 std::array<std::vector<float>, kEventCount> build_sfx() {
     std::array<std::vector<float>, kEventCount> sfx;
     Pcg32 rng{7};
@@ -121,19 +152,8 @@ std::array<std::vector<float>, kEventCount> build_sfx() {
         return ((0.2f * warble) + (0.12f * noise())) * decay(t, 10.0f);
     });
 
-    // WaveStarted — an air-raid siren wail that rises and falls in pitch.
-    // Instantaneous frequency fc + fd*sin(2*pi*fm*t); phase is its exact integral
-    // so the pitch sweep stays clean rather than smearing over time.
-    add(sfx[ix(EventType::WaveStarted)], 1.7f, [](float t) {
-        constexpr float fc = 620.0f; // centre pitch
-        constexpr float fd = 210.0f; // wail depth
-        constexpr float fm = 0.85f;  // wails per second
-        const float phase =
-            (2.0f * kPi * fc * t) - ((fd / fm) * std::cos(2.0f * kPi * fm * t)) + (fd / fm);
-        const float env = std::min(1.0f, t / 0.2f) * std::min(1.0f, (1.7f - t) / 0.35f);
-        const float tone = std::sin(phase) + (0.25f * std::sin(2.0f * phase)); // + octave (horn)
-        return 0.2f * env * tone;
-    });
+    // WaveStarted — a menacing WWII air-raid siren.
+    add_siren(sfx[ix(EventType::WaveStarted)]);
 
     return sfx;
 }
