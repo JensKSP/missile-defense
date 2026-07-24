@@ -1,0 +1,38 @@
+Source: missile-defense
+Section: games
+Priority: optional
+Maintainer: Jens Köhler <jens@koehler-speyer.de>
+Build-Depends:
+ debhelper-compat (= 13),
+ cmake,
+ ninja-build,
+ qt6-base-dev,
+ qt6-base-dev-tools,
+ libvulkan-dev,
+ glslang-tools,
+ catch2 (>= 3)
+Standards-Version: 4.7.0
+Homepage: https://github.com/jenskoehler/missile-defense
+Vcs-Git: https://github.com/jenskoehler/missile-defense.git
+Vcs-Browser: https://github.com/jenskoehler/missile-defense
+Rules-Requires-Root: no
+
+Package: missile-defense
+Architecture: any
+Depends:
+ ${shlibs:Depends},
+ ${misc:Depends}
+Recommends:
+ libasound2t64 | libpulse0
+Description: faithful Atari Missile Command clone (Qt 6 + Vulkan)
+ A modern, faithful clone of Atari's Missile Command (1980), built on a
+ deterministic C++ simulation and rendered with Qt 6 and Vulkan.
+ .
+ Defend six cities from descending waves of ICBMs, splitting MIRVs and
+ blast-dodging smart bombs by launching interceptors from three ammo-limited
+ batteries. It features procedurally generated retro sound effects and music,
+ a persistent high-score table with arcade initials entry, an options screen,
+ and fullscreen support.
+ .
+ The audio backend (ALSA or PulseAudio) is loaded at runtime if present; the
+ game runs silently if neither is available, hence the Recommends.

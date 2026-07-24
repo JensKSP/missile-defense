@@ -1,16 +1,31 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Jens Köhler
 # Assisted-by: Claude Code (Anthropic)
-# ---- Test framework: Catch2 v3 (fetched + cached in the build tree) ----------
-include(FetchContent)
-FetchContent_Declare(
-  Catch2
-  GIT_REPOSITORY https://github.com/catchorg/Catch2.git
-  GIT_TAG        v3.7.1
-  GIT_SHALLOW    TRUE
-  SYSTEM)
-FetchContent_MakeAvailable(Catch2)
-list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
+# ---- Test framework: Catch2 v3 ------------------------------------------------
+# Prefer a system Catch2 (Debian/Ubuntu package `catch2`) so distro/offline
+# builds do not fetch anything; otherwise fetch it into the build tree. If it is
+# neither installed nor fetchable (offline with no package), skip the tests
+# rather than failing the build.
+find_package(Catch2 3 QUIET)
+if(Catch2_FOUND)
+  if(Catch2_DIR)
+    list(APPEND CMAKE_MODULE_PATH "${Catch2_DIR}") # Catch.cmake ships beside the config
+  endif()
+elseif(FETCHCONTENT_FULLY_DISCONNECTED)
+  message(WARNING "Catch2 not found and fetching is disabled — skipping tests. "
+                  "Install the 'catch2' package to build and run them.")
+  return()
+else()
+  include(FetchContent)
+  FetchContent_Declare(
+    Catch2
+    GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+    GIT_TAG        v3.7.1
+    GIT_SHALLOW    TRUE
+    SYSTEM)
+  FetchContent_MakeAvailable(Catch2)
+  list(APPEND CMAKE_MODULE_PATH "${catch2_SOURCE_DIR}/extras")
+endif()
 include(Catch)
 
 # ---- Unit tests: fast, isolated (CTest label: unit) --------------------------

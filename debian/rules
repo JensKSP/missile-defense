@@ -1,0 +1,20 @@
+#!/usr/bin/make -f
+# Build with debhelper + the CMake buildsystem.
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+
+%:
+	dh $@ --buildsystem=cmake
+
+# No -Werror in the package (new compilers must not break the archive build),
+# no sanitizers/coverage, and the Qt+Vulkan app enabled.
+override_dh_auto_configure:
+	dh_auto_configure -- \
+		-DMD_WERROR=OFF \
+		-DMD_SANITIZE=OFF \
+		-DMD_COVERAGE=OFF \
+		-DMD_BUILD_APP=ON
+
+override_dh_auto_install:
+	dh_auto_install
+	# Licensing is covered by debian/copyright; drop the duplicate shipped file.
+	rm -f debian/missile-defense/usr/share/doc/missile-defense/LICENSE
