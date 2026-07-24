@@ -71,6 +71,15 @@ class Sim {
     void advance_interceptors() noexcept;
     void advance_blasts() noexcept;
     void spawn_blast(Vec2 center) noexcept;
+    void move_threats() noexcept;
+    std::int32_t resolve_blast_hits() noexcept;
+    void resolve_city_hits() noexcept;
+    void update_waves() noexcept;
+    void start_wave(std::uint32_t wave) noexcept;
+    void spawn_threat() noexcept;
+    void award_end_of_wave_bonus() noexcept;
+    [[nodiscard]] std::uint32_t pick_alive_city() noexcept;
+    void update_termination() noexcept;
 
     Config config_{};
     Pcg32 rng_{};
@@ -86,6 +95,11 @@ class Sim {
     std::uint64_t tick_ = 0;
     std::uint32_t wave_ = 0;
     bool terminated_ = false;
+
+    // Wave/spawn progression.
+    std::uint32_t threats_to_spawn_ = 0; // remaining spawns in the current wave
+    float spawn_timer_ = 0.0f;           // countdown to the next spawn
+    float break_timer_ = 0.0f;           // >0 while between waves
 };
 
 static_assert(std::is_trivially_copyable_v<Sim>,

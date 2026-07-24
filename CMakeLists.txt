@@ -43,6 +43,11 @@ if(MD_WERROR)
   target_compile_options(md_warnings INTERFACE -Werror)
 endif()
 
+# ---- Determinism -------------------------------------------------------------
+# Disable floating-point contraction (FMA) so results are bit-identical across
+# Debug/Release and optimization levels — required for seed+action replays.
+add_compile_options(-ffp-contract=off)
+
 # ---- Sanitizers --------------------------------------------------------------
 # Global on purpose: instrument our code *and* the deps it links under test.
 if(MD_SANITIZE)

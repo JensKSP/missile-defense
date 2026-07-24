@@ -59,18 +59,32 @@ void Sim::reset(std::uint64_t seed) noexcept {
     blast_count_ = 0;
     score_ = 0;
     tick_ = 0;
-    wave_ = 1;
     terminated_ = false;
+    break_timer_ = 0.0f;
+    spawn_timer_ = 0.0f;
+    start_wave(1);
 }
 
 StepResult Sim::step(const Action& action) noexcept {
+    if (terminated_) {
+        ++tick_;
+        return StepResult{.reward = 0, .terminated = true};
+    }
+
+    const std::int32_t score_before = score_;
+
     update_cooldowns();
     try_fire(action);
-    advance_interceptors();
-    advance_blasts();
-    // Threat spawning/waves, collisions, scoring, and termination: next increment.
+    advance_interceptors();         // may spawn blasts
+    advance_blasts();               // age blasts, update radius, expire
+    move_threats();                 // integrate threat positions
+    score_ += resolve_blast_hits(); // blasts kill threats (blasts win ties)
+    resolve_city_hits();            // surviving threats at ground destroy cities
+    update_waves();                 // spawn, and advance waves with end-of-wave bonus
+    update_termination();           // all cities destroyed?
+
     ++tick_;
-    return StepResult{.reward = 0, .terminated = terminated_};
+    return StepResult{.reward = score_ - score_before, .terminated = terminated_};
 }
 
 void Sim::update_cooldowns() noexcept {
@@ -145,6 +159,146 @@ void Sim::advance_blasts() noexcept {
             ++i;
         }
     }
+}
+
+void Sim::move_threats() noexcept {
+    for (std::uint32_t i = 0; i < threat_count_; ++i) {
+        threats_[i].pos += threats_[i].velocity * config_.dt;
+    }
+}
+
+std::int32_t Sim::resolve_blast_hits() noexcept {
+    std::int32_t reward = 0;
+    std::uint32_t i = 0;
+    while (i < threat_count_) {
+        bool killed = false;
+        for (std::uint32_t b = 0; b < blast_count_; ++b) {
+            const float radius = blasts_[b].radius;
+            if (distance_sq(threats_[i].pos, blasts_[b].center) <= (radius * radius)) {
+                killed = true;
+                break;
+            }
+        }
+        if (killed) {
+            reward += config_.score_per_kill;
+            threats_[i] = threats_[threat_count_ - 1];
+            --threat_count_;
+        } else {
+            ++i;
+        }
+    }
+    return reward;
+}
+
+void Sim::resolve_city_hits() noexcept {
+    std::uint32_t i = 0;
+    while (i < threat_count_) {
+        const std::uint32_t target = threats_[i].target_city;
+        if (threats_[i].pos.y <= cities_[target].pos.y) {
+            cities_[target].alive = false; // a threat reaching its city destroys it
+            threats_[i] = threats_[threat_count_ - 1];
+            --threat_count_;
+        } else {
+            ++i;
+        }
+    }
+}
+
+void Sim::update_waves() noexcept {
+    if (break_timer_ > 0.0f) {
+        break_timer_ = std::max(0.0f, break_timer_ - config_.dt);
+        if (break_timer_ <= 0.0f) {
+            start_wave(wave_ + 1);
+        }
+        return;
+    }
+
+    if (threats_to_spawn_ > 0) {
+        spawn_timer_ = std::max(0.0f, spawn_timer_ - config_.dt);
+        if (spawn_timer_ <= 0.0f && threat_count_ < max_threats) {
+            spawn_threat();
+            --threats_to_spawn_;
+            spawn_timer_ = config_.spawn_interval;
+        }
+    } else if (threat_count_ == 0) {
+        // Wave cleared: award the end-of-wave bonus and pause before the next.
+        award_end_of_wave_bonus();
+        break_timer_ = config_.wave_break;
+    }
+}
+
+void Sim::start_wave(std::uint32_t wave) noexcept {
+    wave_ = wave;
+    threats_to_spawn_ = config_.wave_base_threats + ((wave - 1) * config_.wave_threats_increment);
+    spawn_timer_ = 0.0f; // first threat of the wave spawns immediately
+    for (auto& base : bases_) {
+        if (base.alive) {
+            base.ammo = config_.ammo_per_base;
+        }
+    }
+}
+
+void Sim::spawn_threat() noexcept {
+    const std::uint32_t city = pick_alive_city();
+    if (city >= max_cities) {
+        return; // nothing left to attack
+    }
+    const Vec2 origin{rng_.uniform(0.0f, config_.world_width), config_.world_height};
+    const Vec2 target = cities_[city].pos;
+    const float speed =
+        config_.threat_base_speed + (static_cast<float>(wave_ - 1) * config_.threat_speed_per_wave);
+    threats_[threat_count_] = Threat{.pos = origin,
+                                     .velocity = (target - origin).normalized() * speed,
+                                     .type = ThreatType::Icbm,
+                                     .target_city = city,
+                                     .split_altitude = 0.0f,
+                                     .active = true};
+    ++threat_count_;
+}
+
+void Sim::award_end_of_wave_bonus() noexcept {
+    std::int32_t bonus = 0;
+    for (const auto& base : bases_) {
+        bonus += (static_cast<std::int32_t>(base.ammo) * config_.score_per_unused_interceptor);
+    }
+    for (const auto& city : cities_) {
+        if (city.alive) {
+            bonus += config_.score_per_surviving_city;
+        }
+    }
+    score_ += bonus;
+}
+
+std::uint32_t Sim::pick_alive_city() noexcept {
+    std::uint32_t alive = 0;
+    for (const auto& city : cities_) {
+        if (city.alive) {
+            ++alive;
+        }
+    }
+    if (alive == 0) {
+        return max_cities; // sentinel: no valid target
+    }
+    std::uint32_t nth = rng_.below(alive);
+    for (std::uint32_t idx = 0; idx < max_cities; ++idx) {
+        if (cities_[idx].alive) {
+            if (nth == 0) {
+                return idx;
+            }
+            --nth;
+        }
+    }
+    return max_cities;
+}
+
+void Sim::update_termination() noexcept {
+    for (const auto& city : cities_) {
+        if (city.alive) {
+            terminated_ = false;
+            return;
+        }
+    }
+    terminated_ = true;
 }
 
 } // namespace md

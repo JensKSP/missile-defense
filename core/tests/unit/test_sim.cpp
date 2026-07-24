@@ -159,3 +159,94 @@ TEST_CASE("A blast expands to full radius then expires", "[unit][sim]") {
                  WithinAbs(static_cast<double>(cfg.blast_max_radius), 1e-4));
     REQUIRE(sim.blasts().empty()); // expired and removed
 }
+
+TEST_CASE("Threats spawn during a wave and descend from the top", "[unit][sim]") {
+    Sim sim;
+    sim.reset(42);
+    sim.step(Action::noop()); // first threat spawns on tick 0 (spawn_timer == 0)
+
+    REQUIRE(sim.threats().size() >= 1);
+    for (const auto& threat : sim.threats()) {
+        REQUIRE(threat.velocity.y < 0.0f); // heading downward
+        REQUIRE(threat.pos.y <= sim.config().world_height);
+    }
+}
+
+TEST_CASE("A blast destroys threats within its radius and scores", "[unit][sim]") {
+    Config cfg;
+    cfg.blast_max_radius = 40.0f;   // large, forgiving blast
+    cfg.blast_lifetime = 3.0f;      // long-lived
+    cfg.threat_base_speed = 5.0f;   // slow threats
+    cfg.interceptor_speed = 400.0f; // fast interceptor
+    Sim sim{cfg};
+    sim.reset(1);
+
+    sim.step(Action::noop()); // spawn a threat
+    REQUIRE(sim.threats().size() >= 1);
+
+    const std::int32_t score_before = sim.score();
+    sim.step(Action::fire(BaseId::Delta, sim.threats()[0].pos));
+
+    bool scored = false;
+    for (int i = 0; i < 300 && !scored; ++i) {
+        sim.step(Action::noop());
+        scored = sim.score() > score_before;
+    }
+    REQUIRE(scored);
+}
+
+TEST_CASE("A threat reaching its city destroys it", "[unit][sim]") {
+    Config cfg;
+    cfg.threat_base_speed = 2000.0f; // crosses the field in a few ticks
+    Sim sim{cfg};
+    sim.reset(5);
+    sim.step(Action::noop()); // spawn a threat heading to a city
+    REQUIRE(sim.threats().size() >= 1);
+
+    bool city_lost = false;
+    for (int i = 0; i < 20 && !city_lost; ++i) {
+        sim.step(Action::noop());
+        for (const auto& city : sim.cities()) {
+            city_lost = city_lost || !city.alive;
+        }
+    }
+    REQUIRE(city_lost);
+}
+
+TEST_CASE("The episode terminates when every city is destroyed", "[unit][sim]") {
+    Config cfg;
+    cfg.threat_base_speed = 3000.0f;
+    cfg.spawn_interval = 0.05f;
+    cfg.wave_base_threats = 50;
+    Sim sim{cfg};
+    sim.reset(9);
+
+    bool terminated = false;
+    for (int i = 0; i < 5000 && !terminated; ++i) {
+        terminated = sim.step(Action::noop()).terminated;
+    }
+
+    REQUIRE(terminated);
+    REQUIRE(sim.terminated());
+    for (const auto& city : sim.cities()) {
+        REQUIRE_FALSE(city.alive);
+    }
+}
+
+TEST_CASE("Clearing a wave awards a bonus and advances to the next wave", "[unit][sim]") {
+    Config cfg;
+    cfg.wave_base_threats = 1;       // a single threat this wave
+    cfg.threat_base_speed = 3000.0f; // reaches a city fast, clearing the wave
+    cfg.wave_break = 0.1f;
+    Sim sim{cfg};
+    sim.reset(3);
+    REQUIRE(sim.wave() == 1u);
+
+    bool advanced = false;
+    for (int i = 0; i < 600 && !advanced; ++i) {
+        sim.step(Action::noop());
+        advanced = sim.wave() == 2u;
+    }
+    REQUIRE(advanced);
+    REQUIRE(sim.score() > 0); // end-of-wave bonus for surviving cities + unused ammo
+}

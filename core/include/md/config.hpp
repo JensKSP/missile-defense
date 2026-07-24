@@ -36,8 +36,15 @@ struct Config {
     float blast_max_radius = 14.0f;   // world units
     float blast_lifetime = 0.9f;      // seconds: expand -> linger -> collapse
 
-    // Threats (wave-1 baseline; scaling curves land with the Sim loop).
-    float threat_base_speed = 30.0f; // descent speed, world units / second
+    // Threats.
+    float threat_base_speed = 30.0f;    // wave-1 descent speed, world units / second
+    float threat_speed_per_wave = 4.0f; // added to descent speed each wave
+
+    // Waves & spawning.
+    std::uint32_t wave_base_threats = 8;      // threats spawned in wave 1
+    std::uint32_t wave_threats_increment = 2; // additional threats per subsequent wave
+    float spawn_interval = 0.6f;              // seconds between spawns within a wave
+    float wave_break = 2.0f;                  // seconds of calm between waves
 
     // Scoring (DESIGN.md §4.3).
     std::int32_t score_per_kill = 25;
