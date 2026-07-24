@@ -192,6 +192,26 @@ Every mode is just "a driver feeds `Action`s into a `Sim`; the renderer draws th
 **M1 (current target): a human can play a fresh game in the Vulkan UI.** Full milestone list and
 the path to M1 are in [`ROADMAP.md`](ROADMAP.md).
 
+## 13. Audio & game events
+
+Discrete game events — interceptor launched, detonation, threat destroyed, city destroyed, wave
+cleared, game over — are **first-class, deterministic outputs of `md::core`**, accumulated during
+`step()` and returned in `StepResult`. One event stream feeds three consumers *identically*:
+
+- **Audio (human):** the app plays a sound effect per event (launch *thunk*, intercept *boom*, a
+  city lost, …).
+- **AI observation (parity):** the same events are encoded into the agent's observation, so the
+  policy receives the cues a human *hears*. This is a deliberate fairness principle — **no
+  information asymmetry between human and AI.** What you hear, the model "hears."
+- **Replay:** events derive deterministically from `(seed, actions)`, so replays reproduce
+  identical audio and cues.
+
+The sim already computes these moments internally (firing, kills, city hits, wave clear,
+termination); surfacing them as an event list is a small, pure, test-first core addition. The
+audio backend (Qt 6 Multimedia `QSoundEffect` vs. a vendored zero-dependency library such as
+miniaudio) is decided when audio is implemented — `qt6-multimedia-dev` is not currently installed.
+Recordings capture the game's audio from the PipeWire sink monitor (`scripts/record.sh`).
+
 ---
 *Freeze this spec before Step 2. Every mechanics change after the freeze invalidates
 trained models and bumps the env version.*

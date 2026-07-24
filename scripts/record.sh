@@ -5,12 +5,23 @@
 # you can capture a clip any time while playing. Pass --launch to spawn a throwaway
 # instance first (headless/CI use). The app must be an X11 window (`poe app`).
 #
-# Usage: scripts/record.sh [--launch] [out.mp4] [seconds] [fps]
+# Audio (the game's sound) is captured from the default PipeWire/Pulse sink
+# monitor and muxed in as AAC. Pass --no-audio for a silent clip.
+#
+# Usage: scripts/record.sh [--launch] [--no-audio] [out.mp4] [seconds] [fps]
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
 LAUNCH=0
-if [[ "${1:-}" == "--launch" ]]; then LAUNCH=1; shift; fi
+AUDIO=1
+while [[ "${1:-}" == --* ]]; do
+  case "$1" in
+    --launch) LAUNCH=1 ;;
+    --no-audio) AUDIO=0 ;;
+    *) echo "unknown flag: $1" >&2; exit 2 ;;
+  esac
+  shift
+done
 OUT="${1:-clip.mp4}"
 DURATION="${2:-6}"
 FPS="${3:-30}"
@@ -44,7 +55,26 @@ eval "$(DISPLAY="$DISPLAY_ID" xwininfo -name "Missile Defense" | awk '
 W=$((W - W % 2))
 H=$((H - H % 2))
 
+video_in=(-f x11grab -framerate "$FPS" -video_size "${W}x${H}" -i "${DISPLAY_ID}+${X},${Y}")
+audio_in=()
+audio_out=()
+maps=(-map 0:v:0)
+have_audio=0
+if [[ "$AUDIO" == "1" ]]; then
+  mon="$(pactl get-default-sink 2>/dev/null).monitor"
+  if pactl list short sources 2>/dev/null | grep -q "$mon"; then
+    audio_in=(-f pulse -i "$mon")
+    audio_out=(-c:a aac -b:a 128k)
+    maps+=(-map 1:a:0)
+    have_audio=1
+  else
+    echo "warning: audio monitor '$mon' not found; recording silent" >&2
+  fi
+fi
+
 ffmpeg -y -hide_banner -loglevel error \
-  -f x11grab -framerate "$FPS" -video_size "${W}x${H}" -i "${DISPLAY_ID}+${X},${Y}" \
-  -t "$DURATION" -c:v libx264 -pix_fmt yuv420p -preset veryfast "$OUT"
-echo "wrote $OUT (${W}x${H}, ${DURATION}s @ ${FPS}fps)"
+  "${video_in[@]}" "${audio_in[@]}" \
+  -t "$DURATION" \
+  -c:v libx264 -pix_fmt yuv420p -preset veryfast "${audio_out[@]}" \
+  "${maps[@]}" "$OUT"
+echo "wrote $OUT (${W}x${H}, ${DURATION}s @ ${FPS}fps, audio=$have_audio)"
