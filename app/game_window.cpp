@@ -15,6 +15,7 @@ namespace md {
 GameWindow::GameWindow() {
     sim_.reset(seed_);
     aim_ = Vec2{sim_.config().world_width * 0.5f, sim_.config().world_height * 0.5f};
+    highscores_.load();
 }
 
 QVulkanWindowRenderer* GameWindow::createRenderer() {
@@ -106,6 +107,39 @@ int GameWindow::menu_hit(Vec2 world) const noexcept {
     return -1;
 }
 
+void GameWindow::end_game() {
+    in_progress_ = false;
+    accumulator_ = 0.0;
+    final_score_ = sim_.score() < 0 ? 0 : sim_.score();
+    if (highscores_.qualifies(final_score_)) {
+        entry_initials_ = {'A', 'A', 'A'};
+        entry_slot_ = 0;
+        state_ = State::EnterScore; // arcade initials entry
+    } else {
+        state_ = State::GameOver;
+    }
+}
+
+void GameWindow::handle_score_entry(int key) {
+    char& slot = entry_initials_[static_cast<std::size_t>(entry_slot_)];
+    if (key >= Qt::Key_A && key <= Qt::Key_Z) {
+        slot = static_cast<char>('A' + (key - Qt::Key_A));
+        entry_slot_ = std::min(entry_slot_ + 1, 2); // typing advances to the next slot
+    } else if (key == Qt::Key_Up) {
+        slot = (slot >= 'Z') ? 'A' : static_cast<char>(slot + 1);
+    } else if (key == Qt::Key_Down) {
+        slot = (slot <= 'A') ? 'Z' : static_cast<char>(slot - 1);
+    } else if (key == Qt::Key_Left || key == Qt::Key_Backspace) {
+        entry_slot_ = std::max(entry_slot_ - 1, 0);
+    } else if (key == Qt::Key_Right) {
+        entry_slot_ = std::min(entry_slot_ + 1, 2);
+    } else if (key == Qt::Key_Return || key == Qt::Key_Enter) {
+        highscores_.insert(entry_initials_, final_score_);
+        state_ = State::Highscores;
+        menu_index_ = 0;
+    }
+}
+
 void GameWindow::open_menu() {
     state_ = State::Menu;
     menu_index_ = 0;
@@ -190,9 +224,7 @@ void GameWindow::advance() {
         pending_ = Action::noop();           // a click fires exactly once
         accumulator_ -= dt;
         if (sim_.terminated()) {
-            state_ = State::GameOver;
-            in_progress_ = false;
-            accumulator_ = 0.0;
+            end_game();
             break;
         }
     }
@@ -237,6 +269,8 @@ void GameWindow::mousePressEvent(QMouseEvent* event) {
     case State::Help:
         open_menu(); // a click dismisses these screens back to the menu
         break;
+    case State::EnterScore:
+        break; // initials entry is keyboard-only
     }
 }
 
@@ -271,6 +305,9 @@ void GameWindow::keyPressEvent(QKeyEvent* event) {
         if (key == Qt::Key_Return || key == Qt::Key_Enter || key == Qt::Key_Escape) {
             open_menu();
         }
+        break;
+    case State::EnterScore:
+        handle_score_entry(key);
         break;
     }
 }

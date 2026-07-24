@@ -619,12 +619,52 @@ void Renderer::startNextFrame() {
         draw_text(inst, "ARROWS ENTER OR MOUSE", cx, world_h * 0.09f, world_h * 0.010f, 0.4f, 0.45f,
                   0.5f, true);
     } else if (state == GameWindow::State::Highscores) {
-        draw_text(inst, "HIGHSCORES", cx, world_h * 0.80f, world_h * 0.030f, 0.85f, 0.92f, 1.0f,
+        draw_text(inst, "HIGHSCORES", cx, world_h * 0.90f, world_h * 0.026f, 0.85f, 0.92f, 1.0f,
                   true);
-        draw_text(inst, "COMING SOON", cx, world_h * 0.50f, world_h * 0.016f, 0.6f, 0.65f, 0.7f,
+        const auto& table = window_->highscores();
+        if (table.entries().empty()) {
+            draw_text(inst, "NO SCORES YET", cx, world_h * 0.5f, world_h * 0.015f, 0.6f, 0.65f,
+                      0.7f, true);
+        } else {
+            int row = 0;
+            for (const auto& entry : table.entries()) {
+                const std::string ini(entry.initials.begin(), entry.initials.end());
+                const std::string line =
+                    std::to_string(row + 1) + "  " + ini + "  " + std::to_string(entry.score);
+                const float y = world_h * (0.72f - (static_cast<float>(row) * 0.066f));
+                const bool top = row == 0;
+                draw_text(inst, line, cx, y, world_h * 0.012f, top ? 1.0f : 0.82f,
+                          top ? 0.85f : 0.86f, top ? 0.35f : 0.9f, true);
+                ++row;
+            }
+        }
+        draw_text(inst, "PRESS ENTER", cx, world_h * 0.055f, world_h * 0.011f, 0.6f, 0.65f, 0.7f,
                   true);
-        draw_text(inst, "PRESS ENTER", cx, world_h * 0.28f, world_h * 0.013f, 0.6f, 0.65f, 0.7f,
-                  true);
+    } else if (state == GameWindow::State::EnterScore) {
+        draw_text(inst, "NEW HIGH SCORE", cx, world_h * 0.82f, world_h * 0.024f, 0.95f, 0.85f,
+                  0.35f, true);
+        draw_text(inst, std::to_string(window_->final_score()), cx, world_h * 0.66f,
+                  world_h * 0.022f, 1.0f, 1.0f, 1.0f, true);
+        draw_text(inst, "ENTER YOUR INITIALS", cx, world_h * 0.52f, world_h * 0.012f, 0.7f, 0.75f,
+                  0.8f, true);
+        const auto initials = window_->entry_initials();
+        const int slot = window_->entry_slot();
+        const float gpx = world_h * 0.05f; // big initial glyphs
+        const float spacing = gpx * 4.0f;
+        const float top_y = world_h * 0.42f;
+        for (int i = 0; i < 3; ++i) {
+            const float center_x = cx + ((static_cast<float>(i) - 1.0f) * spacing);
+            const bool sel = (i == slot);
+            draw_glyph(inst, glyph_for(initials[static_cast<std::size_t>(i)]),
+                       center_x - (1.5f * gpx), top_y, gpx, sel ? 1.0f : 0.85f, sel ? 0.8f : 0.9f,
+                       sel ? 0.3f : 1.0f);
+            if (sel) { // caret underline under the active slot
+                inst.push_back(
+                    rect(center_x, top_y - (5.5f * gpx), 1.6f * gpx, 0.25f, 1.0f, 0.8f, 0.3f));
+            }
+        }
+        draw_text(inst, "ARROWS TYPE ENTER", cx, world_h * 0.10f, world_h * 0.011f, 0.6f, 0.65f,
+                  0.7f, true);
     }
 
     if (inst.size() > max_instances) {

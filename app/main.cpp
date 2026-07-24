@@ -6,6 +6,8 @@
 
 int main(int argc, char** argv) {
     QGuiApplication app(argc, argv);
+    QGuiApplication::setOrganizationName("MissileDefense");
+    QGuiApplication::setApplicationName("MissileDefense"); // stable app-data path for highscores
 
     QVulkanInstance instance;
 #ifndef NDEBUG

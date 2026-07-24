@@ -44,6 +44,7 @@ add_executable(md_app
   game_window.cpp
   renderer.cpp
   audio.cpp
+  highscores.cpp
   ${shader_headers})
 
 target_include_directories(md_app PRIVATE "${shader_hdr_dir}")

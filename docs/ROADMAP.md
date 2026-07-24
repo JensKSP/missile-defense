@@ -48,7 +48,13 @@ A complete, fun arcade game. **Acceptance gate: the human plays it and confirms.
 - ✅ **Bonus cities** — rebuild a destroyed city at score thresholds
 
 **Also requested**
-- ⬜ **Highscores** — persist top scores locally + arcade-style initials entry
+- ✅ **Highscores** — persistent top-10 table (pre-seeded with defaults) + arcade
+  initials entry on a qualifying score
+- ✅ **Options** — menu screen with Audio on/off (mutes the mixer) and a Music
+  on/off placeholder (music t.b.d.)
+- ✅ **Polish** — animated starfield, missile-shaped threats with a distinct look
+  per type (ICBM / MIRV / smart bomb), thunder on city loss, WWII E57 siren on
+  each wave, crosshair reticle
 
 ## M3 — Record & replay in the UI
 

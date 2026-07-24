@@ -1,10 +1,12 @@
 #pragma once
 
 #include "audio.hpp"
+#include "highscores.hpp"
 #include "md/sim.hpp"
 
 #include <QElapsedTimer>
 #include <QVulkanWindow>
+#include <array>
 #include <cstdint>
 #include <string_view>
 
@@ -21,7 +23,7 @@ namespace md {
 /// and preserved); from there RESUME continues it, NEW GAME abandons it.
 class GameWindow : public QVulkanWindow {
   public:
-    enum class State { Menu, Playing, GameOver, Highscores, Help, Options };
+    enum class State { Menu, Playing, GameOver, Highscores, Help, Options, EnterScore };
 
     GameWindow();
 
@@ -60,6 +62,15 @@ class GameWindow : public QVulkanWindow {
     [[nodiscard]] float menu_item_top_y(int index) const noexcept;
     [[nodiscard]] int menu_hit(Vec2 world) const noexcept; // item under a point in the active list
 
+    // Highscores + arcade initials entry (for the Highscores / EnterScore screens).
+    [[nodiscard]] const HighscoreTable& highscores() const noexcept { return highscores_; }
+
+    [[nodiscard]] std::array<char, 3> entry_initials() const noexcept { return entry_initials_; }
+
+    [[nodiscard]] int entry_slot() const noexcept { return entry_slot_; }
+
+    [[nodiscard]] int final_score() const noexcept { return final_score_; }
+
   protected:
     void mouseMoveEvent(QMouseEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
@@ -70,6 +81,8 @@ class GameWindow : public QVulkanWindow {
 
     void update_aim(float px, float py);
     void start_game();
+    void end_game(); // termination -> initials entry (if a high score) or game over
+    void handle_score_entry(int key); // arcade initials input
     void open_menu();
     void open_options();
     void activate(int index); // activate the item at index in the active list
@@ -80,6 +93,7 @@ class GameWindow : public QVulkanWindow {
 
     Sim sim_;
     AudioEngine audio_;
+    HighscoreTable highscores_;
     QElapsedTimer clock_;
     double accumulator_ = 0.0;
     bool started_ = false;
@@ -92,6 +106,9 @@ class GameWindow : public QVulkanWindow {
     bool cursor_hidden_ = false;
     bool audio_on_ = true;
     bool music_on_ = true; // music is t.b.d.; the toggle stores the preference
+    int final_score_ = 0;  // score captured at game over (for the entry screen)
+    std::array<char, 3> entry_initials_{{'A', 'A', 'A'}};
+    int entry_slot_ = 0;
 };
 
 } // namespace md
