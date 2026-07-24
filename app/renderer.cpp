@@ -111,6 +111,26 @@ void add_building(std::vector<InstanceData>& inst, float cx, float half_w, float
     }
 }
 
+// A little missile pointing along its travel direction (origin -> pos): an
+// elongated body, two swept-back tail fins, and a white-hot warhead nose.
+// Degenerate direction (just spawned) falls back to straight down.
+void add_missile(std::vector<InstanceData>& inst, Vec2 origin, Vec2 pos, float len, float width,
+                 float r, float g, float b) {
+    Vec2 d{pos.x - origin.x, pos.y - origin.y};
+    const float dl = std::sqrt((d.x * d.x) + (d.y * d.y));
+    d = (dl > 1.0e-4f) ? Vec2{d.x / dl, d.y / dl} : Vec2{0.0f, -1.0f};
+    const Vec2 tail{pos.x - (d.x * len), pos.y - (d.y * len)};
+    const Vec2 perp{-d.y, d.x};
+    const float fin = width * 2.0f;
+    const Vec2 fin_fwd{tail.x + (d.x * width * 2.0f), tail.y + (d.y * width * 2.0f)};
+    inst.push_back(line(Vec2{tail.x + (perp.x * fin), tail.y + (perp.y * fin)}, fin_fwd,
+                        width * 0.6f, r * 0.8f, g * 0.8f, b * 0.8f, 1.0f));
+    inst.push_back(line(Vec2{tail.x - (perp.x * fin), tail.y - (perp.y * fin)}, fin_fwd,
+                        width * 0.6f, r * 0.8f, g * 0.8f, b * 0.8f, 1.0f));
+    inst.push_back(line(tail, pos, width, r, g, b, 1.0f));                   // body
+    inst.push_back(circle(pos.x, pos.y, width * 1.15f, 1.0f, 0.95f, 0.85f)); // warhead nose
+}
+
 // A 3x5 pixel font for digits, drawn as small quads (no font textures). Each
 // row's low 3 bits are the lit pixels; most-significant bit = leftmost column.
 constexpr std::array<std::array<std::uint8_t, 5>, 10> digit_font = {{
@@ -428,16 +448,16 @@ void Renderer::startNextFrame() {
         for (const auto& threat : sim.threats()) {
             if (threat.type == ThreatType::Mirv) { // splitter — purple
                 inst.push_back(line(threat.origin, threat.pos, 0.4f, 0.6f, 0.3f, 0.85f, 0.5f));
-                inst.push_back(glow(threat.pos.x, threat.pos.y, 4.5f, 0.8f, 0.4f, 1.0f, 0.75f));
-                inst.push_back(circle(threat.pos.x, threat.pos.y, 1.7f, 0.9f, 0.55f, 1.0f));
+                inst.push_back(glow(threat.pos.x, threat.pos.y, 4.5f, 0.8f, 0.4f, 1.0f, 0.6f));
+                add_missile(inst, threat.origin, threat.pos, 5.5f, 0.9f, 0.85f, 0.45f, 1.0f);
             } else if (threat.type == ThreatType::SmartBomb) { // dodger — green
                 inst.push_back(line(threat.origin, threat.pos, 0.4f, 0.3f, 0.8f, 0.4f, 0.45f));
-                inst.push_back(glow(threat.pos.x, threat.pos.y, 4.5f, 0.4f, 1.0f, 0.5f, 0.75f));
-                inst.push_back(circle(threat.pos.x, threat.pos.y, 1.7f, 0.6f, 1.0f, 0.6f));
+                inst.push_back(glow(threat.pos.x, threat.pos.y, 4.5f, 0.4f, 1.0f, 0.5f, 0.6f));
+                add_missile(inst, threat.origin, threat.pos, 4.6f, 0.85f, 0.4f, 1.0f, 0.55f);
             } else { // ICBM — red
                 inst.push_back(line(threat.origin, threat.pos, 0.35f, 0.85f, 0.25f, 0.20f, 0.45f));
-                inst.push_back(glow(threat.pos.x, threat.pos.y, 4.0f, 0.95f, 0.35f, 0.30f, 0.7f));
-                inst.push_back(circle(threat.pos.x, threat.pos.y, 1.4f, 1.0f, 0.55f, 0.45f));
+                inst.push_back(glow(threat.pos.x, threat.pos.y, 4.0f, 0.95f, 0.35f, 0.30f, 0.55f));
+                add_missile(inst, threat.origin, threat.pos, 5.0f, 0.8f, 0.95f, 0.4f, 0.35f);
             }
         }
         for (const auto& it : sim.interceptors()) {
