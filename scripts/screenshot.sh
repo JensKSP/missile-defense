@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Jens Köhler
+# Assisted-by: Claude Code (Anthropic)
 # Capture one frame of the *already-running* app window to a PNG.
 #
 # By default it attaches to a running "Missile Defense" window and grabs it, so

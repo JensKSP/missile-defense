@@ -5,9 +5,30 @@ project for learning AI / machine learning. The same deterministic C++
 simulation is played by humans (Qt 6 + Vulkan) and — as a headless, fast,
 reproducible environment — used to train a reinforcement-learning agent.
 
+*By Jens Köhler · [MIT License](LICENSE) · developed with [Claude Code](https://claude.com/claude-code) (Anthropic).*
+
 - Game design (and reward spec): [docs/DESIGN.md](docs/DESIGN.md)
 - Milestones / roadmap: [docs/ROADMAP.md](docs/ROADMAP.md)
 - Testing & quality gate: [docs/TESTING.md](docs/TESTING.md)
+
+## Features
+
+- **Faithful gameplay** — waves of ICBMs, splitting **MIRVs** (into re-entry
+  warheads), blast-dodging **smart bombs**, three ammo-limited batteries, six
+  destructible cities, bonus cities, and a rising difficulty curve.
+- **Vulkan renderer** — instanced quads under an orthographic world→screen
+  projection: rocket trails, glow, dangerous fireball explosions, distinct
+  shapes per threat type, an animated twinkling starfield, and a pixel HUD/menu.
+- **Procedural audio** — retro SFX *and* a looping FM-synth soundtrack, all
+  generated in code (no asset files), driven by the core's deterministic event
+  stream (which will also give the AI observation parity).
+- **Full arcade shell** — menu, pause, help, **options** (audio / music /
+  fullscreen), and a persistent **top-10 highscore** table with arcade initials
+  entry.
+- **Deterministic core** — fixed-timestep, `-ffp-contract=off`, seed + action
+  replays are bit-identical (Debug == Release), gated by a golden checksum test.
+- **Zero-warning, tested** — `-Werror`, strict clang-tidy, ruff + mypy, and
+  ≥ 80 % core line coverage — all enforced by one `poe check` gate.
 
 ## Requirements
 
@@ -42,13 +63,15 @@ sudo apt install clang-21 lld-21 cmake ninja-build \
 | Task runner + Python tests | `python3 python3-pip python3-venv` then `pip install poethepoet ruff pytest mypy` |
 | Vulkan validation (debugging) | `vulkan-validationlayers`, `vulkan-tools` (for `vulkaninfo`) |
 | Editor tooling | `clangd-21 clang-format-21 clang-tidy-21` |
+| Coverage | `llvm-21` (provides `llvm-cov-21`, `llvm-profdata-21`) |
+| Debian package build | `cpack` (ships with `cmake`), `dpkg-dev` |
 | Screenshot / video capture | `imagemagick` (`import`), `ffmpeg`, `xdotool` |
 
 ```bash
 sudo apt install python3 python3-pip python3-venv \
   vulkan-validationlayers vulkan-tools \
-  clangd-21 clang-format-21 clang-tidy-21 \
-  imagemagick ffmpeg
+  clangd-21 clang-format-21 clang-tidy-21 llvm-21 \
+  dpkg-dev imagemagick ffmpeg xdotool
 ```
 
 ## Build & run
@@ -90,24 +113,41 @@ your three batteries.
 |---|---|
 | Mouse | Move the crosshair (aim) |
 | Left click | Fire from the nearest battery with ammo |
-| Arrow keys / W,S + Enter | Navigate the menu |
+| Arrow keys / W,S + Enter | Navigate the menu (mouse works too — hover + click) |
 | `Esc` | Pause → menu (resume with `Esc` or the RESUME item) |
 | `P` | Pause → menu |
+| `F` | Toggle fullscreen |
+| `M` | Toggle music |
+| `A` | Toggle audio (SFX) |
 
-Menu: **START** a new game, **HELP**, **HIGHSCORES**, **EXIT**.
+Menu: **START** a new game, **HELP**, **OPTIONS** (audio / music / fullscreen),
+**HIGHSCORES**, **EXIT**. Beat a high score to enter your initials, arcade style.
 
 ## Development
 
 ```bash
 poe test        # C++ unit + e2e tests (Debug)
-poe check       # full local gate: format, lint, types, tidy, tests (Debug + Release)
+poe coverage    # md::core line coverage; fails under 80% (currently ~96%)
+poe check       # full local gate: format, lint, types, tidy, tests, coverage
 ```
 
 The project enforces a **zero-warning** policy (`-Werror`, clang-tidy as errors,
-ruff, mypy). See [docs/TESTING.md](docs/TESTING.md).
+ruff, mypy) plus a **≥ 80 % coverage** gate on the core. See
+[docs/TESTING.md](docs/TESTING.md).
 
 Handy tasks: `poe build`, `poe test-unit`, `poe test-release`, `poe shot`
 (screenshot the running app), `poe rec` (record video), `poe format`.
+
+## Building a Debian package
+
+```bash
+poe deb         # -> build/release/missile-defense_<version>_<arch>.deb
+sudo apt install ./build/release/missile-defense_*.deb   # installs `missile-defense`
+```
+
+The package installs the game to `/usr/games/missile-defense` with a desktop
+entry, and declares its runtime dependencies (Qt 6, the Vulkan loader). It is
+produced by CPack's DEB generator directly from the CMake build.
 
 ## Project layout
 
@@ -118,4 +158,14 @@ Handy tasks: `poe build`, `poe test-unit`, `poe test-release`, `poe shot`
 | `bindings/` | Python bindings (nanobind) — *planned* |
 | `python/` | Gymnasium env + RL training — *planned* |
 | `docs/` | Design spec, roadmap, testing |
-| `scripts/` | Screenshot / video capture helpers |
+| `scripts/` | Screenshot / video / coverage helpers |
+
+## License & credits
+
+Copyright © 2026 Jens Köhler. Released under the [MIT License](LICENSE).
+
+This game was designed and written by Jens Köhler and **developed with
+[Claude Code](https://claude.com/claude-code)** (Anthropic) as an AI pair
+programmer. It bundles [miniaudio](https://miniaud.io/) (public domain / MIT-0)
+in `third_party/`; *Missile Command* is a trademark of Atari — this is an
+independent, non-commercial homage.

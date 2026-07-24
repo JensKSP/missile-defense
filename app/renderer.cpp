@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Jens Köhler
+// Assisted-by: Claude Code (Anthropic)
 #include "renderer.hpp"
 
 #include "game_window.hpp"
@@ -594,8 +597,10 @@ void Renderer::startNextFrame() {
     }
 
     if (state == GameWindow::State::Menu) {
-        draw_text(inst, "MISSILE DEFENSE", cx, world_h * 0.88f, world_h * 0.023f, 0.85f, 0.92f,
+        draw_text(inst, "MISSILE DEFENSE", cx, world_h * 0.90f, world_h * 0.022f, 0.85f, 0.92f,
                   1.0f, true);
+        draw_text(inst, "BY JENS KOEHLER", cx, world_h * 0.76f, world_h * 0.010f, 0.55f, 0.60f,
+                  0.68f, true);
         const int count = window_->menu_count();
         for (int i = 0; i < count; ++i) {
             const bool sel = window_->menu_index() == i;
@@ -603,8 +608,10 @@ void Renderer::startNextFrame() {
             draw_text(inst, window_->menu_label(i), cx, y, window_->menu_text_px(),
                       sel ? 0.95f : 0.45f, sel ? 0.75f : 0.45f, sel ? 0.25f : 0.50f, true);
         }
-        draw_text(inst, "ARROWS ENTER OR MOUSE", cx, world_h * 0.09f, world_h * 0.010f, 0.4f, 0.45f,
-                  0.5f, true);
+        draw_text(inst, "ARROWS ENTER OR MOUSE", cx, world_h * 0.115f, world_h * 0.010f, 0.4f,
+                  0.45f, 0.5f, true);
+        draw_text(inst, "F FULLSCREEN   M MUSIC   A AUDIO", cx, world_h * 0.06f, world_h * 0.008f,
+                  0.35f, 0.4f, 0.45f, true);
     } else if (game_over) {
         draw_text(inst, "GAME OVER", cx, world_h * 0.70f, world_h * 0.042f, 0.95f, 0.30f, 0.25f,
                   true);
@@ -627,7 +634,7 @@ void Renderer::startNextFrame() {
                   true);
     } else if (state == GameWindow::State::Options) {
         draw_text(inst, "OPTIONS", cx, world_h * 0.88f, world_h * 0.026f, 0.85f, 0.92f, 1.0f, true);
-        const int count = window_->options_count();
+        const int count = GameWindow::options_count();
         for (int i = 0; i < count; ++i) {
             const bool sel = window_->menu_index() == i;
             const float y = window_->menu_item_top_y(i);

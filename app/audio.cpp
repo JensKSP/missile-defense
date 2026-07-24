@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Jens Köhler
+// Assisted-by: Claude Code (Anthropic)
 #include "audio.hpp"
 
 #include "md/rng.hpp"
@@ -9,13 +12,14 @@
 #include <cstddef>
 #include <miniaudio.h>
 #include <mutex>
+#include <numbers>
 #include <vector>
 
 namespace md {
 
 namespace {
 
-constexpr float kPi = 3.14159265358979f;
+constexpr float kPi = std::numbers::pi_v<float>;
 constexpr float kSampleRate = 48000.0f;
 constexpr std::size_t kEventCount = 10; // EventType values, Fire..WaveStarted
 constexpr std::size_t kVoiceCount = 16;
@@ -34,7 +38,7 @@ float decay(float t, float rate) noexcept {
 
 // Append `dur` seconds of samples produced by fn(t) to v.
 template <class Fn> void add(std::vector<float>& v, float dur, Fn fn) {
-    const std::size_t n = static_cast<std::size_t>(dur * kSampleRate);
+    const auto n = static_cast<std::size_t>(dur * kSampleRate);
     for (std::size_t i = 0; i < n; ++i) {
         v.push_back(fn(static_cast<float>(i) / kSampleRate));
     }
@@ -46,7 +50,7 @@ template <class Fn> void add(std::vector<float>& v, float dur, Fn fn) {
 // to a stable peak so the mix level is predictable.
 void add_thunder(std::vector<float>& v, Pcg32& rng) {
     constexpr float dur = 1.9f;
-    const std::size_t n = static_cast<std::size_t>(dur * kSampleRate);
+    const auto n = static_cast<std::size_t>(dur * kSampleRate);
     std::vector<float> buf(n);
     float lp = 0.0f;
     float lp2 = 0.0f;
@@ -88,7 +92,7 @@ void add_siren(std::vector<float>& v) {
                (0.34f * std::sin(4.0f * ph)) + (0.22f * std::sin(5.0f * ph)) +
                (0.12f * std::sin(6.0f * ph));
     };
-    const std::size_t n = static_cast<std::size_t>(dur * kSampleRate);
+    const auto n = static_cast<std::size_t>(dur * kSampleRate);
     const float dt = 1.0f / kSampleRate;
     std::vector<float> buf(n);
     float peak = 1e-6f;
@@ -129,7 +133,7 @@ std::vector<float> build_music() {
     constexpr int steps_per_bar = 16; // sixteenth-note grid
     constexpr int bars = 8;
     constexpr int total_steps = steps_per_bar * bars;
-    const std::size_t step_n = static_cast<std::size_t>((60.0f / bpm / 4.0f) * kSampleRate);
+    const auto step_n = static_cast<std::size_t>((60.0f / bpm / 4.0f) * kSampleRate);
     const std::size_t total_n = step_n * static_cast<std::size_t>(total_steps);
     std::vector<float> buf(total_n, 0.0f);
 
@@ -299,7 +303,7 @@ struct AudioEngine::Impl {
             out[f] = 0.0f;
         }
         if (enabled.load(std::memory_order_relaxed)) {
-            const std::lock_guard<std::mutex> lock(mutex);
+            const std::scoped_lock lock(mutex);
             for (auto& voice : voices) {
                 if (voice.buffer == nullptr) {
                     continue;
@@ -333,7 +337,7 @@ struct AudioEngine::Impl {
         if (idx >= sfx.size() || sfx[idx].empty()) {
             return;
         }
-        const std::lock_guard<std::mutex> lock(mutex);
+        const std::scoped_lock lock(mutex);
         for (auto& voice : voices) {
             if (voice.buffer == nullptr) {
                 voice.buffer = &sfx[idx];
@@ -381,7 +385,7 @@ void AudioEngine::handle_events(std::span<const Event> events) noexcept {
 void AudioEngine::set_enabled(bool on) noexcept {
     impl_->enabled.store(on, std::memory_order_relaxed);
     if (!on) { // silence anything already playing
-        const std::lock_guard<std::mutex> lock(impl_->mutex);
+        const std::scoped_lock lock(impl_->mutex);
         for (auto& voice : impl_->voices) {
             voice.buffer = nullptr;
         }

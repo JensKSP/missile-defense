@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Jens Köhler
+// Assisted-by: Claude Code (Anthropic)
 #include "md/vec2.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -17,6 +20,21 @@ TEST_CASE("Vec2 arithmetic is constexpr and correct", "[unit][vec2]") {
     STATIC_REQUIRE((-a) == Vec2{-3.0f, -4.0f});
     STATIC_REQUIRE(dot(a, b) == 11.0f);
     STATIC_REQUIRE(a.length_sq() == 25.0f);
+}
+
+TEST_CASE("Vec2 free operators evaluate at runtime", "[unit][vec2]") {
+    // The STATIC_REQUIRE cases above prove these at compile time; call them at
+    // runtime too so the operators are actually exercised (and covered).
+    const Vec2 a{3.0f, 4.0f};
+    const Vec2 b{1.0f, 2.0f};
+    REQUIRE((a + b) == Vec2{4.0f, 6.0f});
+    REQUIRE((a - b) == Vec2{2.0f, 2.0f});
+    REQUIRE((-a) == Vec2{-3.0f, -4.0f});
+    REQUIRE((a * 2.0f) == Vec2{6.0f, 8.0f});
+    REQUIRE((2.0f * a) == Vec2{6.0f, 8.0f});
+    REQUIRE(dot(a, b) == 11.0f);
+    REQUIRE(distance_sq(a, b) == 8.0f);
+    REQUIRE(a.length_sq() == 25.0f);
 }
 
 TEST_CASE("Vec2 compound assignment mutates in place", "[unit][vec2]") {

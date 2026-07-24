@@ -1,5 +1,6 @@
-# clang-tidy configuration for the missile-defense project.
-# Run via: poe tidy  (uses build/debug/compile_commands.json)
+# clang-tidy configuration for missile-defense.
+# Strict: every enabled diagnostic is an error (WarningsAsErrors: '*').
+# Run via: poe tidy  (lints core/src + app/*, from build/debug/compile_commands.json)
 Checks: >
   clang-analyzer-*,
   bugprone-*,
@@ -15,8 +16,25 @@ Checks: >
   -bugprone-easily-swappable-parameters,
   -cppcoreguidelines-pro-bounds-constant-array-index,
   -readability-uppercase-literal-suffix,
-  -readability-redundant-member-init
+  -readability-redundant-member-init,
+  -modernize-use-designated-initializers,
+  -readability-function-cognitive-complexity,
+  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
+  -cppcoreguidelines-avoid-c-arrays,
+  -modernize-avoid-c-arrays,
+  -cppcoreguidelines-owning-memory
 
-WarningsAsErrors: ''
+# Deliberately disabled, with rationale:
+#  * magic-numbers / identifier-length / trailing-return-type / uppercase-suffix
+#    / do-while / redundant-member-init / easily-swappable-parameters — stylistic
+#    friction that hurts readability of game math and small value types.
+#  * The rest are unavoidable in the Qt 6 + Vulkan + miniaudio client:
+#    designated-initializers (Vulkan C structs + hot-path vertex PODs),
+#    cognitive-complexity (the per-state renderer draw), pointer-arithmetic /
+#    array decay / C-arrays (audio mixer, vertex buffers, push constants,
+#    generated SPIR-V headers), owning-memory (Qt factory ownership handoff).
+
+WarningsAsErrors: '*'
 HeaderFilterRegex: '.*/(core|bindings|app)/.*'
 FormatStyle: file

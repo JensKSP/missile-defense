@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Jens Köhler
+# Assisted-by: Claude Code (Anthropic)
 # Record the running app's window to an H.264 mp4.
 #
 # Grabs frames with ImageMagick `import -window <id>` in a loop, then encodes.

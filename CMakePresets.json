@@ -27,11 +27,22 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo"
       }
+    },
+    {
+      "name": "coverage",
+      "inherits": "clang",
+      "displayName": "Clang Coverage (core only)",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "MD_COVERAGE": "ON",
+        "MD_BUILD_APP": "OFF"
+      }
     }
   ],
   "buildPresets": [
     { "name": "debug", "configurePreset": "debug" },
-    { "name": "release", "configurePreset": "release" }
+    { "name": "release", "configurePreset": "release" },
+    { "name": "coverage", "configurePreset": "coverage" }
   ],
   "testPresets": [
     {

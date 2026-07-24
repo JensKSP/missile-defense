@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Jens Köhler
+# Assisted-by: Claude Code (Anthropic)
 # app/ — the human client (Qt 6 + Vulkan). Depends on the pure md::core sim.
 find_package(Qt6 QUIET COMPONENTS Gui)
 find_package(Vulkan QUIET)
@@ -55,3 +58,15 @@ target_link_libraries(md_app
   PRIVATE md::core md::warnings Qt6::Gui Vulkan::Vulkan md_miniaudio)
 
 set_target_properties(md_app PROPERTIES AUTOMOC ON)
+
+# ---- Install (for `cpack -G DEB`) --------------------------------------------
+# The binary is built as `md_app` (scripts reference it) but installs to the
+# Debian games dir as `missile-defense`, with a desktop entry.
+include(GNUInstallDirs)
+install(PROGRAMS "$<TARGET_FILE:md_app>"
+  DESTINATION games
+  RENAME missile-defense)
+install(FILES "${CMAKE_SOURCE_DIR}/packaging/missile-defense.desktop"
+  DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/applications")
+install(FILES "${CMAKE_SOURCE_DIR}/LICENSE"
+  DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/doc/missile-defense")

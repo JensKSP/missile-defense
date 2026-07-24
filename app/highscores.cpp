@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Jens Köhler
+// Assisted-by: Claude Code (Anthropic)
 #include "highscores.hpp"
 
 #include <QDir>
@@ -17,9 +20,8 @@ std::string file_path() {
 }
 
 void sort_desc(std::vector<HighscoreEntry>& v) {
-    std::stable_sort(v.begin(), v.end(), [](const HighscoreEntry& a, const HighscoreEntry& b) {
-        return a.score > b.score;
-    });
+    std::ranges::stable_sort(
+        v, [](const HighscoreEntry& a, const HighscoreEntry& b) { return a.score > b.score; });
     if (v.size() > HighscoreTable::capacity) {
         v.resize(HighscoreTable::capacity);
     }

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Jens Köhler
+# Assisted-by: Claude Code (Anthropic)
 # md_core — the pure, headless game simulation library.
 # No Qt, no rendering, no Python. This is the single source of truth for game rules.
 add_library(md_core)

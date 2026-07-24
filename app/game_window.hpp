@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Jens Köhler
+// Assisted-by: Claude Code (Anthropic)
 #pragma once
 
 #include "audio.hpp"
@@ -23,7 +26,15 @@ namespace md {
 /// and preserved); from there RESUME continues it, NEW GAME abandons it.
 class GameWindow : public QVulkanWindow {
   public:
-    enum class State { Menu, Playing, GameOver, Highscores, Help, Options, EnterScore };
+    enum class State : std::uint8_t {
+        Menu,
+        Playing,
+        GameOver,
+        Highscores,
+        Help,
+        Options,
+        EnterScore
+    };
 
     GameWindow();
 
@@ -48,13 +59,15 @@ class GameWindow : public QVulkanWindow {
     [[nodiscard]] int menu_count() const noexcept;
     [[nodiscard]] std::string_view menu_label(int index) const;
 
-    // Options screen (a second centered list): AUDIO / MUSIC toggles + BACK.
-    [[nodiscard]] int options_count() const noexcept;
+    // Options screen (a second centered list): AUDIO / MUSIC / FULLSCREEN + BACK.
+    [[nodiscard]] static int options_count() noexcept;
     [[nodiscard]] std::string_view options_label(int index) const;
 
     [[nodiscard]] bool audio_on() const noexcept { return audio_on_; }
 
     [[nodiscard]] bool music_on() const noexcept { return music_on_; }
+
+    [[nodiscard]] bool fullscreen() const noexcept { return fullscreen_; }
 
     // Menu/Options share a centered vertical-list layout (world units) — the
     // single source of truth for the renderer (drawing) and mouse hit-testing.
@@ -77,12 +90,15 @@ class GameWindow : public QVulkanWindow {
     void keyPressEvent(QKeyEvent* event) override;
 
   private:
-    enum class MenuAction { Resume, NewGame, Help, Options, Highscores, Exit };
+    enum class MenuAction : std::uint8_t { Resume, NewGame, Help, Options, Highscores, Exit };
 
     void update_aim(float px, float py);
     void start_game();
     void end_game(); // termination -> initials entry (if a high score) or game over
     void handle_score_entry(int key); // arcade initials input
+    void toggle_fullscreen();
+    void toggle_audio();
+    void toggle_music();
     void open_menu();
     void open_options();
     void activate(int index); // activate the item at index in the active list
@@ -105,8 +121,9 @@ class GameWindow : public QVulkanWindow {
     int menu_index_ = 0;
     bool cursor_hidden_ = false;
     bool audio_on_ = true;
-    bool music_on_ = true; // looping FM-synth background music
-    int final_score_ = 0;  // score captured at game over (for the entry screen)
+    bool music_on_ = true;    // looping FM-synth background music
+    bool fullscreen_ = false; // windowed by default
+    int final_score_ = 0;     // score captured at game over (for the entry screen)
     std::array<char, 3> entry_initials_{{'A', 'A', 'A'}};
     int entry_slot_ = 0;
 };

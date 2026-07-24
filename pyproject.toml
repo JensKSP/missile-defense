@@ -34,7 +34,9 @@ test-all     = { sequence = ["test", "test-release", "pytest"], help = "Run ever
 # --- Quality gates (C++) ---
 format       = { shell = "find core bindings app -type f \\( -name '*.cpp' -o -name '*.hpp' \\) 2>/dev/null | xargs -r clang-format-21 -i", help = "clang-format all C++ sources" }
 format-check = { shell = "find core bindings app -type f \\( -name '*.cpp' -o -name '*.hpp' \\) 2>/dev/null | xargs -r clang-format-21 --dry-run --Werror", help = "Fail if any C++ is unformatted" }
-tidy         = { shell = "find core -type d -name tests -prune -o -type f -name '*.cpp' -print 2>/dev/null | xargs -r clang-tidy-21 -p build/debug --warnings-as-errors=*", deps = ["build"], help = "clang-tidy production sources (warnings = errors)" }
+tidy         = { shell = "find core app -type f -name '*.cpp' 2>/dev/null | grep -vE '(/tests/|miniaudio_impl)' | xargs -r clang-tidy-21 -p build/debug --warnings-as-errors=*", deps = ["build"], help = "clang-tidy production sources — core + app (warnings = errors)" }
+coverage     = { cmd = "bash scripts/coverage.sh 80", help = "Measure md::core line coverage; fail if below 80%" }
+deb          = { shell = "cpack --config build/release/CPackConfig.cmake -B build/release -G DEB", deps = ["release"], help = "Build a .deb into build/release/ (needs dpkg-dev)" }
 
 # --- Quality gates (Python) ---
 lint       = { cmd = "ruff check python", help = "Ruff lint the Python code" }
@@ -45,8 +47,8 @@ typecheck  = { cmd = "mypy", help = "Static type-check the Python package (stric
 # --- Aggregate gates ---
 check = { sequence = [
   "format-check", "fmt-py-chk", "lint", "typecheck",
-  "tidy", "test", "test-release", "pytest",
-], help = "Full local CI gate — Debug + Release, everything must pass, zero warnings" }
+  "tidy", "test", "test-release", "pytest", "coverage",
+], help = "Full local CI gate — Debug + Release, tests, coverage ≥80%, zero warnings" }
 
 install-hooks = { shell = "ln -sf ../../scripts/hooks/pre-commit .git/hooks/pre-commit && chmod +x scripts/hooks/pre-commit && echo 'git pre-commit hook installed'", help = "Install the git pre-commit quality hook" }
 

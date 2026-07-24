@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Jens Köhler
+// Assisted-by: Claude Code (Anthropic)
 #include "game_window.hpp"
 
 #include <QGuiApplication>
@@ -29,5 +32,5 @@ int main(int argc, char** argv) {
     }
     window.show();
 
-    return app.exec();
+    return QGuiApplication::exec();
 }

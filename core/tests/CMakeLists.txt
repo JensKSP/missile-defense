@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Jens Köhler
+# Assisted-by: Claude Code (Anthropic)
 # ---- Test framework: Catch2 v3 (fetched + cached in the build tree) ----------
 include(FetchContent)
 FetchContent_Declare(

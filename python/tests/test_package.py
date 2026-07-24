@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Jens Köhler
+# Assisted-by: Claude Code (Anthropic)
 """Python-side test scaffolding.
 
 Real tests arrive in Step 2 (Gymnasium env over the nanobind module). For now

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Jens Köhler
+# Assisted-by: Claude Code (Anthropic)
 # Turn a video into a tiled contact-sheet PNG, so a clip can be reviewed at a
 # glance as a single image (e.g. by the agent, which reads images not video).
 #

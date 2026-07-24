@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Jens Köhler
+# Assisted-by: Claude Code (Anthropic)
 # Fast pre-commit quality gate. Install with: poe install-hooks
 #
 # Runs the quick checks (format, lint, build, fast unit tests). The full gate,

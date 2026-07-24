@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Jens Köhler
+// Assisted-by: Claude Code (Anthropic)
 #include "game_window.hpp"
 
 #include "projection.hpp"
@@ -57,8 +60,8 @@ std::string_view GameWindow::menu_label(int index) const {
     return "";
 }
 
-int GameWindow::options_count() const noexcept {
-    return 3; // AUDIO, MUSIC, BACK
+int GameWindow::options_count() noexcept {
+    return 4; // AUDIO, MUSIC, FULLSCREEN, BACK
 }
 
 std::string_view GameWindow::options_label(int index) const {
@@ -67,6 +70,8 @@ std::string_view GameWindow::options_label(int index) const {
         return audio_on_ ? "AUDIO ON" : "AUDIO OFF";
     case 1:
         return music_on_ ? "MUSIC ON" : "MUSIC OFF";
+    case 2:
+        return fullscreen_ ? "FULLSCREEN ON" : "FULLSCREEN OFF";
     default:
         return "BACK";
     }
@@ -91,7 +96,7 @@ float GameWindow::menu_item_top_y(int index) const noexcept {
     const float h = sim_.config().world_height;
     const float spacing = h * 0.09f;
     const float block = static_cast<float>(active_count() - 1) * spacing;
-    const float first_top = (h * 0.47f) + (block * 0.5f);
+    const float first_top = (h * 0.44f) + (block * 0.5f);
     return first_top - (static_cast<float>(index) * spacing);
 }
 
@@ -147,6 +152,25 @@ void GameWindow::handle_score_entry(int key) {
     }
 }
 
+void GameWindow::toggle_fullscreen() {
+    fullscreen_ = !fullscreen_;
+    if (fullscreen_) {
+        showFullScreen();
+    } else {
+        showNormal();
+    }
+}
+
+void GameWindow::toggle_audio() {
+    audio_on_ = !audio_on_;
+    audio_.set_enabled(audio_on_);
+}
+
+void GameWindow::toggle_music() {
+    music_on_ = !music_on_;
+    audio_.set_music_enabled(music_on_);
+}
+
 void GameWindow::open_menu() {
     state_ = State::Menu;
     menu_index_ = 0;
@@ -170,12 +194,13 @@ void GameWindow::activate(int index) {
     if (state_ == State::Options) {
         switch (index) {
         case 0:
-            audio_on_ = !audio_on_;
-            audio_.set_enabled(audio_on_);
+            toggle_audio();
             break;
         case 1:
-            music_on_ = !music_on_;
-            audio_.set_music_enabled(music_on_);
+            toggle_music();
+            break;
+        case 2:
+            toggle_fullscreen();
             break;
         default:
             open_menu(); // BACK
@@ -225,7 +250,7 @@ void GameWindow::advance() {
     accumulator_ += static_cast<double>(clock_.restart()) / 1000.0;
     accumulator_ = std::min(accumulator_, 0.25); // clamp to avoid a spiral of death
 
-    const double dt = static_cast<double>(sim_.config().dt);
+    const auto dt = static_cast<double>(sim_.config().dt);
     while (accumulator_ >= dt) {
         sim_.step(pending_);
         audio_.handle_events(sim_.events()); // play SFX for this step's events
@@ -284,6 +309,24 @@ void GameWindow::mousePressEvent(QMouseEvent* event) {
 
 void GameWindow::keyPressEvent(QKeyEvent* event) {
     const int key = event->key();
+
+    // Global toggles, available in every state except while typing initials
+    // (where the letters are the input): F = fullscreen, M = music, A = audio.
+    if (state_ != State::EnterScore) {
+        if (key == Qt::Key_F) {
+            toggle_fullscreen();
+            return;
+        }
+        if (key == Qt::Key_M) {
+            toggle_music();
+            return;
+        }
+        if (key == Qt::Key_A) {
+            toggle_audio();
+            return;
+        }
+    }
+
     switch (state_) {
     case State::Menu:
     case State::Options:
