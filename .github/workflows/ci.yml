@@ -32,7 +32,7 @@ jobs:
             dpkg-dev python3 python3-pip
 
       - name: Install task runner + Python tools
-        run: pip install --break-system-packages poethepoet ruff pytest mypy
+        run: pip install --break-system-packages poethepoet ruff pytest mypy pyright
 
       - name: Full quality gate
         # format, lint, types, clang-tidy, tests (Debug + Release), coverage >=80%

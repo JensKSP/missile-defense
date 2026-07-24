@@ -66,7 +66,7 @@ sudo apt install clang-21 lld-21 cmake ninja-build \
 
 | Purpose | Packages / tools |
 |---|---|
-| Task runner + Python tests | `python3 python3-pip python3-venv` then `pip install poethepoet ruff pytest mypy` |
+| Task runner + Python tooling | `python3 python3-pip python3-venv` then `pip install poethepoet ruff pytest mypy pyright` |
 | Vulkan validation (debugging) | `vulkan-validationlayers`, `vulkan-tools` (for `vulkaninfo`) |
 | Editor tooling | `clangd-21 clang-format-21 clang-tidy-21` |
 | Coverage | `llvm-21` (provides `llvm-cov-21`, `llvm-profdata-21`) |
@@ -86,7 +86,7 @@ sudo apt install python3 python3-pip python3-venv \
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install poethepoet ruff pytest mypy
+pip install poethepoet ruff pytest mypy pyright
 
 poe app        # build (Release) and launch the game
 ```
@@ -164,7 +164,7 @@ produced by CPack's DEB generator directly from the CMake build.
 | `bindings/` | Python bindings (nanobind) — *planned* |
 | `python/` | Gymnasium env + RL training — *planned* |
 | `docs/` | Design spec, roadmap, testing |
-| `scripts/` | Screenshot / video / coverage helpers |
+| `tools/` | Cross-platform Python dev tooling (coverage, format/tidy, capture) |
 
 ## License & credits
 

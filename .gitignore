@@ -25,3 +25,6 @@ __pycache__/
 
 # Packages
 *.deb
+
+# Type-checker caches
+.mypy_cache/
