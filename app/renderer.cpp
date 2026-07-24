@@ -112,11 +112,11 @@ void add_building(std::vector<InstanceData>& inst, float cx, float half_w, float
     }
 }
 
-// A little missile pointing along its travel direction (origin -> pos): an
-// elongated body, two swept-back tail fins, and a white-hot warhead nose.
-// Degenerate direction (just spawned) falls back to straight down.
-void add_missile(std::vector<InstanceData>& inst, Vec2 origin, Vec2 pos, float len, float width,
-                 float r, float g, float b) {
+// Draw an oriented rocket body + two swept-back tail fins from `pos` back by
+// `len`, pointing along origin -> pos (falls back to straight down). Returns the
+// unit travel direction so the caller can place warhead nose(s) at the tip.
+Vec2 add_rocket_body(std::vector<InstanceData>& inst, Vec2 origin, Vec2 pos, float len, float width,
+                     float r, float g, float b) {
     Vec2 d{pos.x - origin.x, pos.y - origin.y};
     const float dl = std::sqrt((d.x * d.x) + (d.y * d.y));
     d = (dl > 1.0e-4f) ? Vec2{d.x / dl, d.y / dl} : Vec2{0.0f, -1.0f};
@@ -128,8 +128,43 @@ void add_missile(std::vector<InstanceData>& inst, Vec2 origin, Vec2 pos, float l
                         width * 0.6f, r * 0.8f, g * 0.8f, b * 0.8f, 1.0f));
     inst.push_back(line(Vec2{tail.x - (perp.x * fin), tail.y - (perp.y * fin)}, fin_fwd,
                         width * 0.6f, r * 0.8f, g * 0.8f, b * 0.8f, 1.0f));
-    inst.push_back(line(tail, pos, width, r, g, b, 1.0f));                   // body
+    inst.push_back(line(tail, pos, width, r, g, b, 1.0f)); // body
+    return d;
+}
+
+// A plain ICBM: a rocket body with a single white-hot warhead nose.
+void add_missile(std::vector<InstanceData>& inst, Vec2 origin, Vec2 pos, float len, float width,
+                 float r, float g, float b) {
+    add_rocket_body(inst, origin, pos, len, width, r, g, b);
     inst.push_back(circle(pos.x, pos.y, width * 1.15f, 1.0f, 0.95f, 0.85f)); // warhead nose
+}
+
+// A MIRV: a heavier rocket carrying a cluster of warheads (it splits into
+// several), shown as three warhead tips fanned across the nose.
+void add_mirv(std::vector<InstanceData>& inst, Vec2 origin, Vec2 pos, float len, float width,
+              float r, float g, float b) {
+    const Vec2 d = add_rocket_body(inst, origin, pos, len, width, r, g, b);
+    const Vec2 perp{-d.y, d.x};
+    const Vec2 shoulder{pos.x - (d.x * width * 0.7f), pos.y - (d.y * width * 0.7f)};
+    const float off = width * 1.35f;
+    inst.push_back(circle(pos.x, pos.y, width * 0.9f, 1.0f, 0.9f, 0.85f)); // lead warhead
+    inst.push_back(circle(shoulder.x + (perp.x * off), shoulder.y + (perp.y * off), width * 0.72f,
+                          1.0f, 0.85f, 0.95f));
+    inst.push_back(circle(shoulder.x - (perp.x * off), shoulder.y - (perp.y * off), width * 0.72f,
+                          1.0f, 0.85f, 0.95f));
+}
+
+// A smart bomb: a maneuvering decoy, drawn as a spinning diamond pod with a
+// bright counter-rotating core and an aura — visually agile, not ballistic.
+void add_smartbomb(std::vector<InstanceData>& inst, Vec2 pos, float radius, float spin, float r,
+                   float g, float b) {
+    inst.push_back(glow(pos.x, pos.y, radius * 2.4f, r, g, b, 0.5f));
+    InstanceData body = rect(pos.x, pos.y, radius, radius, r, g, b);
+    body.angle = spin; // rotate the square into a spinning diamond
+    inst.push_back(body);
+    InstanceData core = rect(pos.x, pos.y, radius * 0.5f, radius * 0.5f, 1.0f, 1.0f, 0.9f);
+    core.angle = -spin * 1.4f;
+    inst.push_back(core);
 }
 
 // A 3x5 pixel font for digits, drawn as small quads (no font textures). Each
@@ -474,15 +509,15 @@ void Renderer::startNextFrame() {
 
     if (show_game) {
         for (const auto& threat : sim.threats()) {
-            if (threat.type == ThreatType::Mirv) { // splitter — purple
+            if (threat.type == ThreatType::Mirv) { // splitter — purple, multi-warhead
                 inst.push_back(line(threat.origin, threat.pos, 0.4f, 0.6f, 0.3f, 0.85f, 0.5f));
                 inst.push_back(glow(threat.pos.x, threat.pos.y, 4.5f, 0.8f, 0.4f, 1.0f, 0.6f));
-                add_missile(inst, threat.origin, threat.pos, 5.5f, 0.9f, 0.85f, 0.45f, 1.0f);
-            } else if (threat.type == ThreatType::SmartBomb) { // dodger — green
-                inst.push_back(line(threat.origin, threat.pos, 0.4f, 0.3f, 0.8f, 0.4f, 0.45f));
-                inst.push_back(glow(threat.pos.x, threat.pos.y, 4.5f, 0.4f, 1.0f, 0.5f, 0.6f));
-                add_missile(inst, threat.origin, threat.pos, 4.6f, 0.85f, 0.4f, 1.0f, 0.55f);
-            } else { // ICBM — red
+                add_mirv(inst, threat.origin, threat.pos, 5.5f, 1.0f, 0.8f, 0.45f, 1.0f);
+            } else if (threat.type == ThreatType::SmartBomb) { // dodger — green, spinning pod
+                inst.push_back(line(threat.origin, threat.pos, 0.4f, 0.3f, 0.8f, 0.4f, 0.4f));
+                const float pulse = 1.7f + (0.25f * std::sin((tsec * 6.0f) + threat.pos.x));
+                add_smartbomb(inst, threat.pos, pulse, tsec * 3.0f, 0.35f, 0.95f, 0.5f);
+            } else { // ICBM — red rocket
                 inst.push_back(line(threat.origin, threat.pos, 0.35f, 0.85f, 0.25f, 0.20f, 0.45f));
                 inst.push_back(glow(threat.pos.x, threat.pos.y, 4.0f, 0.95f, 0.35f, 0.30f, 0.55f));
                 add_missile(inst, threat.origin, threat.pos, 5.0f, 0.8f, 0.95f, 0.4f, 0.35f);
