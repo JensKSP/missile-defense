@@ -1,7 +1,7 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: missile-defense
 Upstream-Contact: Jens Köhler <jens@koehler-speyer.de>
-Source: https://github.com/jenskoehler/missile-defense
+Source: https://github.com/JensKSP/missile-defense
 
 Files: *
 Copyright: 2026 Jens Köhler

@@ -11,10 +11,10 @@ Build-Depends:
  libvulkan-dev,
  glslang-tools,
  catch2 (>= 3)
-Standards-Version: 4.7.0
-Homepage: https://github.com/jenskoehler/missile-defense
-Vcs-Git: https://github.com/jenskoehler/missile-defense.git
-Vcs-Browser: https://github.com/jenskoehler/missile-defense
+Standards-Version: 4.7.2
+Homepage: https://github.com/JensKSP/missile-defense
+Vcs-Git: https://github.com/JensKSP/missile-defense.git
+Vcs-Browser: https://github.com/JensKSP/missile-defense
 Rules-Requires-Root: no
 
 Package: missile-defense

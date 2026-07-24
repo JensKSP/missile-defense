@@ -88,7 +88,7 @@ if(MD_BUILD_APP AND PROJECT_IS_TOP_LEVEL)
   set(CPACK_PACKAGE_VENDOR "Jens Köhler")
   set(CPACK_PACKAGE_CONTACT "Jens Köhler <jens@koehler-speyer.de>")
   set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Faithful Atari Missile Command clone (Qt 6 + Vulkan)")
-  set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/jenskoehler/missile-defense")
+  set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/JensKSP/missile-defense")
   set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/LICENSE")
   set(CPACK_PACKAGING_INSTALL_PREFIX "/usr")
 
