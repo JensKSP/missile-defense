@@ -7,7 +7,7 @@ headless, deterministic `md::core` simulation.
 > playing/using it. "Implementation complete + gate green" is not "passed" — it means
 > *ready for human sign-off*.
 
-## M1 — Human can play *(implementation complete — awaiting human sign-off)*
+## M1 — Human can play ✅ *(passed — accepted by Jens, 2026-07-24)*
 
 A person plays a fresh game of Missile Command in the Vulkan UI: waves of descending
 threats, three batteries with limited ammo, interceptors with travel time + expanding
@@ -25,9 +25,7 @@ Path:
    mapped to the shared `Action` (crosshair aim, click to fire) → HUD (score / wave /
    ammo) via a quad-based pixel font.
 
-→ **Implementation complete; not yet accepted.** Passes only when a human plays it and
-confirms. The firing path (interceptors/blasts) in particular is verified by build + code
-but not yet by a human click — the agent can't inject mouse input without `xdotool`.
+→ **Passed** — played and accepted by the human on 2026-07-24.
 
 Follow-up polish (post-M1): trajectory/blast trails, glow via alpha blending, game-over
 screen, MIRV / smart-bomb threats, deterministic offscreen render→PNG for golden-image tests.
