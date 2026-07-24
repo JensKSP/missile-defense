@@ -8,10 +8,34 @@ if(NOT Qt6_FOUND OR NOT Vulkan_FOUND)
   return()
 endif()
 
+find_program(GLSLANG glslangValidator REQUIRED)
+
+# Compile a GLSL shader to SPIR-V embedded as a C header (const uint32_t array),
+# so shaders ship inside the binary with no runtime file loading.
+set(shader_hdr_dir "${CMAKE_CURRENT_BINARY_DIR}/shaders")
+file(MAKE_DIRECTORY "${shader_hdr_dir}")
+set(shader_headers "")
+function(md_embed_shader src var)
+  set(hdr "${shader_hdr_dir}/${var}.h")
+  add_custom_command(
+    OUTPUT "${hdr}"
+    COMMAND ${GLSLANG} -V --vn ${var} -o "${hdr}" "${CMAKE_CURRENT_SOURCE_DIR}/${src}"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${src}"
+    COMMENT "Compiling shader ${src} -> ${var}.h"
+    VERBATIM)
+  set(shader_headers "${shader_headers};${hdr}" PARENT_SCOPE)
+endfunction()
+
+md_embed_shader(shaders/quad.vert quad_vert_spv)
+md_embed_shader(shaders/quad.frag quad_frag_spv)
+
 add_executable(md_app
   main.cpp
   game_window.cpp
-  renderer.cpp)
+  renderer.cpp
+  ${shader_headers})
+
+target_include_directories(md_app PRIVATE "${shader_hdr_dir}")
 
 # Qt/Vulkan headers are imported targets → their includes are SYSTEM, so our
 # strict -Werror only holds our own code to account.
