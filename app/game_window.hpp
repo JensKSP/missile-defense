@@ -46,6 +46,12 @@ class GameWindow : public QVulkanWindow {
     [[nodiscard]] int menu_count() const noexcept;
     [[nodiscard]] std::string_view menu_label(int index) const;
 
+    // Menu layout in world units — the single source of truth shared by the
+    // renderer (drawing) and mouse hit-testing (hover / click).
+    [[nodiscard]] float menu_text_px() const noexcept;
+    [[nodiscard]] float menu_item_top_y(int index) const noexcept;
+    [[nodiscard]] int menu_hit(Vec2 world) const noexcept; // item under a point, or -1
+
   protected:
     void mouseMoveEvent(QMouseEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;

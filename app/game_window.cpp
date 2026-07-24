@@ -53,6 +53,33 @@ std::string_view GameWindow::menu_label(int index) const {
     return "";
 }
 
+float GameWindow::menu_text_px() const noexcept {
+    return sim_.config().world_height * 0.017f;
+}
+
+float GameWindow::menu_item_top_y(int index) const noexcept {
+    return sim_.config().world_height * (0.60f - (static_cast<float>(index) * 0.11f));
+}
+
+int GameWindow::menu_hit(Vec2 world) const noexcept {
+    const float px = menu_text_px();
+    const float advance = px * 4.0f; // per-glyph horizontal step (matches draw_text)
+    const float center_x = sim_.config().world_width * 0.5f;
+    const float pad_x = advance * 0.5f;
+    const float pad_y = px * 0.8f;
+    for (int i = 0; i < menu_count(); ++i) {
+        const float top_y = menu_item_top_y(i);
+        const float bottom_y = top_y - (5.0f * px); // glyphs span ~5 rows below top_y
+        const auto chars = static_cast<float>(menu_label(i).size());
+        const float half_w = (chars * advance * 0.5f) + pad_x;
+        if (std::abs(world.x - center_x) <= half_w && world.y <= (top_y + pad_y) &&
+            world.y >= (bottom_y - pad_y)) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 void GameWindow::open_menu() {
     state_ = State::Menu;
     menu_index_ = 0;
@@ -126,15 +153,35 @@ void GameWindow::update_aim(float px, float py) {
 void GameWindow::mouseMoveEvent(QMouseEvent* event) {
     update_aim(static_cast<float>(event->position().x()),
                static_cast<float>(event->position().y()));
+    if (state_ == State::Menu) {
+        const int hit = menu_hit(aim_); // aim_ is the world point under the cursor
+        if (hit >= 0) {
+            menu_index_ = hit; // hover highlights the item under the pointer
+        }
+    }
 }
 
 void GameWindow::mousePressEvent(QMouseEvent* event) {
-    if (state_ != State::Playing) {
-        return;
-    }
     update_aim(static_cast<float>(event->position().x()),
                static_cast<float>(event->position().y()));
-    pending_ = Action::fire(nearest_base_with_ammo(aim_), aim_);
+    switch (state_) {
+    case State::Menu: {
+        const int hit = menu_hit(aim_);
+        if (hit >= 0) {
+            menu_index_ = hit;
+            select_menu(); // click an item to activate it
+        }
+        break;
+    }
+    case State::Playing:
+        pending_ = Action::fire(nearest_base_with_ammo(aim_), aim_);
+        break;
+    case State::GameOver:
+    case State::Highscores:
+    case State::Help:
+        open_menu(); // a click dismisses these screens back to the menu
+        break;
+    }
 }
 
 void GameWindow::keyPressEvent(QKeyEvent* event) {
