@@ -69,34 +69,54 @@ void add_thunder(std::vector<float>& v, Pcg32& rng) {
     }
 }
 
-// A German WWII "Fliegeralarm" air-raid siren: a low tone whose pitch howls up
-// and down, built from a rich harmonic stack (the mechanical rotor is nearly a
-// pulse train) plus a slightly detuned second rotor for a rough, beating wail.
-// It winds up from a low, ominous pitch. Peak-normalised. Deliberately menacing.
+// A German E57 motor air-raid siren. The rotor is driven by a motor that winds
+// up quickly, holds near full speed, then coasts down slowly — an asymmetric
+// wail (not a symmetric sine). The chopped airflow is nearly a pulse train, so
+// the tone is rich in harmonics ("reedy"); a slightly detuned second rotor adds
+// a rough, beating chorus. Phase is accumulated per sample so any pitch curve
+// stays click-free. Amplitude swells with speed. Peak-normalised. Menacing.
 void add_siren(std::vector<float>& v) {
-    constexpr float dur = 3.4f;
-    constexpr float fc = 380.0f; // centre pitch (low)
-    constexpr float fd = 150.0f; // wail depth -> sweeps ~230..530 Hz
-    constexpr float fm = 0.42f;  // wail rate (~2.4 s per up-and-down)
+    constexpr float dur = 4.2f;
+    constexpr float cycle = 2.8f;    // one wind-up + wind-down
+    constexpr float spin_up = 0.26f; // fraction of the cycle spent accelerating
+    constexpr float hold = 0.22f;    // fraction held near full speed
+    constexpr float f_lo = 190.0f;   // idle pitch
+    constexpr float f_hi = 450.0f;   // full-speed pitch (E57 territory)
     const auto rotor = [](float ph) {
-        return std::sin(ph) + (0.6f * std::sin(2.0f * ph)) + (0.4f * std::sin(3.0f * ph)) +
-               (0.24f * std::sin(4.0f * ph)) + (0.15f * std::sin(5.0f * ph));
+        return std::sin(ph) + (0.7f * std::sin(2.0f * ph)) + (0.5f * std::sin(3.0f * ph)) +
+               (0.34f * std::sin(4.0f * ph)) + (0.22f * std::sin(5.0f * ph)) +
+               (0.12f * std::sin(6.0f * ph));
     };
     const std::size_t n = static_cast<std::size_t>(dur * kSampleRate);
+    const float dt = 1.0f / kSampleRate;
     std::vector<float> buf(n);
     float peak = 1e-6f;
+    float phase = 0.0f;
+    float phase2 = 0.0f; // detuned rotor
     for (std::size_t i = 0; i < n; ++i) {
-        const float t = static_cast<float>(i) / kSampleRate;
-        // Phase = exact integral of fc - fd*cos(2*pi*fm*t): starts low, winds up.
-        const float phase = (2.0f * kPi * fc * t) - ((fd / fm) * std::sin(2.0f * kPi * fm * t));
-        const float env = std::min(1.0f, t / 0.5f) * std::min(1.0f, (dur - t) / 0.6f);
-        const float s = env * (rotor(phase) + (0.7f * rotor(phase * 1.008f)));
-        buf[i] = s;
-        peak = std::max(peak, std::fabs(s));
+        const float t = static_cast<float>(i) * dt;
+        const float u = std::fmod(t, cycle) / cycle; // position within the wail cycle
+        float s = 0.0f;
+        if (u < spin_up) {
+            s = u / spin_up; // fast wind-up
+        } else if (u < spin_up + hold) {
+            s = 1.0f; // hold at full speed
+        } else {
+            s = 1.0f - ((u - spin_up - hold) / (1.0f - spin_up - hold)); // slow coast-down
+        }
+        s = s * s * (3.0f - (2.0f * s)); // smoothstep -> rounded wail
+        const float freq = f_lo + ((f_hi - f_lo) * s);
+        phase += 2.0f * kPi * freq * dt;
+        phase2 += 2.0f * kPi * freq * 1.007f * dt;
+        const float edges = std::min(1.0f, t / 0.6f) * std::min(1.0f, (dur - t) / 0.7f);
+        const float amp = 0.55f + (0.45f * s); // swells as it winds up
+        const float sample = edges * amp * (rotor(phase) + (0.7f * rotor(phase2)));
+        buf[i] = sample;
+        peak = std::max(peak, std::fabs(sample));
     }
-    const float gain = 0.85f / peak;
-    for (const float s : buf) {
-        v.push_back(s * gain);
+    const float gain = 0.82f / peak;
+    for (const float sample : buf) {
+        v.push_back(sample * gain);
     }
 }
 
