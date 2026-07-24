@@ -39,6 +39,36 @@ template <class Fn> void add(std::vector<float>& v, float dur, Fn fn) {
     }
 }
 
+// A thunder-like crash: a sharp initial crack, then a long low-passed noise
+// rumble that rolls (slow amplitude swells) and fades. Two one-pole low-passes
+// turn white noise into a deep brown-ish rumble; the whole thing is normalised
+// to a stable peak so the mix level is predictable.
+void add_thunder(std::vector<float>& v, Pcg32& rng) {
+    constexpr float dur = 1.9f;
+    const std::size_t n = static_cast<std::size_t>(dur * kSampleRate);
+    std::vector<float> buf(n);
+    float lp = 0.0f;
+    float lp2 = 0.0f;
+    float peak = 1e-6f;
+    for (std::size_t i = 0; i < n; ++i) {
+        const float t = static_cast<float>(i) / kSampleRate;
+        const float white = (rng.next_float() * 2.0f) - 1.0f;
+        lp += 0.035f * (white - lp); // two-pole low-pass -> deep rumble
+        lp2 += 0.035f * (lp - lp2);
+        const float roll = 0.5f + (0.5f * std::sin((2.0f * kPi * 1.3f * t) + 0.7f) *
+                                   std::sin(2.0f * kPi * 0.5f * t)); // rolling swells
+        const float crack = white * std::exp(-32.0f * t);            // sharp strike
+        const float sub = std::sin(2.0f * kPi * 42.0f * t) * std::exp(-2.2f * t);
+        const float s = (7.0f * lp2 * roll * decay(t, 1.3f)) + (0.5f * crack) + (0.3f * sub);
+        buf[i] = s;
+        peak = std::max(peak, std::fabs(s));
+    }
+    const float gain = 0.9f / peak;
+    for (const float s : buf) {
+        v.push_back(s * gain);
+    }
+}
+
 std::array<std::vector<float>, kEventCount> build_sfx() {
     std::array<std::vector<float>, kEventCount> sfx;
     Pcg32 rng{7};
@@ -59,14 +89,8 @@ std::array<std::vector<float>, kEventCount> build_sfx() {
                decay(t, 11.0f);
     });
 
-    // CityLost — a deep, scary boom: descending sub-bass + rumble.
-    add(sfx[ix(EventType::CityLost)], 0.8f, [&noise](float t) {
-        const float f = 62.0f - (30.0f * (t / 0.8f)); // descending 62 -> 32 Hz
-        const float sub = 0.55f * sine(f, t);
-        const float body = 0.22f * sine(f * 2.0f, t);
-        const float rumble = 0.35f * noise() * decay(t, 3.5f);
-        return (sub + body + rumble) * decay(t, 3.6f);
-    });
+    // CityLost — thunder: a crack followed by a long rolling rumble.
+    add_thunder(sfx[ix(EventType::CityLost)], rng);
 
     // BaseLost — an even deeper, longer boom.
     add(sfx[ix(EventType::BaseLost)], 0.9f, [&noise](float t) {
