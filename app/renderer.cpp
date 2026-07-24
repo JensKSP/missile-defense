@@ -35,7 +35,7 @@ struct PushConstants {
     float b[2];
 };
 
-constexpr std::size_t max_instances = 512;
+constexpr std::size_t max_instances = 1024;
 
 InstanceData rect(float cx, float cy, float hx, float hy, float r, float g, float b) {
     return InstanceData{cx, cy, hx, hy, r, g, b, 0.0f};
@@ -43,6 +43,57 @@ InstanceData rect(float cx, float cy, float hx, float hy, float r, float g, floa
 
 InstanceData circle(float cx, float cy, float radius, float r, float g, float b) {
     return InstanceData{cx, cy, radius, radius, r, g, b, 1.0f};
+}
+
+// A 3x5 pixel font for digits, drawn as small quads (no font textures). Each
+// row's low 3 bits are the lit pixels; most-significant bit = leftmost column.
+constexpr std::array<std::array<std::uint8_t, 5>, 10> digit_font = {{
+    {{7, 5, 5, 5, 7}},
+    {{2, 6, 2, 2, 7}},
+    {{7, 1, 7, 4, 7}},
+    {{7, 1, 7, 1, 7}},
+    {{5, 5, 7, 1, 1}},
+    {{7, 4, 7, 1, 7}},
+    {{7, 4, 7, 5, 7}},
+    {{7, 1, 2, 2, 2}},
+    {{7, 5, 7, 5, 7}},
+    {{7, 5, 7, 1, 7}},
+}};
+
+void draw_glyph(std::vector<InstanceData>& inst, const std::array<std::uint8_t, 5>& rows,
+                float left_x, float top_y, float px, float r, float g, float b) {
+    for (int row = 0; row < 5; ++row) {
+        for (int col = 0; col < 3; ++col) {
+            if ((rows[static_cast<std::size_t>(row)] & (1u << (2 - col))) != 0u) {
+                inst.push_back(rect(left_x + ((static_cast<float>(col) + 0.5f) * px),
+                                    top_y - ((static_cast<float>(row) + 0.5f) * px), px * 0.42f,
+                                    px * 0.42f, r, g, b));
+            }
+        }
+    }
+}
+
+// Draw an unsigned integer as pixel-font digits. right_align anchors to x's right.
+void draw_number(std::vector<InstanceData>& inst, std::uint32_t value, float x, float top_y,
+                 float px, float r, float g, float b, bool right_align) {
+    std::array<int, 12> digits{};
+    int count = 0;
+    if (value == 0) {
+        digits[static_cast<std::size_t>(count++)] = 0;
+    } else {
+        std::uint32_t v = value;
+        while (v > 0 && count < 12) {
+            digits[static_cast<std::size_t>(count++)] = static_cast<int>(v % 10);
+            v /= 10;
+        }
+    }
+    const float advance = px * 4.0f; // 3 columns + 1 gap
+    const float start_x = right_align ? (x - (static_cast<float>(count) * advance)) : x;
+    for (int i = 0; i < count; ++i) {
+        const auto d = static_cast<std::size_t>(digits[static_cast<std::size_t>(count - 1 - i)]);
+        draw_glyph(inst, digit_font[d], start_x + (static_cast<float>(i) * advance), top_y, px, r,
+                   g, b);
+    }
 }
 
 VkShaderModule make_shader(QVulkanDeviceFunctions* dev, VkDevice device, const uint32_t* code,
@@ -260,6 +311,22 @@ void Renderer::startNextFrame() {
     for (const auto& blast : sim.blasts()) {
         inst.push_back(circle(blast.center.x, blast.center.y, blast.radius, 1.0f, 0.6f, 0.15f));
     }
+    // HUD: score (top-left, white), wave (top-right, amber), ammo pips per base.
+    const float digit_px = world_h * 0.013f;
+    const float hud_top = world_h * 0.97f;
+    draw_number(inst, static_cast<std::uint32_t>(sim.score() < 0 ? 0 : sim.score()),
+                world_w * 0.02f, hud_top, digit_px, 1.0f, 1.0f, 1.0f, false);
+    draw_number(inst, sim.wave(), world_w * 0.98f, hud_top, digit_px, 0.95f, 0.75f, 0.30f, true);
+    for (const auto& base : sim.bases()) {
+        const float spacing = 1.6f;
+        const float base_x0 =
+            base.pos.x - ((static_cast<float>(base.ammo) - 1.0f) * spacing * 0.5f);
+        for (std::uint32_t k = 0; k < base.ammo; ++k) {
+            inst.push_back(rect(base_x0 + (static_cast<float>(k) * spacing), 14.0f, 0.55f, 0.55f,
+                                0.40f, 0.90f, 0.55f));
+        }
+    }
+
     const Vec2 aim = window_->aim();
     inst.push_back(circle(aim.x, aim.y, 2.2f, 1.0f, 1.0f, 1.0f)); // crosshair
     if (inst.size() > max_instances) {
