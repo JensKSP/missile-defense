@@ -58,6 +58,7 @@ void Sim::reset(std::uint64_t seed) noexcept {
     interceptor_count_ = 0;
     blast_count_ = 0;
     explosion_count_ = 0;
+    event_count_ = 0;
     score_ = 0;
     tick_ = 0;
     terminated_ = false;
@@ -67,7 +68,17 @@ void Sim::reset(std::uint64_t seed) noexcept {
     start_wave(1);
 }
 
+void Sim::push_event(EventType type, Vec2 pos) noexcept {
+    if (event_count_ >= max_events) {
+        return;
+    }
+    events_[event_count_] = Event{.type = type, .pos = pos};
+    ++event_count_;
+}
+
 StepResult Sim::step(const Action& action) noexcept {
+    event_count_ = 0; // events are per-step
+
     if (terminated_) {
         ++tick_;
         return StepResult{.reward = 0, .terminated = true};
@@ -122,6 +133,7 @@ bool Sim::try_fire(const Action& action) noexcept {
     ++interceptor_count_;
     --base.ammo;
     base.cooldown_remaining = config_.base_cooldown;
+    push_event(EventType::Fire, base.pos);
     return true;
 }
 
@@ -136,6 +148,7 @@ void Sim::advance_interceptors() noexcept {
         if (to_target.length_sq() <= step_len_sq) {
             // Arrived (or would overshoot): detonate at the target point.
             spawn_blast(it.target);
+            push_event(EventType::Detonate, it.target);
             interceptors_[i] = interceptors_[interceptor_count_ - 1];
             --interceptor_count_;
         } else {
@@ -241,6 +254,7 @@ std::int32_t Sim::resolve_blast_hits() noexcept {
         }
         if (killed) {
             reward += config_.score_per_kill;
+            push_event(EventType::ThreatKilled, threats_[i].pos);
             threats_[i] = threats_[threat_count_ - 1];
             --threat_count_;
         } else {
@@ -264,6 +278,9 @@ void Sim::resolve_ground_hits() noexcept {
                 city ? cities_[threat.target_index].alive : bases_[threat.target_index].alive;
             spawn_explosion({threat.pos.x, 2.0f}, hit_live ? config_.explosion_radius_target
                                                            : config_.explosion_radius_ground);
+            if (hit_live) {
+                push_event(city ? EventType::CityLost : EventType::BaseLost, target_pos);
+            }
             if (city) {
                 cities_[threat.target_index].alive = false;
             } else {
@@ -296,6 +313,8 @@ void Sim::update_waves() noexcept {
     } else if (threat_count_ == 0) {
         // Wave cleared: award the end-of-wave bonus and pause before the next.
         award_end_of_wave_bonus();
+        push_event(EventType::WaveCleared,
+                   Vec2{config_.world_width * 0.5f, config_.world_height * 0.5f});
         break_timer_ = config_.wave_break;
     }
 }
@@ -440,6 +459,7 @@ void Sim::award_bonus_cities() noexcept {
         for (auto& city : cities_) {
             if (!city.alive) {
                 city.alive = true; // rebuild the first destroyed city
+                push_event(EventType::BonusCity, city.pos);
                 break;
             }
         }
@@ -453,6 +473,10 @@ void Sim::update_termination() noexcept {
             terminated_ = false;
             return;
         }
+    }
+    if (!terminated_) { // emit once, on the transition to game over
+        push_event(EventType::GameOver,
+                   Vec2{config_.world_width * 0.5f, config_.world_height * 0.5f});
     }
     terminated_ = true;
 }

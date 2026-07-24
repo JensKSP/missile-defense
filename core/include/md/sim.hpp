@@ -3,6 +3,7 @@
 #include "md/action.hpp"
 #include "md/config.hpp"
 #include "md/entities.hpp"
+#include "md/event.hpp"
 #include "md/rng.hpp"
 #include "md/vec2.hpp"
 
@@ -69,7 +70,14 @@ class Sim {
         return {explosions_.data(), explosion_count_};
     }
 
+    /// Events emitted during the most recent `step()` (cleared at the next step).
+    [[nodiscard]] std::span<const Event> events() const noexcept {
+        return {events_.data(), event_count_};
+    }
+
   private:
+    void push_event(EventType type, Vec2 pos) noexcept; // note: `emit` is a Qt macro
+
     void update_cooldowns() noexcept;
     bool try_fire(const Action& action) noexcept;
     void advance_interceptors() noexcept;
@@ -100,10 +108,12 @@ class Sim {
     std::array<Interceptor, max_interceptors> interceptors_{};
     std::array<Blast, max_blasts> blasts_{};
     std::array<Explosion, max_explosions> explosions_{};
+    std::array<Event, max_events> events_{};
     std::uint32_t threat_count_ = 0;
     std::uint32_t interceptor_count_ = 0;
     std::uint32_t blast_count_ = 0;
     std::uint32_t explosion_count_ = 0;
+    std::uint32_t event_count_ = 0;
     std::int32_t score_ = 0;
     std::uint64_t tick_ = 0;
     std::uint32_t wave_ = 0;

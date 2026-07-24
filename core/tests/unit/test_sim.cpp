@@ -13,9 +13,21 @@ using Catch::Matchers::WithinAbs;
 using md::Action;
 using md::BaseId;
 using md::Config;
+using md::EventType;
 using md::Sim;
 using md::ThreatType;
 using md::Vec2;
+
+namespace {
+bool has_event(const Sim& sim, EventType type) {
+    for (const auto& event : sim.events()) {
+        if (event.type == type) {
+            return true;
+        }
+    }
+    return false;
+}
+} // namespace
 
 TEST_CASE("Sim whole-state is trivially copyable (snapshot == memcpy)", "[unit][sim]") {
     STATIC_REQUIRE(std::is_trivially_copyable_v<Sim>);
@@ -338,6 +350,58 @@ TEST_CASE("A destroyed city is rebuilt at the bonus-score threshold", "[unit][si
         prev = now;
     }
     REQUIRE(rebuilt);
+}
+
+TEST_CASE("Firing emits a Fire event; events are per-step", "[unit][sim]") {
+    Sim sim;
+    sim.reset(0);
+    REQUIRE(sim.events().empty());
+
+    sim.step(Action::fire(BaseId::Alpha, Vec2{100.0f, 90.0f}));
+    REQUIRE(has_event(sim, EventType::Fire));
+
+    sim.step(Action::noop()); // the next step clears the previous step's events
+    REQUIRE_FALSE(has_event(sim, EventType::Fire));
+}
+
+TEST_CASE("A blast kill emits a ThreatKilled event", "[unit][sim]") {
+    Config cfg;
+    cfg.blast_max_radius = 40.0f;
+    cfg.blast_lifetime = 3.0f;
+    cfg.threat_base_speed = 5.0f;
+    cfg.interceptor_speed = 400.0f;
+    Sim sim{cfg};
+    sim.reset(1);
+    sim.step(Action::noop()); // spawn a threat
+    REQUIRE(sim.threats().size() >= 1);
+    sim.step(Action::fire(BaseId::Delta, sim.threats()[0].pos));
+
+    bool killed = false;
+    for (int i = 0; i < 300 && !killed; ++i) {
+        sim.step(Action::noop());
+        killed = has_event(sim, EventType::ThreatKilled);
+    }
+    REQUIRE(killed);
+}
+
+TEST_CASE("Losing the last city emits CityLost then GameOver", "[unit][sim]") {
+    Config cfg;
+    cfg.threat_base_speed = 3000.0f;
+    cfg.spawn_interval = 0.05f;
+    cfg.wave_base_threats = 50;
+    Sim sim{cfg};
+    sim.reset(9);
+
+    bool city_lost = false;
+    bool game_over = false;
+    for (int i = 0; i < 5000 && !game_over; ++i) {
+        sim.step(Action::noop());
+        city_lost = city_lost || has_event(sim, EventType::CityLost);
+        game_over = has_event(sim, EventType::GameOver);
+    }
+    REQUIRE(city_lost);
+    REQUIRE(game_over);
+    REQUIRE(sim.terminated());
 }
 
 TEST_CASE("The episode terminates when every city is destroyed", "[unit][sim]") {

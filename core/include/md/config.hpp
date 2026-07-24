@@ -23,6 +23,7 @@ inline constexpr std::uint32_t max_threats = 128;
 inline constexpr std::uint32_t max_interceptors = 64;
 inline constexpr std::uint32_t max_blasts = 64;
 inline constexpr std::uint32_t max_explosions = 64;
+inline constexpr std::uint32_t max_events = 128; // events emitted per step (capped)
 
 /// Tunable simulation constants (see DESIGN.md §2–4). Values here are the v0.1
 /// strawman defaults, finalized during playtest before the mechanics freeze.
