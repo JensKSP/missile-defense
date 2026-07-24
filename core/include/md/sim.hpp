@@ -4,6 +4,7 @@
 #include "md/config.hpp"
 #include "md/entities.hpp"
 #include "md/rng.hpp"
+#include "md/vec2.hpp"
 
 #include <array>
 #include <cstdint>
@@ -65,6 +66,12 @@ class Sim {
     }
 
   private:
+    void update_cooldowns() noexcept;
+    bool try_fire(const Action& action) noexcept;
+    void advance_interceptors() noexcept;
+    void advance_blasts() noexcept;
+    void spawn_blast(Vec2 center) noexcept;
+
     Config config_{};
     Pcg32 rng_{};
     std::array<City, max_cities> cities_{};
