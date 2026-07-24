@@ -2,14 +2,16 @@
 
 #include <QVulkanWindow>
 #include <cstdint>
+#include <vector>
 
 namespace md {
 
 class GameWindow;
 
-/// Draws the game with Vulkan. This sub-increment renders the static field
-/// (ground, cities, bases) as instanced coloured quads under an orthographic
-/// world->screen projection. Moving entities arrive next.
+/// Draws the game with Vulkan: the field plus the live entities (threats,
+/// interceptors, blasts) and the aim crosshair, as instanced quads/circles under
+/// an orthographic world->screen projection. Instance data is rebuilt each frame
+/// from the Sim into per-frame-in-flight buffers.
 class Renderer : public QVulkanWindowRenderer {
   public:
     explicit Renderer(GameWindow* window) noexcept;
@@ -30,9 +32,11 @@ class Renderer : public QVulkanWindowRenderer {
 
     VkBuffer quad_buf_ = VK_NULL_HANDLE;
     VkDeviceMemory quad_mem_ = VK_NULL_HANDLE;
-    VkBuffer instance_buf_ = VK_NULL_HANDLE;
-    VkDeviceMemory instance_mem_ = VK_NULL_HANDLE;
-    std::uint32_t instance_count_ = 0;
+
+    // One instance buffer per frame in flight (persistently mapped).
+    std::vector<VkBuffer> instance_bufs_;
+    std::vector<VkDeviceMemory> instance_mems_;
+    std::vector<void*> instance_mapped_;
 };
 
 } // namespace md

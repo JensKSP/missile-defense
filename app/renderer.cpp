@@ -1,6 +1,7 @@
 #include "renderer.hpp"
 
 #include "game_window.hpp"
+#include "projection.hpp"
 
 #include <QVulkanDeviceFunctions>
 #include <QVulkanInstance>
@@ -19,11 +20,13 @@ namespace md {
 
 namespace {
 
-// Per-instance vertex data: an axis-aligned box in world units, plus a colour.
+// Per-instance vertex data: an axis-aligned box (world units), a colour, and a
+// shape flag (0 = rectangle, 1 = circle).
 struct InstanceData {
     float cx, cy;
     float hx, hy;
     float r, g, b;
+    float shape;
 };
 
 // Push constants: world -> clip transform, clip.xy = worldPos * a + b.
@@ -31,6 +34,16 @@ struct PushConstants {
     float a[2];
     float b[2];
 };
+
+constexpr std::size_t max_instances = 512;
+
+InstanceData rect(float cx, float cy, float hx, float hy, float r, float g, float b) {
+    return InstanceData{cx, cy, hx, hy, r, g, b, 0.0f};
+}
+
+InstanceData circle(float cx, float cy, float radius, float r, float g, float b) {
+    return InstanceData{cx, cy, radius, radius, r, g, b, 1.0f};
+}
 
 VkShaderModule make_shader(QVulkanDeviceFunctions* dev, VkDevice device, const uint32_t* code,
                            std::size_t bytes) {
@@ -43,8 +56,8 @@ VkShaderModule make_shader(QVulkanDeviceFunctions* dev, VkDevice device, const u
     return module;
 }
 
-void make_host_buffer(QVulkanWindow* win, QVulkanDeviceFunctions* dev, const void* data,
-                      VkDeviceSize size, VkBuffer* buffer, VkDeviceMemory* memory) {
+void alloc_buffer(QVulkanWindow* win, QVulkanDeviceFunctions* dev, VkDeviceSize size,
+                  VkBuffer* buffer, VkDeviceMemory* memory) {
     VkDevice device = win->device();
 
     VkBufferCreateInfo bi{};
@@ -63,11 +76,6 @@ void make_host_buffer(QVulkanWindow* win, QVulkanDeviceFunctions* dev, const voi
     ai.memoryTypeIndex = win->hostVisibleMemoryIndex();
     dev->vkAllocateMemory(device, &ai, nullptr, memory);
     dev->vkBindBufferMemory(device, *buffer, *memory, 0);
-
-    void* mapped = nullptr;
-    dev->vkMapMemory(device, *memory, 0, size, 0, &mapped);
-    std::memcpy(mapped, data, static_cast<std::size_t>(size));
-    dev->vkUnmapMemory(device, *memory);
 }
 
 } // namespace
@@ -84,24 +92,24 @@ void Renderer::createBuffers() {
     // Unit quad (two triangles), corners in [-0.5, 0.5].
     static const std::array<float, 12> quad = {-0.5f, -0.5f, 0.5f, -0.5f, 0.5f,  0.5f,
                                                -0.5f, -0.5f, 0.5f, 0.5f,  -0.5f, 0.5f};
-    make_host_buffer(window_, dev_, quad.data(), sizeof(quad), &quad_buf_, &quad_mem_);
+    alloc_buffer(window_, dev_, sizeof(quad), &quad_buf_, &quad_mem_);
+    void* mapped = nullptr;
+    dev_->vkMapMemory(window_->device(), quad_mem_, 0, sizeof(quad), 0, &mapped);
+    std::memcpy(mapped, quad.data(), sizeof(quad));
+    dev_->vkUnmapMemory(window_->device(), quad_mem_);
 
-    const Sim& sim = window_->sim();
-    const float world_w = sim.config().world_width;
-
-    std::vector<InstanceData> instances;
-    instances.push_back(
-        {world_w * 0.5f, 1.0f, world_w * 0.5f, 1.0f, 0.10f, 0.11f, 0.18f}); // ground
-    for (const auto& city : sim.cities()) {
-        instances.push_back({city.pos.x, 4.0f, 7.0f, 4.0f, 0.25f, 0.75f, 0.95f});
+    // One persistently-mapped instance buffer per frame in flight.
+    const int frames = window_->concurrentFrameCount();
+    const VkDeviceSize inst_bytes = max_instances * sizeof(InstanceData);
+    instance_bufs_.resize(static_cast<std::size_t>(frames));
+    instance_mems_.resize(static_cast<std::size_t>(frames));
+    instance_mapped_.resize(static_cast<std::size_t>(frames));
+    for (int i = 0; i < frames; ++i) {
+        const auto f = static_cast<std::size_t>(i);
+        alloc_buffer(window_, dev_, inst_bytes, &instance_bufs_[f], &instance_mems_[f]);
+        dev_->vkMapMemory(window_->device(), instance_mems_[f], 0, inst_bytes, 0,
+                          &instance_mapped_[f]);
     }
-    for (const auto& base : sim.bases()) {
-        instances.push_back({base.pos.x, 6.0f, 6.0f, 6.0f, 0.95f, 0.65f, 0.20f});
-    }
-
-    instance_count_ = static_cast<std::uint32_t>(instances.size());
-    make_host_buffer(window_, dev_, instances.data(), instances.size() * sizeof(InstanceData),
-                     &instance_buf_, &instance_mem_);
 }
 
 void Renderer::createPipeline() {
@@ -139,7 +147,7 @@ void Renderer::createPipeline() {
     bindings[1].stride = static_cast<std::uint32_t>(sizeof(InstanceData));
     bindings[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
 
-    std::array<VkVertexInputAttributeDescription, 4> attrs{};
+    std::array<VkVertexInputAttributeDescription, 5> attrs{};
     attrs[0] = {0, 0, VK_FORMAT_R32G32_SFLOAT, 0};
     attrs[1] = {1, 1, VK_FORMAT_R32G32_SFLOAT,
                 static_cast<std::uint32_t>(offsetof(InstanceData, cx))};
@@ -147,6 +155,8 @@ void Renderer::createPipeline() {
                 static_cast<std::uint32_t>(offsetof(InstanceData, hx))};
     attrs[3] = {3, 1, VK_FORMAT_R32G32B32_SFLOAT,
                 static_cast<std::uint32_t>(offsetof(InstanceData, r))};
+    attrs[4] = {4, 1, VK_FORMAT_R32_SFLOAT,
+                static_cast<std::uint32_t>(offsetof(InstanceData, shape))};
 
     VkPipelineVertexInputStateCreateInfo vin{};
     vin.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -218,28 +228,56 @@ void Renderer::createPipeline() {
 }
 
 void Renderer::startNextFrame() {
+    window_->advance();
+
     const QSize sz = window_->swapChainImageSize();
     const Sim& sim = window_->sim();
-
-    // World -> clip: y-flip and aspect-preserving letterbox.
     const float world_w = sim.config().world_width;
     const float world_h = sim.config().world_height;
-    const float view_w = static_cast<float>(sz.width());
-    const float view_h = static_cast<float>(sz.height());
-    const float world_aspect = world_w / world_h;
-    const float view_aspect = view_w / view_h;
-    float fx = 1.0f;
-    float fy = 1.0f;
-    if (view_aspect >= world_aspect) {
-        fx = world_aspect / view_aspect;
-    } else {
-        fy = view_aspect / world_aspect;
+
+    // Build this frame's instances from the current sim state.
+    std::vector<InstanceData> inst;
+    inst.reserve(max_instances);
+    inst.push_back(rect(world_w * 0.5f, 1.0f, world_w * 0.5f, 1.0f, 0.10f, 0.11f, 0.18f)); // ground
+    for (const auto& city : sim.cities()) {
+        if (city.alive) {
+            inst.push_back(rect(city.pos.x, 4.0f, 7.0f, 4.0f, 0.25f, 0.75f, 0.95f));
+        } else {
+            inst.push_back(rect(city.pos.x, 1.5f, 6.0f, 1.5f, 0.22f, 0.20f, 0.24f)); // rubble
+        }
     }
+    for (const auto& base : sim.bases()) {
+        const bool empty = base.ammo == 0;
+        inst.push_back(rect(base.pos.x, 6.0f, 6.0f, 6.0f, empty ? 0.40f : 0.95f,
+                            empty ? 0.35f : 0.65f, empty ? 0.15f : 0.20f));
+    }
+    for (const auto& threat : sim.threats()) {
+        inst.push_back(circle(threat.pos.x, threat.pos.y, 1.6f, 0.95f, 0.30f, 0.25f));
+    }
+    for (const auto& it : sim.interceptors()) {
+        inst.push_back(circle(it.pos.x, it.pos.y, 1.0f, 0.85f, 0.95f, 1.0f));
+    }
+    for (const auto& blast : sim.blasts()) {
+        inst.push_back(circle(blast.center.x, blast.center.y, blast.radius, 1.0f, 0.6f, 0.15f));
+    }
+    const Vec2 aim = window_->aim();
+    inst.push_back(circle(aim.x, aim.y, 2.2f, 1.0f, 1.0f, 1.0f)); // crosshair
+    if (inst.size() > max_instances) {
+        inst.resize(max_instances);
+    }
+
+    const auto frame = static_cast<std::size_t>(window_->currentFrame());
+    std::memcpy(instance_mapped_[frame], inst.data(), inst.size() * sizeof(InstanceData));
+    const auto instance_count = static_cast<std::uint32_t>(inst.size());
+
+    // World -> clip transform (matches the mouse->world mapping in GameWindow).
+    const Projection proj = Projection::make(world_w, world_h, static_cast<float>(sz.width()),
+                                             static_cast<float>(sz.height()));
     PushConstants pc{};
-    pc.a[0] = (2.0f * fx) / world_w;
-    pc.b[0] = -fx;
-    pc.a[1] = (-2.0f * fy) / world_h;
-    pc.b[1] = fy;
+    pc.a[0] = proj.ax;
+    pc.a[1] = proj.ay;
+    pc.b[0] = proj.bx;
+    pc.b[1] = proj.by;
 
     std::array<VkClearValue, 3> clear{};
     clear[0].color = {{0.05f, 0.06f, 0.12f, 1.0f}}; // night sky
@@ -260,8 +298,8 @@ void Renderer::startNextFrame() {
     dev_->vkCmdBeginRenderPass(cb, &begin, VK_SUBPASS_CONTENTS_INLINE);
 
     VkViewport viewport{};
-    viewport.width = view_w;
-    viewport.height = view_h;
+    viewport.width = static_cast<float>(sz.width());
+    viewport.height = static_cast<float>(sz.height());
     viewport.minDepth = 0.0f;
     viewport.maxDepth = 1.0f;
     dev_->vkCmdSetViewport(cb, 0, 1, &viewport);
@@ -275,11 +313,11 @@ void Renderer::startNextFrame() {
     dev_->vkCmdPushConstants(cb, pipeline_layout_, VK_SHADER_STAGE_VERTEX_BIT, 0,
                              static_cast<std::uint32_t>(sizeof(PushConstants)), &pc);
 
-    std::array<VkBuffer, 2> vbufs{quad_buf_, instance_buf_};
+    std::array<VkBuffer, 2> vbufs{quad_buf_, instance_bufs_[frame]};
     std::array<VkDeviceSize, 2> offsets{0, 0};
     dev_->vkCmdBindVertexBuffers(cb, 0, static_cast<std::uint32_t>(vbufs.size()), vbufs.data(),
                                  offsets.data());
-    dev_->vkCmdDraw(cb, 6, instance_count_, 0, 0);
+    dev_->vkCmdDraw(cb, 6, instance_count, 0, 0);
 
     dev_->vkCmdEndRenderPass(cb);
     window_->frameReady();
@@ -288,6 +326,19 @@ void Renderer::startNextFrame() {
 
 void Renderer::releaseResources() {
     VkDevice device = window_->device();
+    for (std::size_t i = 0; i < instance_bufs_.size(); ++i) {
+        if (instance_mems_[i] != VK_NULL_HANDLE) {
+            dev_->vkUnmapMemory(device, instance_mems_[i]);
+            dev_->vkFreeMemory(device, instance_mems_[i], nullptr);
+        }
+        if (instance_bufs_[i] != VK_NULL_HANDLE) {
+            dev_->vkDestroyBuffer(device, instance_bufs_[i], nullptr);
+        }
+    }
+    instance_bufs_.clear();
+    instance_mems_.clear();
+    instance_mapped_.clear();
+
     if (pipeline_ != VK_NULL_HANDLE) {
         dev_->vkDestroyPipeline(device, pipeline_, nullptr);
         pipeline_ = VK_NULL_HANDLE;
@@ -295,14 +346,6 @@ void Renderer::releaseResources() {
     if (pipeline_layout_ != VK_NULL_HANDLE) {
         dev_->vkDestroyPipelineLayout(device, pipeline_layout_, nullptr);
         pipeline_layout_ = VK_NULL_HANDLE;
-    }
-    if (instance_buf_ != VK_NULL_HANDLE) {
-        dev_->vkDestroyBuffer(device, instance_buf_, nullptr);
-        instance_buf_ = VK_NULL_HANDLE;
-    }
-    if (instance_mem_ != VK_NULL_HANDLE) {
-        dev_->vkFreeMemory(device, instance_mem_, nullptr);
-        instance_mem_ = VK_NULL_HANDLE;
     }
     if (quad_buf_ != VK_NULL_HANDLE) {
         dev_->vkDestroyBuffer(device, quad_buf_, nullptr);
