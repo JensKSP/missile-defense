@@ -3,7 +3,7 @@
 Milestones, ordered so that **a human can play first**. Each builds on the pure,
 headless, deterministic `md::core` simulation.
 
-## M1 — Human can play *(current target)*
+## M1 — Human can play ✅
 
 A person plays a fresh game of Missile Command in the Vulkan UI: waves of descending
 threats, three batteries with limited ammo, interceptors with travel time + expanding
@@ -16,11 +16,17 @@ Path:
    collisions (blast ↔ threat, threat ↔ city), scoring, termination. Unit + e2e +
    **determinism** tests (Debug == Release, `-ffp-contract=off`). **The game is fully
    playable headless.** *(MIRV / smart-bomb threat variants deferred to a follow-up.)*
-4. **Vulkan / Qt app** — `QVulkanWindow` device bring-up → 2D renderer (instanced quads
-   for entities, a line/circle pipeline for trajectories & blasts) → fixed-timestep loop
-   with render interpolation → input → `Action` + HUD (score / ammo / wave). *(next)*
+4. ✅ Vulkan / Qt app — `QVulkanWindow` bring-up → instanced-quad/circle renderer under
+   an orthographic world→screen projection → fixed-timestep sim loop → Qt mouse input
+   mapped to the shared `Action` (crosshair aim, click to fire) → HUD (score / wave /
+   ammo) via a quad-based pixel font.
 
-→ **M1 reached** once the app lands.
+→ **M1 reached.** *(Firing path — interceptors/blasts — verified by build + code; awaiting
+a human click to confirm on-screen, since the agent can't inject mouse input without
+`xdotool`.)*
+
+Follow-up polish (post-M1): trajectory/blast trails, glow via alpha blending, game-over
+screen, MIRV / smart-bomb threats, deterministic offscreen render→PNG for golden-image tests.
 
 ## M2 — Record & replay in the UI
 
