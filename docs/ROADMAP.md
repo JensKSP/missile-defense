@@ -61,18 +61,39 @@ A complete, fun arcade game. **Acceptance gate: the human plays it and confirms.
 Record every run as `(seed, action-log)`; load a run and replay it with pause / scrub /
 variable speed; **take over** from any point and continue playing.
 
-## M4 — ML infrastructure
+## M4 — Algorithmic reference AI *(the baseline to beat)*
+
+A classic, **hand-coded** Missile Command agent — no learning — that plays headless via
+the shared `Action` interface, so it is a fair, apples-to-apples yardstick for the ML
+agent later. Pure `md::core` (or a thin sibling lib); deterministic and unit-tested.
+
+Heuristics:
+- **Interception geometry** — lead the target: for a candidate battery, solve where an
+  interceptor fired *now* would meet a threat's future position, and aim the blast there.
+- **Threat prioritization** — defend soonest-to-impact threats against live cities/bases
+  first; ignore threats already doomed by an in-flight blast (no double-spending ammo).
+- **Blast economy** — cluster shots to catch MIRV spreads / multiple threats in one blast;
+  respect battery cooldown and ammo; pick the battery that reaches the intercept point.
+- **Threat variants** — account for MIRV split altitude and smart-bomb dodging.
+
+**Evaluation protocol** — run the agent over a fixed seed set and report aggregate metrics
+(mean score, cities saved, waves survived, ammo efficiency). This harness is the shared
+yardstick: the ML agent is scored the same way, and "beat the baseline" becomes concrete.
+Optionally drive it live in the UI to watch the scripted AI play.
+
+*(Depends only on the headless core — can start now; independent of M3.)*
+
+## M5 — ML infrastructure
 
 nanobind bindings; Gymnasium environment; `VecSim` (N parallel sims, thread pool, GIL
-released, zero-copy batched observations); a scripted baseline agent; reward design and
-an evaluation protocol. *(The headless sim is already sufficient to start this — it does
-not depend on M2/M3.)*
+released, zero-copy batched observations); reward design. Reuses the **M4 evaluation
+protocol** so learned and scripted agents are compared identically.
 
-## M5 — Train
+## M6 — Train
 
-Custom PPO (PyTorch) with a curriculum; beat the scripted baseline.
+Custom PPO (PyTorch) with a curriculum; **beat the M4 algorithmic baseline**.
 
-## M6 — Watch the AI / takeover
+## M7 — Watch the AI / takeover
 
 Export the policy → in-process C++ inference; live spectator mode; human takeover from any
-point in an AI-played game.
+point in an AI-played game (scripted or learned).
