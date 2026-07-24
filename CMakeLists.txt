@@ -99,9 +99,11 @@ if(MD_BUILD_APP)
   add_subdirectory(app)
 endif()
 
-# ---- Packaging (CPack -> .deb) -----------------------------------------------
-# Only meaningful for the full app build (that is what gets installed). Build a
-# package with:  poe deb   (or: cmake --build --preset release && cd build/release && cpack -G DEB)
+# ---- Packaging (CPack) -------------------------------------------------------
+# Only meaningful for the full app build (that is what gets installed).
+#   Windows: cmake --build --preset release && cpack --preset release  (-> NSIS + ZIP)
+#   Debian:  poe deb            (-> .deb)
+# Packaging must run from the MSYS2 CLANG64 shell on Windows (windeployqt/ldd).
 if(MD_BUILD_APP AND PROJECT_IS_TOP_LEVEL)
   set(CPACK_PACKAGE_NAME "missile-defense")
   set(CPACK_PACKAGE_VENDOR "Jens Köhler")
@@ -109,16 +111,32 @@ if(MD_BUILD_APP AND PROJECT_IS_TOP_LEVEL)
   set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Faithful Atari Missile Command clone (Qt 6 + Vulkan)")
   set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/JensKSP/missile-defense")
   set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/LICENSE")
-  set(CPACK_PACKAGING_INSTALL_PREFIX "/usr")
 
-  set(CPACK_GENERATOR "DEB")
-  set(CPACK_DEBIAN_FILE_NAME "DEB-DEFAULT") # missile-defense_<version>_<arch>.deb
-  set(CPACK_DEBIAN_PACKAGE_SECTION "games")
-  set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
-  set(CPACK_DEBIAN_PACKAGE_MAINTAINER "${CPACK_PACKAGE_CONTACT}")
-  # Auto-derive the shared-library dependencies (Qt 6, Vulkan loader, libc, ...)
-  # from the linked binary via dpkg-shlibdeps (needs dpkg-dev installed).
-  set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+  if(WIN32)
+    # Windows installer (NSIS) + portable archive (ZIP). The install tree already
+    # carries the bundled Qt/runtime DLLs and licence texts (see app/CMakeLists).
+    set(CPACK_GENERATOR "NSIS;ZIP")
+    set(CPACK_PACKAGE_INSTALL_DIRECTORY "Missile Defense")
+    set(CPACK_PACKAGE_EXECUTABLES "md_app;Missile Defense") # Start-menu shortcut
+    set(CPACK_NSIS_PACKAGE_NAME "Missile Defense")
+    set(CPACK_NSIS_DISPLAY_NAME "Missile Defense")
+    set(CPACK_NSIS_MUI_FINISHPAGE_RUN "md_app.exe")         # offer to launch after install
+    set(CPACK_NSIS_ENABLE_UNINSTALL_BEFORE_INSTALL ON)
+    set(CPACK_NSIS_URL_INFO_ABOUT "${CPACK_PACKAGE_HOMEPAGE_URL}")
+    set(CPACK_NSIS_MUI_ICON "${CMAKE_SOURCE_DIR}/packaging/missile-defense.ico")        # installer
+    set(CPACK_NSIS_MUI_UNIICON "${CMAKE_SOURCE_DIR}/packaging/missile-defense.ico")     # uninstaller
+    set(CPACK_NSIS_INSTALLED_ICON_NAME "md_app.exe") # icon in Add/Remove Programs
+  else()
+    # Debian package. Auto-derive shared-lib deps (Qt 6, Vulkan loader, libc, ...)
+    # from the linked binary via dpkg-shlibdeps (needs dpkg-dev installed).
+    set(CPACK_PACKAGING_INSTALL_PREFIX "/usr")
+    set(CPACK_GENERATOR "DEB")
+    set(CPACK_DEBIAN_FILE_NAME "DEB-DEFAULT") # missile-defense_<version>_<arch>.deb
+    set(CPACK_DEBIAN_PACKAGE_SECTION "games")
+    set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
+    set(CPACK_DEBIAN_PACKAGE_MAINTAINER "${CPACK_PACKAGE_CONTACT}")
+    set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+  endif()
 
   include(CPack)
 endif()

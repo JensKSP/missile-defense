@@ -79,6 +79,12 @@ target_link_libraries(md_app
 # Windows: the audio device init explicitly manages a COM apartment (audio.cpp).
 if(WIN32)
   target_link_libraries(md_app PRIVATE ole32)
+  # Embed the application icon (shown by Explorer, the taskbar and shortcuts).
+  enable_language(RC)
+  set(MD_ICON_ICO "${CMAKE_SOURCE_DIR}/packaging/missile-defense.ico")
+  configure_file("${CMAKE_CURRENT_SOURCE_DIR}/app.rc.in"
+                 "${CMAKE_CURRENT_BINARY_DIR}/app.rc" @ONLY)
+  target_sources(md_app PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/app.rc")
 endif()
 
 set_target_properties(md_app PROPERTIES AUTOMOC ON)
@@ -89,14 +95,41 @@ if(MD_VULKAN_VALIDATION)
   target_compile_definitions(md_app PRIVATE MD_VULKAN_VALIDATION)
 endif()
 
-# ---- Install (for `cpack -G DEB`) --------------------------------------------
-# The binary is built as `md_app` (scripts reference it) but installs to the
-# Debian games dir as `missile-defense`, with a desktop entry.
-include(GNUInstallDirs)
-install(PROGRAMS "$<TARGET_FILE:md_app>"
-  DESTINATION games
-  RENAME missile-defense)
-install(FILES "${CMAKE_SOURCE_DIR}/packaging/missile-defense.desktop"
-  DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/applications")
-install(FILES "${CMAKE_SOURCE_DIR}/LICENSE"
-  DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/doc/missile-defense")
+# ---- Install / packaging -----------------------------------------------------
+if(WIN32)
+  # Self-contained layout for the CPack NSIS installer / ZIP: the exe plus its
+  # bundled Qt + runtime DLLs (gathered by tools/windeploy.sh at install time)
+  # and the licence notices, all under the install root.
+  install(TARGETS md_app RUNTIME DESTINATION .)
+  find_program(BASH_PROGRAM bash REQUIRED)
+  install(CODE "
+    message(STATUS \"windeploy: bundling Qt + runtime DLLs ...\")
+    execute_process(
+      COMMAND \"${BASH_PROGRAM}\" \"${CMAKE_SOURCE_DIR}/tools/windeploy.sh\"
+              \"\${CMAKE_INSTALL_PREFIX}/md_app.exe\"
+      RESULT_VARIABLE _md_deploy_rc)
+    if(NOT _md_deploy_rc EQUAL 0)
+      message(FATAL_ERROR \"tools/windeploy.sh failed (code \${_md_deploy_rc})\")
+    endif()
+  ")
+  install(FILES "${CMAKE_SOURCE_DIR}/LICENSE"
+                "${CMAKE_SOURCE_DIR}/THIRD_PARTY_LICENSES.md"
+    DESTINATION .)
+  install(DIRECTORY "${CMAKE_SOURCE_DIR}/licenses" DESTINATION .)
+else()
+  # Debian: install to the games dir as `missile-defense`, with a desktop entry.
+  include(GNUInstallDirs)
+  install(PROGRAMS "$<TARGET_FILE:md_app>"
+    DESTINATION games
+    RENAME missile-defense)
+  install(FILES "${CMAKE_SOURCE_DIR}/packaging/missile-defense.desktop"
+    DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/applications")
+  # Icons for GNOME/KDE menus (hicolor theme; the .desktop's Icon= resolves here).
+  install(DIRECTORY "${CMAKE_SOURCE_DIR}/packaging/icons/hicolor"
+    DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/icons")
+  install(FILES "${CMAKE_SOURCE_DIR}/LICENSE"
+                "${CMAKE_SOURCE_DIR}/THIRD_PARTY_LICENSES.md"
+    DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/doc/missile-defense")
+  install(DIRECTORY "${CMAKE_SOURCE_DIR}/licenses"
+    DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/doc/missile-defense")
+endif()

@@ -1,0 +1,4 @@
+// SPDX-License-Identifier: MIT
+// Windows resource script (configured by CMake). The lowest-id ICON resource
+// becomes the executable's icon, shown in Explorer, the taskbar and shortcuts.
+1 ICON "@MD_ICON_ICO@"

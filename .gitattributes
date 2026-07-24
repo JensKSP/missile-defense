@@ -1,0 +1,5 @@
+# Shell scripts run under MSYS2 bash on Windows — keep LF or bash chokes on \r.
+*.sh text eol=lf
+# Binary assets: never normalise line endings, never attempt textual diffs.
+*.ico binary
+*.png binary
