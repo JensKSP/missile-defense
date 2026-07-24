@@ -50,6 +50,11 @@ struct Config {
     float spawn_interval = 0.6f;              // seconds between spawns within a wave
     float wave_break = 2.0f;                  // seconds of calm between waves
 
+    // MIRV — splitting warheads, appearing from wave 2.
+    float mirv_chance_per_wave = 0.06f; // added chance per wave that a spawn is a MIRV
+    float mirv_max_chance = 0.40f;      // cap on that chance
+    std::uint32_t mirv_splits = 3;      // warheads a MIRV splits into
+
     // Scoring (DESIGN.md §4.3).
     std::int32_t score_per_kill = 25;
     std::int32_t score_per_unused_interceptor = 5;

@@ -94,6 +94,6 @@ TEST_CASE("Same seed + actions produce an identical trajectory", "[e2e]") {
 TEST_CASE("Trajectory checksum is stable across builds (Debug == Release)", "[e2e]") {
     // Golden value pins the whole trajectory: if Debug and Release ever diverge
     // (e.g. FP contraction), one of them fails this exact-match check.
-    constexpr std::uint64_t golden = 0x27376b5d6038eb02ULL;
+    constexpr std::uint64_t golden = 0x98f801d7b65f55eeULL;
     REQUIRE(run_checksum(777, 1500) == golden);
 }

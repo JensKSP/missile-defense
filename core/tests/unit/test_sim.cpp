@@ -231,6 +231,25 @@ TEST_CASE("Threats can destroy bases, not just cities", "[unit][sim]") {
     REQUIRE(base_destroyed);
 }
 
+TEST_CASE("MIRV threats split into multiple warheads", "[unit][sim]") {
+    Config cfg;
+    cfg.mirv_chance_per_wave = 1.0f; // force every wave-2+ spawn to be a MIRV
+    Sim sim{cfg};
+    sim.reset(2);
+
+    // A split removes one parent and adds several children, so the active-threat
+    // count jumps by >= 2 in a single step (a plain spawn only adds one).
+    bool split_seen = false;
+    std::size_t prev = sim.threats().size();
+    for (int i = 0; i < 8000 && !split_seen; ++i) {
+        sim.step(Action::noop());
+        const std::size_t now = sim.threats().size();
+        split_seen = now >= prev + 2;
+        prev = now;
+    }
+    REQUIRE(split_seen);
+}
+
 TEST_CASE("The episode terminates when every city is destroyed", "[unit][sim]") {
     Config cfg;
     cfg.threat_base_speed = 3000.0f;

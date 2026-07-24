@@ -78,6 +78,7 @@ StepResult Sim::step(const Action& action) noexcept {
     advance_interceptors();         // may spawn blasts
     advance_blasts();               // age blasts, update radius, expire
     move_threats();                 // integrate threat positions
+    split_mirvs();                  // MIRVs split into child warheads at altitude
     score_ += resolve_blast_hits(); // blasts kill threats (blasts win ties)
     resolve_ground_hits();          // surviving threats at ground destroy cities/bases
     update_waves();                 // spawn, and advance waves with end-of-wave bonus
@@ -247,6 +248,16 @@ void Sim::start_wave(std::uint32_t wave) noexcept {
     }
 }
 
+float Sim::threat_speed() const noexcept {
+    return config_.threat_base_speed +
+           (static_cast<float>(wave_ - 1) * config_.threat_speed_per_wave);
+}
+
+float Sim::mirv_probability() const noexcept {
+    return std::min(config_.mirv_max_chance,
+                    static_cast<float>(wave_ - 1) * config_.mirv_chance_per_wave);
+}
+
 void Sim::spawn_threat() noexcept {
     TargetKind kind = TargetKind::City;
     std::uint32_t index = 0;
@@ -255,17 +266,57 @@ void Sim::spawn_threat() noexcept {
     }
     const Vec2 target = (kind == TargetKind::City) ? cities_[index].pos : bases_[index].pos;
     const Vec2 origin{rng_.uniform(0.0f, config_.world_width), config_.world_height};
-    const float speed =
-        config_.threat_base_speed + (static_cast<float>(wave_ - 1) * config_.threat_speed_per_wave);
+
+    ThreatType type = ThreatType::Icbm;
+    float split_altitude = 0.0f;
+    if (wave_ >= 2 && rng_.next_float() < mirv_probability()) {
+        type = ThreatType::Mirv;
+        split_altitude = config_.world_height * rng_.uniform(0.45f, 0.65f);
+    }
+
     threats_[threat_count_] = Threat{.pos = origin,
                                      .origin = origin,
-                                     .velocity = (target - origin).normalized() * speed,
-                                     .type = ThreatType::Icbm,
+                                     .velocity = (target - origin).normalized() * threat_speed(),
+                                     .type = type,
                                      .target_kind = kind,
                                      .target_index = index,
-                                     .split_altitude = 0.0f,
+                                     .split_altitude = split_altitude,
                                      .active = true};
     ++threat_count_;
+}
+
+void Sim::split_mirvs() noexcept {
+    std::uint32_t i = 0;
+    while (i < threat_count_) {
+        Threat& threat = threats_[i];
+        if (threat.type != ThreatType::Mirv || threat.pos.y > threat.split_altitude) {
+            ++i;
+            continue;
+        }
+        // Split: remove the parent, then spawn child ICBMs from the split point.
+        const Vec2 split_pos = threat.pos;
+        threats_[i] = threats_[threat_count_ - 1];
+        --threat_count_;
+        for (std::uint32_t c = 0; c < config_.mirv_splits && threat_count_ < max_threats; ++c) {
+            TargetKind kind = TargetKind::City;
+            std::uint32_t index = 0;
+            if (!pick_target(kind, index)) {
+                break;
+            }
+            const Vec2 target = (kind == TargetKind::City) ? cities_[index].pos : bases_[index].pos;
+            threats_[threat_count_] =
+                Threat{.pos = split_pos,
+                       .origin = split_pos,
+                       .velocity = (target - split_pos).normalized() * threat_speed(),
+                       .type = ThreatType::Icbm,
+                       .target_kind = kind,
+                       .target_index = index,
+                       .split_altitude = 0.0f,
+                       .active = true};
+            ++threat_count_;
+        }
+        // Re-check the element swapped into slot i (do not advance i).
+    }
 }
 
 void Sim::award_end_of_wave_bonus() noexcept {

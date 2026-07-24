@@ -72,6 +72,7 @@ class Sim {
     void advance_blasts() noexcept;
     void spawn_blast(Vec2 center) noexcept;
     void move_threats() noexcept;
+    void split_mirvs() noexcept;
     std::int32_t resolve_blast_hits() noexcept;
     void resolve_ground_hits() noexcept;
     void update_waves() noexcept;
@@ -79,6 +80,8 @@ class Sim {
     void spawn_threat() noexcept;
     void award_end_of_wave_bonus() noexcept;
     [[nodiscard]] bool pick_target(TargetKind& kind, std::uint32_t& index) noexcept;
+    [[nodiscard]] float threat_speed() const noexcept;
+    [[nodiscard]] float mirv_probability() const noexcept;
     void update_termination() noexcept;
 
     Config config_{};
