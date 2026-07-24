@@ -84,6 +84,11 @@ StepResult Sim::step(const Action& action) noexcept {
         return StepResult{.reward = 0, .terminated = true};
     }
 
+    if (wave_started_pending_) { // a wave began (this step or during reset) — sound the siren
+        wave_started_pending_ = false;
+        push_event(EventType::WaveStarted, Vec2{config_.world_width * 0.5f, config_.world_height});
+    }
+
     const std::int32_t score_before = score_;
 
     update_cooldowns();
@@ -321,6 +326,7 @@ void Sim::update_waves() noexcept {
 
 void Sim::start_wave(std::uint32_t wave) noexcept {
     wave_ = wave;
+    wave_started_pending_ = true; // siren on the next step (survives step()'s event reset)
     threats_to_spawn_ = config_.wave_base_threats + ((wave - 1) * config_.wave_threats_increment);
     spawn_timer_ = 0.0f; // first threat of the wave spawns immediately
     for (auto& base : bases_) {

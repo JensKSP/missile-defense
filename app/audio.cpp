@@ -16,7 +16,7 @@ namespace {
 
 constexpr float kPi = 3.14159265358979f;
 constexpr float kSampleRate = 48000.0f;
-constexpr std::size_t kEventCount = 9; // EventType values, Fire..MirvSplit
+constexpr std::size_t kEventCount = 10; // EventType values, Fire..WaveStarted
 constexpr std::size_t kVoiceCount = 16;
 
 std::size_t ix(EventType type) noexcept {
@@ -119,6 +119,20 @@ std::array<std::vector<float>, kEventCount> build_sfx() {
     add(sfx[ix(EventType::MirvSplit)], 0.22f, [&noise](float t) {
         const float warble = sine(620.0f + (140.0f * sine(30.0f, t)), t);
         return ((0.2f * warble) + (0.12f * noise())) * decay(t, 10.0f);
+    });
+
+    // WaveStarted — an air-raid siren wail that rises and falls in pitch.
+    // Instantaneous frequency fc + fd*sin(2*pi*fm*t); phase is its exact integral
+    // so the pitch sweep stays clean rather than smearing over time.
+    add(sfx[ix(EventType::WaveStarted)], 1.7f, [](float t) {
+        constexpr float fc = 620.0f; // centre pitch
+        constexpr float fd = 210.0f; // wail depth
+        constexpr float fm = 0.85f;  // wails per second
+        const float phase =
+            (2.0f * kPi * fc * t) - ((fd / fm) * std::cos(2.0f * kPi * fm * t)) + (fd / fm);
+        const float env = std::min(1.0f, t / 0.2f) * std::min(1.0f, (1.7f - t) / 0.35f);
+        const float tone = std::sin(phase) + (0.25f * std::sin(2.0f * phase)); // + octave (horn)
+        return 0.2f * env * tone;
     });
 
     return sfx;

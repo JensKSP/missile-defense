@@ -369,6 +369,16 @@ TEST_CASE("Firing emits a Fire event; events are per-step", "[unit][sim]") {
     REQUIRE_FALSE(has_event(sim, EventType::Fire));
 }
 
+TEST_CASE("Starting a wave emits a WaveStarted event (siren)", "[unit][sim]") {
+    Sim sim;
+    sim.reset(1);
+    sim.step(Action::noop()); // wave 1 begins at game start -> siren on the first step
+    REQUIRE(has_event(sim, EventType::WaveStarted));
+
+    sim.step(Action::noop());
+    REQUIRE_FALSE(has_event(sim, EventType::WaveStarted)); // only once, at the wave's start
+}
+
 TEST_CASE("A blast kill emits a ThreatKilled event", "[unit][sim]") {
     Config cfg;
     cfg.blast_max_radius = 40.0f;

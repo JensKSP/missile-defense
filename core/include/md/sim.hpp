@@ -124,6 +124,7 @@ class Sim {
     std::uint32_t threats_to_spawn_ = 0; // remaining spawns in the current wave
     float spawn_timer_ = 0.0f;           // countdown to the next spawn
     float break_timer_ = 0.0f;           // >0 while between waves
+    bool wave_started_pending_ = false;  // emit a WaveStarted event on the next step
 };
 
 static_assert(std::is_trivially_copyable_v<Sim>,
