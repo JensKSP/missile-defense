@@ -16,6 +16,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # ---- Options -----------------------------------------------------------------
 option(MD_SANITIZE "Enable AddressSanitizer + UBSan" OFF)
 option(MD_WERROR "Treat warnings as errors" ON)
+option(MD_BUILD_APP "Build the Qt 6 + Vulkan app (needs Qt6 + Vulkan)" ON)
 
 # ---- Warnings ----------------------------------------------------------------
 # Opt-in via `target_link_libraries(<t> PRIVATE md::warnings)`. Keeps strict
@@ -61,4 +62,7 @@ include(CTest)  # defines BUILD_TESTING (ON by default) and calls enable_testing
 # ---- Components ---------------------------------------------------------------
 add_subdirectory(core)
 # bindings/ (nanobind)  -> added in Step 2
-# app/      (Qt+Vulkan) -> added when the core sim is frozen
+
+if(MD_BUILD_APP)
+  add_subdirectory(app)
+endif()
