@@ -44,13 +44,19 @@ Built and tested on Debian (trixie). Adjust package names for other distros.
 | Vulkan (dev + loader) | `libvulkan-dev` |
 | Vulkan driver | `mesa-vulkan-drivers` *(or your GPU vendor's Vulkan driver)* |
 | Shader compiler | `glslang-tools` (provides `glslangValidator`) |
+| Audio (single-header) | `libminiaudio-dev` *(else fetched at build; see note)* |
 
 ```bash
 sudo apt update
 sudo apt install clang-21 lld-21 cmake ninja-build \
   qt6-base-dev qt6-base-dev-tools \
-  libvulkan-dev glslang-tools mesa-vulkan-drivers
+  libvulkan-dev glslang-tools mesa-vulkan-drivers \
+  libminiaudio-dev
 ```
+
+> **Audio note:** miniaudio is a single-header library. The build prefers the
+> system copy (`libminiaudio-dev`); if it is absent it fetches it via CMake
+> (disable with `-DMD_FETCH_MINIAUDIO=OFF`). Nothing is vendored in-tree.
 
 > **Compiler note:** the CMake preset pins **clang-21** (Debian package). To use
 > a different compiler, edit `CMakePresets.json` (the `CMAKE_CXX_COMPILER` cache
@@ -166,6 +172,6 @@ Copyright © 2026 Jens Köhler. Released under the [MIT License](LICENSE).
 
 This game was designed and written by Jens Köhler and **developed with
 [Claude Code](https://claude.com/claude-code)** (Anthropic) as an AI pair
-programmer. It bundles [miniaudio](https://miniaud.io/) (public domain / MIT-0)
-in `third_party/`; *Missile Command* is a trademark of Atari — this is an
-independent, non-commercial homage.
+programmer. Audio uses [miniaudio](https://miniaud.io/) (public domain / MIT-0)
+via the system package or CMake fetch — nothing is vendored. *Missile Command*
+is a trademark of Atari; this is an independent, non-commercial homage.

@@ -10,6 +10,7 @@ Build-Depends:
  qt6-base-dev-tools,
  libvulkan-dev,
  glslang-tools,
+ libminiaudio-dev,
  catch2 (>= 3)
 Standards-Version: 4.7.2
 Homepage: https://github.com/JensKSP/missile-defense

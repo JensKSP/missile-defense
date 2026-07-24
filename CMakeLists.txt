@@ -22,6 +22,7 @@ option(MD_WERROR "Treat warnings as errors" ON)
 option(MD_BUILD_APP "Build the Qt 6 + Vulkan app (needs Qt6 + Vulkan)" ON)
 option(MD_COVERAGE "Instrument for LLVM source-based coverage (clang)" OFF)
 option(MD_VULKAN_VALIDATION "Request Vulkan validation layers (dev only)" OFF)
+option(MD_FETCH_MINIAUDIO "Fetch miniaudio when no system copy (libminiaudio-dev) is found" ON)
 
 # ---- Warnings ----------------------------------------------------------------
 # Opt-in via `target_link_libraries(<t> PRIVATE md::warnings)`. Keeps strict

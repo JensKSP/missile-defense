@@ -32,13 +32,32 @@ endfunction()
 md_embed_shader(shaders/quad.vert quad_vert_spv)
 md_embed_shader(shaders/quad.frag quad_frag_spv)
 
-# Vendored miniaudio (single header) compiled in its own library with warnings
-# off — it is large third-party C. Its include dir is SYSTEM so our own code
-# (audio.cpp) can use miniaudio.h while staying under strict -Werror.
+# miniaudio (single-header). Prefer the system copy (Debian/Ubuntu package
+# `libminiaudio-dev`), otherwise fetch it — so distro/offline builds use the
+# system header and never an embedded copy. No shared lib exists for miniaudio;
+# we compile its implementation ourselves in miniaudio_impl.cpp.
+find_path(MINIAUDIO_INCLUDE_DIR miniaudio.h)
+if(MINIAUDIO_INCLUDE_DIR)
+  message(STATUS "miniaudio: using system header (${MINIAUDIO_INCLUDE_DIR})")
+elseif(MD_FETCH_MINIAUDIO AND NOT FETCHCONTENT_FULLY_DISCONNECTED)
+  message(STATUS "miniaudio: system header not found — fetching")
+  include(FetchContent)
+  FetchContent_Declare(miniaudio
+    GIT_REPOSITORY https://github.com/mackron/miniaudio.git
+    GIT_TAG        0.11.22
+    GIT_SHALLOW    TRUE
+    SOURCE_SUBDIR  cmake-skip) # download only; do not add miniaudio's own CMake
+  FetchContent_MakeAvailable(miniaudio)
+  set(MINIAUDIO_INCLUDE_DIR "${miniaudio_SOURCE_DIR}")
+else()
+  message(FATAL_ERROR
+    "miniaudio not found. Install libminiaudio-dev, or enable MD_FETCH_MINIAUDIO "
+    "with network access.")
+endif()
+
 find_package(Threads REQUIRED)
 add_library(md_miniaudio STATIC miniaudio_impl.cpp)
-target_include_directories(md_miniaudio SYSTEM PUBLIC
-  "${CMAKE_SOURCE_DIR}/third_party/miniaudio")
+target_include_directories(md_miniaudio SYSTEM PUBLIC "${MINIAUDIO_INCLUDE_DIR}")
 target_compile_options(md_miniaudio PRIVATE -w)
 target_link_libraries(md_miniaudio PUBLIC Threads::Threads ${CMAKE_DL_LIBS} m)
 
