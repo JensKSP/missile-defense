@@ -87,6 +87,81 @@ def test_shaping_reads_cities_and_ammo_from_the_observation() -> None:
     np.testing.assert_allclose(phi, expected, rtol=1e-4)
 
 
+def _noop_episode(max_ticks: int, *, enabled: bool) -> tuple[list[float], VecEnv, float]:
+    """Play one env to the end on NoOp alone.
+
+    Returns its per-step rewards, the env, and phi(s) as it entered the *final*
+    step — which cannot be recovered afterwards, because `_potential` has by then
+    moved on to the episode that auto-reset in its place.
+
+    Shaping cannot affect the simulation, so the same seed and the same actions
+    give the same trajectory with it on or off. That is what lets a test isolate
+    the shaping term exactly, by differencing the two reward streams.
+    """
+    env = VecEnv(
+        num_envs=1,
+        threads=1,
+        frame_skip=4,
+        max_ticks=max_ticks,
+        shaping=Shaping(enabled=enabled),
+        seed=0,
+    )
+    env.reset(0)
+    rewards: list[float] = []
+    for _ in range(50_000):
+        phi_before = float(env._phi()[0])
+        _, reward, terminated, truncated, _ = env.step(np.zeros(1, dtype=np.int32))
+        rewards.append(float(reward[0]))
+        if terminated[0] or truncated[0]:
+            return rewards, env, phi_before
+    raise AssertionError("the episode never ended")
+
+
+def test_terminal_shaping_charges_the_whole_potential() -> None:
+    # phi of an absorbing state is zero by definition, so the transition into
+    # game over must charge -phi(s). Zeroing it instead makes dying free, and the
+    # Ng et al. invariance — the entire reason shaping is safe to add — is lost.
+    shaped, env, phi_last = _noop_episode(200_000, enabled=True)
+    plain, _, _ = _noop_episode(200_000, enabled=False)
+    assert env._terminated[0] and not env._truncated[0]
+    assert len(shaped) == len(plain)
+
+    charged = (shaped[-1] - plain[-1]) * Shaping().scale
+    assert charged == pytest.approx(-phi_last, rel=1e-4)
+
+
+def test_truncation_shaping_bootstraps_from_the_final_observation() -> None:
+    # A time-limit cutoff is not death: the state was alive and still worth
+    # something. The final observation holds it — `obs` already holds the next
+    # episode — so the term is gamma * phi(final) - phi(s), not zero and not
+    # -phi(s).
+    shaped, env, phi_last = _noop_episode(400, enabled=True)
+    plain, _, _ = _noop_episode(400, enabled=False)
+    assert env._truncated[0] and not env._terminated[0]
+
+    phi_final = float(env._phi(env._final_obs)[0])
+    expected = (Shaping().gamma * phi_final) - phi_last
+    charged = (shaped[-1] - plain[-1]) * Shaping().scale
+    assert charged == pytest.approx(expected, rel=1e-4)
+
+
+def test_shaping_telescopes_to_minus_the_initial_potential() -> None:
+    # The property the whole design rests on (Ng, Harada & Russell 1999): summed
+    # over an episode and discounted, potential-based shaping contributes exactly
+    # -phi(s_0) — a constant that cannot depend on the policy, which is why it
+    # cannot change the optimal one. Any other terminal handling breaks this.
+    shaped, env, _ = _noop_episode(200_000, enabled=True)
+    plain, _, _ = _noop_episode(200_000, enabled=False)
+    shaping = Shaping()
+
+    total = sum(
+        (shaping.gamma**t) * (s - p) * shaping.scale
+        for t, (s, p) in enumerate(zip(shaped, plain, strict=True))
+    )
+    phi_start = (100.0 * 6) + (5.0 * 3 * env._config.ammo_per_base)
+    assert total == pytest.approx(-phi_start, rel=1e-3)
+
+
 def test_shaping_is_off_when_disabled() -> None:
     # With shaping disabled the reward is the raw score delta over the window,
     # scaled — no potential term. A no-op opening tick scores nothing.

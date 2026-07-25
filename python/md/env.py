@@ -132,20 +132,24 @@ class VecEnv:
         return self._obs
 
     # ---- the potential, read back out of the observation ------------------
-    def _phi(self) -> Rewards:
+    def _phi(self, obs: Observations | None = None) -> Rewards:
         """phi(s) for every env, recovered from the observation itself.
 
         The city-alive flags and per-battery ammo are already in the observation
         (that is the point of the fairness rule), so shaping needs no extra
         simulation state — just the layout offsets.
+
+        Defaults to the live batch. `step` also needs it for the *final*
+        observation of a truncated episode, which is no longer in `_obs`.
         """
+        source = self._obs if obs is None else obs
         spec = self._spec
         base = spec.threats * 9 + spec.interceptors * 7 + spec.blasts * 4
-        bases = self._obs[:, base : base + _native.BASE_COUNT * 4].reshape(
+        bases = source[:, base : base + _native.BASE_COUNT * 4].reshape(
             self.num_envs, _native.BASE_COUNT, 4
         )
         cities_at = base + _native.BASE_COUNT * 4
-        cities = self._obs[:, cities_at : cities_at + _native.MAX_CITIES * 2].reshape(
+        cities = source[:, cities_at : cities_at + _native.MAX_CITIES * 2].reshape(
             self.num_envs, _native.MAX_CITIES, 2
         )
         live_cities = cities[:, :, 0].sum(axis=1)
@@ -233,10 +237,27 @@ class VecEnv:
         reward: Rewards = self._rewards
         if self._shaping.enabled:
             phi_next = self._phi()
-            done = self._terminated | self._truncated
-            # A finished episode's phi(s') belongs to the *new* episode, so the
-            # shaping term would compare across a discontinuity. Zero it there.
-            delta = np.where(done, 0.0, (self._shaping.gamma * phi_next) - self._potential)
+            gamma = self._shaping.gamma
+            # Three cases, because after an episode ends `_obs` already holds the
+            # *next* episode's first state and phi(s') must not be read from it.
+            #
+            #   still running — the ordinary term, gamma * phi(s') - phi(s).
+            #   terminated    — phi of an absorbing state is 0 *by definition*
+            #                   (Ng, Harada & Russell 1999), so the term is
+            #                   -phi(s). Zeroing it instead would leave the total
+            #                   shaping policy-dependent, and the invariance
+            #                   proof — the entire reason this is safe to add —
+            #                   would no longer hold.
+            #   truncated     — the clock ran out but the state was alive and
+            #                   still worth something, so bootstrap it from the
+            #                   final observation rather than treating it as death.
+            delta: Rewards = ((gamma * phi_next) - self._potential).astype(np.float32)
+            if self._truncated.any():
+                phi_final = self._phi(self._final_obs)
+                delta = np.where(
+                    self._truncated, (gamma * phi_final) - self._potential, delta
+                ).astype(np.float32)
+            delta = np.where(self._terminated, -self._potential, delta).astype(np.float32)
             reward = (reward + delta).astype(np.float32)
             self._potential = phi_next
         scaled: Rewards = (reward / self._shaping.scale).astype(np.float32)
