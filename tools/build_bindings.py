@@ -59,8 +59,16 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     package: Path = _util.PROJECT_ROOT / "python" / "md"
+    # Clear only what this build supersedes: the exact names it is about to write,
+    # plus the untagged form of each, which is a stale shadow of the same module.
+    # A module carrying a *different* ABI tag is deliberately left alone. Windows
+    # keeps an MSYS2/MinGW build and an MSVC one side by side (see
+    # docs/TRAINING.md) because torch ships no MinGW wheel, and an interpreter
+    # imports only the tag that is its own — so deleting the other one breaks the
+    # other toolchain and buys nothing.
+    superseded = {m.name for m in modules} | {f"_md_native{m.suffix}" for m in modules}
     for stale in package.glob("_md_native*"):
-        if stale.suffix in {".so", ".pyd"}:
+        if stale.name in superseded:
             stale.unlink()
     for module in modules:
         shutil.copy2(module, package / module.name)
