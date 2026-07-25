@@ -58,7 +58,7 @@
       "name": "win-native",
       "inherits": "base",
       "displayName": "MSVC/clang-cl headless + Python bindings (for torch on native Windows)",
-      "description": "Headless only: no Qt, no Vulkan. Builds _md_native against a native Windows CPython so PyTorch can be imported alongside it \u2014 the MSYS2 build cannot, because torch ships no MinGW wheel. The Qt app keeps using the clang presets.",
+      "description": "Headless only: no Qt, no Vulkan. Builds _md_native against a native Windows CPython so PyTorch can be imported alongside it \u2014 the MSYS2 build cannot, because torch ships no MinGW wheel. The Qt app keeps using the clang presets. Warnings are not errors here: the Clang presets are the quality gate, and MSVC's warning set differs enough that gating on it would mean tuning the tree for a second compiler with no extra safety.",
       "condition": {
         "type": "equals",
         "lhs": "${hostSystemName}",
@@ -67,7 +67,8 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
         "MD_BUILD_APP": "OFF",
-        "MD_BUILD_BINDINGS": "ON"
+        "MD_BUILD_BINDINGS": "ON",
+        "MD_WERROR": "OFF"
       }
     }
   ],

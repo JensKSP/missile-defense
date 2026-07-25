@@ -12,6 +12,7 @@
 #include <cstring>
 #include <fstream>
 #include <istream>
+#include <iterator>
 #include <ostream>
 #include <span>
 #include <system_error>
@@ -72,8 +73,12 @@ std::streamsize read_raw(std::istream& in, void* data, std::size_t bytes) {
 } // namespace
 
 std::string_view Recording::label_text() const noexcept {
-    const auto* end = std::ranges::find(label, '\0');
-    return std::string_view{label.data(), static_cast<std::size_t>(end - label.begin())};
+    // The array is always NUL-terminated by construction: set_label caps at
+    // size() - 1, and load() forces the last byte. Scanning for the terminator
+    // with an iterator is not portable here — std::array's iterator is a raw
+    // pointer in libstdc++/libc++ but a class type in MSVC's STL, and the two
+    // spellings that satisfy each compiler are mutually exclusive.
+    return std::string_view{label.data()};
 }
 
 void Recording::set_label(std::string_view text) noexcept {

@@ -148,8 +148,11 @@ def train(config: TrainConfig, ppo: PPOConfig | None = None) -> Policy:
         recent = episode_returns[-200:]
         elapsed = time.perf_counter() - started
         steps_done = iteration * config.steps * config.envs
+        # Early on no episode has finished yet, so there is nothing to average.
+        # Say so rather than printing nan, which reads as a bug.
+        ret = f"{np.mean(recent):>8.2f}" if recent else "       -"
         print(
-            f"update {iteration:>5} | return {np.mean(recent) if recent else float('nan'):>8.2f} "
+            f"update {iteration:>5} | return {ret} "
             f"| entropy {stats['entropy']:.3f} | value {stats['value_loss']:.3f} "
             f"| {steps_done / elapsed / 1e3:.0f}k steps/s"
         )
@@ -195,6 +198,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--steps", type=int, default=defaults.steps)
     parser.add_argument("--updates", type=int, default=defaults.updates)
     parser.add_argument("--frame-skip", type=int, default=defaults.frame_skip)
+    parser.add_argument(
+        "--max-ticks",
+        type=int,
+        default=defaults.max_ticks,
+        help="Episode length cap in ticks; lower it to see episodes finish sooner.",
+    )
     parser.add_argument("--eval-every", type=int, default=defaults.eval_every)
     parser.add_argument("--record-every", type=int, default=defaults.record_every)
     parser.add_argument("--checkpoint-every", type=int, default=defaults.checkpoint_every)
@@ -209,6 +218,7 @@ def main(argv: list[str] | None = None) -> int:
             steps=args.steps,
             updates=args.updates,
             frame_skip=args.frame_skip,
+            max_ticks=args.max_ticks,
             eval_every=args.eval_every,
             record_every=args.record_every,
             checkpoint_every=args.checkpoint_every,
