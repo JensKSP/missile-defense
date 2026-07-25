@@ -10,6 +10,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstddef>
+#include <cstdio>
 #include <miniaudio.h>
 #include <mutex>
 #include <numbers>
@@ -394,9 +395,25 @@ AudioEngine::AudioEngine() : impl_{std::make_unique<Impl>()} {
     config.dataCallback = &Impl::data_callback;
     config.pUserData = impl_.get();
     init_audio_device([&] {
-        if (ma_device_init(nullptr, &config, &impl_->device) == MA_SUCCESS) {
-            impl_->running = (ma_device_start(&impl_->device) == MA_SUCCESS);
+        // Report failures. A game that is silently mute is indistinguishable from
+        // one the player muted, so a failed device has to say so — otherwise the
+        // only symptom is "no audio" with nothing to go on.
+        const ma_result opened = ma_device_init(nullptr, &config, &impl_->device);
+        if (opened != MA_SUCCESS) {
+            std::fputs("audio: no playback device: ", stderr);
+            std::fputs(ma_result_description(opened), stderr);
+            std::fputs(" (is a default output device set and enabled?)\n", stderr);
+            return;
         }
+        const ma_result started = ma_device_start(&impl_->device);
+        if (started != MA_SUCCESS) {
+            std::fputs("audio: device opened but would not start: ", stderr);
+            std::fputs(ma_result_description(started), stderr);
+            std::fputs("\n", stderr);
+            ma_device_uninit(&impl_->device);
+            return;
+        }
+        impl_->running = true;
     });
 }
 
