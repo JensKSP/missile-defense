@@ -9,14 +9,47 @@ reproducible environment — used to train a reinforcement-learning agent.
 
 *By Jens Köhler · [MIT License](LICENSE) · developed with [Claude Code](https://claude.com/claude-code) (Anthropic).*
 
-**New here?** Three paths, in increasing order of fun:
-[build and play it](#build--run) → [watch the scripted AI](#watching-the-ai-play) →
-[train your own agent](docs/TRAINING.md).
+## Quick start
 
-- Game design (and reward spec): [docs/DESIGN.md](docs/DESIGN.md)
-- Milestones / roadmap: [docs/ROADMAP.md](docs/ROADMAP.md)
-- Testing & quality gate: [docs/TESTING.md](docs/TESTING.md)
-- Training the agent (M6): [docs/TRAINING.md](docs/TRAINING.md)
+Clone to watching an AI defend six cities, in about ten minutes. On Debian /
+Ubuntu — other platforms in [Requirements](#requirements) below:
+
+```bash
+# 1 — dependencies (a few hundred MB: Qt 6, Vulkan, clang)
+sudo apt update
+sudo apt install clang-21 lld-21 cmake ninja-build \
+  qt6-base-dev qt6-base-dev-tools \
+  libvulkan-dev glslang-tools mesa-vulkan-drivers libminiaudio-dev
+
+# 2 — build (no Python needed, and no install step afterwards)
+git clone https://github.com/JensKSP/missile-defense.git
+cd missile-defense
+cmake --preset release && cmake --build --preset release
+
+# 3 — play
+./build/release/app/md_app
+```
+
+**Play it.** The mouse aims, left click fires from the nearest battery with
+ammo. Six cities, three batteries, and less ammunition than you would like.
+→ [Full controls](#how-to-play)
+
+**Watch the AI play it.** `./build/release/app/md_app --watch` boots straight
+into a game driven by the scripted agent — held to the same crosshair speed and
+trigger interval as your hand. `]` fast-forwards to 8×; `T` takes the controls
+back mid-game. It averages **18,036** points and still loses every game around
+wave 16, because this game is about spending ammunition, not about aiming.
+→ [More](#watching-the-ai-play)
+
+**Train one that beats it.** 18,036 is the number a learned policy has to beat,
+scored on the same 32 seeds by the same code. → [docs/TRAINING.md](docs/TRAINING.md)
+
+Windows builds too, through MSYS2 — see [Windows](#windows-msys2-clang64).
+
+Deeper reading: [design & reward spec](docs/DESIGN.md) ·
+[the agent API](docs/API.md) · [milestones / roadmap](docs/ROADMAP.md) ·
+[testing & quality gate](docs/TESTING.md) ·
+[simulation throughput](docs/PERFORMANCE.md)
 
 ## Features
 
@@ -44,6 +77,10 @@ reproducible environment — used to train a reinforcement-learning agent.
 
 ## Requirements
 
+Reference — the [quick start](#quick-start) above already covers the common
+case. Read on for what each package is for, the optional development tools, and
+the Windows toolchain.
+
 Built and tested on Debian (trixie); adjust package names for other distros. It
 also builds and runs on **Windows** via MSYS2 (see [Windows](#windows-msys2-clang64) below).
 
@@ -59,13 +96,8 @@ also builds and runs on **Windows** via MSYS2 (see [Windows](#windows-msys2-clan
 | Shader compiler | `glslang-tools` (provides `glslangValidator`) |
 | Audio (single-header) | `libminiaudio-dev` *(else fetched at build; see note)* |
 
-```bash
-sudo apt update
-sudo apt install clang-21 lld-21 cmake ninja-build \
-  qt6-base-dev qt6-base-dev-tools \
-  libvulkan-dev glslang-tools mesa-vulkan-drivers \
-  libminiaudio-dev
-```
+The `apt install` line for exactly these is in the
+[quick start](#quick-start) above, so there is only one copy to keep current.
 
 > **Audio note:** miniaudio is a single-header library. The build prefers the
 > system copy (`libminiaudio-dev`); if it is absent it fetches it via CMake
@@ -130,16 +162,9 @@ Qt/Vulkan DLLs resolve on `PATH`.
 
 ## Build & run
 
-### With `poe` (recommended)
-
-```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install poethepoet ruff pytest mypy pyright
-
-poe app        # build (Release) and launch the game
-```
-
 ### With CMake directly (no Python needed)
+
+What the [quick start](#quick-start) uses:
 
 ```bash
 cmake --preset release
@@ -151,7 +176,22 @@ There is no system install step — run the game from the build output above (or
 copy `build/release/app/md_app` wherever you like; it has no data files, shaders
 are baked into the binary).
 
-To build only the headless simulation + tests (no Qt/Vulkan):
+### With `poe`
+
+`poethepoet` wraps that same build together with the tests, linters, and
+coverage gate behind one-word tasks — worth setting up as soon as you start
+changing code:
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install poethepoet ruff pytest mypy pyright
+
+poe app        # build (Release) and launch the game
+```
+
+### Headless only
+
+To build only the simulation + tests (no Qt/Vulkan):
 
 ```bash
 cmake --preset release -DMD_BUILD_APP=OFF
