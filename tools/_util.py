@@ -80,5 +80,12 @@ def cpp_files(
 
 
 def app_binary() -> Path:
-    """Path to the built game binary (release)."""
-    return PROJECT_ROOT / "build" / "release" / "app" / f"md_app{EXE}"
+    """Path to the built game binary (release).
+
+    macOS builds an .app bundle (see app/CMakeLists.txt), so the executable sits
+    one level down inside it rather than directly in the build directory.
+    """
+    app_dir = PROJECT_ROOT / "build" / "release" / "app"
+    if sys.platform == "darwin":
+        return app_dir / "md_app.app" / "Contents" / "MacOS" / "md_app"
+    return app_dir / f"md_app{EXE}"

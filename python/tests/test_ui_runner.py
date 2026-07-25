@@ -15,6 +15,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from md.ui import runner
 from md.ui.runner import (
     PACKAGE_PATH,
     AppNotFound,
@@ -54,6 +55,18 @@ class FakeSpawn:
 
 def _build_app(root: Path, preset: str = "release") -> Path:
     binary = root / "build" / preset / "app" / f"md_app{EXE}"
+    binary.parent.mkdir(parents=True)
+    binary.write_text("", encoding="utf-8")
+    return binary
+
+
+def _build_bundle(root: Path, preset: str = "release") -> Path:
+    """What a macOS build leaves behind: the executable inside the .app bundle.
+
+    Spelled out rather than reusing the runner's own helper — a test that shares
+    the implementation's idea of the layout cannot catch it being wrong.
+    """
+    binary = root / "build" / preset / "app" / "md_app.app" / "Contents" / "MacOS" / "md_app"
     binary.parent.mkdir(parents=True)
     binary.write_text("", encoding="utf-8")
     return binary
@@ -109,6 +122,32 @@ def test_the_debian_package_installs_it_under_another_name(tmp_path: Path) -> No
     installed.chmod(0o755)
     found = app_binary({"PATH": str(installed.parent)}, root=tmp_path / "no-checkout")
     assert found is not None and found.parent == installed.parent
+
+
+def test_a_macos_build_is_found_inside_the_app_bundle(tmp_path: Path) -> None:
+    bundle = _build_bundle(tmp_path)
+    assert app_binary({}, root=tmp_path, platform="darwin") == bundle
+
+
+def test_the_bundle_layout_is_not_looked_for_off_macos(tmp_path: Path) -> None:
+    # The bundle and the flat executable are different paths. Getting this branch
+    # backwards would mean a Linux console ignoring the build sitting next to it.
+    _build_bundle(tmp_path)
+    assert app_binary({"PATH": str(tmp_path)}, root=tmp_path, platform="linux") is None
+
+
+def test_a_macos_disk_image_install_is_found_in_applications(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Drag-to-Applications is the whole install story on macOS, and nothing inside
+    # a bundle is ever on PATH — so without this the console could never open a
+    # replay on a machine that has the .dmg but no checkout.
+    installed = tmp_path / "md_app.app" / "Contents" / "MacOS" / "md_app"
+    installed.parent.mkdir(parents=True)
+    installed.write_text("", encoding="utf-8")
+    monkeypatch.setattr(runner, "MACOS_APP_PATHS", (str(tmp_path),))
+    found = app_binary({"PATH": str(tmp_path)}, root=tmp_path / "no-checkout", platform="darwin")
+    assert found == installed
 
 
 def test_replaying_builds_the_command_the_app_expects(tmp_path: Path) -> None:

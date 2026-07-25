@@ -21,10 +21,15 @@ the executable at build time (`app/CMakeLists.txt`), so nothing is loaded from
 disk and nothing can go missing.
 
 Two build paths exist and that is deliberate: `debian/` (debhelper) is the
-authority for Linux, and CPack produces the Windows NSIS installer and ZIP.
-`poe deb` runs CPack's DEB generator, which is a convenience for testing a local
-package — it cannot express the multi-binary split below, so when that lands,
-`debian/` is where it lands.
+authority for Linux, and CPack produces the Windows NSIS installer and ZIP, plus
+the macOS disk image. `poe deb` runs CPack's DEB generator, which is a
+convenience for testing a local package — it cannot express the multi-binary
+split below, so when that lands, `debian/` is where it lands.
+
+On macOS, `poe dmg` builds a drag-to-Applications image containing `md_app.app`
+with the Qt frameworks inside it. It is unsigned, unnotarised, and still expects
+MoltenVK on the target machine; [MACOS.md](MACOS.md#packaging) has the detail on
+both limits and what closing them would take.
 
 ## Where a run's files go
 

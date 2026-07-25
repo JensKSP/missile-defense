@@ -49,6 +49,10 @@ BUILD_PATHS = ("build/release/app", "build/debug/app")
 BINARY_NAMES = ("md_app", "missile-defense")
 SYSTEM_PATHS = ("/usr/games", "/usr/local/games", "/usr/bin")
 
+#: Where the macOS disk image's drag-to-install leaves the game. Nothing inside a
+#: bundle is ever on PATH, so an installed copy is only findable by looking here.
+MACOS_APP_PATHS = ("/Applications", "~/Applications")
+
 #: An MSYS2 build links against Qt in the CLANG64 prefix and finds it on PATH,
 #: which is there in the CLANG64 shell and absent everywhere else — including the
 #: native interpreter the console is likely started from. Adding it back turns a
@@ -74,26 +78,48 @@ def _spawn(command: list[str], cwd: Path, env: Mapping[str, str]) -> Process:
     return subprocess.Popen(command, cwd=str(cwd), env=dict(env))
 
 
+def _bundle_executable(containing: Path) -> Path:
+    """The executable buried inside the macOS .app bundle in ``containing``."""
+    return containing / "md_app.app" / "Contents" / "MacOS" / "md_app"
+
+
 def app_binary(
-    environ: Mapping[str, str] | None = None, *, root: Path | None = None
+    environ: Mapping[str, str] | None = None,
+    *,
+    root: Path | None = None,
+    platform: str = sys.platform,
 ) -> Path | None:
-    """Locate ``md_app``, or return ``None`` if this machine has no build of it."""
+    """Locate ``md_app``, or return ``None`` if this machine has no build of it.
+
+    ``platform`` is a parameter for the same reason :func:`launch_environ` takes
+    one: the macOS bundle layout stays testable from any OS.
+    """
     env = os.environ if environ is None else environ
     root = PROJECT_ROOT if root is None else root
-    exe = ".exe" if os.name == "nt" else ""
+    exe = ".exe" if platform == "win32" else ""
 
     override = env.get("MD_APP")
     if override:
         candidate = Path(override)
         return candidate if candidate.exists() else None
     for build in BUILD_PATHS:
-        candidate = root / build / f"md_app{exe}"
+        # macOS builds a bundle, so the executable is nested (app/CMakeLists.txt).
+        candidate = (
+            _bundle_executable(root / build)
+            if platform == "darwin"
+            else root / build / f"md_app{exe}"
+        )
         if candidate.exists():
             return candidate
     for name in BINARY_NAMES:
         found = shutil.which(f"{name}{exe}", path=env.get("PATH"))
         if found:
             return Path(found)
+    if platform == "darwin":
+        for directory in MACOS_APP_PATHS:
+            candidate = _bundle_executable(Path(directory).expanduser())
+            if candidate.exists():
+                return candidate
     for directory in SYSTEM_PATHS:
         candidate = Path(directory) / "missile-defense"
         if candidate.exists():

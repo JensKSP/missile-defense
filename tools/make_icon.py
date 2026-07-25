@@ -12,11 +12,14 @@ needs. Run once to (re)generate the committed assets:
 Outputs (committed; the build consumes these, so Pillow is dev-only):
     packaging/missile-defense.ico                         (Windows: 16..256)
     packaging/icons/hicolor/<size>x<size>/apps/missile-defense.png  (Linux)
+    packaging/missile-defense.icns                        (macOS bundle)
 """
 
 from __future__ import annotations
 
+import io
 import math
+import struct
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter
@@ -25,6 +28,25 @@ ROOT = Path(__file__).resolve().parent.parent
 PKG = ROOT / "packaging"
 SIZES = [16, 32, 48, 64, 128, 256]
 R = 1024  # master render resolution (downscaled per target size)
+
+#: ICNS members: (four-character type, pixel size). Modern macOS reads PNG
+#: payloads directly, so the container is just a header plus one PNG per entry —
+#: which means it can be written anywhere, with no `iconutil` (macOS-only) and no
+#: Pillow ICNS *save* support (which shells out to `iconutil` on macOS and is
+#: absent elsewhere). Sizes repeat because the @2x types carry the same pixels at
+#: a different nominal scale, which is what Finder and the Dock expect.
+ICNS_MEMBERS: list[tuple[str, int]] = [
+    ("icp4", 16),
+    ("icp5", 32),
+    ("ic07", 128),
+    ("ic08", 256),
+    ("ic09", 512),
+    ("ic10", 1024),  # 512@2x
+    ("ic11", 32),  # 16@2x
+    ("ic12", 64),  # 32@2x
+    ("ic13", 256),  # 128@2x
+    ("ic14", 512),  # 256@2x
+]
 
 # Palette
 NAVY_TOP = (10, 14, 26)
@@ -54,6 +76,21 @@ def _rounded_mask(size: int, radius: float) -> Image.Image:
     mask = Image.new("L", (size, size), 0)
     ImageDraw.Draw(mask).rounded_rectangle([0, 0, size - 1, size - 1], radius=radius, fill=255)
     return mask
+
+
+def _icns(master: Image.Image) -> bytes:
+    """Pack ``master`` into an ICNS container: header, then one PNG per member.
+
+    Each member is ``<4-byte type><big-endian length incl. these 8 bytes><PNG>``;
+    the file header is the same shape with the type ``icns`` and the total length.
+    """
+    body = b""
+    for code, size in ICNS_MEMBERS:
+        buf = io.BytesIO()
+        master.resize((size, size), Image.Resampling.LANCZOS).save(buf, "PNG")
+        png = buf.getvalue()
+        body += code.encode("ascii") + struct.pack(">I", len(png) + 8) + png
+    return b"icns" + struct.pack(">I", len(body) + 8) + body
 
 
 def render_master() -> Image.Image:
@@ -148,6 +185,10 @@ def main() -> None:
         out.parent.mkdir(parents=True, exist_ok=True)
         variants[s].save(out)
         print(f"wrote {out.relative_to(ROOT)}")
+
+    icns = PKG / "missile-defense.icns"
+    icns.write_bytes(_icns(master))
+    print(f"wrote {icns.relative_to(ROOT)}")
 
 
 if __name__ == "__main__":

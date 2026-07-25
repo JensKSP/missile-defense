@@ -5,7 +5,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [master]
   pull_request:
 
 jobs:
@@ -46,3 +46,84 @@ jobs:
         with:
           name: missile-defense-deb
           path: build/release/*.deb
+
+  macos:
+    # There is no macOS container and no supported way to cross-build one, so
+    # hosted Apple hardware is the entire macOS story here — see docs/MACOS.md.
+    #
+    # Deliberately not a second `poe check`: format, lint, types, clang-tidy and
+    # coverage all measure the source, not the platform, and the Linux job
+    # already holds them. What only this job can prove is that the simulation
+    # behaves the same on arm64/libc++ and that the renderer still compiles
+    # against MoltenVK — so it runs the tests and builds the app, nothing else.
+    runs-on: macos-15
+    env:
+      HOMEBREW_NO_INSTALL_CLEANUP: 1
+      HOMEBREW_NO_AUTO_UPDATE: 1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        # qtbase rather than the `qt` umbrella: the app needs Qt6::Gui alone, and
+        # `qt` pulls in WebEngine and three dozen other modules for no gain.
+        # Homebrew's qtbase build-depends on molten-vk and vulkan-headers, so it
+        # is configured with Vulkan support. molten-vk ships the Metal driver but
+        # deliberately no loader, hence vulkan-loader too.
+        run: |
+          brew install ninja qtbase molten-vk vulkan-headers vulkan-loader \
+                       vulkan-tools glslang
+
+      - name: Install task runner + Python tools
+        # numpy because python/tests/test_env.py imports it above its
+        # importorskip guard, so without it that file errors instead of skipping.
+        run: pip3 install --break-system-packages poethepoet pytest numpy
+
+      - name: Point CMake and the Vulkan loader at Homebrew
+        # Homebrew's prefix is not a place CMake or the Vulkan loader look by
+        # default (and on Apple Silicon it is /opt/homebrew, not /usr/local).
+        run: |
+          set -euo pipefail
+          brew_prefix="$(brew --prefix)"
+          icd="${brew_prefix}/etc/vulkan/icd.d/MoltenVK_icd.json"
+          if [ ! -f "$icd" ]; then
+            icd="$(brew --prefix molten-vk)/etc/vulkan/icd.d/MoltenVK_icd.json"
+          fi
+          {
+            echo "CMAKE_PREFIX_PATH=$(brew --prefix qtbase):${brew_prefix}"
+            # VK_DRIVER_FILES is the current spelling; VK_ICD_FILENAMES is the
+            # older one, still honoured. Setting both covers either loader.
+            echo "VK_DRIVER_FILES=${icd}"
+            echo "VK_ICD_FILENAMES=${icd}"
+          } >> "$GITHUB_ENV"
+          echo "$(brew --prefix qtbase)/bin" >> "$GITHUB_PATH"
+
+      - name: Report the toolchain
+        run: |
+          clang++ --version
+          cmake --version
+          echo "Vulkan ICD: ${VK_DRIVER_FILES}"
+
+      - name: Probe MoltenVK
+        # Informational. Whether the runner's paravirtualised GPU enumerates a
+        # Vulkan device decides only whether the game could be *run* here; the
+        # build and the simulation tests below do not need it.
+        continue-on-error: true
+        run: vulkaninfo --summary
+
+      - name: C++ tests (Debug + sanitizers)
+        run: poe test
+
+      - name: C++ tests (Release)
+        run: poe test-release
+
+      - name: Python tests
+        run: poe pytest
+
+      - name: Build the disk image
+        run: poe dmg
+
+      - name: Upload the .dmg
+        uses: actions/upload-artifact@v4
+        with:
+          name: missile-defense-dmg
+          path: build/release/*.dmg

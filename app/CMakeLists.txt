@@ -61,7 +61,20 @@ target_include_directories(md_miniaudio SYSTEM PUBLIC "${MINIAUDIO_INCLUDE_DIR}"
 target_compile_options(md_miniaudio PRIVATE -w)
 target_link_libraries(md_miniaudio PUBLIC Threads::Threads ${CMAKE_DL_LIBS} m)
 
-add_executable(md_app
+# macOS: miniaudio's only backend here is CoreAudio, which it reaches through
+# these three frameworks. Unlike the Windows COM case there is no source-level
+# quirk to match (see audio.cpp) — the device just needs the frameworks linked.
+if(APPLE)
+  target_link_libraries(md_miniaudio PUBLIC
+    "-framework CoreFoundation" "-framework CoreAudio" "-framework AudioToolbox")
+endif()
+
+# MACOSX_BUNDLE is ignored off Apple. On macOS it is not cosmetic: a bare Mach-O
+# executable never becomes a foreground GUI process, so it gets no Dock icon and
+# cannot reliably take keyboard focus — fatal for a game. Building the bundle in
+# the dev tree too (not just at install time) keeps what you play identical to
+# what ships; the locators in tools/_util.py and md/ui/runner.py know the layout.
+add_executable(md_app MACOSX_BUNDLE
   main.cpp
   game_window.cpp
   renderer.cpp
@@ -78,6 +91,25 @@ target_include_directories(md_app PRIVATE "${shader_hdr_dir}")
 # static link.
 target_link_libraries(md_app
   PRIVATE md::core md::agent md::replay md::warnings Qt6::Gui Vulkan::Vulkan md_miniaudio)
+
+# macOS: fill in the bundle manifest (app/Info.plist.in) and drop the icon into
+# Contents/Resources. The bundle directory stays `md_app.app` so the build tree
+# looks the same on every platform; the name a user sees comes from CFBundleName
+# / CFBundleDisplayName, not from the directory.
+if(APPLE)
+  set(MD_ICON_ICNS "${CMAKE_SOURCE_DIR}/packaging/missile-defense.icns")
+  target_sources(md_app PRIVATE "${MD_ICON_ICNS}")
+  set_source_files_properties("${MD_ICON_ICNS}" PROPERTIES
+    MACOSX_PACKAGE_LOCATION Resources)
+  set_target_properties(md_app PROPERTIES
+    MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in"
+    MACOSX_BUNDLE_BUNDLE_NAME "Missile Defense"
+    MACOSX_BUNDLE_GUI_IDENTIFIER "de.koehler-speyer.missile-defense"
+    MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
+    MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+    MACOSX_BUNDLE_ICON_FILE "missile-defense.icns"
+    MACOSX_BUNDLE_COPYRIGHT "Copyright (c) 2026 Jens Köhler. MIT License.")
+endif()
 
 # Windows: the audio device init explicitly manages a COM apartment (audio.cpp).
 if(WIN32)
@@ -115,6 +147,59 @@ if(WIN32)
       message(FATAL_ERROR \"tools/windeploy.sh failed (code \${_md_deploy_rc})\")
     endif()
   ")
+  install(FILES "${CMAKE_SOURCE_DIR}/LICENSE"
+                "${CMAKE_SOURCE_DIR}/THIRD_PARTY_LICENSES.md"
+    DESTINATION .)
+  install(DIRECTORY "${CMAKE_SOURCE_DIR}/licenses" DESTINATION .)
+elseif(APPLE)
+  # macOS: the .app for the DMG, the same shape as the Windows layout — the
+  # bundle carries its own Qt, and the licence texts sit beside it. It does not
+  # carry MoltenVK: macdeployqt bundles what the binary *links*, and the Metal
+  # driver is dlopened by the Vulkan loader from an ICD manifest outside the
+  # bundle. So this .app still needs MoltenVK on the target machine — the one
+  # gap between it and the Windows/Debian packages (docs/MACOS.md).
+  install(TARGETS md_app BUNDLE DESTINATION .)
+
+  # macdeployqt is qtbase's equivalent of tools/windeploy.sh: it copies the Qt
+  # frameworks and the cocoa platform plugin into Contents/, then rewrites the
+  # install names so the binary loads them from inside the bundle.
+  if(TARGET Qt6::qmake)
+    get_target_property(md_qmake Qt6::qmake IMPORTED_LOCATION)
+    get_filename_component(md_qt_bin "${md_qmake}" DIRECTORY)
+  endif()
+  find_program(MACDEPLOYQT macdeployqt HINTS "${md_qt_bin}")
+  if(NOT MACDEPLOYQT)
+    # Not fatal here: building and running from the build tree needs no
+    # deployment at all. Only installing/packaging does, so fail there instead.
+    message(STATUS "md_app: macdeployqt not found — `cmake --install` and "
+                   "`cpack` will fail until Qt's bin directory is on PATH")
+  endif()
+  install(CODE "
+    set(md_macdeployqt \"${MACDEPLOYQT}\")
+    if(NOT md_macdeployqt)
+      message(FATAL_ERROR \"macdeployqt not found: cannot bundle Qt into the .app\")
+    endif()
+    set(md_bundle \"\${CMAKE_INSTALL_PREFIX}/md_app.app\")
+    message(STATUS \"macdeployqt: bundling Qt into \${md_bundle} ...\")
+    execute_process(
+      COMMAND \"\${md_macdeployqt}\" \"\${md_bundle}\" -always-overwrite
+      RESULT_VARIABLE md_deploy_rc)
+    if(NOT md_deploy_rc EQUAL 0)
+      message(FATAL_ERROR \"macdeployqt failed (code \${md_deploy_rc})\")
+    endif()
+    # Re-sign ad-hoc. The linker ad-hoc signs every arm64 binary it produces, and
+    # macdeployqt then rewrites the load commands, which invalidates that
+    # signature — an arm64 binary with a broken signature is killed on launch.
+    # This is not Developer ID signing: the DMG is still unsigned and unnotarised
+    # (see docs/MACOS.md), it just runs once the user clears quarantine.
+    execute_process(
+      COMMAND codesign --force --deep --sign - \"\${md_bundle}\"
+      RESULT_VARIABLE md_sign_rc)
+    if(NOT md_sign_rc EQUAL 0)
+      message(FATAL_ERROR \"ad-hoc codesign failed (code \${md_sign_rc})\")
+    endif()
+  ")
+
   install(FILES "${CMAKE_SOURCE_DIR}/LICENSE"
                 "${CMAKE_SOURCE_DIR}/THIRD_PARTY_LICENSES.md"
     DESTINATION .)

@@ -16,6 +16,16 @@ if(NOT DEFINED CMAKE_CXX_COMPILER AND NOT DEFINED ENV{CXX}
   endif()
 endif()
 
+# ---- macOS deployment target -------------------------------------------------
+# Also before project(), and `APPLE` is not set yet — hence the host test. 14.0
+# is not a guess: Apple's libc++ gates std::print / std::println behind an
+# availability attribute, and the CLI tools (agent/eval_main.cpp, bench/) use
+# them, so an older target fails to compile <print>. Raise or lower it with
+# -DCMAKE_OSX_DEPLOYMENT_TARGET=<version>. Left unset off macOS.
+if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin" AND NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET)
+  set(CMAKE_OSX_DEPLOYMENT_TARGET "14.0" CACHE STRING "Minimum supported macOS version")
+endif()
+
 project(missile_defense
   VERSION 0.1.0
   DESCRIPTION "Faithful Atari Missile Command clone — game + RL environment"
@@ -240,6 +250,19 @@ if(MD_BUILD_APP AND PROJECT_IS_TOP_LEVEL)
     set(CPACK_NSIS_MUI_ICON "${CMAKE_SOURCE_DIR}/packaging/missile-defense.ico")        # installer
     set(CPACK_NSIS_MUI_UNIICON "${CMAKE_SOURCE_DIR}/packaging/missile-defense.ico")     # uninstaller
     set(CPACK_NSIS_INSTALLED_ICON_NAME "md_app.exe") # icon in Add/Remove Programs
+  elseif(APPLE)
+    # A drag-to-Applications disk image holding the .app (Qt is already inside
+    # it — see the macdeployqt step in app/CMakeLists.txt; MoltenVK is not).
+    # Single-architecture: it is built for whichever arch the host is, because
+    # Homebrew's Qt is not universal. The DMG is unsigned and unnotarised, which
+    # is a deliberate limit of building without an Apple Developer ID, not an
+    # oversight — docs/MACOS.md says what that means for anyone who downloads it.
+    set(CPACK_GENERATOR "DragNDrop")
+    set(CPACK_PACKAGING_INSTALL_PREFIX "/")
+    set(CPACK_DMG_VOLUME_NAME "Missile Defense ${PROJECT_VERSION}")
+    set(CPACK_DMG_FORMAT "UDZO") # compressed read-only, the usual shape
+    set(CPACK_PACKAGE_FILE_NAME
+        "missile-defense-${PROJECT_VERSION}-macos-${CMAKE_SYSTEM_PROCESSOR}")
   else()
     # Debian package. Auto-derive shared-lib deps (Qt 6, Vulkan loader, libc, ...)
     # from the linked binary via dpkg-shlibdeps (needs dpkg-dev installed).

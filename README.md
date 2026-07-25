@@ -12,8 +12,9 @@ reproducible environment — used to train a reinforcement-learning agent.
 ## Quick start
 
 Clone to watching an AI defend six cities, in about ten minutes. On Debian /
-Ubuntu — for Windows see [docs/WINDOWS.md](docs/WINDOWS.md), and for other
-distros adjust the package names using [Requirements](#requirements) below:
+Ubuntu — for Windows see [docs/WINDOWS.md](docs/WINDOWS.md), for macOS
+[docs/MACOS.md](docs/MACOS.md), and for other distros adjust the package names
+using [Requirements](#requirements) below:
 
 ```bash
 # 1 — dependencies (a few hundred MB: Qt 6, Vulkan, clang)
@@ -46,7 +47,9 @@ wave 16, because this game is about spending ammunition, not about aiming.
 scored on the same 32 seeds by the same code. → [docs/TRAINING.md](docs/TRAINING.md)
 
 On **Windows** the same toolchain runs under MSYS2 — its own ten-minute path is
-in [docs/WINDOWS.md](docs/WINDOWS.md).
+in [docs/WINDOWS.md](docs/WINDOWS.md). On **macOS** it is Homebrew and MoltenVK:
+[docs/MACOS.md](docs/MACOS.md), which is built and tested in CI but — unlike the
+other two — has never been run by a human.
 
 Deeper reading: [design & reward spec](docs/DESIGN.md) ·
 [the agent API](docs/API.md) · [milestones / roadmap](docs/ROADMAP.md) ·
@@ -85,7 +88,8 @@ case. Read on for what each package is for and the optional development tools.
 
 Built and tested on Debian (trixie); adjust package names for other distros.
 **Windows** builds through MSYS2 with its own instructions in
-[docs/WINDOWS.md](docs/WINDOWS.md).
+[docs/WINDOWS.md](docs/WINDOWS.md), and **macOS** through Homebrew in
+[docs/MACOS.md](docs/MACOS.md).
 
 ### Required — to build and run the game
 
@@ -259,7 +263,7 @@ produced by CPack's DEB generator directly from the CMake build.
 | `app/` | Qt 6 + Vulkan human client (renderer, input, HUD, menu) |
 | `bindings/` | Python bindings (nanobind) — *planned* |
 | `python/` | Gymnasium env + RL training — *planned* |
-| `docs/` | Design spec, roadmap, testing, training, Windows notes |
+| `docs/` | Design spec, roadmap, testing, training, Windows + macOS notes |
 | `tools/` | Cross-platform Python dev tooling (coverage, format/tidy, capture) |
 
 ## License & credits
