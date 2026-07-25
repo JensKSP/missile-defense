@@ -165,6 +165,42 @@ the model, and launch the game — without leaving the window.
 exist because a return curve cannot tell you the policy has learned to ignore MIRVs.
 This puts the curve and the episode side by side, which is the whole loop in one place.
 
+### Design intent — modern, simple, elegant
+
+This is a constraint, not a mood. Concretely:
+
+**One screen, not a tab bar.** The run is the subject. A tabbed console makes you
+hunt for the thing you came to look at. The curve gets the space; everything else is
+a strip around it.
+
+**Control is small so monitoring can be large.** Three affordances, not a dashboard
+of them: one primary button that changes meaning (Start → Pause → Resume), Stop, and
+Reset tucked away because it is destructive. If control needs more than a slim bar,
+the design is wrong.
+
+**Progressive disclosure over a wall of fields.** There are ~20 hyperparameters and
+their defaults are good and reasoned. Show the four that change a run's character
+(envs, steps, updates, learning rate); everything else lives behind *Advanced*.
+Each field carries the reasoning already written beside it in code as its tooltip —
+the UI should teach, since that is what this project is for.
+
+**The baseline is the hero.** 18,036 drawn as a horizontal line the return curve is
+climbing toward. That single element is the difference between "a number going up"
+and "am I winning yet". Everything else on the plot is secondary.
+
+**It should look like it belongs to the game.** The game already has a palette —
+deep navy field, orange fireballs, cool blue cities, a pixel font. The console
+should feel like the same product seen from the other side, not a generic tool that
+happens to point at it. Dark by default.
+
+**Live, quietly.** Values update smoothly and continuously; nothing flickers, nothing
+needs a refresh button, and a long run left open overnight should still be readable
+at a glance from across the room.
+
+**Empty states are part of the design.** No run yet, no recordings yet, no GPU probe
+installed — each says what it is and what to do, rather than showing a blank panel or
+a zeroed meter.
+
 ### The decision that shapes everything: training stays out of process
 
 The UI **must not** train inside its own event loop. Training saturates the CPU for
@@ -203,7 +239,11 @@ granularity is plenty):
 Because it is a file, `touch runs/STOP` from a shell does the same thing — the UI is a
 convenience over the mechanism, never the only way to reach it.
 
-### Panels
+### What it shows
+
+Capabilities, **not a tab layout** — see the design intent above. Most of this lives
+on one screen; only the parameter form and the recording browser justify their own
+surface.
 
 1. **Run** — parameter form (the `TrainConfig` / `PPOConfig` fields, each with the
    reasoning already written beside them in code as tooltips), start/pause/stop/reset,
