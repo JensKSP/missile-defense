@@ -17,9 +17,9 @@
 
 #ifdef _WIN32
 // Audio device init must run in a COM multi-threaded apartment — see AudioEngine().
-#  define NOMINMAX
-#  include <objbase.h>
-#  include <thread>
+#define NOMINMAX
+#include <objbase.h>
+#include <thread>
 #endif
 
 namespace md {

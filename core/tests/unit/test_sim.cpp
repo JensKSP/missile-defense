@@ -22,6 +22,17 @@ using md::ThreatType;
 using md::Vec2;
 
 namespace {
+/// A config with the player-model limits switched off: the crosshair snaps to the
+/// aim point and there is no trigger interval. Tests of *other* mechanics (blasts,
+/// ammo, scoring) use this so they are not paced — or silently satisfied — by the
+/// aiming model. The player model itself is covered by its own tests below.
+Config unpaced() {
+    Config cfg;
+    cfg.aim_max_speed = 0.0f; // instant aim
+    cfg.fire_interval = 0.0f; // no global trigger interval
+    return cfg;
+}
+
 bool has_event(const Sim& sim, EventType type) {
     for (const auto& event : sim.events()) {
         if (event.type == type) {
@@ -92,7 +103,7 @@ TEST_CASE("Fire spawns an interceptor, consumes ammo, and starts cooldown", "[un
     sim.reset(0);
     const std::uint32_t ammo_before = sim.bases()[0].ammo;
 
-    sim.step(Action::fire(BaseId::Alpha, Vec2{100.0f, 90.0f}));
+    sim.step(Action::fire_at(BaseId::Alpha, Vec2{100.0f, 90.0f}));
 
     REQUIRE(sim.interceptors().size() == 1);
     REQUIRE(sim.bases()[0].ammo == ammo_before - 1);
@@ -100,31 +111,31 @@ TEST_CASE("Fire spawns an interceptor, consumes ammo, and starts cooldown", "[un
 }
 
 TEST_CASE("A base with no ammo cannot fire", "[unit][sim]") {
-    Config cfg;
+    Config cfg = unpaced(); // isolate the ammo check from the trigger interval
     cfg.ammo_per_base = 1;
     cfg.base_cooldown = 0.0f;
     Sim sim{cfg};
     sim.reset(0);
 
-    sim.step(Action::fire(BaseId::Delta, Vec2{160.0f, 90.0f})); // uses the only round
+    sim.step(Action::fire_at(BaseId::Delta, Vec2{160.0f, 90.0f})); // uses the only round
     REQUIRE(sim.bases()[1].ammo == 0u);
 
-    sim.step(Action::fire(BaseId::Delta, Vec2{160.0f, 90.0f})); // rejected: empty
+    sim.step(Action::fire_at(BaseId::Delta, Vec2{160.0f, 90.0f})); // rejected: empty
     REQUIRE(sim.bases()[1].ammo == 0u);
     REQUIRE(sim.interceptors().size() == 1); // no second interceptor spawned
 }
 
 TEST_CASE("A base respects its cooldown between shots", "[unit][sim]") {
-    Config cfg;
+    Config cfg = unpaced(); // isolate the per-base cooldown from the trigger interval
     cfg.base_cooldown = 0.5f;
     Sim sim{cfg};
     sim.reset(0);
 
-    sim.step(Action::fire(BaseId::Alpha, Vec2{50.0f, 120.0f}));
+    sim.step(Action::fire_at(BaseId::Alpha, Vec2{50.0f, 120.0f}));
     const std::uint32_t ammo_after_first = sim.bases()[0].ammo;
 
     // Immediately firing again is rejected while on cooldown.
-    sim.step(Action::fire(BaseId::Alpha, Vec2{50.0f, 120.0f}));
+    sim.step(Action::fire_at(BaseId::Alpha, Vec2{50.0f, 120.0f}));
     REQUIRE(sim.bases()[0].ammo == ammo_after_first);
 
     // After the cooldown elapses (~0.5 s = 30 ticks) a shot succeeds again.
@@ -132,18 +143,18 @@ TEST_CASE("A base respects its cooldown between shots", "[unit][sim]") {
         sim.step(Action::noop());
     }
     const std::uint32_t ammo_before_third = sim.bases()[0].ammo;
-    sim.step(Action::fire(BaseId::Alpha, Vec2{50.0f, 120.0f}));
+    sim.step(Action::fire_at(BaseId::Alpha, Vec2{50.0f, 120.0f}));
     REQUIRE(sim.bases()[0].ammo == ammo_before_third - 1);
 }
 
 TEST_CASE("An interceptor reaches its target and detonates into a blast", "[unit][sim]") {
-    Config cfg;
+    Config cfg = unpaced();
     cfg.base_cooldown = 0.0f;
     Sim sim{cfg};
     sim.reset(0);
 
     const Vec2 target{sim.bases()[0].pos.x, 20.0f}; // straight up, close
-    sim.step(Action::fire(BaseId::Alpha, target));
+    sim.step(Action::fire_at(BaseId::Alpha, target));
     REQUIRE(sim.interceptors().size() == 1);
 
     bool detonated = false;
@@ -156,13 +167,13 @@ TEST_CASE("An interceptor reaches its target and detonates into a blast", "[unit
 }
 
 TEST_CASE("A blast expands to full radius then expires", "[unit][sim]") {
-    Config cfg;
+    Config cfg = unpaced();
     cfg.base_cooldown = 0.0f;
     cfg.blast_lifetime = 0.2f;
     Sim sim{cfg};
     sim.reset(0);
 
-    sim.step(Action::fire(BaseId::Alpha, Vec2{sim.bases()[0].pos.x, 5.0f}));
+    sim.step(Action::fire_at(BaseId::Alpha, Vec2{sim.bases()[0].pos.x, 5.0f}));
 
     float max_radius = 0.0f;
     for (int i = 0; i < 40; ++i) {
@@ -189,7 +200,7 @@ TEST_CASE("Threats spawn during a wave and descend from the top", "[unit][sim]")
 }
 
 TEST_CASE("A blast destroys threats within its radius and scores", "[unit][sim]") {
-    Config cfg;
+    Config cfg = unpaced();
     cfg.blast_max_radius = 40.0f;   // large, forgiving blast
     cfg.blast_lifetime = 3.0f;      // long-lived
     cfg.threat_base_speed = 5.0f;   // slow threats
@@ -201,7 +212,7 @@ TEST_CASE("A blast destroys threats within its radius and scores", "[unit][sim]"
     REQUIRE(sim.threats().size() >= 1);
 
     const std::int32_t score_before = sim.score();
-    sim.step(Action::fire(BaseId::Delta, sim.threats()[0].pos));
+    sim.step(Action::fire_at(BaseId::Delta, sim.threats()[0].pos));
 
     bool scored = false;
     for (int i = 0; i < 300 && !scored; ++i) {
@@ -288,7 +299,7 @@ TEST_CASE("Smart bombs spawn from the configured wave", "[unit][sim]") {
 }
 
 TEST_CASE("Smart bombs steer away from a nearby blast", "[unit][sim]") {
-    Config cfg;
+    Config cfg = unpaced(); // the blast must land exactly where the test asks
     cfg.smart_bomb_wave = 1;
     cfg.smart_bomb_chance = 1.0f;
     cfg.wave_base_threats = 1;     // a single smart bomb to track
@@ -304,7 +315,7 @@ TEST_CASE("Smart bombs steer away from a nearby blast", "[unit][sim]") {
     const Vec2 p = sim.threats()[0].pos;
 
     // Detonate a blast to the LEFT of the smart bomb (near, but out of kill range).
-    sim.step(Action::fire(BaseId::Delta, Vec2{p.x - 18.0f, p.y}));
+    sim.step(Action::fire_at(BaseId::Delta, Vec2{p.x - 18.0f, p.y}));
 
     float vx = 0.0f;
     for (int i = 0; i < 80; ++i) {
@@ -317,7 +328,7 @@ TEST_CASE("Smart bombs steer away from a nearby blast", "[unit][sim]") {
 }
 
 TEST_CASE("A destroyed city is rebuilt at the bonus-score threshold", "[unit][sim]") {
-    Config cfg;
+    Config cfg = unpaced();
     cfg.bonus_city_score = 50; // low threshold for the test
     cfg.threat_base_speed = 2000.0f;
     cfg.spawn_interval = 0.1f;
@@ -349,7 +360,7 @@ TEST_CASE("A destroyed city is rebuilt at the bonus-score threshold", "[unit][si
     std::size_t prev = alive_cities();
     for (int i = 0; i < 2000 && !rebuilt && !sim.terminated(); ++i) {
         if (!sim.threats().empty()) {
-            sim.step(Action::fire(BaseId::Delta, sim.threats()[0].pos));
+            sim.step(Action::fire_at(BaseId::Delta, sim.threats()[0].pos));
         } else {
             sim.step(Action::noop());
         }
@@ -365,11 +376,121 @@ TEST_CASE("Firing emits a Fire event; events are per-step", "[unit][sim]") {
     sim.reset(0);
     REQUIRE(sim.events().empty());
 
-    sim.step(Action::fire(BaseId::Alpha, Vec2{100.0f, 90.0f}));
+    sim.step(Action::fire_at(BaseId::Alpha, Vec2{100.0f, 90.0f}));
     REQUIRE(has_event(sim, EventType::Fire));
 
     sim.step(Action::noop()); // the next step clears the previous step's events
     REQUIRE_FALSE(has_event(sim, EventType::Fire));
+}
+
+// ---- Player model: crosshair travel + trigger interval (DESIGN.md §5) --------
+// These limits apply to every driver alike, so the AI cannot out-mechanic a hand.
+
+TEST_CASE("The crosshair starts centred and holds when the action does not move it",
+          "[unit][sim]") {
+    Sim sim;
+    sim.reset(0);
+    const Vec2 start{sim.config().world_width * 0.5f, sim.config().world_height * 0.5f};
+    REQUIRE(sim.crosshair() == start);
+
+    sim.step(Action::noop());
+    REQUIRE(sim.crosshair() == start); // NoOp does not drag the cursor anywhere
+}
+
+TEST_CASE("The crosshair travels toward the aim point at a capped speed", "[unit][sim]") {
+    Config cfg;
+    cfg.aim_max_speed = 60.0f; // 1 world unit per tick at dt = 1/60
+    Sim sim{cfg};
+    sim.reset(0);
+
+    const Vec2 start = sim.crosshair();
+    const Vec2 far{start.x + 100.0f, start.y}; // 100 units away: 100 ticks of travel
+
+    sim.step(Action::aim_at(far));
+    REQUIRE_THAT(static_cast<double>(sim.crosshair().x - start.x), WithinAbs(1.0, 1e-4));
+    REQUIRE_THAT(static_cast<double>(sim.crosshair().y),
+                 WithinAbs(static_cast<double>(start.y), 1e-4));
+
+    for (int i = 0; i < 99; ++i) {
+        sim.step(Action::aim_at(far));
+    }
+    REQUIRE_THAT(static_cast<double>(sim.crosshair().x), WithinAbs(static_cast<double>(far.x),
+                                                                   1e-3)); // arrived, not overshot
+}
+
+TEST_CASE("A shot detonates at the crosshair, not at a distant requested aim", "[unit][sim]") {
+    Config cfg;
+    cfg.aim_max_speed = 60.0f; // 1 unit/tick — the crosshair cannot arrive this tick
+    cfg.fire_interval = 0.0f;
+    Sim sim{cfg};
+    sim.reset(0);
+
+    const Vec2 start = sim.crosshair();
+    sim.step(Action::fire_at(BaseId::Alpha, Vec2{start.x + 100.0f, start.y}));
+
+    REQUIRE(sim.interceptors().size() == 1);
+    // The interceptor is aimed one tick's worth of travel away, not 100 units away.
+    REQUIRE_THAT(static_cast<double>(sim.interceptors()[0].target.x),
+                 WithinAbs(static_cast<double>(start.x + 1.0f), 1e-4));
+}
+
+TEST_CASE("aim_max_speed = 0 means instant aim", "[unit][sim]") {
+    Config cfg = unpaced();
+    Sim sim{cfg};
+    sim.reset(0);
+
+    const Vec2 target{10.0f, 170.0f};
+    sim.step(Action::aim_at(target));
+    REQUIRE(sim.crosshair() == target);
+}
+
+TEST_CASE("The crosshair is clamped to the world bounds", "[unit][sim]") {
+    Config cfg = unpaced();
+    Sim sim{cfg};
+    sim.reset(0);
+
+    sim.step(Action::aim_at(Vec2{-500.0f, -500.0f}));
+    REQUIRE(sim.crosshair() == Vec2{0.0f, 0.0f});
+
+    sim.step(Action::aim_at(Vec2{9000.0f, 9000.0f}));
+    REQUIRE(sim.crosshair() == Vec2{cfg.world_width, cfg.world_height});
+}
+
+TEST_CASE("The trigger interval paces shots across different batteries", "[unit][sim]") {
+    Config cfg;
+    cfg.aim_max_speed = 0.0f;  // isolate the trigger interval from crosshair travel
+    cfg.base_cooldown = 0.0f;  // and from the per-battery cooldown
+    cfg.fire_interval = 0.15f; // 9 ticks at dt = 1/60
+    Sim sim{cfg};
+    sim.reset(0);
+
+    const Vec2 target{160.0f, 90.0f};
+    sim.step(Action::fire_at(BaseId::Alpha, target));
+    REQUIRE(sim.interceptors().size() == 1);
+
+    // A *different*, fully-loaded battery still cannot fire: the limit is the
+    // player's trigger finger, not the battery.
+    sim.step(Action::fire_at(BaseId::Delta, target));
+    REQUIRE(sim.interceptors().size() == 1);
+    REQUIRE(sim.bases()[1].ammo == cfg.ammo_per_base); // no ammo spent on the rejected shot
+
+    for (int i = 0; i < 9; ++i) {
+        sim.step(Action::noop()); // let the interval elapse
+    }
+    sim.step(Action::fire_at(BaseId::Delta, target));
+    REQUIRE(sim.interceptors().size() == 2);
+}
+
+TEST_CASE("fire_interval = 0 leaves only the per-battery cooldown", "[unit][sim]") {
+    Config cfg = unpaced();
+    cfg.base_cooldown = 0.0f;
+    Sim sim{cfg};
+    sim.reset(0);
+
+    const Vec2 target{160.0f, 90.0f};
+    sim.step(Action::fire_at(BaseId::Alpha, target));
+    sim.step(Action::fire_at(BaseId::Delta, target));
+    REQUIRE(sim.interceptors().size() == 2); // back-to-back ticks are allowed
 }
 
 TEST_CASE("Starting a wave emits a WaveStarted event (siren)", "[unit][sim]") {
@@ -383,7 +504,7 @@ TEST_CASE("Starting a wave emits a WaveStarted event (siren)", "[unit][sim]") {
 }
 
 TEST_CASE("A blast kill emits a ThreatKilled event", "[unit][sim]") {
-    Config cfg;
+    Config cfg = unpaced();
     cfg.blast_max_radius = 40.0f;
     cfg.blast_lifetime = 3.0f;
     cfg.threat_base_speed = 5.0f;
@@ -392,7 +513,7 @@ TEST_CASE("A blast kill emits a ThreatKilled event", "[unit][sim]") {
     sim.reset(1);
     sim.step(Action::noop()); // spawn a threat
     REQUIRE(sim.threats().size() >= 1);
-    sim.step(Action::fire(BaseId::Delta, sim.threats()[0].pos));
+    sim.step(Action::fire_at(BaseId::Delta, sim.threats()[0].pos));
 
     bool killed = false;
     for (int i = 0; i < 300 && !killed; ++i) {

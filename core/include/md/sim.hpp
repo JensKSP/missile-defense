@@ -49,6 +49,14 @@ class Sim {
 
     [[nodiscard]] bool terminated() const noexcept { return terminated_; }
 
+    /// The aiming crosshair — simulation state, steered toward `Action::aim` at
+    /// `Config::aim_max_speed`. Launches detonate at exactly this point.
+    [[nodiscard]] Vec2 crosshair() const noexcept { return crosshair_; }
+
+    /// Seconds until the next launch is allowed by the global trigger interval
+    /// (`Config::fire_interval`); per-battery cooldowns apply on top.
+    [[nodiscard]] float fire_cooldown() const noexcept { return fire_cooldown_remaining_; }
+
     [[nodiscard]] std::span<const City> cities() const noexcept {
         return {cities_.data(), cities_.size()};
     }
@@ -82,6 +90,7 @@ class Sim {
     void push_event(EventType type, Vec2 pos) noexcept; // note: `emit` is a Qt macro
 
     void update_cooldowns() noexcept;
+    void move_crosshair(const Action& action) noexcept;
     bool try_fire(const Action& action) noexcept;
     void advance_interceptors() noexcept;
     void advance_blasts() noexcept;
@@ -117,6 +126,8 @@ class Sim {
     std::uint32_t blast_count_ = 0;
     std::uint32_t explosion_count_ = 0;
     std::uint32_t event_count_ = 0;
+    Vec2 crosshair_{};                     // the shared aiming cursor (world units)
+    float fire_cooldown_remaining_ = 0.0f; // global trigger interval countdown
     std::int32_t score_ = 0;
     std::uint64_t tick_ = 0;
     std::uint32_t wave_ = 0;

@@ -5,7 +5,7 @@
 
 // Defined by the build from the top-level project(VERSION ...); see core/CMakeLists.txt.
 #ifndef MD_VERSION
-#  define MD_VERSION "0.0.0"
+#define MD_VERSION "0.0.0"
 #endif
 
 namespace md {

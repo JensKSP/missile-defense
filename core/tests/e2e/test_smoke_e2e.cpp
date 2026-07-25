@@ -17,16 +17,16 @@ using md::Vec2;
 
 namespace {
 
-// A deterministic, state-independent scripted policy: every 12 ticks, fire from a
-// cycling base at a cycling aim point. Exercises firing, blasts, and scoring.
+// A deterministic, state-independent scripted policy: steer the crosshair toward a
+// cycling aim point every tick (it is speed-capped, so travel takes several ticks)
+// and pull the trigger on the first tick of each 12-tick phase, from a cycling
+// base. Exercises crosshair travel, the trigger interval, firing, blasts and scoring.
 Action scripted_action(std::uint64_t t) {
-    if (t % 12 != 0) {
-        return Action::noop();
-    }
     const std::uint64_t phase = t / 12;
     const auto base = static_cast<BaseId>(phase % 3);
     const float x = 40.0f + (static_cast<float>(phase % 6) * 40.0f);
-    return Action::fire(base, Vec2{x, 120.0f});
+    const Vec2 target{x, 120.0f};
+    return (t % 12 == 0) ? Action::fire_at(base, target) : Action::aim_at(target);
 }
 
 // FNV-1a fold over the observable state. Sensitive to float positions, so the
@@ -97,6 +97,6 @@ TEST_CASE("Same seed + actions produce an identical trajectory", "[e2e]") {
 TEST_CASE("Trajectory checksum is stable across builds (Debug == Release)", "[e2e]") {
     // Golden value pins the whole trajectory: if Debug and Release ever diverge
     // (e.g. FP contraction), one of them fails this exact-match check.
-    constexpr std::uint64_t golden = 0x8f60794f15979469ULL;
+    constexpr std::uint64_t golden = 0x531bc0247a896007ULL;
     REQUIRE(run_checksum(777, 1500) == golden);
 }

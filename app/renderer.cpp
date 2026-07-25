@@ -581,10 +581,12 @@ void Renderer::startNextFrame() {
             }
         }
         if (playing) {
-            const Vec2 aim = window_->aim(); // a simple crosshair: four arms + a centre dot
-            constexpr float arm = 3.0f;      // arm length
-            constexpr float gap = 1.3f;      // centre gap
-            constexpr float th = 0.3f;       // line thickness
+            // The crosshair is sim state (speed-capped), so draw where it actually
+            // is — that is where a shot detonates, not where the mouse points.
+            const Vec2 aim = sim.crosshair(); // four arms + a centre dot
+            constexpr float arm = 3.0f;       // arm length
+            constexpr float gap = 1.3f;       // centre gap
+            constexpr float th = 0.3f;        // line thickness
             const float off = gap + (arm * 0.5f);
             inst.push_back(rect(aim.x - off, aim.y, arm * 0.5f, th, 1.0f, 1.0f, 1.0f)); // left
             inst.push_back(rect(aim.x + off, aim.y, arm * 0.5f, th, 1.0f, 1.0f, 1.0f)); // right
@@ -643,14 +645,14 @@ void Renderer::startNextFrame() {
         // or punctuation beyond the period added for the version string). Lines are
         // kept short so none overflows the width, and spaced so none overlaps.
         const std::array<std::string_view, 9> lines{"MISSILE DEFENSE",
-                                                     version_line,
-                                                     "COPYRIGHT 2026 JENS KOEHLER",
-                                                     "MIT LICENSE",
-                                                     "DEVELOPED WITH CLAUDE CODE",
-                                                     "USES QT MINIAUDIO VULKAN",
-                                                     "MISSILE COMMAND IS AN",
-                                                     "ATARI TRADEMARK",
-                                                     "INDEPENDENT NON COMMERCIAL HOMAGE"};
+                                                    version_line,
+                                                    "COPYRIGHT 2026 JENS KOEHLER",
+                                                    "MIT LICENSE",
+                                                    "DEVELOPED WITH CLAUDE CODE",
+                                                    "USES QT MINIAUDIO VULKAN",
+                                                    "MISSILE COMMAND IS AN",
+                                                    "ATARI TRADEMARK",
+                                                    "INDEPENDENT NON COMMERCIAL HOMAGE"};
         for (int i = 0; i < static_cast<int>(lines.size()); ++i) {
             const float y = world_h * (0.79f - (static_cast<float>(i) * 0.08f));
             draw_text(inst, lines[static_cast<std::size_t>(i)], cx, y, world_h * 0.011f, 0.78f,

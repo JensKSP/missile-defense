@@ -126,7 +126,7 @@ class GameWindow : public QVulkanWindow {
     bool started_ = false;
     bool in_progress_ = false; // a game is running or paused-in-menu
     std::uint64_t seed_ = 1;
-    Action pending_ = Action::noop();
+    bool fire_pending_ = false; // a click arrived; fire on the next sim tick
     Vec2 aim_{};
     State state_ = State::Menu;
     int menu_index_ = 0;

@@ -40,6 +40,13 @@ struct Config {
     std::uint32_t ammo_per_base = 10;
     float base_cooldown = 0.1f; // minimum seconds between launches from one base
 
+    // Player model — the limits a *hand* has, applied to every driver alike so the
+    // AI cannot out-mechanic the human (DESIGN.md §5). The crosshair is simulation
+    // state: naming a distant point costs travel time instead of being free.
+    // Strawman values; calibrate from recorded human play before the freeze.
+    float aim_max_speed = 1200.0f; // crosshair top speed, world units/s (0 = instant)
+    float fire_interval = 0.15f;   // min seconds between ANY two launches (0 = none)
+
     // Interceptors & blasts.
     float interceptor_speed = 220.0f; // world units / second
     float blast_max_radius = 14.0f;   // world units

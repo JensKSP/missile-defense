@@ -60,9 +60,9 @@ GameWindow::MenuAction GameWindow::action_at(int index) const {
         return acts[static_cast<std::size_t>(index)];
     }
     // ABOUT (legal notices + version) lives in the main menu only, arcade-style.
-    const std::array<MenuAction, 6> acts{MenuAction::NewGame,    MenuAction::Help,
-                                         MenuAction::Options,    MenuAction::Highscores,
-                                         MenuAction::About,      MenuAction::Exit};
+    const std::array<MenuAction, 6> acts{MenuAction::NewGame, MenuAction::Help,
+                                         MenuAction::Options, MenuAction::Highscores,
+                                         MenuAction::About,   MenuAction::Exit};
     return acts[static_cast<std::size_t>(index)];
 }
 
@@ -216,7 +216,7 @@ void GameWindow::start_game() {
     in_progress_ = true;
     started_ = false;
     accumulator_ = 0.0;
-    pending_ = Action::noop();
+    fire_pending_ = false;
 }
 
 void GameWindow::activate(int index) {
@@ -284,9 +284,17 @@ void GameWindow::advance() {
 
     const auto dt = static_cast<double>(sim_.config().dt);
     while (accumulator_ >= dt) {
-        sim_.step(pending_);
+        // Steer the crosshair toward the mouse every tick (the sim caps how far it
+        // travels); a click fires exactly once, from the battery nearest to where
+        // the crosshair actually is — which is where the shot will detonate.
+        Action action = Action::aim_at(aim_);
+        if (fire_pending_) {
+            action.fire = true;
+            action.base = nearest_base_with_ammo(sim_.crosshair());
+            fire_pending_ = false;
+        }
+        sim_.step(action);
         audio_.handle_events(sim_.events()); // play SFX for this step's events
-        pending_ = Action::noop();           // a click fires exactly once
         accumulator_ -= dt;
         if (sim_.terminated()) {
             end_game();
@@ -327,7 +335,7 @@ void GameWindow::mousePressEvent(QMouseEvent* event) {
         break;
     }
     case State::Playing:
-        pending_ = Action::fire(nearest_base_with_ammo(aim_), aim_);
+        fire_pending_ = true; // consumed by the next sim tick (advance)
         break;
     case State::GameOver:
     case State::Highscores:

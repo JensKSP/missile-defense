@@ -62,6 +62,8 @@ void Sim::reset(std::uint64_t seed) noexcept {
     blast_count_ = 0;
     explosion_count_ = 0;
     event_count_ = 0;
+    crosshair_ = Vec2{config_.world_width * 0.5f, config_.world_height * 0.5f};
+    fire_cooldown_remaining_ = 0.0f;
     score_ = 0;
     tick_ = 0;
     terminated_ = false;
@@ -95,7 +97,8 @@ StepResult Sim::step(const Action& action) noexcept {
     const std::int32_t score_before = score_;
 
     update_cooldowns();
-    try_fire(action);
+    move_crosshair(action);         // steer the shared cursor (speed-capped)
+    try_fire(action);               // launches detonate at the crosshair
     advance_interceptors();         // may spawn blasts
     advance_blasts();               // age blasts, update radius, expire
     advance_explosions();           // age cosmetic ground-impact fireballs
@@ -116,10 +119,34 @@ void Sim::update_cooldowns() noexcept {
     for (auto& base : bases_) {
         base.cooldown_remaining = std::max(0.0f, base.cooldown_remaining - config_.dt);
     }
+    fire_cooldown_remaining_ = std::max(0.0f, fire_cooldown_remaining_ - config_.dt);
+}
+
+/// Steer the crosshair toward `action.aim`, travelling at most
+/// `aim_max_speed * dt` this tick, and keep it inside the world. A distant aim
+/// point therefore takes several ticks to reach — the cost a hand pays for a
+/// large movement. `aim_max_speed <= 0` disables the cap (instant aim).
+void Sim::move_crosshair(const Action& action) noexcept {
+    if (!action.move) {
+        return; // hold position
+    }
+    Vec2 delta = action.aim - crosshair_;
+    if (config_.aim_max_speed > 0.0f) {
+        const float max_step = config_.aim_max_speed * config_.dt;
+        if (delta.length_sq() > max_step * max_step) {
+            delta = delta.normalized() * max_step;
+        }
+    }
+    crosshair_ += delta;
+    crosshair_.x = std::clamp(crosshair_.x, 0.0f, config_.world_width);
+    crosshair_.y = std::clamp(crosshair_.y, 0.0f, config_.world_height);
 }
 
 bool Sim::try_fire(const Action& action) noexcept {
-    if (action.kind != Action::Kind::Fire) {
+    if (!action.fire) {
+        return false;
+    }
+    if (fire_cooldown_remaining_ > 0.0f) { // global trigger interval (the finger)
         return false;
     }
     const auto index = static_cast<std::uint32_t>(action.base);
@@ -131,16 +158,18 @@ bool Sim::try_fire(const Action& action) noexcept {
         return false;
     }
 
-    const Vec2 direction = (action.target - base.pos).normalized();
+    const Vec2 target = crosshair_; // you shoot where the crosshair actually is
+    const Vec2 direction = (target - base.pos).normalized();
     interceptors_[interceptor_count_] =
         Interceptor{.pos = base.pos,
                     .origin = base.pos,
                     .velocity = direction * config_.interceptor_speed,
-                    .target = action.target,
+                    .target = target,
                     .active = true};
     ++interceptor_count_;
     --base.ammo;
     base.cooldown_remaining = config_.base_cooldown;
+    fire_cooldown_remaining_ = config_.fire_interval;
     push_event(EventType::Fire, base.pos);
     return true;
 }

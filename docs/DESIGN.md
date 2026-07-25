@@ -105,20 +105,52 @@ loop and is *not* fixed by this document; this table only fixes the human-facing
 A single action primitive is shared by the human and the AI:
 
 ```
-Action = NoOp
-       | Fire { base_id ∈ {ALPHA, DELTA, OMEGA}, target: vec2 P }
+Action = { aim: vec2, base_id ∈ {ALPHA, DELTA, OMEGA}, move: bool, fire: bool }
 ```
 
-- **Preconditions** for `Fire`: chosen base has ammo `> 0` and is off cooldown.
-  An invalid `Fire` is treated as `NoOp` (no crash, no penalty beyond wasted opportunity).
-- **Human client:** mouse position → `P`; a key/button per base selects `base_id`
-  (the trackball + three fire buttons of the original).
-- **AI policy:** action space is **target-selection** — "assign an interceptor from base
-  *j* to threat *i*" — and a helper computes the lead-intercept point `P` from the threat's
-  state. This keeps the AI's action space discrete-over-entities (friendly to a
-  from-scratch PPO) while producing the *same* underlying `Fire` primitive.
-- **Cadence:** the agent may act **every tick** (`K = 1`), and `NoOp` is a first-class
-  choice. Frame-skip may be introduced later as a training optimization.
+The **crosshair is simulation state**, not a free parameter of the action — the arcade
+cabinet's trackball, modelled honestly. An action asks to *steer* it toward `aim`, and
+optionally to launch from `base_id` at wherever the crosshair actually ended up.
+
+- **Preconditions** for a launch: the chosen base is alive, has ammo `> 0` and is off its
+  own cooldown, **and** the global trigger interval has elapsed. A rejected launch is a
+  no-op (no crash, no ammo spent, no penalty beyond the wasted opportunity).
+- **Human client:** the mouse position is fed as `aim` every tick; a click sets `fire`.
+- **AI policy:** action space stays **target-selection** — "assign an interceptor from
+  base *j* to threat *i*" — with a helper turning that into steer-then-fire over several
+  ticks. Discrete-over-entities, friendly to a from-scratch PPO, same underlying primitive.
+- **Cadence:** the agent may act **every tick** (`K = 1`). Frame-skip may be introduced
+  later as a training optimization.
+
+### 5.1 The player model — why the limits exist
+
+A machine given exact state also gets *perfect mechanics* for free. Without constraints an
+agent can name opposite corners of the map on consecutive ticks and empty every battery in
+one second — capabilities no hand has. That is not an information asymmetry (§13 covers
+that); it is an **execution asymmetry**, and it makes any human-vs-AI score comparison
+meaningless. The standard remedy in the field (AlphaStar, OpenAI Five) is to **constrain
+actuation, not perception** — so we cap the hands and leave the eyes alone:
+
+| Knob | Models | Default |
+|---|---|---|
+| `aim_max_speed` | How fast a hand moves the cursor (world units/s; `0` = instant) | `1200` |
+| `fire_interval` | The trigger finger — min seconds between **any** two launches | `0.15` |
+| `base_cooldown` | The battery's own reload, applied on top | `0.1` |
+
+Both limits are enforced inside `Sim::step`, so **every driver obeys them identically** —
+human, scripted baseline, and learned policy. Consequences worth noting:
+
+- The two limits cover different regimes: the trigger interval binds on *clustered* targets
+  (a MIRV splitting into three), the crosshair cap on *cross-field* repositioning. Neither
+  subsumes the other.
+- Deliberately **not** modelled: aim *error*. Noise would blur the analytic-intercept
+  advantage, but it is not where the game's difficulty lives, and it would make the reward
+  signal noisier for no design gain.
+- Defaults are strawman values. `aim_max_speed` is set generously so it is invisible during
+  human play (a mouse rarely exceeds it) while still denying the agent free teleportation;
+  calibrate both from recorded human play before the mechanics freeze.
+- Setting either to `0` disables it, which is how tests of *other* mechanics avoid being
+  paced by the player model.
 
 ## 6. Observation model (data availability, finalized in Step 2)
 
