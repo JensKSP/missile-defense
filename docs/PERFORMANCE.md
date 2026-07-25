@@ -8,7 +8,7 @@ by hand; nothing depends on a particular host.
 poe bench                    # release build — the numbers that mean anything
 poe bench --threads 4        # pin the thread count instead of detecting it
 poe bench --csv              # machine-readable
-poe profile                  # per-phase timers (builds the 'profile' preset)
+poe profile                  # steady workload to attach a sampling profiler to
 ```
 
 ## The workflow
@@ -16,8 +16,8 @@ poe profile                  # per-phase timers (builds the 'profile' preset)
 1. **Benchmark** (`bench/`, target `md_bench`) — rates, not wall-clock totals, so
    results compare across machines. Every measured value feeds a checksum that is
    printed, so nothing can be optimised away.
-2. **Instrument** (`md/profile.hpp`) — per-phase timers inside `Sim::step`,
-   compiled to *nothing* unless `MD_PROFILE` is set. See the caveat below.
+2. **Profile from outside** — with a sampling profiler. See below for why there is
+   no in-code timing.
 3. **Measure** — never optimise before this step.
 4. **Improve** — and re-measure to prove it.
 
@@ -69,17 +69,27 @@ then SMT adds about a third more (8.9× at 16). That is the expected shape: the
 simulations share nothing, each `Sim` is ~12 KB — far wider than a cache line, so
 neighbouring workers never share one — and `step()` neither allocates nor locks.
 
-## A caveat about the in-code timers
+## Why there is no in-code profiling
 
-`poe profile` reports per-phase shares, and on this simulation **they are not
-trustworthy at face value**. A whole tick is ~24 ns spread over fourteen phases,
-so each phase is a couple of nanoseconds — while a `steady_clock` read is ~13 ns.
-Measured with timers on, a tick inflates from 24 ns to ~790 ns and every phase
-reports a near-identical ~26 ns/call, which is the clock, not the code.
+**`Sim::step` reads no clock, and must not.** It is a pure function of
+`(state, action)` on a fixed timestep — that is what lets drivers own the loop,
+replays reproduce bit-exactly, and sixteen threads run it without coordinating.
+Wall-clock time has no place inside it.
 
-Keep them for coarse questions ("did this phase suddenly get expensive?"), and use
-a **sampling profiler** for anything finer. The `profile` preset is built for that:
-`-O2 -g -fno-omit-frame-pointer`, so stacks unwind properly.
+This was tried anyway, with per-phase scoped timers behind a compile flag, and the
+result refuted the approach. A tick is ~17 ns spread over fourteen phases — a
+couple of nanoseconds each — while a `steady_clock` read costs ~13 ns. With timers
+on, a tick inflated to ~790 ns and every phase reported the same ~26 ns/call: the
+instrument, not the code. At **46× distortion** you are no longer measuring a
+slower version of the program, you are measuring a different one. The whole
+mechanism was removed rather than kept behind a caveat, because a table that is
+confidently wrong is worse than no table — somebody will believe it.
+
+The right tool never touches the code: a sampling profiler interrupts the process
+on a timer and reads the instruction pointer, so the simulation stays pure and
+unaware. The `profile` preset builds for exactly that — `-O3 -g` with
+`-fno-omit-frame-pointer` so stacks unwind — and `poe profile` runs a long steady
+single-threaded workload to attach to.
 
 | Platform | Tool | Notes |
 |---|---|---|

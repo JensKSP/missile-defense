@@ -5,7 +5,6 @@
 
 #include "md/config.hpp"
 #include "md/entities.hpp"
-#include "md/profile.hpp"
 #include "md/rng.hpp"
 #include "md/vec2.hpp"
 
@@ -98,8 +97,6 @@ StepResult Sim::step(const Action& action) noexcept {
 
     const std::int32_t score_before = score_;
 
-    // Each phase opens an MD_PROF_ZONE of its own (a no-op unless MD_PROFILE is
-    // defined), so this stays a readable list of what a tick does.
     update_cooldowns();
     move_crosshair(action);         // steer the shared cursor (speed-capped)
     try_fire(action);               // launches detonate at the crosshair
@@ -120,7 +117,6 @@ StepResult Sim::step(const Action& action) noexcept {
 }
 
 void Sim::update_cooldowns() noexcept {
-    MD_PROF_ZONE(Cooldowns);
     for (auto& base : bases_) {
         base.cooldown_remaining = std::max(0.0f, base.cooldown_remaining - config_.dt);
     }
@@ -132,7 +128,6 @@ void Sim::update_cooldowns() noexcept {
 /// point therefore takes several ticks to reach — the cost a hand pays for a
 /// large movement. `aim_max_speed <= 0` disables the cap (instant aim).
 void Sim::move_crosshair(const Action& action) noexcept {
-    MD_PROF_ZONE(Crosshair);
     if (!action.move) {
         return; // hold position
     }
@@ -149,7 +144,6 @@ void Sim::move_crosshair(const Action& action) noexcept {
 }
 
 bool Sim::try_fire(const Action& action) noexcept {
-    MD_PROF_ZONE(Fire);
     if (!action.fire) {
         return false;
     }
@@ -181,7 +175,6 @@ bool Sim::try_fire(const Action& action) noexcept {
 }
 
 void Sim::advance_interceptors() noexcept {
-    MD_PROF_ZONE(Interceptors);
     const float step_len = config_.interceptor_speed * config_.dt;
     const float step_len_sq = step_len * step_len;
 
@@ -218,7 +211,6 @@ bool Sim::spawn_blast(Vec2 center) noexcept {
 }
 
 void Sim::advance_blasts() noexcept {
-    MD_PROF_ZONE(Blasts);
     std::uint32_t i = 0;
     while (i < blast_count_) {
         Blast& blast = blasts_[i];
@@ -243,7 +235,6 @@ void Sim::spawn_explosion(Vec2 center, float peak_radius) noexcept {
 }
 
 void Sim::advance_explosions() noexcept {
-    MD_PROF_ZONE(Explosions);
     const float expand = 0.25f * config_.explosion_lifetime;
     std::uint32_t i = 0;
     while (i < explosion_count_) {
@@ -260,7 +251,6 @@ void Sim::advance_explosions() noexcept {
 }
 
 void Sim::steer_smart_bombs() noexcept {
-    MD_PROF_ZONE(SmartBombs);
     const float range_sq = config_.smart_bomb_dodge_range * config_.smart_bomb_dodge_range;
     const float max_vx = threat_speed();
     for (std::uint32_t i = 0; i < threat_count_; ++i) {
@@ -289,14 +279,12 @@ void Sim::steer_smart_bombs() noexcept {
 }
 
 void Sim::move_threats() noexcept {
-    MD_PROF_ZONE(MoveThreats);
     for (std::uint32_t i = 0; i < threat_count_; ++i) {
         threats_[i].pos += threats_[i].velocity * config_.dt;
     }
 }
 
 std::int32_t Sim::resolve_blast_hits() noexcept {
-    MD_PROF_ZONE(BlastHits);
     std::int32_t reward = 0;
     std::uint32_t i = 0;
     while (i < threat_count_) {
@@ -321,7 +309,6 @@ std::int32_t Sim::resolve_blast_hits() noexcept {
 }
 
 void Sim::resolve_ground_hits() noexcept {
-    MD_PROF_ZONE(GroundHits);
     // Damage is resolved by *where the warhead lands*, not by what it was aimed at
     // when it spawned. Smart bombs steer sideways to dodge blasts, so the two can
     // differ by a long way — and if the stored assignment decided the outcome, a
@@ -382,7 +369,6 @@ void Sim::resolve_ground_hits() noexcept {
 }
 
 void Sim::update_waves() noexcept {
-    MD_PROF_ZONE(Waves);
     if (break_timer_ > 0.0f) {
         break_timer_ = std::max(0.0f, break_timer_ - config_.dt);
         if (break_timer_ <= 0.0f) {
@@ -463,7 +449,6 @@ void Sim::spawn_threat() noexcept {
 }
 
 void Sim::split_mirvs() noexcept {
-    MD_PROF_ZONE(SplitMirvs);
     std::uint32_t i = 0;
     while (i < threat_count_) {
         Threat& threat = threats_[i];
@@ -557,7 +542,6 @@ bool Sim::pick_target(TargetKind& kind, std::uint32_t& index) noexcept {
 }
 
 void Sim::award_bonus_cities() noexcept {
-    MD_PROF_ZONE(BonusCities);
     // Earn: bank a credit per threshold crossed. Banking (rather than rebuilding on
     // the spot) is what stops a bonus earned while all six cities still stand from
     // being silently forfeited — which used to punish playing well. The guard on a
@@ -588,7 +572,6 @@ void Sim::award_bonus_cities() noexcept {
 }
 
 void Sim::update_termination() noexcept {
-    MD_PROF_ZONE(Termination);
     for (const auto& city : cities_) {
         if (city.alive) {
             terminated_ = false;

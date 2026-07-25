@@ -3,7 +3,7 @@
 // Assisted-by: Claude Code (Anthropic)
 // Throughput benchmark for the simulation — how many sims can this machine run?
 //
-//   md_bench [--episodes N] [--repeat N] [--threads N] [--profile] [--csv]
+//   md_bench [--episodes N] [--repeat N] [--threads N] [--sample] [--csv]
 //
 // Reports rates, not wall-clock totals, so numbers are comparable across
 // machines. Every result is derived from work that is actually consumed (the
@@ -12,7 +12,6 @@
 #include "md/agent/heuristic.hpp"
 #include "md/config.hpp"
 #include "md/observation.hpp"
-#include "md/profile.hpp"
 #include "md/sim.hpp"
 #include "md/vec_sim.hpp"
 
@@ -31,7 +30,7 @@ struct Options {
     int episodes = 24;     // episodes per single-threaded measurement
     int repeat = 3;        // best-of, to shake out scheduler noise
     unsigned threads = 0;  // 0 = detect
-    bool profile = false;  // print the per-phase table (needs a profile build)
+    bool sample = false;   // run a long workload for an external sampler
     bool csv = false;      // machine-readable
 };
 
@@ -68,35 +67,19 @@ std::uint64_t parse_u64(const char* text, std::uint64_t fallback) {
     return end == text ? fallback : static_cast<std::uint64_t>(value);
 }
 
-/// Render md::prof's counters. Formatting lives here, not in the core, which does
-/// no I/O — the core just exposes the raw per-zone totals.
-void print_profile() {
-    std::uint64_t total = 0;
-    for (std::size_t i = 0; i < md::prof::zone_count; ++i) {
-        total += md::prof::nanos(static_cast<md::prof::Zone>(i));
-    }
-    if (total == 0) {
-        std::printf("\nprofile: no samples — build the 'profile' preset "
-                    "(poe profile) to collect them.\n");
-        return;
-    }
-    std::printf("\nper-phase profile (this thread)\n");
-    std::printf("  NOTE: a tick is only ~25 ns across 14 phases, while a clock read is ~13 ns,\n"
-                "  so these shares are dominated by timer overhead. Use a sampling profiler\n"
-                "  (perf / WPA / VTune) for real attribution — see docs/PERFORMANCE.md.\n");
-    std::printf("  %-14s %7s %11s %12s %10s\n", "phase", "share", "total ms", "calls", "ns/call");
-    for (std::size_t i = 0; i < md::prof::zone_count; ++i) {
-        const auto zone = static_cast<md::prof::Zone>(i);
-        const std::uint64_t ns = md::prof::nanos(zone);
-        const std::uint64_t calls = md::prof::calls(zone);
-        if (calls == 0) {
-            continue;
-        }
-        std::printf("  %-14s %6.1f%% %11.1f %12llu %10.1f\n", md::prof::name(zone),
-                    100.0 * static_cast<double>(ns) / static_cast<double>(total),
-                    static_cast<double>(ns) / 1.0e6, static_cast<unsigned long long>(calls),
-                    static_cast<double>(ns) / static_cast<double>(calls));
-    }
+/// A long, steady workload for a sampling profiler to attach to. There is
+/// deliberately no in-code phase timing: `Sim::step` is a pure function of
+/// (state, action) and reads no clock, so profiling happens from outside the
+/// process — see docs/PERFORMANCE.md.
+void run_profiling_workload(const md::Config& config, const md::agent::Heuristic& agent,
+                            std::size_t episodes) {
+    std::printf("\nprofiling workload: %zu episodes, single-threaded.\n", episodes);
+    std::printf("Attach a sampler to this process, e.g.\n"
+                "  linux:   perf record -g -- <this binary> --sample\n"
+                "  windows: wpr -start CPU -filemode ... wpr -stop md.etl  (view in WPA)\n");
+    md::VecSim vec{0, config, 1};
+    const std::uint64_t done = vec.run_episodes(agent, episodes, 0);
+    std::printf("done: %llu episodes\n", static_cast<unsigned long long>(done));
 }
 
 } // namespace
@@ -105,8 +88,8 @@ int main(int argc, char** argv) {
     Options opt;
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg{argv[i]};
-        if (arg == "--profile") {
-            opt.profile = true;
+        if (arg == "--sample") {
+            opt.sample = true;
         } else if (arg == "--csv") {
             opt.csv = true;
         } else if (arg == "--episodes" && (i + 1) < argc) {
@@ -118,7 +101,7 @@ int main(int argc, char** argv) {
         } else {
             std::fprintf(stderr,
                          "usage: md_bench [--episodes N] [--repeat N] [--threads N] "
-                         "[--profile] [--csv]\n");
+                         "[--sample] [--csv]\n");
             return 2;
         }
     }
@@ -288,8 +271,9 @@ int main(int argc, char** argv) {
         checksum += done;
     }
 
-    if (opt.profile) {
-        print_profile();
+    if (opt.sample) {
+        run_profiling_workload(config, agent,
+                               static_cast<std::size_t>(opt.episodes) * 4u);
     }
     if (!opt.csv) {
         std::printf("\n(checksum %llu — printed so nothing measured is optimised away)\n",
