@@ -73,8 +73,11 @@ target_include_directories(md_app PRIVATE "${shader_hdr_dir}")
 
 # Qt/Vulkan headers are imported targets → their includes are SYSTEM, so our
 # strict -Werror only holds our own code to account.
+# md::agent supplies the scripted baseline for the app's WATCH AI mode. It is a
+# headless sibling of the core — no Qt, no Vulkan — so this costs nothing but a
+# static link.
 target_link_libraries(md_app
-  PRIVATE md::core md::warnings Qt6::Gui Vulkan::Vulkan md_miniaudio)
+  PRIVATE md::core md::agent md::warnings Qt6::Gui Vulkan::Vulkan md_miniaudio)
 
 # Windows: the audio device init explicitly manages a COM apartment (audio.cpp).
 if(WIN32)

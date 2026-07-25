@@ -47,9 +47,8 @@ QVulkanWindowRenderer* GameWindow::createRenderer() {
     return new Renderer(this);
 }
 
-int GameWindow::menu_count() noexcept {
-    return 6; // paused: RESUME NEW-GAME HELP OPTIONS HIGHSCORES EXIT
-              // main:   START HELP OPTIONS HIGHSCORES ABOUT EXIT
+int GameWindow::menu_count() const noexcept {
+    return in_progress_ ? 6 : 7; // WATCH AI and ABOUT are main-menu only
 }
 
 GameWindow::MenuAction GameWindow::action_at(int index) const {
@@ -59,10 +58,9 @@ GameWindow::MenuAction GameWindow::action_at(int index) const {
                                              MenuAction::Highscores, MenuAction::Exit};
         return acts[static_cast<std::size_t>(index)];
     }
-    // ABOUT (legal notices + version) lives in the main menu only, arcade-style.
-    const std::array<MenuAction, 6> acts{MenuAction::NewGame, MenuAction::Help,
-                                         MenuAction::Options, MenuAction::Highscores,
-                                         MenuAction::About,   MenuAction::Exit};
+    const std::array<MenuAction, 7> acts{
+        MenuAction::NewGame,    MenuAction::WatchAi, MenuAction::Help, MenuAction::Options,
+        MenuAction::Highscores, MenuAction::About,   MenuAction::Exit};
     return acts[static_cast<std::size_t>(index)];
 }
 
@@ -72,6 +70,8 @@ std::string_view GameWindow::menu_label(int index) const {
         return "RESUME";
     case MenuAction::NewGame:
         return in_progress_ ? "NEW GAME" : "START";
+    case MenuAction::WatchAi:
+        return "WATCH AI";
     case MenuAction::Help:
         return "HELP";
     case MenuAction::Options:
@@ -217,6 +217,18 @@ void GameWindow::start_game() {
     started_ = false;
     accumulator_ = 0.0;
     fire_pending_ = false;
+    ai_driving_ = false;
+    speed_ = 1;
+}
+
+/// Hand the controls to the scripted agent. Nothing else changes: it drives the
+/// same `Action` primitive through the same `Sim::step`, under the same crosshair
+/// and trigger limits, so what you watch is exactly the run `poe eval` measured
+/// for this seed — the simulation and the agent are both deterministic, so the
+/// seed alone reproduces it.
+void GameWindow::start_ai_game() {
+    start_game();
+    ai_driving_ = true;
 }
 
 void GameWindow::activate(int index) {
@@ -244,6 +256,9 @@ void GameWindow::activate(int index) {
         break;
     case MenuAction::NewGame:
         start_game();
+        break;
+    case MenuAction::WatchAi:
+        start_ai_game();
         break;
     case MenuAction::Help:
         state_ = State::Help;
@@ -284,17 +299,33 @@ void GameWindow::advance() {
 
     const auto dt = static_cast<double>(sim_.config().dt);
     while (accumulator_ >= dt) {
-        // Steer the crosshair toward the mouse every tick (the sim caps how far it
-        // travels); a click fires exactly once, from the battery nearest to where
-        // the crosshair actually is — which is where the shot will detonate.
-        Action action = Action::aim_at(aim_);
-        if (fire_pending_) {
-            action.fire = true;
-            action.base = nearest_base_with_ammo(sim_.crosshair());
-            fire_pending_ = false;
+        // `speed_` ticks per frame fast-forwards a watched game; it is always 1
+        // while a human plays, since their input arrives per frame.
+        for (int repeat = 0; repeat < speed_; ++repeat) {
+            Action action;
+            if (ai_driving_) {
+                // The agent is just another driver: same Action, same Sim::step,
+                // same crosshair and trigger limits a hand is held to.
+                action = agent_.act(sim_);
+            } else {
+                // Steer the crosshair toward the mouse every tick (the sim caps how
+                // far it travels); a click fires exactly once, from the battery
+                // nearest the crosshair — which is where the shot will detonate.
+                action = Action::aim_at(aim_);
+                if (fire_pending_) {
+                    action.fire = true;
+                    action.base = nearest_base_with_ammo(sim_.crosshair());
+                    fire_pending_ = false;
+                }
+            }
+            sim_.step(action);
+            if (speed_ == 1) {
+                audio_.handle_events(sim_.events()); // fast-forward would be a din
+            }
+            if (sim_.terminated()) {
+                break;
+            }
         }
-        sim_.step(action);
-        audio_.handle_events(sim_.events()); // play SFX for this step's events
         accumulator_ -= dt;
         if (sim_.terminated()) {
             end_game();
@@ -389,6 +420,17 @@ void GameWindow::keyPressEvent(QKeyEvent* event) {
     case State::Playing:
         if (key == Qt::Key_Escape || key == Qt::Key_P) {
             open_menu(); // pause -> menu (game frozen and preserved)
+        } else if (ai_driving_ && key == Qt::Key_T) {
+            // Take over mid-game. The sim is a value and the agent holds no state,
+            // so switching the action source is all it takes — the run simply
+            // continues from here under new management.
+            ai_driving_ = false;
+            speed_ = 1;
+        } else if (ai_driving_ &&
+                   (key == Qt::Key_BracketRight || key == Qt::Key_Plus || key == Qt::Key_Equal)) {
+            speed_ = std::min(speed_ * 2, 8);
+        } else if (ai_driving_ && (key == Qt::Key_BracketLeft || key == Qt::Key_Minus)) {
+            speed_ = std::max(speed_ / 2, 1);
         }
         break;
     case State::GameOver:

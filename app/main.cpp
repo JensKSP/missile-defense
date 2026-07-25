@@ -26,8 +26,11 @@ int main(int argc, char** argv) {
     window.resize(1280, 720);
     window.setTitle("Missile Defense");
     for (int i = 1; i < argc; ++i) {
-        if (std::string_view(argv[i]) == "--play") {
+        const std::string_view arg(argv[i]);
+        if (arg == "--play") {
             window.play_now(); // boot straight into a game (skip the menu)
+        } else if (arg == "--watch") {
+            window.watch_now(); // boot straight into a game the scripted AI plays
         }
     }
     if (window.fullscreen()) { // restore the persisted window mode (see QSettings)

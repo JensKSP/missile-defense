@@ -162,8 +162,25 @@ your three batteries.
 | `M` | Toggle music |
 | `A` | Toggle audio (SFX) |
 
-Menu: **START** a new game, **HELP**, **OPTIONS** (audio / music / fullscreen),
-**HIGHSCORES**, **EXIT**. Beat a high score to enter your initials, arcade style.
+Menu: **START** a new game, **WATCH AI**, **HELP**, **OPTIONS** (audio / music /
+fullscreen), **HIGHSCORES**, **ABOUT**, **EXIT**. Beat a high score to enter your
+initials, arcade style.
+
+### Watching the AI play
+
+**WATCH AI** hands the controls to the scripted baseline agent (M4) and lets you
+watch it defend — same game, same crosshair travel and trigger interval a hand is
+held to, just a different driver. `md_app --watch` boots straight into it.
+
+| Input | Action |
+|---|---|
+| `T` | Take over — you get the crosshair, the game continues from there |
+| `]` / `[` | Fast-forward 1× → 8× (audio mutes above 1×) |
+| `Esc` | Pause → menu |
+
+Because both the simulation and the agent are deterministic, watching seed *N* is
+bit-identical to the run `poe eval` measured for that seed — no recording needed,
+the seed alone reproduces it.
 
 ## Development
 

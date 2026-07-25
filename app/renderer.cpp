@@ -601,6 +601,18 @@ void Renderer::startNextFrame() {
             inst.push_back(rect(aim.x, aim.y + off, th, arm * 0.5f, 1.0f, 1.0f, 1.0f)); // up
             inst.push_back(circle(aim.x, aim.y, 0.35f, 1.0f, 1.0f, 1.0f)); // centre dot
         }
+        // Watch mode: say plainly who is at the controls, and how to take over.
+        if (playing && window_->ai_driving()) {
+            draw_text(inst, "AI PLAYING", cx, world_h * 0.955f, world_h * 0.012f, 0.45f, 0.95f,
+                      0.65f, true);
+            const int speed = window_->speed();
+            if (speed > 1) {
+                draw_text(inst, std::to_string(speed) + "X", cx, world_h * 0.915f, world_h * 0.011f,
+                          0.95f, 0.80f, 0.35f, true);
+            }
+            draw_text(inst, "T TAKE OVER    BRACKETS SPEED", cx, world_h * 0.055f, world_h * 0.008f,
+                      0.35f, 0.45f, 0.40f, true);
+        }
     }
 
     // Dim the frozen game behind the game-over screen and the pause menu.
@@ -614,7 +626,7 @@ void Renderer::startNextFrame() {
                   1.0f, true);
         draw_text(inst, "BY JENS KOEHLER", cx, world_h * 0.76f, world_h * 0.010f, 0.55f, 0.60f,
                   0.68f, true);
-        const int count = GameWindow::menu_count();
+        const int count = window_->menu_count();
         for (int i = 0; i < count; ++i) {
             const bool sel = window_->menu_index() == i;
             const float y = window_->menu_item_top_y(i);

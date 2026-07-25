@@ -5,6 +5,7 @@
 
 #include "audio.hpp"
 #include "highscores.hpp"
+#include "md/agent/heuristic.hpp"
 #include "md/sim.hpp"
 
 #include <QElapsedTimer>
@@ -47,6 +48,15 @@ class GameWindow : public QVulkanWindow {
     /// Start a game immediately, skipping the menu (used by the `--play` flag).
     void play_now() { start_game(); }
 
+    /// Start a game with the scripted agent at the controls (the `--watch` flag).
+    void watch_now() { start_ai_game(); }
+
+    /// Is the scripted agent driving rather than the mouse?
+    [[nodiscard]] bool ai_driving() const noexcept { return ai_driving_; }
+
+    /// Simulation ticks run per frame — 1 is real time, higher fast-forwards.
+    [[nodiscard]] int speed() const noexcept { return speed_; }
+
     [[nodiscard]] const Sim& sim() const noexcept { return sim_; }
 
     [[nodiscard]] Vec2 aim() const noexcept { return aim_; }
@@ -57,7 +67,7 @@ class GameWindow : public QVulkanWindow {
 
     [[nodiscard]] int menu_index() const noexcept { return menu_index_; }
 
-    [[nodiscard]] static int menu_count() noexcept;
+    [[nodiscard]] int menu_count() const noexcept;
     [[nodiscard]] std::string_view menu_label(int index) const;
 
     // Options screen (a second centered list): AUDIO / MUSIC / FULLSCREEN + BACK.
@@ -94,6 +104,7 @@ class GameWindow : public QVulkanWindow {
     enum class MenuAction : std::uint8_t {
         Resume,
         NewGame,
+        WatchAi,
         Help,
         Options,
         Highscores,
@@ -103,7 +114,8 @@ class GameWindow : public QVulkanWindow {
 
     void update_aim(float px, float py);
     void start_game();
-    void end_game(); // termination -> initials entry (if a high score) or game over
+    void start_ai_game(); // same, but the scripted agent supplies the actions
+    void end_game();      // termination -> initials entry (if a high score) or game over
     void handle_score_entry(int key); // arcade initials input
     void toggle_fullscreen();
     void toggle_audio();
@@ -119,6 +131,7 @@ class GameWindow : public QVulkanWindow {
     [[nodiscard]] BaseId nearest_base_with_ammo(Vec2 target) const;
 
     Sim sim_;
+    agent::Heuristic agent_{}; // the M4 baseline, used in watch mode
     AudioEngine audio_;
     HighscoreTable highscores_;
     QElapsedTimer clock_;
@@ -127,6 +140,8 @@ class GameWindow : public QVulkanWindow {
     bool in_progress_ = false; // a game is running or paused-in-menu
     std::uint64_t seed_ = 1;
     bool fire_pending_ = false; // a click arrived; fire on the next sim tick
+    bool ai_driving_ = false;   // the scripted agent is at the controls
+    int speed_ = 1;             // sim ticks per frame: 1 = real time, up to 8x
     Vec2 aim_{};
     State state_ = State::Menu;
     int menu_index_ = 0;
