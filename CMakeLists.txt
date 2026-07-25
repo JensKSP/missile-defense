@@ -173,10 +173,7 @@ endif()
 add_subdirectory(core)
 add_subdirectory(agent)   # scripted reference AI (M4) + the evaluation protocol
 add_subdirectory(bench)   # throughput benchmark (poe bench)
-if(MD_BUILD_BINDINGS)
-  add_subdirectory(bindings) # nanobind module for the RL environment (M5)
-endif()
-# bindings/ (nanobind)  -> added in Step 2
+add_subdirectory(bindings) # md::rl (always) + the optional nanobind module (M5)
 
 if(MD_BUILD_APP)
   add_subdirectory(app)
