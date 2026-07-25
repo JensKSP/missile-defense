@@ -167,7 +167,12 @@ This puts the curve and the episode side by side, which is the whole loop in one
 
 ### Design intent — modern, simple, elegant
 
-This is a constraint, not a mood. Concretely:
+This is a constraint, not a mood — and *simple* here means **the least complexity the
+job actually needs, not minimalism as a style**. This is an engineering instrument:
+density earns its place when it is telling you something. The thing to cut is
+ornament and indirection, never information you would otherwise go hunting for.
+
+Concretely:
 
 **One screen, not a tab bar.** The run is the subject. A tabbed console makes you
 hunt for the thing you came to look at. The curve gets the space; everything else is
