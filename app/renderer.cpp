@@ -606,12 +606,16 @@ void Renderer::startNextFrame() {
             draw_text(inst, "AI PLAYING", cx, world_h * 0.955f, world_h * 0.012f, 0.45f, 0.95f,
                       0.65f, true);
             // Always shown, including 1X — otherwise pressing the speed keys at
-            // normal speed looks like nothing happened.
+            // normal speed looks like nothing happened. Parked in the top-right
+            // corner under the wave counter: centred it collided with "AI PLAYING",
+            // whose glyphs hang down to 0.895.
             const int speed = window_->speed();
             const bool fast = speed > 1;
-            draw_text(inst, "SPEED " + std::to_string(speed) + "X", cx, world_h * 0.915f,
-                      world_h * 0.011f, fast ? 0.95f : 0.45f, fast ? 0.80f : 0.55f,
-                      fast ? 0.35f : 0.50f, true);
+            const std::string label = "SPEED " + std::to_string(speed) + "X";
+            const float speed_px = world_h * 0.008f;
+            const float speed_w = static_cast<float>(label.size()) * speed_px * 4.0f;
+            draw_text(inst, label, (world_w * 0.98f) - speed_w, world_h * 0.885f, speed_px,
+                      fast ? 0.95f : 0.45f, fast ? 0.80f : 0.55f, fast ? 0.35f : 0.50f, false);
             draw_text(inst, "T TAKE OVER    BRACKETS SPEED", cx, world_h * 0.055f, world_h * 0.008f,
                       0.35f, 0.45f, 0.40f, true);
         }
@@ -626,7 +630,7 @@ void Renderer::startNextFrame() {
     if (state == GameWindow::State::Menu) {
         draw_text(inst, "MISSILE DEFENSE", cx, world_h * 0.90f, world_h * 0.022f, 0.85f, 0.92f,
                   1.0f, true);
-        draw_text(inst, "BY JENS KOEHLER", cx, world_h * 0.76f, world_h * 0.010f, 0.55f, 0.60f,
+        draw_text(inst, "BY JENS KOEHLER", cx, world_h * 0.78f, world_h * 0.010f, 0.55f, 0.60f,
                   0.68f, true);
         const int count = window_->menu_count();
         for (int i = 0; i < count; ++i) {
@@ -647,7 +651,9 @@ void Renderer::startNextFrame() {
                   world_h * 0.028f, 1.0f, 1.0f, 1.0f, true);
         if (window_->ai_assisted()) {
             // Say why it was not offered, rather than silently skipping the entry.
-            draw_text(inst, "AI RUN   NOT A HIGHSCORE", cx, world_h * 0.25f, world_h * 0.011f,
+            // Below 0.22, where the score's glyphs stop hanging — at 0.25 the two
+            // lines printed through each other.
+            draw_text(inst, "AI RUN   NOT A HIGHSCORE", cx, world_h * 0.19f, world_h * 0.011f,
                       0.45f, 0.95f, 0.65f, true);
         }
         draw_text(inst, "PRESS ENTER", cx, world_h * 0.12f, world_h * 0.013f, 0.6f, 0.65f, 0.7f,

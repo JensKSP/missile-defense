@@ -111,18 +111,40 @@ std::string_view GameWindow::active_label(int index) const {
     return state_ == State::Options ? options_label(index) : menu_label(index);
 }
 
+// The menu list is laid out inside this band (world-height fractions): clear of
+// the byline above and the hint lines below. Both the type size and the row step
+// are derived from it, so a longer menu shrinks to fit instead of colliding.
+namespace {
+constexpr float menu_band_top = 0.70f;
+constexpr float menu_band_bottom = 0.16f;
+constexpr float menu_leading = 1.35f; // row step, in glyph heights
+constexpr float menu_glyph_rows = 5.0f;
+} // namespace
+
 float GameWindow::menu_text_px() const noexcept {
-    return sim_.config().world_height * 0.015f;
+    // Shrink the type once the list is long enough to need it: seven items at a
+    // flat 0.015h overlapped each other. Capped, so short lists look unchanged.
+    const float h = sim_.config().world_height;
+    const float band = h * (menu_band_top - menu_band_bottom);
+    const auto rows = static_cast<float>(std::max(active_count() - 1, 0));
+    const float glyph = band / ((rows * menu_leading) + 1.0f);
+    return std::min(h * 0.015f, glyph / menu_glyph_rows);
 }
 
 float GameWindow::menu_item_top_y(int index) const noexcept {
-    // Center the list block vertically between the title and the bottom hint,
-    // sized to the item count so it never overlaps them (5-6 menu items or 3
-    // options). `first_top` is the top item's top edge.
+    // Center the list block in the band between the byline and the bottom hint.
+    // The step *shrinks* when the list is long enough to need it: with a fixed
+    // 0.09h step, growing the menu to seven items (WATCH AI) pushed START up into
+    // "BY JENS KOEHLER" and EXIT down into "ARROWS ENTER OR MOUSE".
+    // `first_top` is the top item's top edge; glyphs hang `glyph` below their top.
     const float h = sim_.config().world_height;
-    const float spacing = h * 0.09f;
-    const float block = static_cast<float>(active_count() - 1) * spacing;
-    const float first_top = (h * 0.44f) + (block * 0.5f);
+    const float glyph = menu_glyph_rows * menu_text_px();
+    const float band_top = h * menu_band_top;
+    const float band_bottom = h * menu_band_bottom;
+    const int count = active_count();
+    const float spacing = std::min(h * 0.09f, menu_leading * glyph);
+    const float block = static_cast<float>(count - 1) * spacing;
+    const float first_top = ((band_top + band_bottom + glyph) * 0.5f) + (block * 0.5f);
     return first_top - (static_cast<float>(index) * spacing);
 }
 
