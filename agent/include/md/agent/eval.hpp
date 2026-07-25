@@ -52,6 +52,12 @@ struct Summary {
 [[nodiscard]] EpisodeResult run_episode(const Config& config, std::uint64_t seed,
                                         const Heuristic& agent, std::uint64_t max_ticks = 120000);
 
+/// Aggregate episode outcomes. Split out from `evaluate` so a *learned* agent —
+/// which is driven from Python and cannot be a `Heuristic` — is scored by the same
+/// function over the same fields, rather than by a reimplementation that might
+/// quietly differ. That is what makes "beat the baseline" a claim and not a vibe.
+[[nodiscard]] Summary summarize(std::span<const EpisodeResult> episodes);
+
 /// Play every seed and aggregate.
 [[nodiscard]] Summary evaluate(const Config& config, std::span<const std::uint64_t> seeds,
                                const Heuristic& agent, std::uint64_t max_ticks = 120000);

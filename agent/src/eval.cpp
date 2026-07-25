@@ -65,10 +65,9 @@ EpisodeResult run_episode(const Config& config, std::uint64_t seed, const Heuris
     return result;
 }
 
-Summary evaluate(const Config& config, std::span<const std::uint64_t> seeds, const Heuristic& agent,
-                 std::uint64_t max_ticks) {
+Summary summarize(std::span<const EpisodeResult> episodes) {
     Summary summary{};
-    if (seeds.empty()) {
+    if (episodes.empty()) {
         return summary;
     }
 
@@ -78,8 +77,7 @@ Summary evaluate(const Config& config, std::span<const std::uint64_t> seeds, con
     double accuracy_sum = 0.0;
     bool first = true;
 
-    for (const std::uint64_t seed : seeds) {
-        const EpisodeResult episode = run_episode(config, seed, agent, max_ticks);
+    for (const EpisodeResult& episode : episodes) {
         score_sum += static_cast<double>(episode.score);
         wave_sum += static_cast<double>(episode.wave_reached);
         cities_sum += static_cast<double>(episode.cities_left);
@@ -97,13 +95,23 @@ Summary evaluate(const Config& config, std::span<const std::uint64_t> seeds, con
         }
     }
 
-    const auto n = static_cast<double>(seeds.size());
-    summary.episodes = seeds.size();
+    const auto n = static_cast<double>(episodes.size());
+    summary.episodes = episodes.size();
     summary.mean_score = score_sum / n;
     summary.mean_wave = wave_sum / n;
     summary.mean_cities_left = cities_sum / n;
     summary.mean_accuracy = accuracy_sum / n;
     return summary;
+}
+
+Summary evaluate(const Config& config, std::span<const std::uint64_t> seeds, const Heuristic& agent,
+                 std::uint64_t max_ticks) {
+    std::vector<EpisodeResult> episodes;
+    episodes.reserve(seeds.size());
+    for (const std::uint64_t seed : seeds) {
+        episodes.push_back(run_episode(config, seed, agent, max_ticks));
+    }
+    return summarize(episodes);
 }
 
 } // namespace md::agent

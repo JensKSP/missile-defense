@@ -14,6 +14,7 @@ the discrete action space, and the reward specification implemented below.
 from __future__ import annotations
 
 import os
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import cast
 
@@ -125,6 +126,11 @@ class VecEnv:
     def threads(self) -> int:
         return int(self._native.threads)
 
+    @property
+    def observations(self) -> Observations:
+        """The live observation batch — the same array every step writes into."""
+        return self._obs
+
     # ---- the potential, read back out of the observation ------------------
     def _phi(self) -> Rewards:
         """phi(s) for every env, recovered from the observation itself.
@@ -180,6 +186,24 @@ class VecEnv:
         training it is showing.
         """
         return bool(self._native.save_recording(index, str(path), update, label))
+
+    def reset_seeds(self, seeds: Sequence[int]) -> Observations:
+        """Seed each environment explicitly — for the canonical evaluation set.
+
+        ``reset`` derives env *i*'s seed as ``seed + i``; the evaluation seeds are
+        not an arithmetic run, so they have to be named.
+        """
+        self._native.reset_seeds(list(seeds), self._obs)
+        self._potential = self._phi()
+        return self._obs
+
+    def take_episode_result(self, index: int) -> _native.EpisodeResult | None:
+        """Outcome of the last episode this env finished, or None.
+
+        Reported in the same shape as the scripted baseline's, so both can be
+        aggregated by ``md.eval``'s (that is, the C++) ``summarize``.
+        """
+        return self._native.take_episode_result(index)
 
     # ---- the loop ---------------------------------------------------------
     def reset(self, seed: int | None = None) -> Observations:

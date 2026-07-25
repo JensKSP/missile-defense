@@ -23,6 +23,54 @@ MAX_CITIES: int
 BASE_COUNT: int
 MAX_THREATS: int
 
+class EpisodeResult:
+    """Outcome of one episode (md::agent::EpisodeResult)."""
+
+    @property
+    def seed(self) -> int: ...
+    @property
+    def score(self) -> int: ...
+    @property
+    def wave_reached(self) -> int: ...
+    @property
+    def cities_left(self) -> int: ...
+    @property
+    def ticks(self) -> int: ...
+    @property
+    def shots(self) -> int: ...
+    @property
+    def kills(self) -> int: ...
+    @property
+    def terminated(self) -> bool: ...
+    @property
+    def accuracy(self) -> float: ...
+
+class Summary:
+    """Aggregate over a seed set (md::agent::Summary)."""
+
+    @property
+    def episodes(self) -> int: ...
+    @property
+    def mean_score(self) -> float: ...
+    @property
+    def mean_wave(self) -> float: ...
+    @property
+    def mean_cities_left(self) -> float: ...
+    @property
+    def mean_accuracy(self) -> float: ...
+    @property
+    def min_score(self) -> int: ...
+    @property
+    def max_score(self) -> int: ...
+    @property
+    def survived(self) -> int: ...
+
+def default_seeds(count: int = ...) -> list[int]:
+    """The canonical evaluation seeds."""
+
+def summarize(episodes: list[EpisodeResult]) -> Summary:
+    """Aggregate outcomes with the same function the scripted baseline uses."""
+
 class Config:
     """Tunable simulation constants (md::Config)."""
 
@@ -90,6 +138,10 @@ class VecEnv:
     def action_masks(self, mask: npt.NDArray[np.bool_]) -> None:
         """Fill ``mask`` with which actions are legal per env."""
 
+    def reset_seeds(self, seeds: list[int], obs: npt.NDArray[np.float32]) -> None:
+        """Seed each env explicitly — for evaluating on the canonical seed set."""
+
+    def take_episode_result(self, index: int) -> EpisodeResult | None: ...
     def record(self, index: int, on: bool = ...) -> None:
         """Log this env's actions so the episode can be watched in the app."""
 

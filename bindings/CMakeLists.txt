@@ -16,7 +16,7 @@ target_sources(md_rl PRIVATE vec_env.cpp)
 target_include_directories(md_rl PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_compile_features(md_rl PUBLIC cxx_std_23)
 # Threads::Threads arrives transitively (md_core links it PUBLIC).
-target_link_libraries(md_rl PUBLIC md::core md::replay PRIVATE md::warnings)
+target_link_libraries(md_rl PUBLIC md::core md::replay md::agent PRIVATE md::warnings)
 
 # nanobind_add_module builds a shared object, so everything it links must be PIC.
 if(CMAKE_POSITION_INDEPENDENT_CODE OR MD_BUILD_BINDINGS)

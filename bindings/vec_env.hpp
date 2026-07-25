@@ -3,6 +3,7 @@
 // Assisted-by: Claude Code (Anthropic)
 #pragma once
 
+#include "md/agent/eval.hpp"
 #include "md/config.hpp"
 #include "md/observation.hpp"
 #include "md/replay/recording.hpp"
@@ -47,6 +48,13 @@ class VecEnv {
     /// observations. `obs` must hold `num_envs * obs_size` floats.
     void reset(std::uint64_t seed, float* obs);
 
+    /// Seed each environment explicitly and write the initial observations.
+    ///
+    /// Evaluation needs this: the M4 baseline is measured over `default_seeds`,
+    /// which is not an arithmetic run of `seed + i`, so scoring a policy on the
+    /// same protocol means naming the seeds rather than deriving them.
+    void reset(std::span<const std::uint64_t> seeds, float* obs);
+
     /// Advance every environment by `frame_skip` ticks under its action index.
     ///
     /// The action index is re-decoded on each of those ticks against the *current*
@@ -81,8 +89,14 @@ class VecEnv {
     /// would replay into a game that stops mid-air.
     [[nodiscard]] std::optional<replay::Recording> take_recording(std::size_t index);
 
+    /// Take the outcome of the last episode `index` finished, in the same shape the
+    /// scripted baseline reports, so both go through `md::agent::summarize`.
+    [[nodiscard]] std::optional<agent::EpisodeResult> take_episode_result(std::size_t index);
+
   private:
     void finish_recording(std::size_t index, std::uint64_t next_episode_seed);
+    void begin_episode(std::size_t index, std::uint64_t seed);
+    void finish_episode(std::size_t index, bool terminated);
 
     void encode_into(std::size_t index, float* obs) const;
     void run_range(std::size_t begin, std::size_t end, const std::int32_t* actions, float* obs,
@@ -95,6 +109,9 @@ class VecEnv {
     std::vector<std::uint64_t> episode_seed_;
     std::vector<std::vector<std::int32_t>> live_log_;
     std::vector<std::optional<replay::Recording>> finished_;
+    // Per-episode tallies, counted off the event stream exactly as md::agent does.
+    std::vector<agent::EpisodeResult> live_result_;
+    std::vector<std::optional<agent::EpisodeResult>> finished_result_;
     Config config_{};
     ObsSpec spec_{};
     unsigned threads_ = 1;

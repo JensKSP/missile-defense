@@ -112,3 +112,29 @@ def test_a_batch_is_reproducible_from_its_seed() -> None:
     second_obs, second_total = rollout()
     np.testing.assert_array_equal(first_obs, second_obs)
     np.testing.assert_array_equal(first_total, second_total)
+
+
+def test_default_seeds_are_the_canonical_set() -> None:
+    from md.eval import default_seeds
+
+    seeds = default_seeds()
+    assert len(seeds) == 32
+    assert len(set(seeds)) == 32  # a repeated seed would double-count an episode
+    assert default_seeds() == seeds  # fixed, so results compare across time
+    assert default_seeds(4) == seeds[:4]
+
+
+def test_evaluate_scores_a_policy_on_the_shared_protocol() -> None:
+    # The comparison M6 rests on: every canonical seed played exactly once, and
+    # aggregated by the same C++ summarize() the scripted baseline goes through.
+    from md.eval import evaluate
+
+    rng = np.random.default_rng(0)
+
+    def policy(obs: np.ndarray, mask: np.ndarray) -> np.ndarray:
+        return np.array([rng.choice(np.flatnonzero(r)) for r in mask], dtype=np.int32)
+
+    summary = evaluate(policy, seeds=[1, 2, 3, 4], max_ticks=900)
+    assert summary.episodes == 4
+    assert summary.min_score <= summary.mean_score <= summary.max_score
+    assert 0 <= summary.survived <= 4

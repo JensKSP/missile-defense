@@ -18,6 +18,11 @@ target_include_directories(md_agent PUBLIC include)
 target_compile_features(md_agent PUBLIC cxx_std_23)
 target_link_libraries(md_agent PUBLIC md::core PRIVATE md::warnings)
 
+# md::rl links this and is itself linked into the Python extension, a shared object.
+if(CMAKE_POSITION_INDEPENDENT_CODE OR MD_BUILD_BINDINGS)
+  set_target_properties(md_agent PROPERTIES POSITION_INDEPENDENT_CODE ON)
+endif()
+
 # The benchmark runner: prints the metrics the learned agent must beat.
 add_executable(md_agent_eval eval_main.cpp)
 target_link_libraries(md_agent_eval PRIVATE md::agent md::warnings)

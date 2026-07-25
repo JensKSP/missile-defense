@@ -8,6 +8,7 @@
 //     rollout never copies a batch;
 //   * the batch step releases the GIL, so the C++ worker pool actually runs in
 //     parallel instead of taking turns.
+#include "md/agent/eval.hpp"
 #include "md/config.hpp"
 #include "md/observation.hpp"
 #include "md/replay/recording.hpp"
@@ -18,8 +19,11 @@
 #include <filesystem>
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>
+#include <nanobind/stl/optional.h>
 #include <nanobind/stl/string.h>
+#include <nanobind/stl/vector.h>
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <string>
 
@@ -65,6 +69,38 @@ NB_MODULE(_md_native, m) {
         .def_prop_ro(
             "size", [](const md::ObsSpec& s) { return s.size(); }, "Floats per observation.");
 
+    // ---- The M4 evaluation protocol, shared with the scripted baseline --------
+    nb::class_<md::agent::EpisodeResult>(m, "EpisodeResult", "Outcome of one episode.")
+        .def_ro("seed", &md::agent::EpisodeResult::seed)
+        .def_ro("score", &md::agent::EpisodeResult::score)
+        .def_ro("wave_reached", &md::agent::EpisodeResult::wave_reached)
+        .def_ro("cities_left", &md::agent::EpisodeResult::cities_left)
+        .def_ro("ticks", &md::agent::EpisodeResult::ticks)
+        .def_ro("shots", &md::agent::EpisodeResult::shots)
+        .def_ro("kills", &md::agent::EpisodeResult::kills)
+        .def_ro("terminated", &md::agent::EpisodeResult::terminated)
+        .def_prop_ro("accuracy", &md::agent::EpisodeResult::accuracy);
+
+    nb::class_<md::agent::Summary>(m, "Summary", "Aggregate over a seed set.")
+        .def_ro("episodes", &md::agent::Summary::episodes)
+        .def_ro("mean_score", &md::agent::Summary::mean_score)
+        .def_ro("mean_wave", &md::agent::Summary::mean_wave)
+        .def_ro("mean_cities_left", &md::agent::Summary::mean_cities_left)
+        .def_ro("mean_accuracy", &md::agent::Summary::mean_accuracy)
+        .def_ro("min_score", &md::agent::Summary::min_score)
+        .def_ro("max_score", &md::agent::Summary::max_score)
+        .def_ro("survived", &md::agent::Summary::survived);
+
+    m.def("default_seeds", &md::agent::default_seeds, nb::arg("count") = 32u,
+          "The canonical evaluation seeds — the same set the M4 baseline is measured on.");
+    m.def(
+        "summarize",
+        [](const std::vector<md::agent::EpisodeResult>& episodes) {
+            return md::agent::summarize(episodes);
+        },
+        nb::arg("episodes"),
+        "Aggregate episode outcomes with the same function the scripted baseline uses.");
+
     m.attr("MAX_CITIES") = md::max_cities;
     m.attr("BASE_COUNT") = md::base_count;
     m.attr("MAX_THREATS") = md::max_threats;
@@ -95,6 +131,22 @@ allocated per step. `step` releases the GIL, so the worker pool runs in parallel
                 env.reset(seed, data);
             },
             nb::arg("seed"), nb::arg("obs"), "Seed every env and fill `obs` in place.")
+        .def(
+            "reset_seeds",
+            [](md::rl::VecEnv& env, const std::vector<std::uint64_t>& seeds, FloatArray obs) {
+                require(obs.size() == env.num_envs() * env.obs_size(),
+                        "obs must be (num_envs, obs_size)");
+                require(!seeds.empty(), "seeds must not be empty");
+                float* data = obs.data();
+                nb::gil_scoped_release release;
+                env.reset(std::span<const std::uint64_t>{seeds}, data);
+            },
+            nb::arg("seeds"), nb::arg("obs"),
+            "Seed each env explicitly — for evaluating on the canonical seed set.")
+        .def(
+            "take_episode_result",
+            [](md::rl::VecEnv& env, std::size_t index) { return env.take_episode_result(index); },
+            nb::arg("index"), "The outcome of the last episode this env finished, or None.")
         .def(
             "step",
             [](md::rl::VecEnv& env, IntArray actions, FloatArray obs, FloatArray final_obs,

@@ -4,6 +4,8 @@
 #include "vec_env.hpp"
 
 #include "md/action.hpp"
+#include "md/entities.hpp"
+#include "md/event.hpp"
 #include "md/intercept.hpp"
 #include "md/observation.hpp"
 #include "md/sim.hpp"
@@ -31,6 +33,40 @@ VecEnv::VecEnv(std::size_t num_envs, const Config& config, const ObsSpec& spec, 
     episode_seed_.assign(num_envs, 0);
     live_log_.resize(num_envs);
     finished_.resize(num_envs);
+    live_result_.resize(num_envs);
+    finished_result_.resize(num_envs);
+}
+
+void VecEnv::begin_episode(std::size_t index, std::uint64_t seed) {
+    live_result_[index] = agent::EpisodeResult{};
+    live_result_[index].seed = seed;
+}
+
+/// Close out the episode, filling the same fields `md::agent::run_episode` does so
+/// the two can be aggregated by one function.
+void VecEnv::finish_episode(std::size_t index, bool terminated) {
+    agent::EpisodeResult& result = live_result_[index];
+    const Sim& sim = sims_[index];
+    result.score = sim.score();
+    result.wave_reached = sim.wave();
+    result.ticks = episode_ticks_[index];
+    result.terminated = terminated;
+    result.cities_left = 0;
+    for (const City& city : sim.cities()) {
+        if (city.alive) {
+            ++result.cities_left;
+        }
+    }
+    finished_result_[index] = result;
+}
+
+std::optional<agent::EpisodeResult> VecEnv::take_episode_result(std::size_t index) {
+    if (index >= sims_.size() || !finished_result_[index].has_value()) {
+        return std::nullopt;
+    }
+    std::optional<agent::EpisodeResult> out = finished_result_[index];
+    finished_result_[index].reset();
+    return out;
 }
 
 void VecEnv::set_recording(std::size_t index, bool on) {
@@ -83,11 +119,34 @@ void VecEnv::reset(std::uint64_t seed, float* obs) {
         episode_seed_[i] = seed + static_cast<std::uint64_t>(i);
         live_log_[i].clear();
         finished_[i].reset(); // a reset discards any episode not yet collected
+        finished_result_[i].reset();
+        begin_episode(i, episode_seed_[i]);
         encode_into(i, obs + (i * stride));
     }
     // Fresh episodes after this batch continue past the seeds just used, so
     // auto-reset never replays an episode the batch has already seen.
     next_seed_ = seed + static_cast<std::uint64_t>(sims_.size());
+}
+
+void VecEnv::reset(std::span<const std::uint64_t> seeds, float* obs) {
+    const std::size_t stride = spec_.size();
+    std::uint64_t highest = 0;
+    for (std::size_t i = 0; i < sims_.size(); ++i) {
+        // Fewer seeds than envs would silently evaluate a seed twice, so repeat
+        // deliberately only when the caller has given us nothing else to use.
+        const std::uint64_t seed = seeds.empty() ? 0 : seeds[i % seeds.size()];
+        sims_[i].reset(seed);
+        episode_ticks_[i] = 0;
+        episode_seed_[i] = seed;
+        live_log_[i].clear();
+        finished_[i].reset();
+        finished_result_[i].reset();
+        begin_episode(i, seed);
+        encode_into(i, obs + (i * stride));
+        highest = std::max(highest, seed);
+    }
+    // Auto-reset must not replay a seed this batch is already measuring.
+    next_seed_ = highest + 1;
 }
 
 void VecEnv::run_range(std::size_t begin, std::size_t end, const std::int32_t* actions, float* obs,
@@ -111,6 +170,14 @@ void VecEnv::run_range(std::size_t begin, std::size_t end, const std::int32_t* a
             reward += static_cast<float>(result.reward);
             done = result.terminated;
             ++episode_ticks_[i];
+            // Same tallies, off the same event stream, as md::agent::run_episode.
+            for (const Event& event : sim.events()) {
+                if (event.type == EventType::Fire) {
+                    ++live_result_[i].shots;
+                } else if (event.type == EventType::ThreatKilled) {
+                    ++live_result_[i].kills;
+                }
+            }
         }
 
         const bool cut = !done && max_ticks_ > 0 && episode_ticks_[i] >= max_ticks_;
@@ -123,12 +190,14 @@ void VecEnv::run_range(std::size_t begin, std::size_t end, const std::int32_t* a
             // to bootstrap from it — then start the next one straight away so the
             // batch never contains a dead environment.
             encode_into(i, final_obs + (i * stride));
+            finish_episode(i, done); // truncation is "still alive", as in M4
             const auto next = next_seed_ + static_cast<std::uint64_t>(i);
             if (recording_on_[i] != 0u) {
                 finish_recording(i, next);
             }
             sim.reset(next);
             episode_ticks_[i] = 0;
+            begin_episode(i, next);
         }
         encode_into(i, obs + (i * stride));
     }
