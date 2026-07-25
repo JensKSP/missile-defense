@@ -38,6 +38,7 @@ option(MD_VULKAN_VALIDATION "Request Vulkan validation layers (dev only)" OFF)
 option(MD_FETCH_MINIAUDIO "Fetch miniaudio when no system copy (libminiaudio-dev) is found" ON)
 option(MD_NATIVE "Optimise for this machine's CPU (-march=native); not portable" OFF)
 option(MD_LTO "Link-time optimisation (ThinLTO) — cross-TU inlining" OFF)
+option(MD_BUILD_BINDINGS "Build the nanobind Python extension (needs Python + nanobind)" OFF)
 set(MD_PGO "off" CACHE STRING "Profile-guided optimisation: off | generate | use")
 set_property(CACHE MD_PGO PROPERTY STRINGS off generate use)
 
@@ -172,6 +173,9 @@ endif()
 add_subdirectory(core)
 add_subdirectory(agent)   # scripted reference AI (M4) + the evaluation protocol
 add_subdirectory(bench)   # throughput benchmark (poe bench)
+if(MD_BUILD_BINDINGS)
+  add_subdirectory(bindings) # nanobind module for the RL environment (M5)
+endif()
 # bindings/ (nanobind)  -> added in Step 2
 
 if(MD_BUILD_APP)

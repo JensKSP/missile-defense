@@ -21,6 +21,13 @@ target_compile_features(md_core PUBLIC cxx_std_23)
 find_package(Threads REQUIRED)
 target_link_libraries(md_core PUBLIC Threads::Threads PRIVATE md::warnings)
 
+# The Python extension is a shared module, so everything linked into it must be
+# position-independent. Gated rather than always-on so a plain C++ build keeps
+# exactly the codegen the benchmark numbers were measured with.
+if(MD_BUILD_BINDINGS)
+  set_target_properties(md_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
+endif()
+
 # Note there is deliberately no in-code profiling hook here. `Sim::step` is a pure
 # function of (state, action) on a fixed timestep — it reads no clock, and adding
 # one distorted it 46x when tried (docs/PERFORMANCE.md). Profile it from outside
