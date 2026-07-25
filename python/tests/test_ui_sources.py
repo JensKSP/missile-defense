@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 
 from md.ui.sources import (
+    MAX_RUN_CHOICES,
     evals_tail,
     find_runs,
     human_age,
@@ -22,6 +23,7 @@ from md.ui.sources import (
     list_recordings,
     metrics_tail,
     next_run_dir,
+    run_choices,
 )
 
 HEADER = "update,samples,return,entropy,policy_loss,value_loss,clip_fraction,steps_per_second\r\n"
@@ -186,6 +188,47 @@ def test_runs_one_level_down_are_found_newest_first(tmp_path: Path) -> None:
     assert [path.name for path in find_runs(tmp_path)] == ["sweep-b", "sweep-a"]
     assert find_runs(tmp_path / "sweep-a") == []
     assert find_runs(tmp_path / "not-there") == []
+
+
+def _run_dir(parent: Path, name: str, when: int) -> Path:
+    (parent / name).mkdir(parents=True, exist_ok=True)
+    path = parent / name / "metrics.csv"
+    _append(path, HEADER + _row(1))
+    os.utime(path, (when, when))
+    return parent / name
+
+
+def test_the_picker_offers_the_runs_inside_a_container(tmp_path: Path) -> None:
+    # Nested inside tmp_path on purpose: `run_choices` looks at what is *beside*
+    # the directory too, and pytest's own tmp root is full of other tests' runs.
+    runs = tmp_path / "runs"
+    runs.mkdir()
+    _run_dir(runs, "sweep-a", 1000)
+    _run_dir(runs, "sweep-b", 2000)
+
+    choices = run_choices(runs)
+    assert [path.name for path in choices][:2] == ["sweep-b", "sweep-a"]
+    # The attached directory is always offered, even holding no run of its own —
+    # a picker that cannot show what the window is showing is a bug.
+    assert runs.resolve() in choices
+
+
+def test_the_picker_offers_the_runs_beside_the_attached_one(tmp_path: Path) -> None:
+    runs = tmp_path / "runs"
+    attached = _run_dir(runs, "sweep-a", 1000)
+    _run_dir(runs, "sweep-b", 2000)
+
+    choices = run_choices(attached)
+    assert [path.name for path in choices] == ["sweep-b", "sweep-a"]
+
+
+def test_the_picker_does_not_grow_without_bound(tmp_path: Path) -> None:
+    runs = tmp_path / "runs"
+    for index in range(MAX_RUN_CHOICES + 5):
+        _run_dir(runs, f"sweep-{index:02d}", 1000 + index)
+    choices = run_choices(runs / "sweep-00")
+    assert len(choices) <= MAX_RUN_CHOICES + 1  # the cap, plus what is attached
+    assert (runs / "sweep-00").resolve() in choices
 
 
 def test_starting_over_picks_the_next_free_directory(tmp_path: Path) -> None:

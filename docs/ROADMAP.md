@@ -397,6 +397,15 @@ iteration, last eval against the baseline.
 curves overlaid. The point at which the console starts answering *"did that change
 help?"* rather than only *"what is happening now?"*.
 
+**Not in the plan, but the runs asked for it: a run picker.** Experiments
+accumulate one `--out-dir` each, so `runs/` stopped being a run and became a
+container of them — at which point *which run the window is showing* is something
+you change several times an hour, and it belongs in the window rather than in the
+command that started it. The header carries a dropdown of the runs inside and
+beside the attached directory; choosing one re-attaches every panel, which is the
+same act Reset already performed. It also makes Phase 5 half a step shorter: two
+runs are now two clicks apart rather than two terminals.
+
 ### Risks, and how each is mitigated structurally
 
 A risk with only "be careful" behind it is a worry. Each of these gets a mechanism.

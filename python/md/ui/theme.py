@@ -133,6 +133,22 @@ def stylesheet() -> str:
         border-color: {GRID};
         color: {MUTED};
     }}
+    QComboBox {{
+        background: {PANEL};
+        border: 1px solid {EDGE};
+        border-radius: 6px;
+        padding: 5px 10px;
+        color: {TEXT};
+    }}
+    QComboBox:hover {{ background: {GRID}; }}
+    QComboBox::drop-down {{ border: none; width: 18px; }}
+    QComboBox QAbstractItemView {{
+        background: {PANEL};
+        border: 1px solid {EDGE};
+        selection-background-color: {EDGE};
+        color: {TEXT};
+        padding: 4px;
+    }}
     QLineEdit, QSpinBox {{
         background: {NIGHT};
         border: 1px solid {EDGE};

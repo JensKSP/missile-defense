@@ -132,6 +132,11 @@ The eval score against the baseline as the big curve, return / entropy / value
 loss underneath, and the recordings listed newest-first — double-click one and it
 opens in the game.
 
+The dropdown beside the title lists the runs inside and beside the directory you
+opened, so `poe ui` on a `runs/` full of experiments is enough: pick one and every
+panel follows. Which is also how you flip between an experiment and the run it is
+meant to beat.
+
 The bar across the top is deliberately small: one button that changes meaning
 (**Start** → **Pause** → **Resume**), **Stop**, and **Reset**, which attaches to a
 fresh run directory and never deletes the old one. **Start** opens the parameter

@@ -328,6 +328,37 @@ def find_runs(directory: Path) -> list[Path]:
     return runs
 
 
+#: Enough to move between experiments without the picker becoming a file browser.
+MAX_RUN_CHOICES = 12
+
+
+def run_choices(run_dir: Path) -> list[Path]:
+    """Run directories worth offering beside ``run_dir``, newest first.
+
+    A run directory takes two shapes in practice: ``runs/`` holding one run, and
+    ``runs/`` holding a directory per experiment. So the candidates are whatever
+    is attached, the runs *inside* it, and the runs *beside* it — which covers
+    both without asking anyone to think about which shape they have.
+
+    ``run_dir`` is always in the list even when it holds no run at all: it is
+    what the window is showing, and a picker that cannot show the current
+    selection is a bug rather than a tidy list.
+    """
+    candidates = [run_dir.resolve(), *find_runs(run_dir), *find_runs(run_dir.parent)]
+    unique: dict[Path, Path] = {}
+    for path in candidates:
+        unique.setdefault(path.resolve(), path.resolve())
+    ordered = sorted(
+        unique.values(),
+        key=lambda path: (last_modified(path / METRICS_NAME) or 0.0, path.name),
+        reverse=True,
+    )
+    chosen = ordered[:MAX_RUN_CHOICES]
+    if run_dir.resolve() not in chosen:  # cut by the cap; it still has to be there
+        chosen.append(run_dir.resolve())
+    return chosen
+
+
 def next_run_dir(run_dir: Path) -> Path:
     """The next free ``runs-2``, ``runs-3``… beside ``run_dir``.
 

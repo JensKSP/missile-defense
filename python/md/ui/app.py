@@ -27,6 +27,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QApplication,
+    QComboBox,
     QDialog,
     QFrame,
     QHBoxLayout,
@@ -154,6 +155,8 @@ class Console(QMainWindow):
         #: re-attach: that run carries on, it is simply no longer this screen's.
         self._run: TrainingRun | None = None
         self._reported_exit = False
+        #: What the picker is showing, so it is only rebuilt when it changed.
+        self._choices: list[Path] = []
         #: None until the first scan, so "still empty" is distinguishable from
         #: "not looked yet" — otherwise the empty state never gets drawn.
         self._listed: list[Recording] | None = None
@@ -166,7 +169,7 @@ class Console(QMainWindow):
             tile.set_value("—")
 
         self.setWindowTitle(f"Missile Command — training console · {run_dir}")
-        self._path.setText(str(run_dir.resolve()))
+        self._refresh_picker()
         self.statusBar().showMessage(f"watching {run_dir / sources.METRICS_NAME}")
 
     # ---- construction -------------------------------------------------------
@@ -191,13 +194,17 @@ class Console(QMainWindow):
         row = QHBoxLayout()
         title = QLabel("MISSILE COMMAND · TRAINING CONSOLE")
         title.setProperty("role", "title")
-        self._path = QLabel()
-        self._path.setProperty("role", "note")
+        # Runs pile up one directory per experiment, so which one you are looking
+        # at is a thing you change often — often enough that it belongs in the
+        # window rather than in the command that started it.
+        self._picker = QComboBox()
+        self._picker.setMinimumWidth(220)
+        self._picker.currentIndexChanged.connect(self._picked)
         self._status = QLabel("NO RUN")
         self._status.setProperty("role", "caption")
         row.addWidget(title)
         row.addSpacing(12)
-        row.addWidget(self._path)
+        row.addWidget(self._picker)
         row.addStretch(1)
         row.addLayout(self._controls())
         row.addSpacing(14)
@@ -324,6 +331,7 @@ class Console(QMainWindow):
         self._system.refresh()
         if self._ticks % RESCAN_EVERY == 1:
             self._refresh_recordings()
+            self._refresh_picker()  # a new run directory can appear at any time
         self._refresh_status()
 
     def _read_metrics(self) -> None:
@@ -389,6 +397,38 @@ class Console(QMainWindow):
             self._list.addItem(item)
             if recording.path == selected:
                 self._list.setCurrentItem(item)
+
+    def _refresh_picker(self) -> None:
+        """Rebuild the run list, without disturbing anyone reading it.
+
+        Rebuilding fires ``currentIndexChanged``, which would re-attach on every
+        tick, so the signals are blocked while the items are replaced — and an
+        open dropdown is left alone entirely rather than being yanked out from
+        under the pointer.
+        """
+        if self._picker.view().isVisible():
+            return
+        choices = sources.run_choices(self._run_dir)
+        if choices == self._choices:
+            return
+        self._choices = choices
+        current = self._run_dir.resolve()
+        self._picker.blockSignals(True)
+        self._picker.clear()
+        for path in choices:
+            self._picker.addItem(path.name, str(path))
+            self._picker.setItemData(
+                self._picker.count() - 1, str(path), Qt.ItemDataRole.ToolTipRole
+            )
+            if path == current:
+                self._picker.setCurrentIndex(self._picker.count() - 1)
+        self._picker.setToolTip(str(current))
+        self._picker.blockSignals(False)
+
+    def _picked(self, index: int) -> None:
+        chosen = self._picker.itemData(index)
+        if chosen and Path(str(chosen)) != self._run_dir.resolve():
+            self._attach(Path(str(chosen)))
 
     def _refresh_status(self) -> None:
         modified = sources.last_modified(self._run_dir / sources.METRICS_NAME)
