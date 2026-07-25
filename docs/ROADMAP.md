@@ -342,40 +342,49 @@ help?"* rather than only *"what is happening now?"*.
 
 A risk with only "be careful" behind it is a worry. Each of these gets a mechanism.
 
-**1. Charting — the whole visual layer rests on a third-party library.**
+**1. Charting — no plot widget in Qt itself.**
 
-Qt ships no plot widget. `pyqtgraph` is the pragmatic pick (fast, live, MIT, fine
-alongside LGPL PySide6), but the failure mode is not licensing — it is *"fine at 100
-points, unusable at 10,000"*, discovered after everything is built on it.
+Use **Qt Charts**, which ships with PySide6 under **LGPLv3**, same as PySide6. No extra
+dependency, native look, nothing to vet. (It was GPL-only under Qt 5, which is where its
+reputation for awkward licensing comes from; that is out of date. The GPL trap that *is*
+still real is `PyQt6-Charts` from Riverbank — a different binding to the one used here.)
 
-* **Isolate it behind our own widget.** `charts.py` exposes `CurveView.append(series,
-  x, y)` and `set_baseline(y)`; nothing else in the UI imports the plotting library.
-  Swapping it out is then one file, not a rewrite.
-* **Spike before committing.** In Phase 1, feed it 20k points updating at 10 Hz —
-  roughly a long run — and watch the frame time. That is a morning's work and it
-  either confirms the choice or kills it while the cost is still zero.
-* **Keep a real fallback.** What this actually needs is 2–4 line series, one
-  horizontal marker, no zoom or pan. That is ~150 lines of `QPainter`. Because a
-  hand-rolled version is genuinely viable, the dependency stays a convenience rather
-  than a lock-in.
+The performance worry that would push toward `pyqtgraph` does not apply at this data
+rate: an update takes **seconds**, so the plot gains a point every few seconds, not
+thousands per second. Either library would cope; the bundled one wins on having nothing
+to install.
 
-> **Licence note:** PySide6 is LGPL while this project is MIT. Dynamic linking keeps
-> that clean, but the console must stay an *optional* component — it must not become
-> a dependency of the game or the `.deb`.
+Still keep it behind our own `CurveView` (`append`, `set_baseline`) so nothing else
+imports the charting module — cheap now, and it keeps the escape hatch open if the look
+turns out wrong.
 
-**2. Tailing a file that is still being written.**
+> **Licence note:** PySide6 and Qt Charts are LGPLv3 while this project is MIT. Dynamic
+> linking keeps that clean, but the console must stay an *optional* component — never a
+> dependency of the game or the `.deb`.
 
-* **Hold a byte offset**, `seek` to it, read only what is new. Never re-parse the file.
-* **Buffer the torn last line.** A row can be half-written when you read; keep the
-  remainder and parse only complete lines. This is the bug people actually hit, not
-  the performance one.
-* **Detect replacement.** If the file is shorter than the last offset, it was reset —
-  reopen from zero rather than reading garbage.
-* **Decimate for display, not for storage.** Keep every row; draw a downsampled view
-  once a run is long enough that pixels run out.
-* **Test it without a display.** `sources.py` has no Qt precisely so pytest can write
-  a CSV incrementally — including a torn final line and a truncation — and assert the
-  tailer yields exactly the new rows.
+**2. Reading a file while something else is writing it.**
+
+Training appends one line to `metrics.csv` per update; the UI reads it to draw the
+curve. Three ways the naive version breaks:
+
+* **Re-reading the whole file each refresh.** After 5,000 updates that is 5,000 lines
+  re-parsed every tick, forever. *Fix:* remember the byte position where reading
+  stopped and resume from there.
+* **The half-written line.** Training may be mid-write when the UI reads, yielding
+  `247,32768,4.87,1.6` with no newline because the rest is not flushed yet. Parsed as
+  a row, that is a wrong value or a crash. *Fix:* only parse lines ending in a newline;
+  keep the fragment and prepend it to the next read. **This is the one that actually
+  bites** — the performance issue is merely slow, this one is wrong.
+* **The file was reset.** A fresh run empties it, but the saved position still says
+  byte 40,000, so reading resumes past the end and returns nothing forever. *Fix:* if
+  the file is now shorter than the saved position, treat it as a new file and start
+  from zero.
+
+None of this is hard; it just has to be deliberate. `sources.py` has no Qt so pytest
+can write a CSV incrementally — torn final line and truncation included — and assert
+the reader yields exactly the new rows.
+
+
 
 **3. Scope creep into a trainer.**
 
