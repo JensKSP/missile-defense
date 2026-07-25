@@ -24,8 +24,10 @@ interpretable rather than just a number going up:
   ``runs/`` as ``update-<n>.mdr``. Open it from the app's REPLAYS menu and watch
   what the policy is actually doing; a reward curve will not tell you that it has
   learned to ignore MIRVs.
-* **Checkpoints.** Written to ``runs/checkpoints`` so a run can be resumed or a
-  past policy re-evaluated.
+* **Checkpoints.** Written to ``runs/checkpoints`` — every ``checkpoint_every``
+  updates plus a ``policy-final.pt`` at the end, so a short run still leaves the
+  policy it trained. Weights only, not optimizer state: these are for scoring or
+  watching a past policy, **not** for resuming a run. There is no resume yet.
 """
 
 from __future__ import annotations
@@ -170,10 +172,20 @@ def train(config: TrainConfig, ppo: PPOConfig | None = None) -> Policy:
             print(f"  {abs(delta):,.0f} {verdict} the scripted baseline")
 
         if config.checkpoint_every > 0 and iteration % config.checkpoint_every == 0:
-            checkpoints.mkdir(parents=True, exist_ok=True)
-            torch.save(policy.state_dict(), checkpoints / f"policy-{iteration:05d}.pt")
+            _save(policy, checkpoints / f"policy-{iteration:05d}.pt")
 
+    # Always checkpoint the finished policy. Without this a run whose length is
+    # not a multiple of checkpoint_every throws away the thing it just trained.
+    _save(policy, checkpoints / "policy-final.pt")
+    print(f"  final policy -> {checkpoints / 'policy-final.pt'}")
     return policy
+
+
+def _save(policy: Policy, path: Path) -> None:
+    """Write the weights. Only the policy — not the optimizer — so these are for
+    evaluating or watching a past policy, not for resuming a run."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(policy.state_dict(), path)
 
 
 def _score(policy: Policy, device: torch.device) -> object:

@@ -18,7 +18,20 @@ Three things are wired in because they are what make a run interpretable:
 * an episode is written to `runs/` every `record_every` updates, to open from the
   app's **REPLAYS** menu. A reward curve will not tell you the policy has learned
   to ignore MIRVs; watching it will;
-* checkpoints land in `runs/checkpoints`.
+* checkpoints land in `runs/checkpoints` — every `checkpoint_every` updates plus
+  a `policy-final.pt` at the end. **Weights only, no optimizer state**, so they
+  are for scoring or watching a past policy; resuming an interrupted run is not
+  implemented.
+
+Everything a run produces goes under `runs/` (`--out-dir` to change it):
+
+| Path | What |
+|---|---|
+| `runs/checkpoints/policy-<n>.pt`, `policy-final.pt` | model weights |
+| `runs/update-<n>.mdr` | watchable episode, ~80 kB |
+| stdout | progress line, and the eval summary against the baseline |
+
+Metrics are printed, not logged to a file — there is no TensorBoard or CSV yet.
 
 ## Getting PyTorch, on each platform
 
