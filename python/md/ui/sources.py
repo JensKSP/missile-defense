@@ -310,6 +310,24 @@ def last_modified(path: Path) -> float | None:
         return None
 
 
+def find_runs(directory: Path) -> list[Path]:
+    """Sub-directories of ``directory`` that hold a run, newest first.
+
+    Runs accumulate: an experiment gets its own ``--out-dir`` and the old one is
+    kept rather than overwritten. So a directory with no ``metrics.csv`` of its
+    own is usually not "nothing here" but "the runs are one level down", and a
+    console that cannot tell the difference sends you back to the shell to find
+    out which is which.
+    """
+    try:
+        children = [path for path in directory.iterdir() if path.is_dir()]
+    except OSError:
+        return []
+    runs = [path for path in children if (path / METRICS_NAME).exists()]
+    runs.sort(key=lambda path: (last_modified(path / METRICS_NAME) or 0.0, path.name), reverse=True)
+    return runs
+
+
 def next_run_dir(run_dir: Path) -> Path:
     """The next free ``runs-2``, ``runs-3``… beside ``run_dir``.
 

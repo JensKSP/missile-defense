@@ -331,8 +331,9 @@ python/md/ui/
   params.py      # the trainer's knobs, read out of its source (no Qt, no torch)
   forms.py       # the parameter dialog
   charts.py      # the curve widget, baseline line included
-  system.py      # psutil sampler + the GpuProbe protocol
+  system.py      # psutil sampler + the GpuProbe protocol (no Qt)
   probes/        # nvidia.py, amd.py — soft imports, one file per vendor
+  meters.py      # the CPU / RAM / GPU strip
   theme.py       # palette lifted from the game, dark by default
 ```
 
@@ -375,8 +376,22 @@ generated from the dataclass: the form could not otherwise offer the learning
 rate at all. `runs/config.json` records what a run was started with — written by
 the trainer, so a terminal-started run gets one too.
 
-**Phase 4 — Model & system.** Parameter count, layer shapes, checkpoint iteration,
-last eval against the baseline. CPU/RAM row; GPU row when a probe imports.
+**Phase 4 — Model & system.** *(system half implemented; model half open.)* CPU and
+RAM from psutil, and a GPU row from whichever vendor backend imports — both
+optional, each saying which package would fill it in rather than showing a dead
+meter. The strip sits under the recordings list, which is where the space
+already was; no fly-out or tab was needed. **The vendor backends are written from
+the published APIs and tested against stand-in modules, not against real
+hardware** — there is no NVIDIA or ROCm machine in this project's loop, which is
+why every field is read defensively and a probe that starts failing is dropped
+rather than raised. Still to do: parameter count, layer shapes, checkpoint
+iteration, last eval against the baseline.
+
+> On Windows an AMD card has no supported Python telemetry API at all (`amdsmi`
+> and `pyrsmi` are ROCm, so effectively Linux). The row therefore stays empty on
+> the development machine — correctly, and with the reason on screen. A
+> vendor-neutral Windows backend over the PDH performance counters would fit the
+> same protocol as one more file in `probes/`.
 
 **Phase 5 — Compare.** Two checkpoints side by side, their eval summaries and
 curves overlaid. The point at which the console starts answering *"did that change

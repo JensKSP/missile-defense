@@ -94,7 +94,7 @@ module = ["PySide6", "PySide6.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = ["md.ui.app", "md.ui.charts", "md.ui.forms"]
+module = ["md.ui.app", "md.ui.charts", "md.ui.forms", "md.ui.meters"]
 ignore_errors = true
 
 # ---- pyright (strict static typing) -----------------------------------------
@@ -110,6 +110,7 @@ ignore = [
   "python/md/ui/app.py",
   "python/md/ui/charts.py",
   "python/md/ui/forms.py",
+  "python/md/ui/meters.py",
 ]
 pythonVersion = "3.11"
 typeCheckingMode = "strict"

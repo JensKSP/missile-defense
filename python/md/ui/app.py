@@ -46,6 +46,7 @@ from ..control import Control
 from . import sources, theme
 from .charts import CurveView
 from .forms import ParameterDialog
+from .meters import SystemPanel
 from .params import read_params
 from .runner import (
     PACKAGE_PATH,
@@ -308,6 +309,10 @@ class Console(QMainWindow):
         note = QLabel("double-click to watch an episode")
         note.setProperty("role", "note")
         layout.addWidget(note)
+        # The machine's own row goes here rather than in the tiles: this column
+        # had the space, and the curve is not allowed to lose any.
+        self._system = SystemPanel()
+        layout.addWidget(self._system)
         return panel
 
     # ---- the poll -----------------------------------------------------------
@@ -316,6 +321,7 @@ class Console(QMainWindow):
         self._read_metrics()
         self._read_evals()
         self._read_log()
+        self._system.refresh()
         if self._ticks % RESCAN_EVERY == 1:
             self._refresh_recordings()
         self._refresh_status()
@@ -399,16 +405,33 @@ class Console(QMainWindow):
         self._stop.setEnabled(state in ("live", "paused"))
 
         if modified is None:
-            self.statusBar().showMessage(
-                f"no {sources.METRICS_NAME} in {self._run_dir} yet — "
-                "press Start, or run `poe train` in a terminal"
-            )
+            self.statusBar().showMessage(self._nothing_here())
             return
         age = max(time.time() - modified, 0.0)
         windows = self._launcher.running
         replays = f" · {windows} replay window(s) open" if windows else ""
         self.statusBar().showMessage(
             f"{self._updates:,} updates · last write {sources.human_age(age)}{replays}"
+        )
+
+    def _nothing_here(self) -> str:
+        """Why this directory is empty — and where the runs actually are.
+
+        Runs pile up one directory per experiment, so "no metrics.csv" usually
+        means the console is aimed one level too high. Saying which directories
+        do hold a run turns a dead end into the next command to type.
+        """
+        inside = sources.find_runs(self._run_dir)
+        if not inside:
+            return (
+                f"no {sources.METRICS_NAME} in {self._run_dir} yet — "
+                "press Start, or run `poe train` in a terminal"
+            )
+        names = ", ".join(run.name for run in inside[:4])
+        more = f" (+{len(inside) - 4} more)" if len(inside) > 4 else ""
+        return (
+            f"no run in {self._run_dir} itself · {len(inside)} inside it: {names}{more} "
+            f"— open one with `poe ui -- {inside[0].as_posix()}`"
         )
 
     def _state(self, modified: float | None) -> str:

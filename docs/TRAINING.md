@@ -143,9 +143,16 @@ command line is shown, so nothing here is a thing only the UI can do.
 Training runs as a separate process throughout, so closing the console (or
 crashing it) leaves the run alone.
 
-It needs **PySide6** (`pip install PySide6`, Qt Charts included), which is
-optional and never a dependency of the game. On Windows install it into the same
-native interpreter that has torch; see [WINDOWS.md](WINDOWS.md#training-on-windows).
+Down the right-hand side, under the recordings, is what the machine is doing:
+CPU, memory, and the GPU. That last row appears only when a vendor backend
+imports — `pynvml` for CUDA cards, `amdsmi` (or `pyrsmi`) for ROCm — and says
+which one would fill it in when neither is there. Adding a vendor is one file in
+`md/ui/probes/`.
+
+It needs **PySide6** (`pip install PySide6`, Qt Charts included), and **psutil**
+for the CPU and memory rows. Both are optional and neither is ever a dependency
+of the game. On Windows install them into the same native interpreter that has
+torch; see [WINDOWS.md](WINDOWS.md#training-on-windows).
 
 ## Picking up where you left off
 

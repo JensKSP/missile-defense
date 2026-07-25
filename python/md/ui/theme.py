@@ -142,6 +142,17 @@ def stylesheet() -> str:
         selection-background-color: {EDGE};
         font-family: {MONO};
     }}
+    /* Meters: a groove and a fill, no text — the number lives beside it. The
+       fill colour is set per-widget, because it means something (see meters.py). */
+    QProgressBar {{
+        background: {NIGHT};
+        border: 1px solid {EDGE};
+        border-radius: 3px;
+    }}
+    QProgressBar::chunk {{
+        background: {CITY};
+        border-radius: 2px;
+    }}
     QPlainTextEdit {{
         background: {NIGHT};
         border: 1px solid {EDGE};

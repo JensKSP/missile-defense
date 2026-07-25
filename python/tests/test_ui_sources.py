@@ -15,6 +15,7 @@ from pathlib import Path
 
 from md.ui.sources import (
     evals_tail,
+    find_runs,
     human_age,
     human_size,
     last_modified,
@@ -170,6 +171,21 @@ def test_a_recording_with_no_update_in_its_name_still_lists(tmp_path: Path) -> N
 def test_listing_a_directory_that_is_not_there_is_empty(tmp_path: Path) -> None:
     assert list_recordings(tmp_path / "nope") == []
     assert last_modified(tmp_path / "nope" / "metrics.csv") is None
+
+
+def test_runs_one_level_down_are_found_newest_first(tmp_path: Path) -> None:
+    # What a `runs/` directory looks like after a few experiments: no run of its
+    # own, one per sub-directory. The console has to say so rather than "empty".
+    for name, when in (("sweep-a", 1000), ("sweep-b", 2000)):
+        (tmp_path / name).mkdir()
+        path = tmp_path / name / "metrics.csv"
+        _append(path, HEADER + _row(1))
+        os.utime(path, (when, when))
+    (tmp_path / "checkpoints").mkdir()  # not a run: no metrics.csv in it
+
+    assert [path.name for path in find_runs(tmp_path)] == ["sweep-b", "sweep-a"]
+    assert find_runs(tmp_path / "sweep-a") == []
+    assert find_runs(tmp_path / "not-there") == []
 
 
 def test_starting_over_picks_the_next_free_directory(tmp_path: Path) -> None:
