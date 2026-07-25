@@ -21,9 +21,22 @@
     {
       "name": "release",
       "inherits": "base",
-      "displayName": "Clang RelWithDebInfo",
+      "displayName": "Clang RelWithDebInfo -O3 + ThinLTO",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "RelWithDebInfo"
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_CXX_FLAGS_RELWITHDEBINFO": "-O3 -g -DNDEBUG",
+        "MD_LTO": "ON"
+      }
+    },
+    {
+      "name": "profile",
+      "inherits": "base",
+      "displayName": "Clang RelWithDebInfo + per-phase timers (profiling)",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "MD_PROFILE": "ON",
+        "MD_BUILD_APP": "OFF",
+        "CMAKE_CXX_FLAGS": "-fno-omit-frame-pointer -g"
       }
     },
     {
@@ -40,6 +53,7 @@
   "buildPresets": [
     { "name": "debug", "configurePreset": "debug" },
     { "name": "release", "configurePreset": "release" },
+    { "name": "profile", "configurePreset": "profile" },
     { "name": "coverage", "configurePreset": "coverage" }
   ],
   "testPresets": [

@@ -9,7 +9,7 @@
 #include "md/sim.hpp"
 #include "md/vec2.hpp"
 
-#include <array>
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -17,30 +17,6 @@
 namespace md {
 
 namespace {
-
-/// Sequential cursor over the output buffer. Bounds are checked once by the
-/// caller; this only keeps the write position.
-class Writer {
-  public:
-    explicit Writer(std::span<float> out) noexcept : out_{out} {}
-
-    void put(float v) noexcept {
-        if (index_ < out_.size()) {
-            out_[index_] = v;
-        }
-        ++index_;
-    }
-
-    void pad(std::size_t n) noexcept {
-        for (std::size_t i = 0; i < n; ++i) {
-            put(0.0f);
-        }
-    }
-
-  private:
-    std::span<float> out_;
-    std::size_t index_ = 0;
-};
 
 /// 1/x, or 0 when x is not positive — keeps the encoder total on degenerate configs.
 float inv_or_zero(float x) noexcept {
@@ -50,13 +26,19 @@ float inv_or_zero(float x) noexcept {
 } // namespace
 
 void encode(const Sim& sim, const ObsSpec& spec, std::span<float> out) noexcept {
-    if (out.size() < spec.size()) {
+    const std::size_t total = spec.size();
+    if (out.size() < total) {
         return; // caller buffer too small: write nothing rather than a partial row
     }
 
-    const Config& cfg = sim.config();
-    Writer w{out};
+    // Clear once, then write only what is live. The observation is mostly padding
+    // — a few threats in 128 slots — so a bulk clear plus a handful of scattered
+    // stores beats visiting every element, and it makes the padding contract
+    // ("empty slots read zero") true by construction rather than by loop.
+    float* const base = out.data();
+    std::fill_n(base, total, 0.0f);
 
+    const Config& cfg = sim.config();
     const float inv_w = inv_or_zero(cfg.world_width);
     const float inv_h = inv_or_zero(cfg.world_height);
     const float inv_speed = inv_or_zero(cfg.interceptor_speed);
@@ -70,92 +52,112 @@ void encode(const Sim& sim, const ObsSpec& spec, std::span<float> out) noexcept 
     const auto nx = [inv_w](float x) noexcept { return (2.0f * x * inv_w) - 1.0f; };
     const auto ny = [inv_h](float y) noexcept { return (2.0f * y * inv_h) - 1.0f; };
 
+    std::size_t offset = 0;
+
     // ---- Threats: present, position, velocity, one-hot type ------------------
-    const auto threats = sim.threats();
-    for (std::uint32_t i = 0; i < spec.threats; ++i) {
-        if (i >= threats.size()) {
-            w.pad(ObsSpec::threat_features);
-            continue;
+    {
+        const auto threats = sim.threats();
+        const std::size_t count = std::min<std::size_t>(threats.size(), spec.threats);
+        for (std::size_t i = 0; i < count; ++i) {
+            float* slot = base + offset + (i * ObsSpec::threat_features);
+            const Threat& threat = threats[i];
+            slot[0] = 1.0f;
+            slot[1] = nx(threat.pos.x);
+            slot[2] = ny(threat.pos.y);
+            slot[3] = threat.velocity.x * inv_speed;
+            slot[4] = threat.velocity.y * inv_speed;
+            const auto type = static_cast<std::size_t>(threat.type);
+            if (type < 4u) {
+                slot[5 + type] = 1.0f; // the other three stay zero from the clear
+            }
         }
-        const Threat& t = threats[i];
-        w.put(1.0f);
-        w.put(nx(t.pos.x));
-        w.put(ny(t.pos.y));
-        w.put(t.velocity.x * inv_speed);
-        w.put(t.velocity.y * inv_speed);
-        const auto type = static_cast<std::uint8_t>(t.type);
-        for (std::uint8_t k = 0; k < 4; ++k) {
-            w.put(type == k ? 1.0f : 0.0f);
-        }
+        offset += static_cast<std::size_t>(spec.threats) * ObsSpec::threat_features;
     }
 
     // ---- Interceptors: present, position, velocity, detonation point ---------
     // The player chose that detonation point, so it is theirs to know.
-    const auto interceptors = sim.interceptors();
-    for (std::uint32_t i = 0; i < spec.interceptors; ++i) {
-        if (i >= interceptors.size()) {
-            w.pad(ObsSpec::interceptor_features);
-            continue;
+    {
+        const auto interceptors = sim.interceptors();
+        const std::size_t count = std::min<std::size_t>(interceptors.size(), spec.interceptors);
+        for (std::size_t i = 0; i < count; ++i) {
+            float* slot = base + offset + (i * ObsSpec::interceptor_features);
+            const Interceptor& shot = interceptors[i];
+            slot[0] = 1.0f;
+            slot[1] = nx(shot.pos.x);
+            slot[2] = ny(shot.pos.y);
+            slot[3] = shot.velocity.x * inv_speed;
+            slot[4] = shot.velocity.y * inv_speed;
+            slot[5] = nx(shot.target.x);
+            slot[6] = ny(shot.target.y);
         }
-        const Interceptor& it = interceptors[i];
-        w.put(1.0f);
-        w.put(nx(it.pos.x));
-        w.put(ny(it.pos.y));
-        w.put(it.velocity.x * inv_speed);
-        w.put(it.velocity.y * inv_speed);
-        w.put(nx(it.target.x));
-        w.put(ny(it.target.y));
+        offset += static_cast<std::size_t>(spec.interceptors) * ObsSpec::interceptor_features;
     }
 
     // ---- Blasts: present, position, current radius ---------------------------
-    const auto blasts = sim.blasts();
-    for (std::uint32_t i = 0; i < spec.blasts; ++i) {
-        if (i >= blasts.size()) {
-            w.pad(ObsSpec::blast_features);
-            continue;
+    {
+        const auto blasts = sim.blasts();
+        const std::size_t count = std::min<std::size_t>(blasts.size(), spec.blasts);
+        for (std::size_t i = 0; i < count; ++i) {
+            float* slot = base + offset + (i * ObsSpec::blast_features);
+            const Blast& blast = blasts[i];
+            slot[0] = 1.0f;
+            slot[1] = nx(blast.center.x);
+            slot[2] = ny(blast.center.y);
+            slot[3] = blast.radius * inv_radius;
         }
-        const Blast& b = blasts[i];
-        w.put(1.0f);
-        w.put(nx(b.center.x));
-        w.put(ny(b.center.y));
-        w.put(b.radius * inv_radius);
+        offset += static_cast<std::size_t>(spec.blasts) * ObsSpec::blast_features;
     }
 
     // ---- Batteries: alive, position, ammo, own cooldown ----------------------
-    for (const Base& b : sim.bases()) {
-        w.put(b.alive ? 1.0f : 0.0f);
-        w.put(nx(b.pos.x));
-        w.put(static_cast<float>(b.ammo) * inv_ammo);
-        w.put(b.cooldown_remaining * inv_base_cd);
+    {
+        std::size_t i = 0;
+        for (const Base& battery : sim.bases()) {
+            float* slot = base + offset + (i * ObsSpec::base_features);
+            slot[0] = battery.alive ? 1.0f : 0.0f;
+            slot[1] = nx(battery.pos.x);
+            slot[2] = static_cast<float>(battery.ammo) * inv_ammo;
+            slot[3] = battery.cooldown_remaining * inv_base_cd;
+            ++i;
+        }
+        offset += static_cast<std::size_t>(base_count) * ObsSpec::base_features;
     }
 
     // ---- Cities: alive, position --------------------------------------------
-    for (const City& c : sim.cities()) {
-        w.put(c.alive ? 1.0f : 0.0f);
-        w.put(nx(c.pos.x));
+    {
+        std::size_t i = 0;
+        for (const City& city : sim.cities()) {
+            float* slot = base + offset + (i * ObsSpec::city_features);
+            slot[0] = city.alive ? 1.0f : 0.0f;
+            slot[1] = nx(city.pos.x);
+            ++i;
+        }
+        offset += static_cast<std::size_t>(max_cities) * ObsSpec::city_features;
     }
 
     // ---- Globals: crosshair, trigger cooldown, wave, score -------------------
     // The crosshair and trigger are part of the player model, so the policy must
     // see them to plan around cursor travel and shot pacing. Score is on the HUD
     // and gates bonus cities, so it is decision-relevant, not just the return.
-    const Vec2 cross = sim.crosshair();
-    w.put(nx(cross.x));
-    w.put(ny(cross.y));
-    w.put(sim.fire_cooldown() * inv_trigger);
-    w.put(static_cast<float>(sim.wave()) * 0.05f);
-    w.put(static_cast<float>(sim.score()) * inv_bonus);
+    {
+        const Vec2 cross = sim.crosshair();
+        float* slot = base + offset;
+        slot[0] = nx(cross.x);
+        slot[1] = ny(cross.y);
+        slot[2] = sim.fire_cooldown() * inv_trigger;
+        slot[3] = static_cast<float>(sim.wave()) * 0.05f;
+        slot[4] = static_cast<float>(sim.score()) * inv_bonus;
+        offset += ObsSpec::global_features;
+    }
 
     // ---- Events this tick: what the human hears (DESIGN.md §13) --------------
-    std::array<float, ObsSpec::event_features> counts{};
-    for (const Event& e : sim.events()) {
-        const auto k = static_cast<std::size_t>(e.type);
-        if (k < counts.size()) {
-            counts[k] += 1.0f;
+    {
+        float* slot = base + offset;
+        for (const Event& event : sim.events()) {
+            const auto index = static_cast<std::size_t>(event.type);
+            if (index < ObsSpec::event_features) {
+                slot[index] += 0.25f;
+            }
         }
-    }
-    for (const float c : counts) {
-        w.put(c * 0.25f);
     }
 }
 

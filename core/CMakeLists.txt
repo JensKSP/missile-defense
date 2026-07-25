@@ -11,11 +11,22 @@ target_sources(md_core
     src/version.cpp
     src/sim.cpp
     src/observation.cpp
-    src/intercept.cpp)
+    src/intercept.cpp
+    src/profile.cpp
+    src/vec_sim.cpp)
 
 target_include_directories(md_core PUBLIC include)
 target_compile_features(md_core PUBLIC cxx_std_23)
-target_link_libraries(md_core PRIVATE md::warnings)
+
+# VecSim steps a batch across a worker pool; everything else stays single-threaded.
+find_package(Threads REQUIRED)
+target_link_libraries(md_core PUBLIC Threads::Threads PRIVATE md::warnings)
+
+# Per-phase timers in Sim::step. PUBLIC so anything reading md::prof counters sees
+# the same switch, and OFF by default — the shipping hot path carries no timers.
+if(MD_PROFILE)
+  target_compile_definitions(md_core PUBLIC MD_PROFILE)
+endif()
 
 # Single-source the semantic version from the top-level project(VERSION ...),
 # so version.cpp and the CMake project version can never drift apart.

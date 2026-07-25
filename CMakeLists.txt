@@ -36,6 +36,11 @@ option(MD_BUILD_APP "Build the Qt 6 + Vulkan app (needs Qt6 + Vulkan)" ON)
 option(MD_COVERAGE "Instrument for LLVM source-based coverage (clang)" OFF)
 option(MD_VULKAN_VALIDATION "Request Vulkan validation layers (dev only)" OFF)
 option(MD_FETCH_MINIAUDIO "Fetch miniaudio when no system copy (libminiaudio-dev) is found" ON)
+option(MD_PROFILE "Compile the per-phase timers in Sim::step (md/profile.hpp)" OFF)
+option(MD_NATIVE "Optimise for this machine's CPU (-march=native); not portable" OFF)
+option(MD_LTO "Link-time optimisation (ThinLTO) — cross-TU inlining" OFF)
+set(MD_PGO "off" CACHE STRING "Profile-guided optimisation: off | generate | use")
+set_property(CACHE MD_PGO PROPERTY STRINGS off generate use)
 
 # ---- Warnings ----------------------------------------------------------------
 # Opt-in via `target_link_libraries(<t> PRIVATE md::warnings)`. Keeps strict
@@ -61,6 +66,40 @@ target_compile_options(md_warnings INTERFACE
   -Wmisleading-indentation)
 if(MD_WERROR)
   target_compile_options(md_warnings INTERFACE -Werror)
+endif()
+
+# ---- Codegen tuning ----------------------------------------------------------
+# All off by default: the shipped artifact must run on any x86-64 and stay exactly
+# reproducible. Each of these is opt-in for throughput work, and each is verified
+# against the golden determinism test before use — see docs/PERFORMANCE.md.
+if(MD_NATIVE)
+  add_compile_options(-march=native)
+endif()
+
+if(MD_LTO)
+  include(CheckIPOSupported)
+  check_ipo_supported(RESULT md_ipo_ok OUTPUT md_ipo_why)
+  if(md_ipo_ok)
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
+  else()
+    message(WARNING "MD_LTO requested but unsupported here: ${md_ipo_why}")
+  endif()
+endif()
+
+# Profile-guided optimisation, two passes:
+#   1. cmake --preset release -DMD_PGO=generate && build && run the workload
+#   2. llvm-profdata merge -output=md.profdata build/release/*.profraw
+#   3. cmake --preset release -DMD_PGO=use -DMD_PGO_FILE=<abs path to md.profdata>
+set(MD_PGO_FILE "" CACHE FILEPATH "Merged .profdata for MD_PGO=use")
+if(MD_PGO STREQUAL "generate")
+  add_compile_options(-fprofile-instr-generate)
+  add_link_options(-fprofile-instr-generate)
+elseif(MD_PGO STREQUAL "use")
+  if(NOT MD_PGO_FILE)
+    message(FATAL_ERROR "MD_PGO=use needs -DMD_PGO_FILE=<merged .profdata>")
+  endif()
+  add_compile_options("-fprofile-instr-use=${MD_PGO_FILE}")
+  add_link_options("-fprofile-instr-use=${MD_PGO_FILE}")
 endif()
 
 # ---- Determinism -------------------------------------------------------------
@@ -133,6 +172,7 @@ endif()
 # ---- Components ---------------------------------------------------------------
 add_subdirectory(core)
 add_subdirectory(agent)   # scripted reference AI (M4) + the evaluation protocol
+add_subdirectory(bench)   # throughput benchmark (poe bench)
 # bindings/ (nanobind)  -> added in Step 2
 
 if(MD_BUILD_APP)
