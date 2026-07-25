@@ -214,9 +214,30 @@ convenience over the mechanism, never the only way to reach it.
 3. **Model** — parameter count, layer shapes, observation/action sizes, the iteration a
    checkpoint came from, and its eval summary against the baseline.
 4. **Recordings** — browse `runs/`, play in the app, delete. Newest first.
-5. **System** — CPU and RAM via `psutil`. **GPU deliberately deferred**: there is no
-   good cross-vendor Python API (`pynvml` is NVIDIA-only), and on a machine training on
-   CPU it would display an idle meter that means nothing.
+5. **System** — CPU and RAM via `psutil`; GPU through a **pluggable probe**.
+
+   There is no cross-vendor Python API for GPU telemetry, so rather than pick one
+   vendor or skip the feature, the panel talks to a small protocol and discovers
+   whichever backend is installed:
+
+   ```python
+   class GpuProbe(Protocol):
+       name: str                       # "NVIDIA RTX 4090", "AMD RX 7900 XTX"
+       def sample(self) -> GpuSample: ...   # utilisation %, memory used/total, temp
+   ```
+
+   | Backend | Package | Covers |
+   |---|---|---|
+   | NVIDIA | `pynvml` | CUDA cards |
+   | AMD | `amdsmi` (ROCm's own Python bindings; `pyrsmi` as fallback) | ROCm cards |
+   | none | — | panel hides the GPU row |
+
+   All optional: each backend is one module behind a soft import, so a missing
+   package is a normal state and not an error. This matters because the interesting
+   runs will eventually happen on a machine with a real accelerator — on a laptop
+   training on CPU the meter reads idle and tells you nothing, but that is an
+   argument for it degrading quietly, not for leaving the hook out. Adding a vendor
+   later should be one file, not a refactor of the panel.
 
 ### Notes
 
