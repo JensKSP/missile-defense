@@ -10,13 +10,16 @@
 //     parallel instead of taking turns.
 #include "md/config.hpp"
 #include "md/observation.hpp"
+#include "md/replay/recording.hpp"
 #include "md/version.hpp"
 #include "vec_env.hpp"
 
 #include <cstdint>
+#include <filesystem>
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>
 #include <nanobind/stl/string.h>
+#include <optional>
 #include <stdexcept>
 #include <string>
 
@@ -127,5 +130,30 @@ allocated per step. `step` releases the GIL, so the worker pool runs in parallel
                 nb::gil_scoped_release release;
                 env.action_masks(data);
             },
-            nb::arg("mask"), "Fill `mask` with which actions are legal per env.");
+            nb::arg("mask"), "Fill `mask` with which actions are legal per env.")
+        .def(
+            "record",
+            [](md::rl::VecEnv& env, std::size_t index, bool on) { env.set_recording(index, on); },
+            nb::arg("index"), nb::arg("on") = true,
+            "Log this env's actions so the episode can be watched in the app.")
+        .def(
+            "is_recording",
+            [](const md::rl::VecEnv& env, std::size_t index) { return env.is_recording(index); },
+            nb::arg("index"))
+        .def(
+            "save_recording",
+            [](md::rl::VecEnv& env, std::size_t index, const std::string& path,
+               std::uint64_t update, const std::string& label) {
+                // Only whole episodes are handed over, so a False here means "none
+                // finished yet", not an error.
+                std::optional<md::replay::Recording> recording = env.take_recording(index);
+                if (!recording.has_value()) {
+                    return false;
+                }
+                recording->update = update;
+                recording->set_label(label);
+                return md::replay::save(*recording, std::filesystem::path{path});
+            },
+            nb::arg("index"), nb::arg("path"), nb::arg("update") = 0u, nb::arg("label") = "",
+            "Write the last completed episode for `index`; False if none is ready.");
 }

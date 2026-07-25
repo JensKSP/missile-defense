@@ -172,6 +172,7 @@ endif()
 # ---- Components ---------------------------------------------------------------
 add_subdirectory(core)
 add_subdirectory(agent)   # scripted reference AI (M4) + the evaluation protocol
+add_subdirectory(replay)  # recorded runs: file format + playback (M3)
 add_subdirectory(bench)   # throughput benchmark (poe bench)
 add_subdirectory(bindings) # md::rl (always) + the optional nanobind module (M5)
 

@@ -189,6 +189,19 @@ Because both the simulation and the agent are deterministic, watching seed *N* i
 bit-identical to the run `poe eval` measured for that seed — no recording needed,
 the seed alone reproduces it.
 
+### Watching a recorded run
+
+```bash
+md_app --replay runs/update-1200.mdr
+```
+
+A *learned* policy is not reproducible from a seed the way the scripted agent is, so
+training runs record episodes instead — from Python, `env.record(0)` then
+`env.save_recording(0, path, update=n, label=f"update-{n}")`. What is stored is the
+action index per agent step, four bytes each, so an episode is ~80 kB and can be
+dropped every few updates to watch the policy improve. The same `[` / `]` speed
+control and `T` take-over work during playback.
+
 ## Development
 
 ```bash

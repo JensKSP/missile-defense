@@ -15,7 +15,9 @@
 #include "quad_frag_spv.h"
 #include "quad_vert_spv.h"
 
+#include <algorithm>
 #include <array>
+#include <cctype>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -601,14 +603,43 @@ void Renderer::startNextFrame() {
             inst.push_back(rect(aim.x, aim.y + off, th, arm * 0.5f, 1.0f, 1.0f, 1.0f)); // up
             inst.push_back(circle(aim.x, aim.y, 0.35f, 1.0f, 1.0f, 1.0f)); // centre dot
         }
+        // Replay: say what is being watched, and how far through it is.
+        if (playing && window_->replaying()) {
+            // The pixel font has no lower case, so fold the label — otherwise a
+            // trainer-written tag like "update-1200" renders as half blanks.
+            std::string label{window_->replay_label()};
+            std::ranges::transform(label, label.begin(), [](unsigned char c) {
+                return static_cast<char>(std::toupper(c));
+            });
+            draw_text(inst, label.empty() ? std::string{"REPLAY"} : label, cx, world_h * 0.955f,
+                      world_h * 0.012f, 0.55f, 0.80f, 0.95f, true);
+            // A thin progress bar — a recording has a known length, unlike a live
+            // game. Below 0.895, where the label's glyphs stop hanging.
+            constexpr float bar_w = 0.18f;
+            constexpr float bar_y = 0.878f;
+            const float filled = bar_w * window_->replay_progress();
+            inst.push_back(rect(cx, world_h * bar_y, world_w * bar_w * 0.5f, world_h * 0.002f,
+                                0.22f, 0.26f, 0.34f));
+            if (filled > 0.0f) {
+                inst.push_back(rect(cx - (world_w * (bar_w - filled) * 0.5f), world_h * bar_y,
+                                    world_w * filled * 0.5f, world_h * 0.002f, 0.55f, 0.80f,
+                                    0.95f));
+            }
+            draw_text(inst, "T TAKE OVER    BRACKETS SPEED", cx, world_h * 0.055f, world_h * 0.008f,
+                      0.35f, 0.45f, 0.40f, true);
+        }
         // Watch mode: say plainly who is at the controls, and how to take over.
         if (playing && window_->ai_driving()) {
             draw_text(inst, "AI PLAYING", cx, world_h * 0.955f, world_h * 0.012f, 0.45f, 0.95f,
                       0.65f, true);
-            // Always shown, including 1X — otherwise pressing the speed keys at
-            // normal speed looks like nothing happened. Parked in the top-right
-            // corner under the wave counter: centred it collided with "AI PLAYING",
-            // whose glyphs hang down to 0.895.
+            draw_text(inst, "T TAKE OVER    BRACKETS SPEED", cx, world_h * 0.055f, world_h * 0.008f,
+                      0.35f, 0.45f, 0.40f, true);
+        }
+        // Shared by both spectator modes. Always shown, including 1X — otherwise
+        // pressing the speed keys at normal speed looks like nothing happened.
+        // Parked in the top-right corner under the wave counter: centred it
+        // collided with the banner above, whose glyphs hang down to 0.895.
+        if (playing && (window_->ai_driving() || window_->replaying())) {
             const int speed = window_->speed();
             const bool fast = speed > 1;
             const std::string label = "SPEED " + std::to_string(speed) + "X";
@@ -616,8 +647,6 @@ void Renderer::startNextFrame() {
             const float speed_w = static_cast<float>(label.size()) * speed_px * 4.0f;
             draw_text(inst, label, (world_w * 0.98f) - speed_w, world_h * 0.885f, speed_px,
                       fast ? 0.95f : 0.45f, fast ? 0.80f : 0.55f, fast ? 0.35f : 0.50f, false);
-            draw_text(inst, "T TAKE OVER    BRACKETS SPEED", cx, world_h * 0.055f, world_h * 0.008f,
-                      0.35f, 0.45f, 0.40f, true);
         }
     }
 

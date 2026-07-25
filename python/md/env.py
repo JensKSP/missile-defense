@@ -13,6 +13,7 @@ the discrete action space, and the reward specification implemented below.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import cast
 
@@ -149,6 +150,36 @@ class VecEnv:
         # NumPy's reductions above are typed loosely enough that the sum comes back
         # as Any; the cast states the dtype astype() has actually produced.
         return cast(Rewards, phi.astype(np.float32))
+
+    # ---- recording, for watching a policy in the app -----------------------
+    def record(self, index: int, on: bool = True) -> None:
+        """Log environment ``index``'s actions so its episodes can be watched.
+
+        Record one environment, not the batch: a training run wants the occasional
+        watchable episode, not a copy of every rollout. The log is four bytes per
+        agent step, so leaving one recording costs nothing next to the forward pass.
+        """
+        self._native.record(index, on)
+
+    def is_recording(self, index: int) -> bool:
+        return bool(self._native.is_recording(index))
+
+    def save_recording(
+        self,
+        index: int,
+        path: str | os.PathLike[str],
+        *,
+        update: int = 0,
+        label: str = "",
+    ) -> bool:
+        """Write the last *completed* episode for ``index`` to ``path``.
+
+        Returns False when no episode has finished since the last call — episodes
+        are handed over whole, so a partial log is never written. ``update`` and
+        ``label`` are stamped into the file so the app can say which point in
+        training it is showing.
+        """
+        return bool(self._native.save_recording(index, str(path), update, label))
 
     # ---- the loop ---------------------------------------------------------
     def reset(self, seed: int | None = None) -> Observations:

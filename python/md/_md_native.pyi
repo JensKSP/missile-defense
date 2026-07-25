@@ -89,3 +89,10 @@ class VecEnv:
 
     def action_masks(self, mask: npt.NDArray[np.bool_]) -> None:
         """Fill ``mask`` with which actions are legal per env."""
+
+    def record(self, index: int, on: bool = ...) -> None:
+        """Log this env's actions so the episode can be watched in the app."""
+
+    def is_recording(self, index: int) -> bool: ...
+    def save_recording(self, index: int, path: str, update: int = ..., label: str = ...) -> bool:
+        """Write the last completed episode for ``index``; False if none is ready."""

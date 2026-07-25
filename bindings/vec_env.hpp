@@ -5,10 +5,12 @@
 
 #include "md/config.hpp"
 #include "md/observation.hpp"
+#include "md/replay/recording.hpp"
 #include "md/sim.hpp"
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 namespace md::rl {
@@ -64,13 +66,35 @@ class VecEnv {
     /// `bool_` is too, so this writes straight into the array with no conversion.
     void action_masks(bool* out) const;
 
+    /// Start or stop logging environment `index`'s action indices.
+    ///
+    /// Recording one environment out of a batch is the point: a training run wants
+    /// the occasional watchable episode, not a copy of every rollout. The log is
+    /// four bytes per agent step, so leaving one env recording costs nothing next
+    /// to the forward pass.
+    void set_recording(std::size_t index, bool on);
+
+    [[nodiscard]] bool is_recording(std::size_t index) const;
+
+    /// Take the last *complete* episode recorded for `index`, if one has finished
+    /// since the previous call. Episodes are only handed over whole: a partial log
+    /// would replay into a game that stops mid-air.
+    [[nodiscard]] std::optional<replay::Recording> take_recording(std::size_t index);
+
   private:
+    void finish_recording(std::size_t index, std::uint64_t next_episode_seed);
+
     void encode_into(std::size_t index, float* obs) const;
     void run_range(std::size_t begin, std::size_t end, const std::int32_t* actions, float* obs,
                    float* final_obs, float* rewards, bool* terminated, bool* truncated);
 
     std::vector<Sim> sims_;
     std::vector<std::uint64_t> episode_ticks_;
+    // Recording state, one slot per env so the worker ranges stay disjoint.
+    std::vector<std::uint8_t> recording_on_; // not vector<bool>: workers write it
+    std::vector<std::uint64_t> episode_seed_;
+    std::vector<std::vector<std::int32_t>> live_log_;
+    std::vector<std::optional<replay::Recording>> finished_;
     Config config_{};
     ObsSpec spec_{};
     unsigned threads_ = 1;

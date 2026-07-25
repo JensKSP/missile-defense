@@ -27,6 +27,44 @@ VecEnv::VecEnv(std::size_t num_envs, const Config& config, const ObsSpec& spec, 
         sims_.emplace_back(config_);
     }
     episode_ticks_.assign(num_envs, 0);
+    recording_on_.assign(num_envs, 0);
+    episode_seed_.assign(num_envs, 0);
+    live_log_.resize(num_envs);
+    finished_.resize(num_envs);
+}
+
+void VecEnv::set_recording(std::size_t index, bool on) {
+    if (index >= sims_.size()) {
+        return;
+    }
+    recording_on_[index] = on ? 1u : 0u;
+    live_log_[index].clear(); // a log only ever covers one whole episode
+}
+
+bool VecEnv::is_recording(std::size_t index) const {
+    return index < sims_.size() && recording_on_[index] != 0u;
+}
+
+std::optional<replay::Recording> VecEnv::take_recording(std::size_t index) {
+    if (index >= sims_.size() || !finished_[index].has_value()) {
+        return std::nullopt;
+    }
+    std::optional<replay::Recording> out = std::move(finished_[index]);
+    finished_[index].reset();
+    return out;
+}
+
+/// Seal the episode just ended into a recording, and start the log for the next.
+void VecEnv::finish_recording(std::size_t index, std::uint64_t next_episode_seed) {
+    replay::Recording recording;
+    recording.config = config_;
+    recording.spec = spec_;
+    recording.seed = episode_seed_[index];
+    recording.frame_skip = frame_skip_;
+    recording.actions = std::move(live_log_[index]);
+    finished_[index] = std::move(recording);
+    live_log_[index].clear();
+    episode_seed_[index] = next_episode_seed;
 }
 
 std::uint32_t VecEnv::action_count() const noexcept {
@@ -42,6 +80,9 @@ void VecEnv::reset(std::uint64_t seed, float* obs) {
     for (std::size_t i = 0; i < sims_.size(); ++i) {
         sims_[i].reset(seed + static_cast<std::uint64_t>(i));
         episode_ticks_[i] = 0;
+        episode_seed_[i] = seed + static_cast<std::uint64_t>(i);
+        live_log_[i].clear();
+        finished_[i].reset(); // a reset discards any episode not yet collected
         encode_into(i, obs + (i * stride));
     }
     // Fresh episodes after this batch continue past the seeds just used, so
@@ -55,6 +96,10 @@ void VecEnv::run_range(std::size_t begin, std::size_t end, const std::int32_t* a
     for (std::size_t i = begin; i < end; ++i) {
         Sim& sim = sims_[i];
         const auto index = static_cast<std::uint32_t>(std::max(0, actions[i]));
+        if (recording_on_[i] != 0u) {
+            // Log the clamped index, not the raw one: that is what was played.
+            live_log_[i].push_back(static_cast<std::int32_t>(index));
+        }
 
         float reward = 0.0f;
         bool done = false;
@@ -78,7 +123,11 @@ void VecEnv::run_range(std::size_t begin, std::size_t end, const std::int32_t* a
             // to bootstrap from it — then start the next one straight away so the
             // batch never contains a dead environment.
             encode_into(i, final_obs + (i * stride));
-            sim.reset(next_seed_ + static_cast<std::uint64_t>(i));
+            const auto next = next_seed_ + static_cast<std::uint64_t>(i);
+            if (recording_on_[i] != 0u) {
+                finish_recording(i, next);
+            }
+            sim.reset(next);
             episode_ticks_[i] = 0;
         }
         encode_into(i, obs + (i * stride));

@@ -170,7 +170,8 @@ int GameWindow::menu_hit(Vec2 world) const noexcept {
 void GameWindow::end_game() {
     in_progress_ = false;
     accumulator_ = 0.0;
-    final_score_ = sim_.score() < 0 ? 0 : sim_.score();
+    // sim() and not sim_: a replay's score lives in the player's own simulation.
+    final_score_ = sim().score() < 0 ? 0 : sim().score();
     // The highscore table is the human's. A run the agent drove — even partly,
     // before a takeover — never enters it, however well it scored.
     if (!ai_assisted_ && highscores_.qualifies(final_score_)) {
@@ -243,6 +244,7 @@ void GameWindow::start_game() {
     fire_pending_ = false;
     ai_driving_ = false;
     ai_assisted_ = false;
+    replay_.reset(); // a new game is never still playing back a recording
     speed_ = 1;
 }
 
@@ -255,6 +257,28 @@ void GameWindow::start_ai_game() {
     start_game();
     ai_driving_ = true;
     ai_assisted_ = true; // sticky: taking over later does not make it your score
+}
+
+/// Play back a recorded run — typically an episode a training run dropped on disk.
+/// The recording carries its own Config, so what is shown is the simulation as it
+/// was when recorded, not as the app is configured now.
+bool GameWindow::watch_replay(const std::string& path) {
+    std::optional<replay::Recording> recording = replay::load(path);
+    if (!recording.has_value()) {
+        return false;
+    }
+    start_game();
+    ai_assisted_ = true; // a watched run is never the human's score
+    replay_.emplace(std::move(*recording));
+    return true;
+}
+
+std::string_view GameWindow::replay_label() const noexcept {
+    return replay_.has_value() ? replay_->recording().label_text() : std::string_view{};
+}
+
+float GameWindow::replay_progress() const noexcept {
+    return replay_.has_value() ? replay_->progress() : 0.0f;
 }
 
 void GameWindow::activate(int index) {
@@ -328,6 +352,20 @@ void GameWindow::advance() {
         // `speed_` ticks per frame fast-forwards a watched game; it is always 1
         // while a human plays, since their input arrives per frame.
         for (int repeat = 0; repeat < speed_; ++repeat) {
+            if (replay_.has_value()) {
+                // A recording drives itself: it re-decodes its own action indices
+                // against its own sim, exactly as the trainer did. Nothing here
+                // may touch sim_, or the replay would stop matching the run.
+                const bool played = replay_->tick();
+                if (speed_ == 1) {
+                    audio_.handle_events(replay_->sim().events());
+                }
+                if (!played) {
+                    end_game();
+                    return;
+                }
+                continue;
+            }
             Action action;
             if (ai_driving_) {
                 // The agent is just another driver: same Action, same Sim::step,
@@ -446,16 +484,25 @@ void GameWindow::keyPressEvent(QKeyEvent* event) {
     case State::Playing:
         if (key == Qt::Key_Escape || key == Qt::Key_P) {
             open_menu(); // pause -> menu (game frozen and preserved)
+        } else if (replay_.has_value() && key == Qt::Key_T) {
+            // Take over from a recording: adopt the state it has reached and drop
+            // the player. The sim is a value, so this is a copy — from here on the
+            // run diverges from what was recorded, which is the point.
+            sim_ = replay_->sim();
+            aim_ = sim_.crosshair();
+            replay_.reset();
+            speed_ = 1;
         } else if (ai_driving_ && key == Qt::Key_T) {
             // Take over mid-game. The sim is a value and the agent holds no state,
             // so switching the action source is all it takes — the run simply
             // continues from here under new management.
             ai_driving_ = false;
             speed_ = 1;
-        } else if (ai_driving_ &&
+        } else if ((ai_driving_ || replay_.has_value()) &&
                    (key == Qt::Key_BracketRight || key == Qt::Key_Plus || key == Qt::Key_Equal)) {
             speed_ = std::min(speed_ * 2, 8);
-        } else if (ai_driving_ && (key == Qt::Key_BracketLeft || key == Qt::Key_Minus)) {
+        } else if ((ai_driving_ || replay_.has_value()) &&
+                   (key == Qt::Key_BracketLeft || key == Qt::Key_Minus)) {
             speed_ = std::max(speed_ / 2, 1);
         }
         break;

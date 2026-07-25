@@ -10,6 +10,7 @@
 #include "md/config.hpp"
 #include "md/intercept.hpp"
 #include "md/observation.hpp"
+#include "md/replay/recording.hpp"
 #include "md/sim.hpp"
 #include "vec_env.hpp"
 
@@ -230,6 +231,51 @@ TEST_CASE("action masks match the per-sim mask", "[rl][vec_env]") {
             REQUIRE(batch.mask[(i * width) + a] == expected[a]);
         }
     }
+}
+
+TEST_CASE("a recorded episode replays to the state the batch ended in", "[rl][vec_env]") {
+    // The whole point of recording during training: what the app plays back has to
+    // be the episode the learner actually experienced, not an approximation.
+    const md::Config cfg{};
+    const md::ObsSpec spec{};
+    constexpr std::uint64_t max_ticks = 240;
+    VecEnv env{4, cfg, spec, 1, 4, max_ticks};
+    Batch batch{env};
+    env.reset(31, batch.obs.data());
+    env.set_recording(0, true);
+    CHECK(env.is_recording(0));
+    CHECK_FALSE(env.is_recording(1));
+
+    std::vector<std::int32_t> actions(env.num_envs());
+    bool ended = false;
+    for (int step = 0; step < 200 && !ended; ++step) {
+        for (std::size_t i = 0; i < env.num_envs(); ++i) {
+            const auto pick = (static_cast<std::uint32_t>(step) * 7u) + 1u;
+            actions[i] = static_cast<std::int32_t>(pick % env.action_count());
+        }
+        env.step(actions.data(), batch.obs.data(), batch.final_obs.data(), batch.rewards.data(),
+                 batch.terminated.get(), batch.truncated.get());
+        ended = batch.terminated[0] || batch.truncated[0];
+    }
+    REQUIRE(ended);
+
+    const auto recording = env.take_recording(0);
+    REQUIRE(recording.has_value());
+    CHECK(recording->seed == 31); // env 0 was seeded seed + 0
+    CHECK(recording->frame_skip == env.frame_skip());
+    CHECK_FALSE(recording->actions.empty());
+
+    // Replaying must land on exactly the observation the batch reported as final.
+    md::replay::Player player{*recording};
+    while (player.tick()) {
+        // drain
+    }
+    std::vector<float> replayed(spec.size());
+    md::encode(player.sim(), spec, std::span<float>{replayed});
+    CHECK(std::equal(replayed.begin(), replayed.end(), batch.final_obs.begin()));
+
+    // An episode is handed over once.
+    CHECK_FALSE(env.take_recording(0).has_value());
 }
 
 TEST_CASE("an empty batch is a no-op", "[rl][vec_env]") {

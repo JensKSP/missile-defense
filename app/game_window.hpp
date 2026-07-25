@@ -6,12 +6,15 @@
 #include "audio.hpp"
 #include "highscores.hpp"
 #include "md/agent/heuristic.hpp"
+#include "md/replay/recording.hpp"
 #include "md/sim.hpp"
 
 #include <QElapsedTimer>
 #include <QVulkanWindow>
 #include <array>
 #include <cstdint>
+#include <optional>
+#include <string>
 #include <string_view>
 
 class QKeyEvent;
@@ -51,8 +54,18 @@ class GameWindow : public QVulkanWindow {
     /// Start a game with the scripted agent at the controls (the `--watch` flag).
     void watch_now() { start_ai_game(); }
 
+    /// Play a recorded run (the `--replay` flag). False if it could not be read.
+    bool watch_replay(const std::string& path);
+
     /// Is the scripted agent driving rather than the mouse?
     [[nodiscard]] bool ai_driving() const noexcept { return ai_driving_; }
+
+    /// Is a recorded run being played back?
+    [[nodiscard]] bool replaying() const noexcept { return replay_.has_value(); }
+
+    /// The recording's label and how far through it we are — for the HUD.
+    [[nodiscard]] std::string_view replay_label() const noexcept;
+    [[nodiscard]] float replay_progress() const noexcept;
 
     /// Did the agent drive any part of this game? Such a run is never eligible for
     /// the highscore table — those are the human's.
@@ -61,7 +74,11 @@ class GameWindow : public QVulkanWindow {
     /// Simulation ticks run per frame — 1 is real time, higher fast-forwards.
     [[nodiscard]] int speed() const noexcept { return speed_; }
 
-    [[nodiscard]] const Sim& sim() const noexcept { return sim_; }
+    /// The simulation on screen. While replaying that is the player's own sim, so
+    /// the renderer, audio and HUD all read one source whichever driver is active.
+    [[nodiscard]] const Sim& sim() const noexcept {
+        return replay_.has_value() ? replay_->sim() : sim_;
+    }
 
     [[nodiscard]] Vec2 aim() const noexcept { return aim_; }
 
@@ -135,7 +152,8 @@ class GameWindow : public QVulkanWindow {
     [[nodiscard]] BaseId nearest_base_with_ammo(Vec2 target) const;
 
     Sim sim_;
-    agent::Heuristic agent_{}; // the M4 baseline, used in watch mode
+    agent::Heuristic agent_{};             // the M4 baseline, used in watch mode
+    std::optional<replay::Player> replay_; // a recorded run being played back
     AudioEngine audio_;
     HighscoreTable highscores_;
     QElapsedTimer clock_;

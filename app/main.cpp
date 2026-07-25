@@ -5,9 +5,13 @@
 
 #include <QGuiApplication>
 #include <QVulkanInstance>
+#include <cstdio>
+#include <exception>
 #include <string_view>
 
-int main(int argc, char** argv) {
+namespace {
+
+int run(int argc, char** argv) {
     QGuiApplication app(argc, argv);
     QGuiApplication::setOrganizationName("MissileDefense");
     QGuiApplication::setApplicationName("MissileDefense"); // stable app-data path for highscores
@@ -31,6 +35,11 @@ int main(int argc, char** argv) {
             window.play_now(); // boot straight into a game (skip the menu)
         } else if (arg == "--watch") {
             window.watch_now(); // boot straight into a game the scripted AI plays
+        } else if (arg == "--replay" && (i + 1) < argc) {
+            // Watch a recorded run — e.g. an episode a training run dropped on disk.
+            if (!window.watch_replay(argv[++i])) {
+                qWarning("could not read the recording: %s", argv[i]);
+            }
         }
     }
     if (window.fullscreen()) { // restore the persisted window mode (see QSettings)
@@ -40,4 +49,23 @@ int main(int argc, char** argv) {
     }
 
     return QGuiApplication::exec();
+}
+
+} // namespace
+
+int main(int argc, char** argv) {
+    // Reading a recording touches the filesystem, so main can now be reached by an
+    // exception; it must not escape (bugprone-exception-escape). fputs, not
+    // std::println, because the handler itself must not be able to throw.
+    try {
+        return run(argc, argv);
+    } catch (const std::exception& error) {
+        std::fputs("missile-defense: ", stderr);
+        std::fputs(error.what(), stderr);
+        std::fputs("\n", stderr);
+        return 1;
+    } catch (...) {
+        std::fputs("missile-defense: unknown error\n", stderr);
+        return 1;
+    }
 }

@@ -56,10 +56,33 @@ A complete, fun arcade game. **Acceptance gate: the human plays it and confirms.
   per type (ICBM / MIRV / smart bomb), thunder on city loss, WWII E57 siren on
   each wave, crosshair reticle
 
-## M3 — Record & replay in the UI
+## M3 — Record & replay in the UI *(partly implemented)*
 
 Record every run as `(seed, action-log)`; load a run and replay it with pause / scrub /
 variable speed; **take over** from any point and continue playing.
+
+Brought forward out of order, because M6 needs it: watching the policy play is how you
+see it learn, and a scalar reward curve does not show you *why* a run went badly.
+
+- ✅ **Recording** — `md::replay::Recording` is `(seed, config, obs-spec, frame-skip,
+  action indices)`. Only the discrete action *index* is stored: `decode_action` is a pure
+  function of state, so seed + indices replay bit-identically at four bytes per agent
+  step. A full episode is ~80 kB, which is what makes it cheap to drop one on disk every
+  few training updates.
+- ✅ **From training** — `VecEnv.record(i)` logs one environment of the batch;
+  `save_recording(i, path, update=…, label=…)` writes an episode once it completes.
+  Episodes are only handed over whole.
+- ✅ **Playback** — `md_app --replay <file>` plays one, with the label and a progress bar
+  on the HUD, `[` / `]` speed control, and `T` to take over from where it has reached.
+- ⬜ **Scrub** — seeking to an arbitrary point. Cheap to add (`Sim` state is a `memcpy`,
+  so periodic snapshots work), but not built.
+- ⬜ **Recording human play**, and a menu entry to browse recordings rather than passing
+  a path on the command line.
+
+> **Recordings are build-local artifacts, not an archive format.** The file embeds the
+> `Config` it was recorded with and is rejected if the struct's size no longer matches.
+> Changing a `Config` default changes the simulation, and a replay that silently drifted
+> would be worse than one that refuses to load.
 
 ## M4 — Algorithmic reference AI ✅ *(implemented — ready for sign-off)*
 

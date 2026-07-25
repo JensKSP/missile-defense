@@ -10,7 +10,7 @@ import sys
 
 from . import _util
 
-CPP_DIRS: tuple[str, ...] = ("core", "app", "agent", "bindings")
+CPP_DIRS: tuple[str, ...] = ("core", "app", "agent", "replay", "bindings")
 
 
 def format_sources(*, fix: bool) -> None:
@@ -27,7 +27,7 @@ def tidy() -> None:
     # compile database when the optional bindings are configured.
     clang_tidy = _util.tool("clang-tidy-21", "clang-tidy")
     files = _util.cpp_files(
-        ("core", "app", "agent", "bindings"),
+        ("core", "app", "agent", "replay", "bindings"),
         exts=("cpp",),
         exclude=("/tests/", "miniaudio_impl", "module"),
     )
