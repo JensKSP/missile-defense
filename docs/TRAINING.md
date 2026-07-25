@@ -95,6 +95,29 @@ Everything under `runs/` (`--out-dir` to change it):
 | `runs/checkpoints/policy-final.pt` | always written at the end |
 | `runs/update-<n>.mdr` | a watchable episode, ~80 kB |
 | `runs/metrics.csv` | one row per update, for plotting afterwards |
+| `runs/evals.csv` | one row per `--eval-every` scoring, in the baseline's units |
+
+Those last two are deliberately separate files. `metrics.csv` is the training
+return, which as above is *not* a score; `evals.csv` is the 32-seed summary that
+is, so it is the one a "beat 18,036" line can honestly be drawn across. Keeping
+them apart also keeps the sparse rows out of the dense file.
+
+## Watching a run while it runs
+
+```bash
+poe ui                    # attach to ./runs
+poe ui -- path/to/run     # or to a run directory synced from another machine
+```
+
+A read-only console: the eval score against the baseline as the big curve, return
+/ entropy / value loss underneath, and the recordings listed newest-first —
+double-click one and it opens in the game. It attaches to a run started from a
+terminal and cannot start one, so training keeps its own process and a UI crash
+costs you nothing.
+
+It needs **PySide6** (`pip install PySide6`, Qt Charts included), which is
+optional and never a dependency of the game. On Windows install it into the same
+native interpreter that has torch; see [WINDOWS.md](WINDOWS.md#training-on-windows).
 
 ## Picking up where you left off
 

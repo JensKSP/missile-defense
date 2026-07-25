@@ -19,7 +19,9 @@ interpretable rather than just a number going up:
 * **The yardstick.** Every `eval_every` updates the policy is scored on the M4
   protocol — the same 32 seeds, aggregated by the same function as the scripted
   baseline — and printed next to the baseline's 18,036. That is the number that
-  decides whether M6 succeeded.
+  decides whether M6 succeeded, so it is also appended to ``runs/evals.csv``
+  rather than only scrolling past: it is the one measurement in a run that is in
+  the baseline's own units, and the training console draws the baseline across it.
 * **Watchable episodes.** Every `record_every` updates one episode is written to
   ``runs/`` as ``update-<n>.mdr``. Open it from the app's REPLAYS menu and watch
   what the policy is actually doing; a reward curve will not tell you that it has
@@ -231,6 +233,7 @@ def train(config: TrainConfig, ppo: PPOConfig | None = None) -> Policy:
 
         if config.eval_every > 0 and iteration % config.eval_every == 0:
             summary = _score(policy, device)
+            _log_eval(config.out_dir / "evals.csv", iteration, summary)
             print(format_summary(summary))
             delta = summary.mean_score - BASELINE_MEAN_SCORE
             verdict = "ahead of" if delta > 0 else "behind"
@@ -248,6 +251,53 @@ def train(config: TrainConfig, ppo: PPOConfig | None = None) -> Policy:
     print(f"  final policy -> {checkpoints / 'policy-final.pt'}")
     print(f"  metrics      -> {metrics_path}")
     return policy
+
+
+#: Columns of ``evals.csv`` — the fields of the shared C++ ``Summary``, in order.
+EVAL_COLUMNS = (
+    "update",
+    "mean_score",
+    "min_score",
+    "max_score",
+    "mean_wave",
+    "mean_cities_left",
+    "mean_accuracy",
+    "survived",
+    "episodes",
+)
+
+
+def _log_eval(path: Path, iteration: int, summary: Any) -> None:
+    """Append one scored evaluation, in the scripted baseline's own units.
+
+    A separate file from ``metrics.csv`` on purpose. That one carries the training
+    return, which is shaped, scaled and summed undiscounted — a fine diagnostic,
+    but *not* a score, so drawing 18,036 across it would be comparing units that
+    have no relationship. These rows are the ones that do compare: same 32 seeds,
+    same C++ ``summarize``, greedy play, exactly what ``poe eval`` reports for the
+    scripted agent. They are also sparse (one per ``eval_every``), which is
+    another reason not to bolt them onto the per-update file as mostly-empty
+    columns.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fresh = not path.exists()
+    with path.open("a", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        if fresh:
+            writer.writerow(EVAL_COLUMNS)
+        writer.writerow(
+            [
+                iteration,
+                f"{summary.mean_score:.2f}",
+                summary.min_score,
+                summary.max_score,
+                f"{summary.mean_wave:.3f}",
+                f"{summary.mean_cities_left:.3f}",
+                f"{summary.mean_accuracy:.4f}",
+                summary.survived,
+                summary.episodes,
+            ]
+        )
 
 
 def _save(

@@ -217,9 +217,19 @@ Instead the run is a subprocess and the existing artifacts *are* the interface:
 | Artifact | The UI's use |
 |---|---|
 | `runs/metrics.csv` | tail → live curves (return, entropy, value, clip fraction) |
+| `runs/evals.csv` | tail → the score curve the baseline is drawn across |
 | `runs/update-*.mdr` | list → double-click launches `md_app --replay` |
 | `runs/checkpoints/*.pt` | list → `--load` to score, or `--resume` to continue |
 | stdout | streamed into a log pane |
+
+> **`evals.csv` was added for this.** The plan said to draw 18,036 across the
+> *return* curve, and that turned out to be wrong: the return in `metrics.csv` is
+> shaped, scaled and summed undiscounted, so it reads in the tens and has no fixed
+> relationship to a game score. The only number in a run that *is* comparable is
+> the periodic evaluation — same 32 seeds, same C++ `summarize`, greedy play — and
+> it was being printed and thrown away. It is now appended to `runs/evals.csv` by
+> the trainer, one row per `--eval-every`, which is what the console plots the
+> baseline against. Return, entropy and value loss keep their own axes below it.
 
 This buys more than responsiveness: the UI can **attach to a run started from a
 terminal**, a crashed UI leaves training untouched, and the whole thing works against a
@@ -302,6 +312,7 @@ big-bang: if work stops after any phase, what exists still earns its place.
 ```
 python/md/ui/
   __init__.py
+  __main__.py    # `python -m md.ui`; explains itself when PySide6 is absent
   app.py         # QApplication bootstrap, window, `poe ui` entry point
   runner.py      # spawn/attach to training; the control file; stdout stream
   sources.py     # tail metrics.csv, list recordings + checkpoints (no Qt)
@@ -315,10 +326,18 @@ python/md/ui/
 pytest without a display — which is what keeps this from being a milestone with no
 tests.
 
-**Phase 1 — Monitor (read-only).** Tail `metrics.csv`, draw return / entropy /
-value with the baseline line, list recordings newest-first, double-click to launch
-`md_app --replay`. Attaches to a run started from a terminal; cannot start one.
+**Phase 1 — Monitor (read-only).** ✅ *(implemented — ready for sign-off)* Tails
+`metrics.csv` and `evals.csv`, draws the score against the baseline line with
+return / entropy / value beneath it, lists recordings newest-first, and
+double-click launches `md_app --replay`. Attaches to a run started from a
+terminal; cannot start one. Run it with `poe ui [run-dir]`.
 *Usable on its own: this is the panel you leave open during a run.*
+
+Two things the plan did not anticipate, both now in the code with the reason
+beside them: the baseline needed a comparable curve to be drawn across (hence
+`evals.csv`, above), and launching the game from the *native* interpreter on
+Windows needs the CLANG64 prefix put back on `PATH`, or the MinGW build dies
+looking for `libc++.dll` before it can show a window.
 
 **Phase 2 — Control.** The control file protocol (`runs/control.json`), polled once
 per update by the training loop, plus start / pause / resume / graceful stop in the

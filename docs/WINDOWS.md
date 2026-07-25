@@ -122,6 +122,14 @@ Both module ABIs can sit beside the package at once — each interpreter loads i
 own — so the MSYS2 tooling and the training environment coexist. The rest of
 training is platform-independent: see [TRAINING.md](TRAINING.md).
 
+The **training console** (`poe ui`) belongs to that same native interpreter —
+`pip install PySide6` there, because its wheels are MSVC-built like torch's. Run
+it as `python -m md.ui runs` with `PYTHONPATH=python` if `poe` on your `PATH` is
+the MSYS2 one. Double-clicking a recording starts the MSYS2-built game from a
+non-MSYS2 process, so the console puts `<msys2>\clang64\bin` back on `PATH` for
+the child — otherwise it dies looking for `libc++.dll` with no window to say so.
+Set `MSYS2_ROOT` if MSYS2 is not at `C:\msys64`.
+
 > **Determinism.** `-ffp-contract=off` is what makes replays bit-identical, and
 > `cl.exe` has no exact equivalent (`clang-cl` passes it through). The MSVC build
 > has been checked against the golden trajectory checksum and matches, but if you
