@@ -12,6 +12,7 @@ reproducible environment — used to train a reinforcement-learning agent.
 - Game design (and reward spec): [docs/DESIGN.md](docs/DESIGN.md)
 - Milestones / roadmap: [docs/ROADMAP.md](docs/ROADMAP.md)
 - Testing & quality gate: [docs/TESTING.md](docs/TESTING.md)
+- Training the agent (M6): [docs/TRAINING.md](docs/TRAINING.md)
 
 ## Features
 

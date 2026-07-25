@@ -1,6 +1,10 @@
 {
   "version": 6,
-  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 25,
+    "patch": 0
+  },
   "configurePresets": [
     {
       "name": "base",
@@ -49,24 +53,67 @@
         "MD_COVERAGE": "ON",
         "MD_BUILD_APP": "OFF"
       }
+    },
+    {
+      "name": "win-native",
+      "inherits": "base",
+      "displayName": "MSVC/clang-cl headless + Python bindings (for torch on native Windows)",
+      "description": "Headless only: no Qt, no Vulkan. Builds _md_native against a native Windows CPython so PyTorch can be imported alongside it \u2014 the MSYS2 build cannot, because torch ships no MinGW wheel. The Qt app keeps using the clang presets.",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "MD_BUILD_APP": "OFF",
+        "MD_BUILD_BINDINGS": "ON"
+      }
     }
   ],
   "buildPresets": [
-    { "name": "debug", "configurePreset": "debug" },
-    { "name": "release", "configurePreset": "release" },
-    { "name": "profile", "configurePreset": "profile" },
-    { "name": "coverage", "configurePreset": "coverage" }
+    {
+      "name": "debug",
+      "configurePreset": "debug"
+    },
+    {
+      "name": "release",
+      "configurePreset": "release"
+    },
+    {
+      "name": "profile",
+      "configurePreset": "profile"
+    },
+    {
+      "name": "coverage",
+      "configurePreset": "coverage"
+    },
+    {
+      "name": "win-native",
+      "configurePreset": "win-native"
+    }
   ],
   "testPresets": [
     {
       "name": "debug",
       "configurePreset": "debug",
-      "output": { "outputOnFailure": true }
+      "output": {
+        "outputOnFailure": true
+      }
     },
     {
       "name": "release",
       "configurePreset": "release",
-      "output": { "outputOnFailure": true }
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "win-native",
+      "configurePreset": "win-native",
+      "output": {
+        "outputOnFailure": true
+      }
     }
   ]
 }

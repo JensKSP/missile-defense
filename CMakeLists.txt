@@ -47,25 +47,46 @@ set_property(CACHE MD_PGO PROPERTY STRINGS off generate use)
 # flags on our own code without imposing them on third-party deps (e.g. Catch2).
 add_library(md_warnings INTERFACE)
 add_library(md::warnings ALIAS md_warnings)
-target_compile_options(md_warnings INTERFACE
-  -Wall
-  -Wextra
-  -Wpedantic
-  -Wshadow
-  -Wconversion
-  -Wsign-conversion
-  -Wold-style-cast
-  -Wcast-align
-  -Wunused
-  -Woverloaded-virtual
-  -Wnon-virtual-dtor
-  -Wnull-dereference
-  -Wdouble-promotion
-  -Wformat=2
-  -Wimplicit-fallthrough
-  -Wmisleading-indentation)
+# MSVC's driver rejects the GCC/Clang spellings outright, so the strict set is
+# expressed twice. clang-cl takes the MSVC driver flags, hence MSVC-not-Clang
+# rather than a plain compiler-id test.
+if(MSVC)
+  target_compile_options(md_warnings INTERFACE
+    /W4          # /Wall on MSVC includes noise from its own system headers
+    /permissive- # standard conformance
+    /w14242      # conversion, possible loss of data (-Wconversion)
+    /w14254      # larger bit-field conversion
+    /w14263      # member function does not override (-Woverloaded-virtual)
+    /w14265      # non-virtual destructor (-Wnon-virtual-dtor)
+    /w14287      # unsigned/negative constant mismatch
+    /w14296      # expression is always true/false
+    /w14311      # pointer truncation
+    /w14545 /w14546 /w14547 /w14549 /w14555 # malformed expressions
+    /w14619      # unknown #pragma warning
+    /w14640      # non-thread-safe static init
+    /w14826      # sign-extending conversion
+    /w14928)     # illegal copy-initialization
+else()
+  target_compile_options(md_warnings INTERFACE
+    -Wall
+    -Wextra
+    -Wpedantic
+    -Wshadow
+    -Wconversion
+    -Wsign-conversion
+    -Wold-style-cast
+    -Wcast-align
+    -Wunused
+    -Woverloaded-virtual
+    -Wnon-virtual-dtor
+    -Wnull-dereference
+    -Wdouble-promotion
+    -Wformat=2
+    -Wimplicit-fallthrough
+    -Wmisleading-indentation)
+endif()
 if(MD_WERROR)
-  target_compile_options(md_warnings INTERFACE -Werror)
+  target_compile_options(md_warnings INTERFACE $<IF:$<BOOL:${MSVC}>,/WX,-Werror>)
 endif()
 
 # ---- Codegen tuning ----------------------------------------------------------
@@ -105,7 +126,19 @@ endif()
 # ---- Determinism -------------------------------------------------------------
 # Disable floating-point contraction (FMA) so results are bit-identical across
 # Debug/Release and optimization levels — required for seed+action replays.
-add_compile_options(-ffp-contract=off)
+if(NOT MSVC)
+  add_compile_options(-ffp-contract=off)
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  add_compile_options(/clang:-ffp-contract=off) # clang-cl: same flag, MSVC driver
+else()
+  # cl.exe has no exact equivalent. /fp:precise forbids most reassociation, but
+  # the golden checksum test is the authority — run it before trusting a replay
+  # or a recording produced by an MSVC build.
+  add_compile_options(/fp:precise)
+  message(WARNING
+    "MSVC: no exact -ffp-contract=off equivalent. Determinism parity with the "
+    "Clang builds is unverified here — run the golden checksum test (ctest -L e2e).")
+endif()
 
 # ---- Sanitizers --------------------------------------------------------------
 # Global on purpose: instrument our code *and* the deps it links under test.

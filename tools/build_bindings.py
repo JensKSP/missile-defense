@@ -11,6 +11,7 @@ a source checkout, with no install step and no PYTHONPATH juggling.
 
 from __future__ import annotations
 
+import argparse
 import shutil
 import sys
 from pathlib import Path
@@ -19,8 +20,19 @@ from . import _util
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = sys.argv[1:] if argv is None else argv
-    preset = args[0] if args else "release"
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("preset", nargs="?", default="release", help="CMake configure preset")
+    parser.add_argument(
+        "--python",
+        default=sys.executable,
+        help=(
+            "Interpreter to build against. Defaults to the running one. Point this "
+            "at a native Windows CPython together with --preset win-native: torch "
+            "ships no MinGW wheel, so training needs a module built for that ABI."
+        ),
+    )
+    parsed = parser.parse_args(sys.argv[1:] if argv is None else argv)
+    preset = parsed.preset
 
     # Point CMake at *this* interpreter: nanobind's headers come from the
     # environment the extension will be imported into, so a mismatch here shows up
@@ -31,7 +43,7 @@ def main(argv: list[str] | None = None) -> int:
             "--preset",
             preset,
             "-DMD_BUILD_BINDINGS=ON",
-            f"-DPython_EXECUTABLE={sys.executable}",
+            f"-DPython_EXECUTABLE={parsed.python}",
         ]
     )
     _util.run(["cmake", "--build", "--preset", preset, "--target", "_md_native"])
