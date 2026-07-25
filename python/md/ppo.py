@@ -102,6 +102,14 @@ class Policy(nn.Module):
         return logits, self.value_head(features).squeeze(-1)
 
     @torch.no_grad()
+    def value(self, obs: torch.Tensor) -> torch.Tensor:
+        """Value estimate only. Needs no action mask — masking touches the policy
+        logits, never the critic — which is what lets a truncated episode be
+        bootstrapped from its final observation without knowing what was legal there.
+        """
+        return self.value_head(self.trunk(obs)).squeeze(-1)
+
+    @torch.no_grad()
     def act(
         self, obs: torch.Tensor, mask: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -139,11 +147,15 @@ class Rollout:
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Generalised advantage estimation, walked backwards through the buffer.
 
-        Note this treats *any* episode end as terminal — it bootstraps through
-        neither termination nor truncation. That is the conservative choice and it
-        slightly under-values runs cut off by the tick cap; the environment does
-        hand back `final_observation` for a proper truncated bootstrap, which is
-        the obvious first improvement once training works at all.
+        `continues` is zero at every episode end, truncation included, because the
+        next slot holds a *different* episode and the trace must not run across it.
+
+        Truncation is not the same as death, though, and the difference is handled
+        before this point: the collector adds `gamma * V(final_observation)` into
+        the reward of a truncated step (see `train.py`). Without that, hitting the
+        tick cap is valued as though the world ended — which in this game means
+        systematically under-valuing exactly the long survivals you are trying to
+        train toward.
         """
         advantages = torch.zeros_like(self.rewards)
         running = torch.zeros(self.num_envs, dtype=torch.float32, device=self.rewards.device)

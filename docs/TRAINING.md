@@ -130,10 +130,6 @@ tens of thousands of ticks and the payoff for saving a city arrives late.
 
 Honest list, so you do not chase these as bugs:
 
-* **GAE treats truncation as termination.** A run cut off by the tick cap is
-  valued as if the world ended, which under-values long survivals. The
-  environment already returns `final_observation` for a proper bootstrap — wiring
-  it in is the obvious first improvement.
 * **No curriculum.** M6 calls for one; training currently starts at full
   difficulty.
 * **CPU by default.** Fine here: the policy is a two-layer MLP and the simulation

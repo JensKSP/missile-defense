@@ -159,15 +159,28 @@ def train(config: TrainConfig, ppo: PPOConfig | None = None) -> Policy:
             action, log_prob, value = policy.act(obs, mask)
 
             actions: Actions = action.cpu().numpy().astype(np.int32)
-            _, reward, terminated, truncated, _ = env.step(actions)
+            _, reward, terminated, truncated, info = env.step(actions)
             done: Flags = terminated | truncated
+
+            step_reward = torch.from_numpy(reward).to(device)
+            # Truncation is not death. An episode cut off by the tick cap still had
+            # a future worth something, so fold gamma * V(final_obs) into its last
+            # reward; only true termination is worth zero from here on. Without
+            # this, surviving to the cap scores the same as losing there, and the
+            # long runs are exactly what we are trying to train toward.
+            if truncated.any():
+                cut = np.flatnonzero(truncated)
+                final = torch.from_numpy(info["final_observation"][cut]).to(device)
+                step_reward[cut] += ppo.gamma * policy.value(final)
 
             rollout.obs[step] = obs
             rollout.masks[step] = mask
             rollout.actions[step] = action
             rollout.log_probs[step] = log_prob
             rollout.values[step] = value
-            rollout.rewards[step] = torch.from_numpy(reward).to(device)
+            rollout.rewards[step] = step_reward
+            # Zero at any end, truncation included: the next slot is a new episode
+            # and the GAE trace must not run across it.
             rollout.continues[step] = torch.from_numpy(~done).to(device).float()
 
             running += reward
