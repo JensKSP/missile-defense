@@ -43,6 +43,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .. import paths
 from ..control import Control
 from . import sources, theme
 from .charts import CurveView
@@ -608,15 +609,15 @@ def main(argv: list[str] | None = None) -> int:
         "run_dir",
         nargs="?",
         type=Path,
-        default=Path("runs"),
-        help="the run's --out-dir (default: runs)",
+        default=None,
+        help="the run's --out-dir (default: ./runs in a checkout, else the user data dir)",
     )
     args = parser.parse_args(argv)
 
     app = QApplication(sys.argv[:1])
     app.setApplicationName("Missile Command training console")
     app.setStyleSheet(theme.stylesheet())
-    window = Console(args.run_dir)
+    window = Console(paths.runs_dir(args.run_dir))
     # Roomy, but never bigger than the desktop it opens on — a window whose
     # status line is off-screen is a window with a bug in it.
     available = app.primaryScreen().availableSize()

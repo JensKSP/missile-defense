@@ -32,6 +32,10 @@ interpretable rather than just a number going up:
   away. Killing the process instead throws away everything since the last
   checkpoint. See :mod:`md.control` — the training console's buttons write
   exactly these files, and nothing else.
+Where ``runs/`` is depends on where you are: the directory beside you in a
+checkout, and the per-user data directory once this is installed from a package.
+``--out-dir`` and ``$MD_RUNS_DIR`` override, and :mod:`md.paths` has the order.
+
 * **Checkpoints.** Written to ``runs/checkpoints`` — every ``checkpoint_every``
   updates plus a ``policy-final.pt`` at the end, so a short run still leaves the
   policy it trained. Weights only, not optimizer state: these are for scoring or
@@ -54,6 +58,7 @@ import numpy as np
 import torch
 from torch import nn
 
+from . import paths
 from .control import Control
 from .env import Actions, Flags, Observations, Shaping, VecEnv
 from .eval import evaluate, format_summary
@@ -92,7 +97,9 @@ class TrainConfig:
     seed: int = 0
     #: "cuda", "cpu", or None to pick automatically.
     device: str | None = None
-    out_dir: Path = Path("runs")
+    #: Where the run writes. None means decide at run time — ``./runs`` in a
+    #: checkout, the per-user data directory when installed (see `md.paths`).
+    out_dir: Path | None = None
     #: Resume from this checkpoint (weights, optimizer and iteration).
     resume: Path | None = None
 
@@ -132,11 +139,15 @@ def train(config: TrainConfig, ppo: PPOConfig | None = None) -> nn.Module:
     # Environment 0 carries the recordings — one watchable episode at a time.
     if config.record_every > 0:
         env.record(0)
-    checkpoints = config.out_dir / "checkpoints"
+    # ./runs in a checkout, the per-user data directory when installed. Resolved
+    # once, here, so every artifact below lands in the same place and the printed
+    # paths are the real ones (md/paths.py).
+    out_dir = paths.runs_dir(config.out_dir)
+    checkpoints = out_dir / "checkpoints"
     shape = (env.obs_size, env.action_count)
     # A CSV alongside the printed line: the terminal is for watching a run, this
     # is for plotting it afterwards. Appended, so a resumed run keeps its history.
-    metrics_path = config.out_dir / "metrics.csv"
+    metrics_path = out_dir / "metrics.csv"
     metrics_path.parent.mkdir(parents=True, exist_ok=True)
     new_file = not metrics_path.exists()
     metrics = metrics_path.open("a", newline="", encoding="utf-8")
@@ -157,9 +168,9 @@ def train(config: TrainConfig, ppo: PPOConfig | None = None) -> nn.Module:
 
     # Checked once per update. A run starts running: a STOP left behind by the
     # last one must not kill this one before its first update.
-    control = Control(config.out_dir)
+    control = Control(out_dir)
     control.clear()
-    _write_config(config.out_dir / "config.json", config, ppo)
+    _write_config(out_dir / "config.json", config, ppo, out_dir)
 
     print(
         f"training on {device} | {config.envs} envs x {config.steps} steps "
@@ -248,13 +259,13 @@ def train(config: TrainConfig, ppo: PPOConfig | None = None) -> nn.Module:
         )
 
         if config.record_every > 0 and iteration % config.record_every == 0:
-            path = config.out_dir / f"update-{iteration:05d}.mdr"
+            path = out_dir / f"update-{iteration:05d}.mdr"
             if env.save_recording(0, path, update=iteration, label=f"UPDATE {iteration}"):
                 print(f"  recorded {path}")
 
         if config.eval_every > 0 and iteration % config.eval_every == 0:
             summary = _score(policy, device)
-            _log_eval(config.out_dir / "evals.csv", iteration, summary)
+            _log_eval(out_dir / "evals.csv", iteration, summary)
             print(format_summary(summary))
             delta = summary.mean_score - BASELINE_MEAN_SCORE
             verdict = "ahead of" if delta > 0 else "behind"
@@ -294,16 +305,18 @@ def train(config: TrainConfig, ppo: PPOConfig | None = None) -> nn.Module:
     return policy
 
 
-def _write_config(path: Path, config: TrainConfig, ppo: PPOConfig) -> None:
+def _write_config(path: Path, config: TrainConfig, ppo: PPOConfig, out_dir: Path) -> None:
     """Record what produced this run, beside what it produced.
 
     Six months later the checkpoints are still there and the shell history is
     not. Written on every run, not only the ones a console starts, because the
     question "what were the settings" is asked of whichever run turned out to be
-    interesting.
+    interesting. The *resolved* output directory is recorded rather than the
+    ``None`` that asked for it, so the file says where the run actually went.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {"train": dataclasses.asdict(config), "ppo": dataclasses.asdict(ppo)}
+    settings = dataclasses.asdict(config) | {"out_dir": str(out_dir)}
+    payload = {"train": settings, "ppo": dataclasses.asdict(ppo)}
     path.write_text(json.dumps(payload, indent=2, default=str) + "\n", encoding="utf-8")
 
 
@@ -498,7 +511,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--checkpoint-every", type=int, default=defaults.checkpoint_every)
     parser.add_argument("--seed", type=int, default=defaults.seed)
     parser.add_argument("--device", type=str, default=defaults.device)
-    parser.add_argument("--out-dir", type=Path, default=defaults.out_dir)
+    parser.add_argument(
+        "--out-dir",
+        type=Path,
+        default=None,
+        help="Where the run writes (default: ./runs in a checkout, else the user data dir).",
+    )
     parser.add_argument(
         "--resume", type=Path, default=None, help="Continue training from a checkpoint."
     )

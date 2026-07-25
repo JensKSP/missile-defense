@@ -100,6 +100,17 @@ def test_a_system_install_is_found_on_path(tmp_path: Path) -> None:
     assert found is not None and found.parent == installed.parent
 
 
+def test_the_debian_package_installs_it_under_another_name(tmp_path: Path) -> None:
+    # /usr/games/missile-defense, not md_app: looking only for the build's name
+    # means the console can never open a replay on a machine with the .deb.
+    installed = tmp_path / "games" / f"missile-defense{EXE}"
+    installed.parent.mkdir()
+    installed.write_text("", encoding="utf-8")
+    installed.chmod(0o755)
+    found = app_binary({"PATH": str(installed.parent)}, root=tmp_path / "no-checkout")
+    assert found is not None and found.parent == installed.parent
+
+
 def test_replaying_builds_the_command_the_app_expects(tmp_path: Path) -> None:
     binary = _build_app(tmp_path)
     spawn = FakeSpawn()

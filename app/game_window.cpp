@@ -10,10 +10,12 @@
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QSettings>
+#include <QStandardPaths>
 #include <algorithm>
 #include <array>
 #include <cctype>
 #include <cmath>
+#include <cstdlib>
 #include <filesystem>
 #include <system_error>
 
@@ -286,14 +288,33 @@ float GameWindow::replay_progress() const noexcept {
     return replay_.has_value() ? replay_->progress() : 0.0f;
 }
 
-/// Recordings live in `runs/` beside the working directory — the same place the
-/// training loop is told to write them. Rescanned on every visit, so a run that is
-/// still training shows its newest episodes without restarting the app.
+/// Where the training loop writes its episodes, by the rule in `md/paths.py`:
+/// `$MD_RUNS_DIR`, else `./runs` when it exists, else the per-user data directory
+/// this app already keeps its high scores in.
+///
+/// The working directory alone is not enough. Started from a desktop entry it is
+/// `$HOME` or `/`, so an installed game looking "beside the shell" for `runs/`
+/// finds nothing — while the trainer, installed the same way, is writing happily
+/// into `~/.local/share/MissileDefense/runs`.
+static std::filesystem::path runs_directory() {
+    if (const char* override_dir = std::getenv("MD_RUNS_DIR"); override_dir != nullptr) {
+        return std::filesystem::path{override_dir};
+    }
+    std::error_code ec;
+    if (const std::filesystem::path local{"runs"}; std::filesystem::is_directory(local, ec)) {
+        return local; // a checkout keeps behaving exactly as it did
+    }
+    const QString data = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
+    return std::filesystem::path{data.toStdString()} / "runs";
+}
+
+/// Rescanned on every visit, so a run that is still training shows its newest
+/// episodes without restarting the app.
 void GameWindow::open_replays() {
     replay_files_.clear();
     replay_names_.clear();
     std::error_code ec; // the directory simply may not exist yet; that is not an error
-    for (const auto& entry : std::filesystem::directory_iterator{"runs", ec}) {
+    for (const auto& entry : std::filesystem::directory_iterator{runs_directory(), ec}) {
         if (!entry.is_regular_file(ec) || entry.path().extension() != ".mdr") {
             continue;
         }

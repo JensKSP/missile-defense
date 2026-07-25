@@ -98,6 +98,12 @@ Everything under `runs/` (`--out-dir` to change it):
 | `runs/evals.csv` | one row per `--eval-every` scoring, in the baseline's units |
 | `runs/config.json` | every setting the run was started with |
 
+`runs/` means the directory beside you in a checkout, and the per-user data
+directory (`~/.local/share/MissileDefense/runs`) once this is installed from a
+package — `--out-dir` and `$MD_RUNS_DIR` override, and the game's REPLAYS browser
+follows the same rule so it finds what the trainer wrote. The order is in
+[PACKAGING.md](PACKAGING.md#where-a-runs-files-go).
+
 Those last two are deliberately separate files. `metrics.csv` is the training
 return, which as above is *not* a score; `evals.csv` is the 32-seed summary that
 is, so it is the one a "beat 18,036" line can honestly be drawn across. Keeping

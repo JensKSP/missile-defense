@@ -42,6 +42,13 @@ PACKAGE_PATH = Path(__file__).resolve().parents[2]
 #: Where a local build puts the game, best build first.
 BUILD_PATHS = ("build/release/app", "build/debug/app")
 
+#: What the game is called. A build calls it `md_app`; the Debian package
+#: installs it into /usr/games as `missile-defense`, which is on the default
+#: PATH for a login shell but not necessarily for a desktop session — hence the
+#: explicit directory as well as the PATH search.
+BINARY_NAMES = ("md_app", "missile-defense")
+SYSTEM_PATHS = ("/usr/games", "/usr/local/games", "/usr/bin")
+
 #: An MSYS2 build links against Qt in the CLANG64 prefix and finds it on PATH,
 #: which is there in the CLANG64 shell and absent everywhere else — including the
 #: native interpreter the console is likely started from. Adding it back turns a
@@ -83,8 +90,15 @@ def app_binary(
         candidate = root / build / f"md_app{exe}"
         if candidate.exists():
             return candidate
-    found = shutil.which("md_app", path=env.get("PATH"))
-    return Path(found) if found else None
+    for name in BINARY_NAMES:
+        found = shutil.which(f"{name}{exe}", path=env.get("PATH"))
+        if found:
+            return Path(found)
+    for directory in SYSTEM_PATHS:
+        candidate = Path(directory) / "missile-defense"
+        if candidate.exists():
+            return candidate
+    return None
 
 
 def launch_environ(

@@ -51,7 +51,8 @@ in [docs/WINDOWS.md](docs/WINDOWS.md).
 Deeper reading: [design & reward spec](docs/DESIGN.md) ·
 [the agent API](docs/API.md) · [milestones / roadmap](docs/ROADMAP.md) ·
 [testing & quality gate](docs/TESTING.md) ·
-[simulation throughput](docs/PERFORMANCE.md)
+[simulation throughput](docs/PERFORMANCE.md) ·
+[packaging & file locations](docs/PACKAGING.md)
 
 ## Features
 
