@@ -12,7 +12,8 @@ reproducible environment — used to train a reinforcement-learning agent.
 ## Quick start
 
 Clone to watching an AI defend six cities, in about ten minutes. On Debian /
-Ubuntu — other platforms in [Requirements](#requirements) below:
+Ubuntu — for Windows see [docs/WINDOWS.md](docs/WINDOWS.md), and for other
+distros adjust the package names using [Requirements](#requirements) below:
 
 ```bash
 # 1 — dependencies (a few hundred MB: Qt 6, Vulkan, clang)
@@ -44,7 +45,8 @@ wave 16, because this game is about spending ammunition, not about aiming.
 **Train one that beats it.** 18,036 is the number a learned policy has to beat,
 scored on the same 32 seeds by the same code. → [docs/TRAINING.md](docs/TRAINING.md)
 
-Windows builds too, through MSYS2 — see [Windows](#windows-msys2-clang64).
+On **Windows** the same toolchain runs under MSYS2 — its own ten-minute path is
+in [docs/WINDOWS.md](docs/WINDOWS.md).
 
 Deeper reading: [design & reward spec](docs/DESIGN.md) ·
 [the agent API](docs/API.md) · [milestones / roadmap](docs/ROADMAP.md) ·
@@ -78,11 +80,11 @@ Deeper reading: [design & reward spec](docs/DESIGN.md) ·
 ## Requirements
 
 Reference — the [quick start](#quick-start) above already covers the common
-case. Read on for what each package is for, the optional development tools, and
-the Windows toolchain.
+case. Read on for what each package is for and the optional development tools.
 
-Built and tested on Debian (trixie); adjust package names for other distros. It
-also builds and runs on **Windows** via MSYS2 (see [Windows](#windows-msys2-clang64) below).
+Built and tested on Debian (trixie); adjust package names for other distros.
+**Windows** builds through MSYS2 with its own instructions in
+[docs/WINDOWS.md](docs/WINDOWS.md).
 
 ### Required — to build and run the game
 
@@ -124,41 +126,6 @@ sudo apt install python3 python3-pip python3-venv \
   clangd-21 clang-format-21 clang-tidy-21 llvm-21 \
   dpkg-dev imagemagick ffmpeg xdotool
 ```
-
-### Windows (MSYS2 CLANG64)
-
-The same Clang + CMake + Ninja build runs on Windows through
-[MSYS2](https://www.msys2.org/)'s **CLANG64** environment — no Visual Studio
-needed. Install MSYS2 (`winget install -e --id MSYS2.MSYS2`), then from the
-**MSYS2 CLANG64** shell:
-
-```bash
-pacman -Syu                       # if it closes the shell, reopen CLANG64 and repeat
-pacman -S --needed \
-  mingw-w64-clang-x86_64-clang \
-  mingw-w64-clang-x86_64-lld \
-  mingw-w64-clang-x86_64-cmake \
-  mingw-w64-clang-x86_64-ninja \
-  mingw-w64-clang-x86_64-qt6-base \
-  mingw-w64-clang-x86_64-vulkan-headers \
-  mingw-w64-clang-x86_64-vulkan-loader \
-  mingw-w64-clang-x86_64-vulkan-validation-layers \
-  mingw-w64-clang-x86_64-glslang
-```
-
-This set maps onto the Debian deps above: `clang`+`lld` (compiler), `qt6-base`
-(Qt 6), `vulkan-headers`+`vulkan-loader` (Vulkan loader/headers), `glslang`
-(`glslangValidator`). miniaudio has no MSYS2 package, so it is fetched at build
-time just like on Linux. Then build and run with the same CMake commands as below
-(the binary is `build/release/app/md_app.exe`) — **from the CLANG64 shell**, so
-Qt/Vulkan DLLs resolve on `PATH`.
-
-> **Windows notes:** the presets auto-detect Clang here (the `clang++-21` pin is
-> Linux-only), so `cmake --preset release` / `debug` work unchanged. ASan/UBSan
-> are not enabled on Windows (no MinGW LeakSanitizer runtime), so the `debug`
-> preset builds as a plain Debug build. Optional dev tools:
-> `mingw-w64-clang-x86_64-clang-tools-extra` (clang-tidy / clang-format),
-> `mingw-w64-clang-x86_64-vulkan-tools` (`vulkaninfo`).
 
 ## Build & run
 
@@ -290,7 +257,7 @@ produced by CPack's DEB generator directly from the CMake build.
 | `app/` | Qt 6 + Vulkan human client (renderer, input, HUD, menu) |
 | `bindings/` | Python bindings (nanobind) — *planned* |
 | `python/` | Gymnasium env + RL training — *planned* |
-| `docs/` | Design spec, roadmap, testing |
+| `docs/` | Design spec, roadmap, testing, training, Windows notes |
 | `tools/` | Cross-platform Python dev tooling (coverage, format/tidy, capture) |
 
 ## License & credits

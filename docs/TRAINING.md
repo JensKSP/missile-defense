@@ -144,29 +144,10 @@ Honest list, so you do not chase these as bugs:
 
 ### Windows
 
-The Clang presets build under MSYS2/MinGW, and **torch publishes no MinGW
-wheel** — there is no distribution for that platform tag at all. Only the
-*extension module* has to share an ABI with the interpreter importing it, and the
-simulation needs neither Qt nor Vulkan, so build the headless half natively and
-leave the game on MSYS2:
-
-1. Install **VS Build Tools** (C++ workload) and a **python.org CPython**.
-2. From a Developer Command Prompt:
-
-   ```bash
-   poe bindings -- win-native --python "%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
-   ```
-
-3. `pip install torch` into that interpreter, then `poe train`.
-
-Both module ABIs can sit beside the package at once — each interpreter loads its
-own — so the MSYS2 tooling and the training environment coexist.
-
-> **Determinism.** `-ffp-contract=off` is what makes replays bit-identical, and
-> `cl.exe` has no exact equivalent (`clang-cl` passes it through). The MSVC build
-> has been checked against the golden trajectory checksum and matches, but if you
-> change compilers, run `ctest --preset win-native -L e2e` before trusting a
-> recording it produced.
+Torch publishes no MinGW wheel, so the headless half has to be built with a
+native MSVC toolchain while the game stays on MSYS2. Both module ABIs coexist
+beside the package. The steps, and the determinism caveat that comes with
+swapping compilers, are in [WINDOWS.md](WINDOWS.md#training-on-windows).
 
 ### GPU
 
