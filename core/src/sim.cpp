@@ -70,6 +70,7 @@ void Sim::reset(std::uint64_t seed) noexcept {
     break_timer_ = 0.0f;
     spawn_timer_ = 0.0f;
     next_bonus_score_ = config_.bonus_city_score;
+    banked_cities_ = 0;
     start_wave(1);
 }
 
@@ -494,15 +495,32 @@ bool Sim::pick_target(TargetKind& kind, std::uint32_t& index) noexcept {
 }
 
 void Sim::award_bonus_cities() noexcept {
-    while (score_ >= next_bonus_score_) {
+    // Earn: bank a credit per threshold crossed. Banking (rather than rebuilding on
+    // the spot) is what stops a bonus earned while all six cities still stand from
+    // being silently forfeited — which used to punish playing well. The guard on a
+    // non-positive threshold also keeps this loop finite for degenerate configs.
+    if (config_.bonus_city_score > 0) {
+        while (score_ >= next_bonus_score_) {
+            banked_cities_ = std::min(banked_cities_ + 1u, max_cities);
+            next_bonus_score_ += config_.bonus_city_score;
+        }
+    }
+
+    // Spend: fill the first gap in the skyline, as soon as there is one.
+    while (banked_cities_ > 0) {
+        bool rebuilt = false;
         for (auto& city : cities_) {
             if (!city.alive) {
-                city.alive = true; // rebuild the first destroyed city
+                city.alive = true;
                 push_event(EventType::BonusCity, city.pos);
+                --banked_cities_;
+                rebuilt = true;
                 break;
             }
         }
-        next_bonus_score_ += config_.bonus_city_score;
+        if (!rebuilt) {
+            break; // all six standing: hold the credit for a future loss
+        }
     }
 }
 

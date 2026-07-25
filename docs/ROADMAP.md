@@ -88,8 +88,8 @@ already near is cheapest to shoot, which stops it oscillating between rivals.
 
 | Metric | Value |
 |---|---|
-| Mean score | **15,583** (range 9,790 – 18,510) |
-| Mean wave reached | **14.4** |
+| Mean score | **15,718** (range 9,790 – 18,580) |
+| Mean wave reached | **14.5** |
 | Mean cities surviving | **0.00** of 6 |
 | Kills per interceptor | **1.10** |
 | Episodes surviving the cap | 0 / 32 |

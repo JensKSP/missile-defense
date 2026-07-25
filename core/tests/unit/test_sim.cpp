@@ -371,6 +371,81 @@ TEST_CASE("A destroyed city is rebuilt at the bonus-score threshold", "[unit][si
     REQUIRE(rebuilt);
 }
 
+TEST_CASE("A bonus earned with every city standing is banked, not forfeited", "[unit][sim]") {
+    // Crossing the threshold with a full skyline used to advance it and rebuild
+    // nothing — so playing well threw the reward away. It must be held instead.
+    Config cfg = unpaced();
+    cfg.bonus_city_score = 50;    // two kills' worth
+    cfg.blast_max_radius = 40.0f; // easy kills
+    cfg.blast_lifetime = 3.0f;
+    cfg.threat_base_speed = 5.0f; // slow, so no city is lost meanwhile
+    cfg.interceptor_speed = 400.0f;
+    cfg.base_cooldown = 0.0f;
+    Sim sim{cfg};
+    sim.reset(1);
+
+    for (int i = 0; i < 600 && sim.score() < cfg.bonus_city_score; ++i) {
+        if (!sim.threats().empty()) {
+            sim.step(Action::fire_at(BaseId::Delta, sim.threats()[0].pos));
+        } else {
+            sim.step(Action::noop());
+        }
+    }
+    REQUIRE(sim.score() >= cfg.bonus_city_score);
+
+    std::size_t alive = 0;
+    for (const auto& city : sim.cities()) {
+        alive += city.alive ? 1u : 0u;
+    }
+    REQUIRE(alive == md::max_cities);         // nothing to rebuild ...
+    REQUIRE(sim.bonus_cities_banked() >= 1u); // ... so the credit is kept
+}
+
+TEST_CASE("A banked bonus city is spent on the next gap in the skyline", "[unit][sim]") {
+    Config cfg = unpaced();
+    cfg.bonus_city_score = 50;
+    cfg.blast_max_radius = 40.0f;
+    cfg.blast_lifetime = 3.0f;
+    cfg.threat_base_speed = 5.0f;
+    cfg.interceptor_speed = 400.0f;
+    cfg.base_cooldown = 0.0f;
+    Sim sim{cfg};
+    sim.reset(1);
+
+    for (int i = 0; i < 600 && sim.bonus_cities_banked() == 0u; ++i) {
+        if (!sim.threats().empty()) {
+            sim.step(Action::fire_at(BaseId::Delta, sim.threats()[0].pos));
+        } else {
+            sim.step(Action::noop());
+        }
+    }
+    REQUIRE(sim.bonus_cities_banked() >= 1u);
+    const std::uint32_t banked_before = sim.bonus_cities_banked();
+
+    // Stop defending: the next warhead through takes a city, and the credit pays
+    // for it on the same tick, so the skyline never actually thins.
+    bool spent = false;
+    for (int i = 0; i < 4000 && !spent; ++i) {
+        sim.step(Action::noop());
+        spent = sim.bonus_cities_banked() < banked_before;
+    }
+    REQUIRE(spent);
+    REQUIRE(has_event(sim, EventType::BonusCity));
+}
+
+TEST_CASE("A zero bonus threshold does not hang the simulation", "[unit][sim]") {
+    // `next_bonus_score_ += 0` never escapes `score >= next`, so the award loop
+    // spun forever. Degenerate configs must terminate, not wedge the sim.
+    Config cfg = unpaced();
+    cfg.bonus_city_score = 0;
+    Sim sim{cfg};
+    sim.reset(0);
+    for (int i = 0; i < 100; ++i) {
+        sim.step(Action::noop());
+    }
+    REQUIRE(sim.tick() == 100u);
+}
+
 TEST_CASE("Firing emits a Fire event; events are per-step", "[unit][sim]") {
     Sim sim;
     sim.reset(0);

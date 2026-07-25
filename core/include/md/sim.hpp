@@ -57,6 +57,10 @@ class Sim {
     /// (`Config::fire_interval`); per-battery cooldowns apply on top.
     [[nodiscard]] float fire_cooldown() const noexcept { return fire_cooldown_remaining_; }
 
+    /// Bonus cities earned but not yet spent, because every city was still
+    /// standing when the score threshold was crossed. Banked until one falls.
+    [[nodiscard]] std::uint32_t bonus_cities_banked() const noexcept { return banked_cities_; }
+
     [[nodiscard]] std::span<const City> cities() const noexcept {
         return {cities_.data(), cities_.size()};
     }
@@ -135,6 +139,7 @@ class Sim {
 
     // Wave/spawn progression.
     std::int32_t next_bonus_score_ = 0;  // score at which the next bonus city is earned
+    std::uint32_t banked_cities_ = 0;    // earned bonus cities awaiting a gap to fill
     std::uint32_t threats_to_spawn_ = 0; // remaining spawns in the current wave
     float spawn_timer_ = 0.0f;           // countdown to the next spawn
     float break_timer_ = 0.0f;           // >0 while between waves

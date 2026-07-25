@@ -151,12 +151,74 @@ only carries out that choice.
 
 ## 5. Reward
 
-`StepResult::reward` is the per-tick score delta, derived from the scoring table in
-DESIGN §4.3 (kills, end-of-wave ammo and city bonuses). Shaping is a training-time
-concern and is layered on top in Python, not baked into the core.
+### There is no win condition
 
-Episodes terminate when the last city falls (`StepResult::terminated`). Training
-imposes its own max-steps truncation; the simulation has no opinion about it.
+The episode ends only when **all six cities are gone**. There is no victory state —
+this is endless survival, as in the 1980 arcade original, which simply flashes
+"THE END". So the objective is **score**, and survival is instrumental: more waves
+survived means more score. Defeat is not merely likely but *arithmetically
+certain* — wave *N* sends `(8 + 2(N−1)) × (1 + 2·p_mirv)` warheads against a fixed
+30 interceptors, so from about wave 8 you must average more than one kill per shot,
+and past wave 20 more than three. See ROADMAP M4 for the measured baseline.
+
+That shapes the RL problem: it is a **maximise-return-before-inevitable-death**
+task, not a goal-reaching one. There is no sparse success signal to discover, which
+is good — the score is dense and always informative.
+
+### The primary reward is the score delta
+
+`StepResult::reward` is the per-tick score delta (DESIGN §4.3: +25 per kill, and at
+each wave end +5 per unused interceptor and +100 per surviving city). Keep the RL
+objective identical to the benchmark metric, or you will optimise something other
+than what `md::agent::evaluate` reports.
+
+### The trap: at 60 Hz, discounting erases the city bonus
+
+Losing a city produces **no immediate reward change at all**. Its cost appears only
+at the next wave boundary, as a smaller `+100 × surviving cities`. Now discount it:
+
+| γ | Effective horizon `1/(1−γ)` | at 60 Hz |
+|---|---|---|
+| 0.99 | 100 steps | **1.7 s** |
+| 0.997 | 333 steps | 5.6 s |
+| 0.999 | 1000 steps | 16.7 s |
+
+A wave boundary is ~18 s away. With γ = 0.99 it is discounted by `0.99^1080 ≈ 2×10⁻⁵`
+— **mathematically invisible**. An agent trained that way learns "shoot things for
++25" and will happily let every city die. This is the single largest reward-design
+hazard in the project.
+
+Two fixes, and the recommendation is to use both.
+
+**1. Frame-skip.** Act every 4 ticks (15 Hz — decisions are ~100 ms scale anyway,
+and most ticks are NoOp). That shortens every horizon by 4× in step counts, making
+γ = 0.997 span a whole wave.
+
+**2. Potential-based shaping**, which moves the deferred bonus to the instant it is
+earned *without* changing the optimal policy (Ng, Harada & Russell, 1999):
+
+```
+Φ(s) = 100 · live_cities + 5 · total_ammo
+r′   = Δscore + γ·Φ(s′) − Φ(s)
+```
+
+This is exact rather than ad-hoc: those weights are the *same* 100-per-city and
+5-per-interceptor the end-of-wave bonus already pays — the shaping merely delivers
+them continuously. Losing a city costs ≈ −100 the moment it happens, a bonus city
+pays +100 on the spot, and wasted ammo is felt immediately. Because it is a
+potential difference, the optimal policy is provably unchanged: you fix credit
+assignment without biasing the objective.
+
+### Practicalities
+
+- **Normalise.** Divide by ~100 so the value head sees O(1) targets.
+- **Truncation is not termination.** On a time-limit cutoff you must bootstrap
+  `V(s′)`; on real game-over you must not. `StepResult` carries only `terminated`,
+  so the Gym wrapper owns truncation and must keep the two distinct — conflating
+  them teaches the agent that running out of clock is as bad as dying.
+- **Do not reward survival directly.** A per-tick "still alive" bonus competes with
+  the score objective and encourages stalling; termination handling already makes
+  dying expensive, since a dead agent collects nothing more.
 
 ## 6. Determinism
 
@@ -180,5 +242,5 @@ consequences the API leans on:
 
 The learned agent is scored by the **same** `md::agent::evaluate` over the **same**
 `default_seeds`, so "beat the baseline" is a concrete claim. Current baseline:
-mean score 15,583, mean wave 14.4, 0/6 cities surviving, 1.10 kills per
+mean score 15,718, mean wave 14.5, 0/6 cities surviving, 1.10 kills per
 interceptor ([ROADMAP.md](ROADMAP.md#m4--algorithmic-reference-ai--implemented--ready-for-sign-off)).
