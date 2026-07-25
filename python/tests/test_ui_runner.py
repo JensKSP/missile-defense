@@ -11,10 +11,21 @@ neither needs a window to check.
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 import pytest
-from md.ui.runner import AppNotFound, ReplayLauncher, app_binary, launch_environ
+from md.ui.runner import (
+    PACKAGE_PATH,
+    AppNotFound,
+    ReplayLauncher,
+    TrainingRun,
+    app_binary,
+    can_train,
+    launch_environ,
+    training_environ,
+    training_python,
+)
 
 EXE = ".exe" if os.name == "nt" else ""
 
@@ -135,6 +146,52 @@ def test_windows_puts_the_msys2_qt_dlls_back_on_path(tmp_path: Path) -> None:
     env = launch_environ({"MSYS2_ROOT": str(tmp_path), "PATH": "C:/Windows"}, platform="win32")
     assert env["PATH"].startswith(str(tmp_path / "clang64" / "bin"))
     assert env["PATH"].endswith("C:/Windows")
+
+
+def test_a_run_starts_in_this_interpreter_unless_told_otherwise() -> None:
+    assert training_python({}) == sys.executable
+    assert training_python({"MD_PYTHON": "C:/python312/python.exe"}) == "C:/python312/python.exe"
+
+
+def test_a_spawned_run_can_import_md_without_it_being_installed() -> None:
+    # The console is run from a checkout, and so is the trainer it starts.
+    env = training_environ({"PYTHONPATH": "/somewhere/else"})
+    assert env["PYTHONPATH"].startswith(str(PACKAGE_PATH))
+    assert "/somewhere/else" in env["PYTHONPATH"]
+    # ...and it is not added twice when the console was itself started that way.
+    once = training_environ({"PYTHONPATH": str(PACKAGE_PATH)})
+    assert once["PYTHONPATH"] == str(PACKAGE_PATH)
+
+
+def test_whether_this_interpreter_could_train_at_all() -> None:
+    # True where torch is installed, False in the MSYS2 one that runs the gate —
+    # either way the answer must not *import* torch (see test_ui_boundary.py).
+    assert isinstance(can_train(), bool)
+    assert "torch" not in sys.modules
+
+
+def test_a_run_is_read_line_by_line_and_reports_how_it_ended(tmp_path: Path) -> None:
+    # A real child process, because the point of this class is the plumbing:
+    # a reader thread, a buffer, and an exit code the UI can notice.
+    run = TrainingRun(
+        [sys.executable, "-u", "-c", "print('update 1'); print('update 2')"],
+        cwd=tmp_path,
+    )
+    lines = list(run.wait_for_output())
+    assert lines == ["update 1", "update 2"]
+    assert run.drain() == []  # drained once, not kept forever
+    assert run.finished
+    assert run.exit_code() == 0
+
+
+def test_a_run_that_dies_says_so_with_its_own_words(tmp_path: Path) -> None:
+    run = TrainingRun(
+        [sys.executable, "-u", "-c", "raise SystemExit('no torch here')"],
+        cwd=tmp_path,
+    )
+    lines = list(run.wait_for_output())
+    assert "no torch here" in "\n".join(lines)  # stderr shares the stream
+    assert run.exit_code() == 1
 
 
 def test_no_msys2_no_change(tmp_path: Path) -> None:

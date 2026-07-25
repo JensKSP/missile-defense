@@ -20,6 +20,7 @@ from md.ui.sources import (
     last_modified,
     list_recordings,
     metrics_tail,
+    next_run_dir,
 )
 
 HEADER = "update,samples,return,entropy,policy_loss,value_loss,clip_fraction,steps_per_second\r\n"
@@ -171,12 +172,30 @@ def test_listing_a_directory_that_is_not_there_is_empty(tmp_path: Path) -> None:
     assert last_modified(tmp_path / "nope" / "metrics.csv") is None
 
 
+def test_starting_over_picks_the_next_free_directory(tmp_path: Path) -> None:
+    # Reset never empties a directory: the checkpoints of the run being abandoned
+    # are exactly what you want back when the new settings turn out worse.
+    runs = tmp_path / "runs"
+    runs.mkdir()
+    assert next_run_dir(runs) == tmp_path / "runs-2"
+
+    (tmp_path / "runs-2").mkdir()
+    assert next_run_dir(runs) == tmp_path / "runs-3"
+    assert next_run_dir(tmp_path / "runs-2") == tmp_path / "runs-3"
+
+
+def test_a_name_that_already_ends_in_a_number_counts_on_from_it(tmp_path: Path) -> None:
+    assert next_run_dir(tmp_path / "sweep-7") == tmp_path / "sweep-8"
+    # ...but a dash that is not a counter is part of the name.
+    assert next_run_dir(tmp_path / "big-batch") == tmp_path / "big-batch-2"
+
+
 def test_ages_and_sizes_read_at_a_glance() -> None:
-    assert human_age(0.5) == "just now"
-    assert human_age(12) == "12 s"
-    assert human_age(240) == "4 min"
-    assert human_age(7200) == "2 h"
-    assert human_age(600_000) == "6 d"
+    assert human_age(0.5) == "just now"  # the one case that takes no "ago"
+    assert human_age(12) == "12 s ago"
+    assert human_age(240) == "4 min ago"
+    assert human_age(7200) == "2 h ago"
+    assert human_age(600_000) == "6 d ago"
     assert human_size(812) == "812 B"
     assert human_size(79_000) == "79 kB"
     assert human_size(1_200_000) == "1.2 MB"

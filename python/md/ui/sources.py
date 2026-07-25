@@ -310,22 +310,41 @@ def last_modified(path: Path) -> float | None:
         return None
 
 
+def next_run_dir(run_dir: Path) -> Path:
+    """The next free ``runs-2``, ``runs-3``… beside ``run_dir``.
+
+    What Reset offers. Starting over means a *new* directory, never emptying the
+    old one: the checkpoints of the run you are abandoning are exactly what you
+    will want when the new settings turn out to be worse.
+    """
+    stem, dash, tail = run_dir.name.rpartition("-")
+    base = stem if dash and tail.isdigit() else run_dir.name
+    number = int(tail) + 1 if dash and tail.isdigit() else 2
+    candidate = run_dir.with_name(f"{base}-{number}")
+    while candidate.exists():
+        number += 1
+        candidate = run_dir.with_name(f"{base}-{number}")
+    return candidate
+
+
 # ---- glanceable formatting --------------------------------------------------
 # Pure, so the console's most-read text is covered by tests rather than by eye.
 
 
 def human_age(seconds: float) -> str:
-    """``"just now"``, ``"12 s"``, ``"4 min"``, ``"2 h"``, ``"6 d"``.
+    """``"just now"``, ``"12 s ago"``, ``"4 min ago"``, ``"2 h ago"``, ``"6 d ago"``.
 
-    Deliberately coarse: this answers "is anything still happening", and a
-    ticking seconds counter is exactly the flicker the design rules out.
+    The whole phrase, because "just now" is the one case that does not take an
+    "ago" — and a caller that appends one writes "just now ago". Deliberately
+    coarse, too: this answers "is anything still happening", and a ticking
+    seconds counter is exactly the flicker the design rules out.
     """
     if seconds < 2:
         return "just now"
     for limit, unit, size in ((60, "s", 1), (3600, "min", 60), (86400, "h", 3600)):
         if seconds < limit:
-            return f"{int(seconds // size)} {unit}"
-    return f"{int(seconds // 86400)} d"
+            return f"{int(seconds // size)} {unit} ago"
+    return f"{int(seconds // 86400)} d ago"
 
 
 def human_size(size: int) -> str:

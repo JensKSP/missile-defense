@@ -50,6 +50,8 @@ class PPOConfig:
     gae_lambda: float = 0.95
     #: PPO's trust region. 0.2 is the standard starting point.
     clip: float = 0.2
+    #: Adam's step size. The first thing to halve if the return climbs and then
+    #: falls apart, and to raise if a run is simply not moving.
     learning_rate: float = 3.0e-4
     #: Passes over each batch of rollout data.
     epochs: int = 4

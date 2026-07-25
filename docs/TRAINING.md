@@ -96,24 +96,52 @@ Everything under `runs/` (`--out-dir` to change it):
 | `runs/update-<n>.mdr` | a watchable episode, ~80 kB |
 | `runs/metrics.csv` | one row per update, for plotting afterwards |
 | `runs/evals.csv` | one row per `--eval-every` scoring, in the baseline's units |
+| `runs/config.json` | every setting the run was started with |
 
 Those last two are deliberately separate files. `metrics.csv` is the training
 return, which as above is *not* a score; `evals.csv` is the 32-seed summary that
 is, so it is the one a "beat 18,036" line can honestly be drawn across. Keeping
 them apart also keeps the sparse rows out of the dense file.
 
-## Watching a run while it runs
+## Stopping a run without losing it
+
+A run is hours long, and `Ctrl-C` throws away everything since the last
+checkpoint. Two files in the run directory, checked once per update, avoid that:
+
+```bash
+touch runs/STOP      # finish this update, write a final checkpoint, flush, exit
+touch runs/PAUSE     # block between updates
+rm runs/PAUSE        # carry on, exactly where it was
+```
+
+Pausing blocks the loop *between* updates rather than suspending the process, so
+it keeps its allocations and its place — and a paused run still answers `STOP`.
+Both files are cleared when a run starts and when one finishes, so a stale `STOP`
+cannot kill tomorrow's run. This is the whole mechanism; the console's buttons
+write these same files, which is why they also work on a run you started in a
+terminal.
+
+## Watching and driving a run from a window
 
 ```bash
 poe ui                    # attach to ./runs
 poe ui -- path/to/run     # or to a run directory synced from another machine
 ```
 
-A read-only console: the eval score against the baseline as the big curve, return
-/ entropy / value loss underneath, and the recordings listed newest-first —
-double-click one and it opens in the game. It attaches to a run started from a
-terminal and cannot start one, so training keeps its own process and a UI crash
-costs you nothing.
+The eval score against the baseline as the big curve, return / entropy / value
+loss underneath, and the recordings listed newest-first — double-click one and it
+opens in the game.
+
+The bar across the top is deliberately small: one button that changes meaning
+(**Start** → **Pause** → **Resume**), **Stop**, and **Reset**, which attaches to a
+fresh run directory and never deletes the old one. **Start** opens the parameter
+form — the four fields that change a run's character, everything else behind
+*Advanced*, each carrying as its tooltip the reasoning written beside it in
+`TrainConfig` and `PPOConfig`. Only what you change is passed, and the resulting
+command line is shown, so nothing here is a thing only the UI can do.
+
+Training runs as a separate process throughout, so closing the console (or
+crashing it) leaves the run alone.
 
 It needs **PySide6** (`pip install PySide6`, Qt Charts included), which is
 optional and never a dependency of the game. On Windows install it into the same

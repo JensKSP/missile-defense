@@ -237,7 +237,7 @@ ruff, mypy) plus a **≥ 80 % coverage** gate on the core. See
 
 Handy tasks: `poe build`, `poe test-unit`, `poe test-release`, `poe shot`
 (screenshot the running app), `poe rec` (record video), `poe format`, `poe ui`
-(watch a training run — see [docs/TRAINING.md](docs/TRAINING.md)).
+(start, watch and stop a training run — see [docs/TRAINING.md](docs/TRAINING.md)).
 
 ## Building a Debian package
 

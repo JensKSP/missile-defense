@@ -64,6 +64,11 @@ def stylesheet() -> str:
         font-family: {SANS};
         font-size: 13px;
     }}
+    /* Labels sit on panels and tiles, so they take their parent's colour. Every
+       role below that wants a background of its own says so explicitly. */
+    QLabel {{
+        background: transparent;
+    }}
     QLabel[role="title"] {{
         font-size: 15px;
         font-weight: 600;
@@ -96,6 +101,54 @@ def stylesheet() -> str:
         background: {PANEL};
         border: 1px solid {EDGE};
         border-radius: 6px;
+    }}
+    QLabel[role="preview"] {{
+        font-family: {MONO};
+        font-size: 11px;
+        color: {MUTED};
+        background: {NIGHT};
+        border: 1px solid {EDGE};
+        border-radius: 6px;
+        padding: 8px;
+    }}
+    QPushButton, QToolButton {{
+        background: {PANEL};
+        border: 1px solid {EDGE};
+        border-radius: 6px;
+        padding: 6px 14px;
+        color: {TEXT};
+    }}
+    QPushButton:hover, QToolButton:hover {{ background: {GRID}; }}
+    QPushButton:disabled {{ color: {MUTED}; border-color: {GRID}; }}
+    /* The one button that changes meaning — Start, then Pause, then Resume. */
+    QPushButton[role="primary"] {{
+        background: {CITY};
+        border: 1px solid {CITY};
+        color: {NIGHT};
+        font-weight: 600;
+    }}
+    QPushButton[role="primary"]:hover {{ background: {INTERCEPTOR}; border-color: {INTERCEPTOR}; }}
+    QPushButton[role="primary"]:disabled {{
+        background: {PANEL};
+        border-color: {GRID};
+        color: {MUTED};
+    }}
+    QLineEdit, QSpinBox {{
+        background: {NIGHT};
+        border: 1px solid {EDGE};
+        border-radius: 4px;
+        padding: 4px 6px;
+        color: {TEXT};
+        selection-background-color: {EDGE};
+        font-family: {MONO};
+    }}
+    QPlainTextEdit {{
+        background: {NIGHT};
+        border: 1px solid {EDGE};
+        border-radius: 6px;
+        color: {MUTED};
+        font-family: {MONO};
+        font-size: 11px;
     }}
     QListWidget {{
         background: {PANEL};

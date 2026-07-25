@@ -235,7 +235,7 @@ This buys more than responsiveness: the UI can **attach to a run started from a
 terminal**, a crashed UI leaves training untouched, and the whole thing works against a
 synced directory from the Debian box.
 
-### Control: a file the loop polls, not a signal
+### Control: a file the loop polls, not a signal ✅ *(implemented)*
 
 Start is just spawning the process. The other three need the training loop to
 cooperate, and the simplest mechanism that works identically on Windows and Linux is a
@@ -253,6 +253,18 @@ granularity is plenty):
 
 Because it is a file, `touch runs/STOP` from a shell does the same thing — the UI is a
 convenience over the mechanism, never the only way to reach it.
+
+> **Built as marker files, not `control.json`.** `runs/PAUSE` and `runs/STOP`: the
+> presence of a file rather than its contents. A JSON file has to be *parsed*, and the
+> reader can catch the writer mid-write — the same torn read the metrics tail goes to
+> trouble to avoid, except that here the damage is an unreadable *command* rather than
+> one wrong data point. Existence needs no protocol, and `touch` produces it. Each is a
+> *state* rather than an event, so `ls runs/` explains why nothing is happening, and both
+> are cleared when a run starts and when one ends — a stale `STOP` must not kill
+> tomorrow's run. If a later phase needs to pass a value rather than a signal, that is
+> the moment for a parsed file, written to a temporary name and renamed into place. It
+> lives in `md.control`, which the trainer and the console both import and which pulls in
+> neither of them.
 
 ### What it shows
 
@@ -314,13 +326,19 @@ python/md/ui/
   __init__.py
   __main__.py    # `python -m md.ui`; explains itself when PySide6 is absent
   app.py         # QApplication bootstrap, window, `poe ui` entry point
-  runner.py      # spawn/attach to training; the control file; stdout stream
+  runner.py      # spawn the game and the trainer; read the run's output (no Qt)
   sources.py     # tail metrics.csv, list recordings + checkpoints (no Qt)
+  params.py      # the trainer's knobs, read out of its source (no Qt, no torch)
+  forms.py       # the parameter dialog
   charts.py      # the curve widget, baseline line included
   system.py      # psutil sampler + the GpuProbe protocol
   probes/        # nvidia.py, amd.py — soft imports, one file per vendor
   theme.py       # palette lifted from the game, dark by default
 ```
+
+The control protocol itself is **not** here: it is `python/md/control.py`, because
+the trainer polls it and the console writes it, and neither should have to import
+the other to agree on what a pause is.
 
 `sources.py` and `runner.py` hold **no Qt**, so both are unit-testable under
 pytest without a display — which is what keeps this from being a milestone with no
@@ -339,16 +357,23 @@ beside them: the baseline needed a comparable curve to be drawn across (hence
 Windows needs the CLANG64 prefix put back on `PATH`, or the MinGW build dies
 looking for `libc++.dll` before it can show a window.
 
-**Phase 2 — Control.** The control file protocol (`runs/control.json`), polled once
-per update by the training loop, plus start / pause / resume / graceful stop in the
-UI. **The training-loop half ships first and independently** — `touch runs/STOP`
-must work before any button does, because that is what keeps the UI a convenience
-over the mechanism rather than the only way in.
+**Phase 2 — Control.** ✅ *(implemented — ready for sign-off)* `md.control` and the
+loop's once-per-update check landed first and on their own, so `touch runs/STOP`
+and `touch runs/PAUSE` work with no console anywhere. The bar then reads: one
+button that changes meaning (Start → Pause → Resume), Stop, and Reset, which
+attaches to the next free run directory and deletes nothing. Pause and Stop work
+on a run this console never started, because they are the same two files. A
+started run's stdout streams into a log pane that opens itself if the run dies.
 
-**Phase 3 — Parameters.** The four headline fields plus *Advanced*, tooltips
-sourced from the dataclass docstrings so they cannot drift from the code. Launches
-a configured run; writes the config next to the checkpoints so a run records what
-produced it.
+**Phase 3 — Parameters.** ✅ *(implemented — ready for sign-off)* The four headline
+fields plus *Advanced*, each tooltip the `#:` reasoning already written beside the
+field — read out of `train.py` and `ppo.py` with `ast` and `tokenize` rather than
+by importing them, since `md.ui` may not import torch. Only changed values are
+passed and the resulting command line is shown, so the dialog teaches the CLI
+rather than replacing it. Every `PPOConfig` field also became a real flag,
+generated from the dataclass: the form could not otherwise offer the learning
+rate at all. `runs/config.json` records what a run was started with — written by
+the trainer, so a terminal-started run gets one too.
 
 **Phase 4 — Model & system.** Parameter count, layer shapes, checkpoint iteration,
 last eval against the baseline. CPU/RAM row; GPU row when a probe imports.

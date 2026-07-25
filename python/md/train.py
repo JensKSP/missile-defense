@@ -26,6 +26,12 @@ interpretable rather than just a number going up:
   ``runs/`` as ``update-<n>.mdr``. Open it from the app's REPLAYS menu and watch
   what the policy is actually doing; a reward curve will not tell you that it has
   learned to ignore MIRVs.
+* **A run you can stop without losing it.** ``touch runs/STOP`` and the loop
+  finishes the update it is on, writes a final checkpoint, flushes the metrics
+  and exits; ``touch runs/PAUSE`` blocks it between updates until the file goes
+  away. Killing the process instead throws away everything since the last
+  checkpoint. See :mod:`md.control` — the training console's buttons write
+  exactly these files, and nothing else.
 * **Checkpoints.** Written to ``runs/checkpoints`` — every ``checkpoint_every``
   updates plus a ``policy-final.pt`` at the end, so a short run still leaves the
   policy it trained. Weights only, not optimizer state: these are for scoring or
@@ -36,6 +42,8 @@ from __future__ import annotations
 
 import argparse
 import csv
+import dataclasses
+import json
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -45,6 +53,7 @@ from typing import Any
 import numpy as np
 import torch
 
+from .control import Control
 from .env import Actions, Flags, Observations, Shaping, VecEnv
 from .eval import evaluate, format_summary
 from .ppo import Policy, PPOConfig, Rollout, update
@@ -144,9 +153,19 @@ def train(config: TrainConfig, ppo: PPOConfig | None = None) -> Policy:
             ]
         )
 
+    # Checked once per update. A run starts running: a STOP left behind by the
+    # last one must not kill this one before its first update.
+    control = Control(config.out_dir)
+    control.clear()
+    _write_config(config.out_dir / "config.json", config, ppo)
+
     print(
         f"training on {device} | {config.envs} envs x {config.steps} steps "
         f"= {config.envs * config.steps:,} samples/update | baseline {BASELINE_MEAN_SCORE:,.0f}"
+    )
+    print(
+        f"  pause with `touch {control.pause_file}`, "
+        f"stop gracefully with `touch {control.stop_file}`"
     )
 
     # Tracks the return of episodes as they finish, for a readable progress line.
@@ -244,13 +263,40 @@ def train(config: TrainConfig, ppo: PPOConfig | None = None) -> Policy:
                 policy, optimizer, iteration, shape, ppo, checkpoints / f"policy-{iteration:05d}.pt"
             )
 
+        # Between updates, never inside one: the rollout and the update are a
+        # unit, and stopping in the middle of one leaves a batch half-collected.
+        if control.paused():
+            print(f"  paused after update {iteration} — remove {control.pause_file} to continue")
+            if control.wait_while_paused():
+                print("  resumed into a stop request")
+            else:
+                print("  resumed")
+        if control.stopping():
+            print(f"  stop requested — finishing after update {iteration}")
+            break
+
     # Always checkpoint the finished policy. Without this a run whose length is
-    # not a multiple of checkpoint_every throws away the thing it just trained.
+    # not a multiple of checkpoint_every throws away the thing it just trained —
+    # and it is what makes a graceful stop cost nothing at all.
     _save(policy, optimizer, iteration, shape, ppo, checkpoints / "policy-final.pt")
     metrics.close()
+    control.clear()  # so the next run in this directory is not born stopped
     print(f"  final policy -> {checkpoints / 'policy-final.pt'}")
     print(f"  metrics      -> {metrics_path}")
     return policy
+
+
+def _write_config(path: Path, config: TrainConfig, ppo: PPOConfig) -> None:
+    """Record what produced this run, beside what it produced.
+
+    Six months later the checkpoints are still there and the shell history is
+    not. Written on every run, not only the ones a console starts, because the
+    question "what were the settings" is asked of whichever run turned out to be
+    interesting.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"train": dataclasses.asdict(config), "ppo": dataclasses.asdict(ppo)}
+    path.write_text(json.dumps(payload, indent=2, default=str) + "\n", encoding="utf-8")
 
 
 #: Columns of ``evals.csv`` — the fields of the shared C++ ``Summary``, in order.
@@ -430,11 +476,26 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--record-to", type=Path, default=None, help="With --load, also write a watchable episode."
     )
+    # Every PPO hyperparameter as a flag, generated from the dataclass so the two
+    # cannot drift apart. They are `None` unless given, so an unspecified one
+    # keeps the reasoned default in PPOConfig rather than being restated here.
+    for field in dataclasses.fields(PPOConfig):
+        parser.add_argument(
+            f"--{field.name.replace('_', '-')}",
+            type=type(field.default),
+            default=None,
+            help=f"PPOConfig.{field.name} (default {field.default})",
+        )
     args = parser.parse_args(argv)
 
     if args.load is not None:
         return score_checkpoint(args.load, args.device, args.record_to)
 
+    given = {
+        field.name: getattr(args, field.name)
+        for field in dataclasses.fields(PPOConfig)
+        if getattr(args, field.name) is not None
+    }
     train(
         TrainConfig(
             envs=args.envs,
@@ -449,7 +510,8 @@ def main(argv: list[str] | None = None) -> int:
             device=args.device,
             out_dir=args.out_dir,
             resume=args.resume,
-        )
+        ),
+        PPOConfig(**given),
     )
     return 0
 

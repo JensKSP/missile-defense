@@ -27,6 +27,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QApplication,
+    QDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -34,15 +35,31 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMainWindow,
     QMessageBox,
+    QPlainTextEdit,
+    QPushButton,
     QSplitter,
     QVBoxLayout,
     QWidget,
 )
 
+from ..control import Control
 from . import sources, theme
 from .charts import CurveView
-from .runner import AppNotFound, ReplayLauncher
+from .forms import ParameterDialog
+from .params import read_params
+from .runner import (
+    PACKAGE_PATH,
+    PROJECT_ROOT,
+    AppNotFound,
+    ReplayLauncher,
+    TrainingRun,
+    can_train,
+    training_python,
+)
 from .sources import BASELINE_MEAN_SCORE, EvalRow, MetricRow, Recording
+
+#: Where the trainer's dataclasses live, for the parameter form's tooltips.
+TRAINER_SOURCES = PACKAGE_PATH / "md"
 
 #: An update takes seconds, so a second is a smooth refresh and not a busy loop.
 POLL_MS = 1000
@@ -63,6 +80,16 @@ NO_EVALS = (
     "The trainer scores the policy on the 32 canonical seeds every\n"
     "--eval-every updates and appends it to evals.csv."
 )
+
+#: The pill in the corner, by what the run is doing. Read from across the room,
+#: so it is one word and a colour.
+STATUS = {
+    "none": ("NO RUN", theme.MUTED),
+    "idle": ("IDLE", theme.MUTED),
+    "live": ("LIVE", theme.AHEAD),
+    "paused": ("PAUSED", theme.AMBER),
+    "stopping": ("STOPPING", theme.AMBER),
+}
 
 
 class StatTile(QFrame):
@@ -99,26 +126,47 @@ class Console(QMainWindow):
 
     def __init__(self, run_dir: Path) -> None:
         super().__init__()
-        self._run_dir = run_dir
-        self._metrics = sources.metrics_tail(run_dir)
-        self._evals = sources.evals_tail(run_dir)
         self._launcher = ReplayLauncher()
-        #: None until the first scan, so "still empty" is distinguishable from
-        #: "not looked yet" — otherwise the empty state never gets drawn.
-        self._listed: list[Recording] | None = None
         self._ticks = 0
-        self._updates = 0
-        self._last_metric: MetricRow | None = None
-        self._last_eval: EvalRow | None = None
 
-        self.setWindowTitle(f"Missile Command — training console · {run_dir}")
         self.setCentralWidget(self._build())
-        self.statusBar().showMessage(f"watching {run_dir / sources.METRICS_NAME}")
+        self._attach(run_dir)
 
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._tick)
         self._timer.start(POLL_MS)
         self._tick()
+
+    def _attach(self, run_dir: Path) -> None:
+        """Point the whole window at a run directory — including a fresh one.
+
+        Everything the console knows comes from that directory, so re-attaching
+        is the same act as starting up. Reset is exactly this, aimed somewhere
+        new; nothing is deleted.
+        """
+        self._run_dir = run_dir
+        self._metrics = sources.metrics_tail(run_dir)
+        self._evals = sources.evals_tail(run_dir)
+        self._control = Control(run_dir)
+        #: A run *this* console started, kept after it exits so the window knows
+        #: the difference between "quiet for now" and "over". Dropped on
+        #: re-attach: that run carries on, it is simply no longer this screen's.
+        self._run: TrainingRun | None = None
+        self._reported_exit = False
+        #: None until the first scan, so "still empty" is distinguishable from
+        #: "not looked yet" — otherwise the empty state never gets drawn.
+        self._listed: list[Recording] | None = None
+        self._updates = 0
+        self._last_metric: MetricRow | None = None
+        self._last_eval: EvalRow | None = None
+        for curve in (self._score, self._return, self._entropy, self._value):
+            curve.clear()
+        for tile in (self._tile_update, self._tile_score, self._tile_return, self._tile_entropy):
+            tile.set_value("—")
+
+        self.setWindowTitle(f"Missile Command — training console · {run_dir}")
+        self._path.setText(str(run_dir.resolve()))
+        self.statusBar().showMessage(f"watching {run_dir / sources.METRICS_NAME}")
 
     # ---- construction -------------------------------------------------------
     def _build(self) -> QWidget:
@@ -135,22 +183,63 @@ class Console(QMainWindow):
         split.setStretchFactor(0, 1)
         split.setSizes([980, 300])
         layout.addWidget(split, stretch=1)
+        layout.addWidget(self._log_pane())
         return root
 
     def _header(self) -> QHBoxLayout:
         row = QHBoxLayout()
         title = QLabel("MISSILE COMMAND · TRAINING CONSOLE")
         title.setProperty("role", "title")
-        path = QLabel(str(self._run_dir.resolve()))
-        path.setProperty("role", "note")
+        self._path = QLabel()
+        self._path.setProperty("role", "note")
         self._status = QLabel("NO RUN")
         self._status.setProperty("role", "caption")
         row.addWidget(title)
         row.addSpacing(12)
-        row.addWidget(path)
+        row.addWidget(self._path)
         row.addStretch(1)
+        row.addLayout(self._controls())
+        row.addSpacing(14)
         row.addWidget(self._status)
         return row
+
+    def _controls(self) -> QHBoxLayout:
+        """Three affordances, not a dashboard of them.
+
+        One primary button that changes meaning, Stop beside it, and Reset kept
+        at arm's length because it is the one that abandons a run.
+        """
+        row = QHBoxLayout()
+        row.setSpacing(6)
+        self._primary = QPushButton("Start")
+        self._primary.setProperty("role", "primary")
+        self._primary.clicked.connect(self._primary_pressed)
+        self._stop = QPushButton("Stop")
+        self._stop.clicked.connect(self._stop_pressed)
+        self._reset = QPushButton("Reset…")
+        self._reset.clicked.connect(self._reset_pressed)
+        self._log_toggle = QPushButton("Log")
+        self._log_toggle.setCheckable(True)
+        self._log_toggle.toggled.connect(self._show_log)
+        for button in (self._primary, self._stop, self._reset, self._log_toggle):
+            row.addWidget(button)
+        if not can_train():
+            # Watching a run from a machine with no torch is a supported way to
+            # use this; pretending Start would work there is not.
+            self._primary.setEnabled(False)
+            self._primary.setToolTip(
+                "This interpreter has no torch, so it cannot start a run — "
+                "start one from a terminal and the console will attach to it."
+            )
+        return row
+
+    def _log_pane(self) -> QWidget:
+        self._log = QPlainTextEdit()
+        self._log.setReadOnly(True)
+        self._log.setMaximumBlockCount(2000)
+        self._log.setFixedHeight(150)
+        self._log.setVisible(False)
+        return self._log
 
     def _tiles(self) -> QHBoxLayout:
         row = QHBoxLayout()
@@ -226,6 +315,7 @@ class Console(QMainWindow):
         self._ticks += 1
         self._read_metrics()
         self._read_evals()
+        self._read_log()
         if self._ticks % RESCAN_EVERY == 1:
             self._refresh_recordings()
         self._refresh_status()
@@ -286,7 +376,7 @@ class Console(QMainWindow):
         for recording in found:
             item = QListWidgetItem(
                 f"{recording.name}\n"
-                f"{sources.human_age(now - recording.modified)} ago · "
+                f"{sources.human_age(now - recording.modified)} · "
                 f"{sources.human_size(recording.size)}"
             )
             item.setData(Qt.ItemDataRole.UserRole, str(recording.path))
@@ -301,28 +391,121 @@ class Console(QMainWindow):
         self._return.set_placeholder(WAITING if modified is None else NO_EPISODES)
         for curve in (self._entropy, self._value):
             curve.set_placeholder("" if modified is not None else WAITING)
+
+        state = self._state(modified)
+        self._set_status(*STATUS[state])
+        self._primary.setText({"paused": "Resume", "live": "Pause"}.get(state, "Start"))
+        self._primary.setEnabled(state != "stopping" and (state != "idle" or can_train()))
+        self._stop.setEnabled(state in ("live", "paused"))
+
         if modified is None:
-            self._set_status("NO RUN", theme.MUTED)
             self.statusBar().showMessage(
-                f"no {sources.METRICS_NAME} in {self._run_dir} yet — start a run with `poe train`"
+                f"no {sources.METRICS_NAME} in {self._run_dir} yet — "
+                "press Start, or run `poe train` in a terminal"
             )
             return
         age = max(time.time() - modified, 0.0)
-        live = age < LIVE_AFTER_S
-        self._set_status("LIVE" if live else "IDLE", theme.AHEAD if live else theme.MUTED)
+        windows = self._launcher.running
+        replays = f" · {windows} replay window(s) open" if windows else ""
         self.statusBar().showMessage(
-            f"{self._updates:,} updates · last write {sources.human_age(age)} ago"
-            + (
-                f" · {self._launcher.running} replay window(s) open"
-                if self._launcher.running
-                else ""
-            )
+            f"{self._updates:,} updates · last write {sources.human_age(age)}{replays}"
         )
+
+    def _state(self, modified: float | None) -> str:
+        """What the run is doing, from the files alone.
+
+        Which is why it works for a run this console never started: the control
+        files and the metrics timestamp are all it reads.
+        """
+        if self._control.stopping():
+            return "stopping"
+        if self._control.paused():
+            return "paused"
+        if self._run is not None:
+            # Our own child: no guessing needed, and no pretending a run that
+            # just exited is live because its last line is thirty seconds old.
+            return "idle" if self._run.finished else "live"
+        if modified is None:
+            return "none"
+        return "live" if (time.time() - modified) < LIVE_AFTER_S else "idle"
 
     def _set_status(self, text: str, colour: str) -> None:
         if self._status.text() != text:
             self._status.setText(text)
             self._status.setStyleSheet(f"color: {colour}; font-weight: 600;")
+
+    # ---- control ------------------------------------------------------------
+    def _primary_pressed(self) -> None:
+        """One button, three meanings — whichever the run's state makes sensible."""
+        if self._control.paused():
+            self._control.resume()
+            self.statusBar().showMessage("resuming — the loop picks it up within an update")
+        elif self._state(sources.last_modified(self._run_dir / sources.METRICS_NAME)) == "live":
+            self._control.request_pause()
+            self.statusBar().showMessage(
+                f"pausing after the current update — {self._control.pause_file}"
+            )
+        else:
+            self._start()
+
+    def _start(self) -> None:
+        out_dir = self._run_dir.resolve()
+        dialog = ParameterDialog(
+            read_params(TRAINER_SOURCES), python=training_python(), out_dir=out_dir, parent=self
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        self._control.clear()  # a STOP left by the last run would end this one at once
+        command = dialog.command()
+        self._log.clear()
+        self._append_log(f"$ {' '.join(command)}")
+        self._log_toggle.setChecked(True)
+        self._run = TrainingRun(command, cwd=PROJECT_ROOT)
+        self._reported_exit = False
+
+    def _stop_pressed(self) -> None:
+        self._control.request_stop()
+        self.statusBar().showMessage(
+            "stop requested — the run finishes this update, writes a final checkpoint and exits"
+        )
+
+    def _reset_pressed(self) -> None:
+        """Start over somewhere new. Destructive only in the sense of moving on."""
+        target = sources.next_run_dir(self._run_dir)
+        answer = QMessageBox.question(
+            self,
+            "Start a fresh run directory?",
+            f"The console will attach to <b>{target}</b> and the next Start writes there."
+            f"<br><br>Nothing in <b>{self._run_dir}</b> is deleted — its checkpoints, "
+            "recordings and metrics stay exactly where they are. Stop the run there "
+            "first if it is still going.",
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if answer == QMessageBox.StandardButton.Ok:
+            self._attach(target)
+
+    def _show_log(self, shown: bool) -> None:
+        self._log.setVisible(shown)
+
+    def _append_log(self, text: str) -> None:
+        self._log.appendPlainText(text)
+
+    def _read_log(self) -> None:
+        """Drain what the run has printed, and notice when it is over."""
+        if self._run is None:
+            return
+        for line in self._run.drain():
+            self._append_log(line)
+        code = self._run.exit_code()
+        if code is None or self._reported_exit:
+            return
+        self._reported_exit = True
+        self._append_log(f"— the run exited with code {code} —")
+        if code != 0:
+            # A run that died on its first line is the case where the log is the
+            # only thing that can tell you why, so it opens itself.
+            self._log_toggle.setChecked(True)
 
     # ---- opening an episode -------------------------------------------------
     def _selected_path(self) -> Path | None:
