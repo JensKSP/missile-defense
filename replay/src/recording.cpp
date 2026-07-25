@@ -173,6 +173,34 @@ void Player::restart() {
     step_ = 0;
     within_ = 0;
     ticks_ = 0;
+    snapshots_.clear();
+    capture_snapshot(); // tick 0, so a seek back to the start needs no reset
+}
+
+void Player::capture_snapshot() {
+    snapshots_.push_back(Snapshot{.tick = ticks_, .step = step_, .within = within_, .sim = sim_});
+}
+
+void Player::seek(std::uint64_t to_tick) {
+    const std::uint64_t target = std::min(to_tick, total_ticks());
+    if (target < ticks_) {
+        // Rewind to the latest snapshot at or before the target, then play forward.
+        const auto at = std::ranges::partition_point(
+            snapshots_, [target](const Snapshot& s) { return s.tick <= target; });
+        if (at == snapshots_.begin()) {
+            restart();
+        } else {
+            const Snapshot& from = *std::prev(at);
+            sim_ = from.sim;
+            step_ = from.step;
+            within_ = from.within;
+            ticks_ = from.tick;
+            snapshots_.erase(at, snapshots_.end()); // drop the future we just left
+        }
+    }
+    while (ticks_ < target && tick()) {
+        // play forward
+    }
 }
 
 bool Player::finished() const noexcept {
@@ -204,6 +232,11 @@ bool Player::tick() {
     if (++within_ >= recording_.frame_skip) {
         within_ = 0;
         ++step_;
+    }
+    // Only on an action boundary: restoring mid-window would need `within_` to line
+    // up with a decode that already happened.
+    if (within_ == 0 && ticks_ % snapshot_interval == 0) {
+        capture_snapshot();
     }
     return true;
 }

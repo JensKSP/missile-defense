@@ -625,8 +625,8 @@ void Renderer::startNextFrame() {
                                     world_w * filled * 0.5f, world_h * 0.002f, 0.55f, 0.80f,
                                     0.95f));
             }
-            draw_text(inst, "T TAKE OVER    BRACKETS SPEED", cx, world_h * 0.055f, world_h * 0.008f,
-                      0.35f, 0.45f, 0.40f, true);
+            draw_text(inst, "T TAKE OVER   ARROWS SEEK   R RESTART", cx, world_h * 0.055f,
+                      world_h * 0.008f, 0.35f, 0.45f, 0.40f, true);
         }
         // Watch mode: say plainly who is at the controls, and how to take over.
         if (playing && window_->ai_driving()) {
@@ -687,6 +687,34 @@ void Renderer::startNextFrame() {
         }
         draw_text(inst, "PRESS ENTER", cx, world_h * 0.12f, world_h * 0.013f, 0.6f, 0.65f, 0.7f,
                   true);
+    } else if (state == GameWindow::State::Replays) {
+        draw_text(inst, "REPLAYS", cx, world_h * 0.90f, world_h * 0.026f, 0.85f, 0.92f, 1.0f, true);
+        const int count = window_->replay_count();
+        if (count == 0) {
+            draw_text(inst, "NO RECORDINGS IN RUNS", cx, world_h * 0.55f, world_h * 0.012f, 0.6f,
+                      0.65f, 0.7f, true);
+            draw_text(inst, "TRAINING WRITES THEM THERE", cx, world_h * 0.46f, world_h * 0.009f,
+                      0.4f, 0.45f, 0.5f, true);
+        } else {
+            // Show a window of at most `visible` rows around the selection, so a
+            // long training run does not overflow the screen.
+            constexpr int visible = 8;
+            const int selected = window_->menu_index();
+            const int first = std::clamp(selected - (visible / 2), 0, std::max(0, count - visible));
+            const int last = std::min(count, first + visible);
+            for (int i = first; i < last; ++i) {
+                const bool sel = selected == i;
+                const float y = world_h * (0.76f - (static_cast<float>(i - first) * 0.075f));
+                draw_text(inst, window_->replay_name(i), cx, y, world_h * 0.011f,
+                          sel ? 0.95f : 0.45f, sel ? 0.75f : 0.45f, sel ? 0.25f : 0.50f, true);
+            }
+            if (count > visible) {
+                draw_text(inst, std::to_string(selected + 1) + " OF " + std::to_string(count), cx,
+                          world_h * 0.14f, world_h * 0.009f, 0.4f, 0.45f, 0.5f, true);
+            }
+        }
+        draw_text(inst, "ARROWS ENTER   ESC BACK", cx, world_h * 0.07f, world_h * 0.009f, 0.4f,
+                  0.45f, 0.5f, true);
     } else if (state == GameWindow::State::Help) {
         draw_text(inst, "HELP", cx, world_h * 0.88f, world_h * 0.026f, 0.85f, 0.92f, 1.0f, true);
         const std::array<std::string_view, 5> lines{"MOUSE TO AIM", "CLICK TO FIRE",

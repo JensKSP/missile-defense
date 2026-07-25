@@ -16,6 +16,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 class QKeyEvent;
 class QMouseEvent;
@@ -38,7 +39,8 @@ class GameWindow : public QVulkanWindow {
         Help,
         About,
         Options,
-        EnterScore
+        EnterScore,
+        Replays
     };
 
     GameWindow();
@@ -66,6 +68,13 @@ class GameWindow : public QVulkanWindow {
     /// The recording's label and how far through it we are — for the HUD.
     [[nodiscard]] std::string_view replay_label() const noexcept;
     [[nodiscard]] float replay_progress() const noexcept;
+
+    // The REPLAYS browser: recordings found in the runs directory.
+    [[nodiscard]] int replay_count() const noexcept {
+        return static_cast<int>(replay_files_.size());
+    }
+
+    [[nodiscard]] std::string_view replay_name(int index) const;
 
     /// Did the agent drive any part of this game? Such a run is never eligible for
     /// the highscore table — those are the human's.
@@ -126,6 +135,7 @@ class GameWindow : public QVulkanWindow {
         Resume,
         NewGame,
         WatchAi,
+        Replays,
         Help,
         Options,
         Highscores,
@@ -145,6 +155,8 @@ class GameWindow : public QVulkanWindow {
     void save_settings() const; // persist audio/music/fullscreen after a toggle
     void open_menu();
     void open_options();
+    void open_replays();      // scan the runs directory and show what is there
+    void scrub(int seconds);  // seek the active replay, relative
     void activate(int index); // activate the item at index in the active list
     [[nodiscard]] MenuAction action_at(int index) const;
     [[nodiscard]] int active_count() const noexcept; // active list length (menu/options)
@@ -152,8 +164,10 @@ class GameWindow : public QVulkanWindow {
     [[nodiscard]] BaseId nearest_base_with_ammo(Vec2 target) const;
 
     Sim sim_;
-    agent::Heuristic agent_{};             // the M4 baseline, used in watch mode
-    std::optional<replay::Player> replay_; // a recorded run being played back
+    agent::Heuristic agent_{};              // the M4 baseline, used in watch mode
+    std::optional<replay::Player> replay_;  // a recorded run being played back
+    std::vector<std::string> replay_files_; // paths offered by the REPLAYS screen
+    std::vector<std::string> replay_names_; // ...their display names, uppercased
     AudioEngine audio_;
     HighscoreTable highscores_;
     QElapsedTimer clock_;

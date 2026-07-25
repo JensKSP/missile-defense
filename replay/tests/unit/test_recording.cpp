@@ -175,6 +175,37 @@ TEST_CASE("a player reports progress and stops at the end", "[replay]") {
     CHECK(player.progress() > 0.0f);
 }
 
+TEST_CASE("seeking lands on the same state as playing there", "[replay]") {
+    // Scrubbing restores from a snapshot and replays forward. If that ever differed
+    // from having played straight through, the frame you scrub to would be a lie.
+    const Recording recording = make_recording(2026, 500, 4); // 2000 ticks, past several snapshots
+
+    const auto state_at = [&](std::uint64_t target) {
+        Player straight{recording};
+        while (straight.ticks_played() < target && straight.tick()) {
+            // play forward from the start
+        }
+        return observation_of(straight.sim(), recording.spec);
+    };
+
+    Player player{recording};
+    // Forwards past a snapshot, then backwards over one, then forwards again — the
+    // backwards jumps are the ones that exercise snapshot restore.
+    for (const std::uint64_t target : {1500ULL, 300ULL, 1900ULL, 50ULL, 1234ULL, 0ULL}) {
+        player.seek(target);
+        CHECK(player.ticks_played() == target);
+        CHECK(observation_of(player.sim(), recording.spec) == state_at(target));
+    }
+}
+
+TEST_CASE("seeking past the end clamps to the end", "[replay]") {
+    const Recording recording = make_recording(8, 40, 4);
+    Player player{recording};
+    player.seek(999999);
+    CHECK(player.ticks_played() == player.total_ticks());
+    CHECK(player.finished());
+}
+
 TEST_CASE("an empty recording is finished immediately", "[replay]") {
     Recording recording;
     recording.seed = 1;

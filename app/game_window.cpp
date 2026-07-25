@@ -12,7 +12,10 @@
 #include <QSettings>
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cmath>
+#include <filesystem>
+#include <system_error>
 
 namespace md {
 
@@ -48,7 +51,7 @@ QVulkanWindowRenderer* GameWindow::createRenderer() {
 }
 
 int GameWindow::menu_count() const noexcept {
-    return in_progress_ ? 6 : 7; // WATCH AI and ABOUT are main-menu only
+    return in_progress_ ? 6 : 8; // WATCH AI, REPLAYS and ABOUT are main-menu only
 }
 
 GameWindow::MenuAction GameWindow::action_at(int index) const {
@@ -58,9 +61,9 @@ GameWindow::MenuAction GameWindow::action_at(int index) const {
                                              MenuAction::Highscores, MenuAction::Exit};
         return acts[static_cast<std::size_t>(index)];
     }
-    const std::array<MenuAction, 7> acts{
-        MenuAction::NewGame,    MenuAction::WatchAi, MenuAction::Help, MenuAction::Options,
-        MenuAction::Highscores, MenuAction::About,   MenuAction::Exit};
+    const std::array<MenuAction, 8> acts{
+        MenuAction::NewGame, MenuAction::WatchAi,    MenuAction::Replays, MenuAction::Help,
+        MenuAction::Options, MenuAction::Highscores, MenuAction::About,   MenuAction::Exit};
     return acts[static_cast<std::size_t>(index)];
 }
 
@@ -72,6 +75,8 @@ std::string_view GameWindow::menu_label(int index) const {
         return in_progress_ ? "NEW GAME" : "START";
     case MenuAction::WatchAi:
         return "WATCH AI";
+    case MenuAction::Replays:
+        return "REPLAYS";
     case MenuAction::Help:
         return "HELP";
     case MenuAction::Options:
@@ -281,6 +286,52 @@ float GameWindow::replay_progress() const noexcept {
     return replay_.has_value() ? replay_->progress() : 0.0f;
 }
 
+/// Recordings live in `runs/` beside the working directory — the same place the
+/// training loop is told to write them. Rescanned on every visit, so a run that is
+/// still training shows its newest episodes without restarting the app.
+void GameWindow::open_replays() {
+    replay_files_.clear();
+    replay_names_.clear();
+    std::error_code ec; // the directory simply may not exist yet; that is not an error
+    for (const auto& entry : std::filesystem::directory_iterator{"runs", ec}) {
+        if (!entry.is_regular_file(ec) || entry.path().extension() != ".mdr") {
+            continue;
+        }
+        replay_files_.push_back(entry.path().string());
+        std::string name = entry.path().stem().string();
+        // The pixel font has no lower case, and no punctuation beyond the period.
+        std::ranges::transform(name, name.begin(), [](unsigned char c) {
+            return static_cast<char>(c == '_' || c == '-' ? ' ' : std::toupper(c));
+        });
+        replay_names_.push_back(std::move(name));
+    }
+    // Newest first: while training, the interesting episode is the latest one.
+    std::ranges::sort(replay_files_, std::greater{});
+    std::ranges::sort(replay_names_, std::greater{});
+    menu_index_ = 0;
+    state_ = State::Replays;
+}
+
+std::string_view GameWindow::replay_name(int index) const {
+    if (index < 0 || index >= replay_count()) {
+        return {};
+    }
+    return replay_names_[static_cast<std::size_t>(index)];
+}
+
+/// Seek the active replay by `seconds` of play, forward or back.
+void GameWindow::scrub(int seconds) {
+    if (!replay_.has_value()) {
+        return;
+    }
+    const auto per_second = static_cast<double>(1.0F / sim_.config().dt);
+    const auto delta = static_cast<std::int64_t>(static_cast<double>(seconds) * per_second);
+    const auto now = static_cast<std::int64_t>(replay_->ticks_played());
+    replay_->seek(static_cast<std::uint64_t>(std::max<std::int64_t>(0, now + delta)));
+    accumulator_ = 0.0;
+    started_ = false; // restart the wall clock so the seek does not fast-forward
+}
+
 void GameWindow::activate(int index) {
     if (state_ == State::Options) {
         switch (index) {
@@ -309,6 +360,9 @@ void GameWindow::activate(int index) {
         break;
     case MenuAction::WatchAi:
         start_ai_game();
+        break;
+    case MenuAction::Replays:
+        open_replays();
         break;
     case MenuAction::Help:
         state_ = State::Help;
@@ -436,6 +490,7 @@ void GameWindow::mousePressEvent(QMouseEvent* event) {
     case State::Highscores:
     case State::Help:
     case State::About:
+    case State::Replays:
         open_menu(); // a click dismisses these screens back to the menu
         break;
     case State::EnterScore:
@@ -504,8 +559,35 @@ void GameWindow::keyPressEvent(QKeyEvent* event) {
         } else if ((ai_driving_ || replay_.has_value()) &&
                    (key == Qt::Key_BracketLeft || key == Qt::Key_Minus)) {
             speed_ = std::max(speed_ / 2, 1);
+        } else if (replay_.has_value() && key == Qt::Key_Left) {
+            scrub(-5); // a recording can be rewound; a live game cannot
+        } else if (replay_.has_value() && key == Qt::Key_Right) {
+            scrub(5);
+        } else if (replay_.has_value() && key == Qt::Key_R) {
+            replay_->restart();
+            accumulator_ = 0.0;
+            started_ = false;
         }
         break;
+    case State::Replays: {
+        const bool confirm = key == Qt::Key_Return || key == Qt::Key_Enter;
+        // Escape always backs out; so does Enter when there is nothing to choose.
+        if (key == Qt::Key_Escape || (confirm && replay_count() == 0)) {
+            open_menu();
+        } else if (replay_count() > 0) {
+            if (key == Qt::Key_Up || key == Qt::Key_W) {
+                menu_index_ = (menu_index_ + replay_count() - 1) % replay_count();
+            } else if (key == Qt::Key_Down || key == Qt::Key_S) {
+                menu_index_ = (menu_index_ + 1) % replay_count();
+            } else if (confirm) {
+                const std::string path = replay_files_[static_cast<std::size_t>(menu_index_)];
+                if (!watch_replay(path)) {
+                    open_menu(); // unreadable (wrong build, truncated): do not pretend
+                }
+            }
+        }
+        break;
+    }
     case State::GameOver:
     case State::Highscores:
     case State::Help:

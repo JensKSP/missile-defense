@@ -191,6 +191,9 @@ the seed alone reproduces it.
 
 ### Watching a recorded run
 
+Pick one from the **REPLAYS** menu entry, which lists what is in `runs/` (newest
+first), or name it directly:
+
 ```bash
 md_app --replay runs/update-1200.mdr
 ```
@@ -199,8 +202,14 @@ A *learned* policy is not reproducible from a seed the way the scripted agent is
 training runs record episodes instead — from Python, `env.record(0)` then
 `env.save_recording(0, path, update=n, label=f"update-{n}")`. What is stored is the
 action index per agent step, four bytes each, so an episode is ~80 kB and can be
-dropped every few updates to watch the policy improve. The same `[` / `]` speed
-control and `T` take-over work during playback.
+dropped every few updates to watch the policy improve.
+
+| Input | Action |
+|---|---|
+| `[` / `]` | Fast-forward 1x -> 8x |
+| Left / Right | Seek back / forward 5 s |
+| `R` | Restart the recording |
+| `T` | Take over from where it has reached |
 
 ## Development
 

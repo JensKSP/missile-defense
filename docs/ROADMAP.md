@@ -56,7 +56,7 @@ A complete, fun arcade game. **Acceptance gate: the human plays it and confirms.
   per type (ICBM / MIRV / smart bomb), thunder on city loss, WWII E57 siren on
   each wave, crosshair reticle
 
-## M3 — Record & replay in the UI *(partly implemented)*
+## M3 — Record & replay in the UI ✅ *(implemented — ready for sign-off)*
 
 Record every run as `(seed, action-log)`; load a run and replay it with pause / scrub /
 variable speed; **take over** from any point and continue playing.
@@ -74,15 +74,24 @@ see it learn, and a scalar reward curve does not show you *why* a run went badly
   Episodes are only handed over whole.
 - ✅ **Playback** — `md_app --replay <file>` plays one, with the label and a progress bar
   on the HUD, `[` / `]` speed control, and `T` to take over from where it has reached.
-- ⬜ **Scrub** — seeking to an arbitrary point. Cheap to add (`Sim` state is a `memcpy`,
-  so periodic snapshots work), but not built.
-- ⬜ **Recording human play**, and a menu entry to browse recordings rather than passing
-  a path on the command line.
+- ✅ **Scrub** — arrow keys seek ±5 s, `R` restarts. There is no state to interpolate
+  to, so seeking forward plays forward; seeking back rewinds to the nearest snapshot
+  (every 600 ticks — `Sim` state is a `memcpy`) and plays from there, which bounds a
+  backwards seek instead of replaying from tick zero.
+- ✅ **Browser** — a **REPLAYS** menu entry lists what is in `runs/`, newest first,
+  rescanned on each visit so a training run in progress shows its latest episodes.
+- ⬜ **Recording human play** — the recorder logs discrete action indices, which is what
+  a policy emits; a human's mouse aim is a continuous `Action` and does not fit that
+  format. Deferred until the player model is calibrated (see the note in `config.hpp`).
 
 > **Recordings are build-local artifacts, not an archive format.** The file embeds the
-> `Config` it was recorded with and is rejected if the struct's size no longer matches.
-> Changing a `Config` default changes the simulation, and a replay that silently drifted
-> would be worse than one that refuses to load.
+> simulation `Config` it was recorded with — not the app's audio/fullscreen settings,
+> which cannot affect the simulation — so a recording *does* survive a change to a
+> `Config` default: it replays with its own values. The stored struct size is checked on
+> load to catch the layout changing (a field added or reordered), where the raw bytes
+> would otherwise be misread as garbage. What no guard here can catch is a change to the
+> simulation *logic* with `Config` untouched; that is the golden checksum's job, and it
+> is the real reason these files are tied to the build that wrote them.
 
 ## M4 — Algorithmic reference AI ✅ *(implemented — ready for sign-off)*
 

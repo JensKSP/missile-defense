@@ -89,12 +89,37 @@ class Player {
     /// How far through the recording, in [0, 1] — for a progress bar.
     [[nodiscard]] float progress() const noexcept;
 
+    /// Jump to `tick`, clamped to the recording's length.
+    ///
+    /// There is no state to interpolate to: the only way to know the simulation at
+    /// tick N is to have run N ticks. Seeking forward therefore plays forward, and
+    /// seeking back rewinds to the nearest earlier snapshot and plays from there —
+    /// which is what keeps scrubbing backwards on a long episode responsive rather
+    /// than replaying from tick zero every time.
+    void seek(std::uint64_t to_tick);
+
   private:
+    /// A restore point: `Sim` is fixed-capacity POD, so this is a memcpy.
+    struct Snapshot {
+        std::uint64_t tick = 0;
+        std::size_t step = 0;
+        std::uint32_t within = 0;
+        Sim sim;
+    };
+
+    /// Ticks between snapshots — 10 seconds of play at the fixed timestep. Costs a
+    /// few tens of kB across a full episode, and bounds a backwards seek to
+    /// replaying at most this many ticks.
+    static constexpr std::uint64_t snapshot_interval = 600;
+
+    void capture_snapshot();
+
     Recording recording_;
     Sim sim_;
     std::size_t step_ = 0;     // index into recording_.actions
     std::uint32_t within_ = 0; // ticks already spent on the current action
     std::uint64_t ticks_ = 0;
+    std::vector<Snapshot> snapshots_;
 };
 
 } // namespace md::replay

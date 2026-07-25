@@ -2,6 +2,9 @@
 /build/
 /compile_commands.json
 
+# Recorded runs (training artifacts)
+/runs/
+
 # Capture outputs
 /shot*.png
 /clip*.mp4
