@@ -207,10 +207,13 @@ def update(
             nn.utils.clip_grad_norm_(policy.parameters(), config.max_grad_norm)
             optimizer.step()
 
-            stats["policy_loss"] += float(policy_loss)
-            stats["value_loss"] += float(value_loss)
-            stats["entropy"] += float(entropy)
-            stats["clip_fraction"] += float(((ratio - 1.0).abs() > config.clip).float().mean())
+            # Detached: these are for logging, and converting a grad-tracking
+            # tensor to a scalar keeps the graph alive (and torch warns about it).
+            with torch.no_grad():
+                stats["policy_loss"] += policy_loss.item()
+                stats["value_loss"] += value_loss.item()
+                stats["entropy"] += entropy.item()
+                stats["clip_fraction"] += ((ratio - 1.0).abs() > config.clip).float().mean().item()
             updates += 1
 
     return {key: value / max(1, updates) for key, value in stats.items()}
