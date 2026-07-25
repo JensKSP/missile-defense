@@ -38,7 +38,7 @@ TEAL = (74, 205, 194)
 
 
 def _lerp(a: tuple[int, ...], b: tuple[int, ...], t: float) -> tuple[int, ...]:
-    return tuple(round(x + (y - x) * t) for x, y in zip(a, b))
+    return tuple(round(x + (y - x) * t) for x, y in zip(a, b, strict=True))
 
 
 def _fire_ramp(f: float) -> tuple[int, int, int]:
@@ -64,8 +64,14 @@ def render_master() -> Image.Image:
     for y in range(R):
         d.line([(0, y), (R, y)], fill=(*_lerp(NAVY_TOP, NAVY_BOT, y / (R - 1)), 255))
     # Faint starfield.
-    for sx, sy, sr in [(0.16, 0.20, 3), (0.82, 0.16, 4), (0.30, 0.34, 2),
-                       (0.72, 0.30, 3), (0.12, 0.46, 2), (0.88, 0.44, 2)]:
+    for sx, sy, sr in [
+        (0.16, 0.20, 3),
+        (0.82, 0.16, 4),
+        (0.30, 0.34, 2),
+        (0.72, 0.30, 3),
+        (0.12, 0.46, 2),
+        (0.88, 0.44, 2),
+    ]:
         x, y, r = sx * R, sy * R, sr
         d.ellipse([x - r, y - r, x + r, y + r], fill=(150, 170, 210, 120))
 
@@ -73,19 +79,24 @@ def render_master() -> Image.Image:
 
     # Cities + ground line near the bottom.
     ground = 0.83 * R
-    d.line([(0.14 * R, ground), (0.86 * R, ground)], fill=(70, 96, 140, 255), width=max(2, R // 200))
+    d.line(
+        [(0.14 * R, ground), (0.86 * R, ground)], fill=(70, 96, 140, 255), width=max(2, R // 200)
+    )
     for i, bx in enumerate((0.30, 0.50, 0.70)):
         bw, bh = 0.075 * R, (0.05 + 0.015 * (i % 2)) * R
         x = bx * R
-        d.rounded_rectangle([x - bw / 2, ground - bh, x + bw / 2, ground],
-                            radius=R // 90, fill=(*TEAL, 255))
+        d.rounded_rectangle(
+            [x - bw / 2, ground - bh, x + bw / 2, ground], radius=R // 90, fill=(*TEAL, 255)
+        )
 
     body = 0.24 * R
 
     # Soft outer glow: a blurred orange disk composited under the body.
     halo = Image.new("RGBA", (R, R), (0, 0, 0, 0))
-    ImageDraw.Draw(halo).ellipse([cx - body * 1.15, cy - body * 1.15,
-                                  cx + body * 1.15, cy + body * 1.15], fill=(*ORANGE, 200))
+    ImageDraw.Draw(halo).ellipse(
+        [cx - body * 1.15, cy - body * 1.15, cx + body * 1.15, cy + body * 1.15],
+        fill=(*ORANGE, 200),
+    )
     img.alpha_composite(halo.filter(ImageFilter.GaussianBlur(R * 0.045)))
 
     # Fireball body + starburst spikes on their own layer, then composited.

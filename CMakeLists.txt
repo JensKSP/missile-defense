@@ -91,8 +91,48 @@ endif()
 # ---- Testing -----------------------------------------------------------------
 include(CTest)  # defines BUILD_TESTING (ON by default) and calls enable_testing()
 
+# Test framework: Catch2 v3, acquired once here so every test directory (core/,
+# agent/) shares one copy and one CMAKE_MODULE_PATH. Prefer a system Catch2
+# (Debian package `catch2`) so distro/offline builds fetch nothing; otherwise
+# fetch it. If it is neither installed nor fetchable, skip tests rather than fail.
+if(BUILD_TESTING)
+  find_package(Catch2 3 QUIET)
+  if(Catch2_FOUND)
+    if(Catch2_DIR)
+      list(APPEND CMAKE_MODULE_PATH "${Catch2_DIR}") # Catch.cmake ships beside the config
+    endif()
+  elseif(FETCHCONTENT_FULLY_DISCONNECTED)
+    message(WARNING "Catch2 not found and fetching is disabled — skipping tests. "
+                    "Install the 'catch2' package to build and run them.")
+  else()
+    include(FetchContent)
+    FetchContent_Declare(
+      Catch2
+      GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+      GIT_TAG        v3.7.1
+      GIT_SHALLOW    TRUE
+      SYSTEM)
+    FetchContent_MakeAvailable(Catch2)
+    list(APPEND CMAKE_MODULE_PATH "${catch2_SOURCE_DIR}/extras")
+  endif()
+
+  if(TARGET Catch2::Catch2WithMain)
+    include(Catch)
+    # Clang 22+ (newer than the pinned Debian clang-21) flags Catch2's __COUNTER__
+    # use under -Wpedantic as a C2y extension. It comes from Catch2 (SYSTEM,
+    # third-party), so silence it — but the -Wno must sit AFTER md::warnings'
+    # -Wpedantic/-Werror on the command line, so carry it on its own interface
+    # target that each test links *after* md::warnings. Scoped to the tests; the
+    # rest of the tree keeps the pedantic check.
+    add_library(md_test_warnings INTERFACE)
+    target_compile_options(md_test_warnings INTERFACE
+      "$<$<AND:$<CXX_COMPILER_ID:Clang>,$<VERSION_GREATER_EQUAL:$<CXX_COMPILER_VERSION>,22>>:-Wno-c2y-extensions>")
+  endif()
+endif()
+
 # ---- Components ---------------------------------------------------------------
 add_subdirectory(core)
+add_subdirectory(agent)   # scripted reference AI (M4) + the evaluation protocol
 # bindings/ (nanobind)  -> added in Step 2
 
 if(MD_BUILD_APP)

@@ -174,6 +174,11 @@ consequences the API leans on:
 |---|---|
 | `Sim`, `Action`, player model | done |
 | `md/observation.hpp`, `md/intercept.hpp` | done |
-| Scripted baseline (`md::agent`, M4) | next |
+| Scripted baseline + evaluation protocol (`md::agent`, M4) | done — `poe eval` |
 | nanobind bindings, Gymnasium env, `VecSim` (M5) | planned |
 | Episode recording / replay / takeover (M3) | planned |
+
+The learned agent is scored by the **same** `md::agent::evaluate` over the **same**
+`default_seeds`, so "beat the baseline" is a concrete claim. Current baseline:
+mean score 15,583, mean wave 14.4, 0/6 cities surviving, 1.10 kills per
+interceptor ([ROADMAP.md](ROADMAP.md#m4--algorithmic-reference-ai--implemented--ready-for-sign-off)).

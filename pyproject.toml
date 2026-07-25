@@ -20,6 +20,7 @@ release   = { cmd = "cmake --build --preset release", deps = ["configure-release
 rebuild   = { sequence = ["clean", "build"], help = "Clean reconfigure + build" }
 clean     = { cmd = "python -m tools.quality clean", help = "Remove the build directory" }
 app       = { cmd = "python -m tools.run_app", deps = ["release"], help = "Build + run the app (xcb on Linux, so it's screenshot/record-able)" }
+eval      = { cmd = "python -m tools.run_eval", deps = ["release"], help = "Benchmark the scripted baseline (M4) over the canonical seed set" }
 shot      = { cmd = "python -m tools.capture screenshot", help = "Screenshot the running app -> shot.png (append --launch to spawn one)" }
 rec       = { cmd = "python -m tools.capture record", help = "Record the running app -> clip.mp4 (append --launch to spawn one)" }
 contact   = { cmd = "python -m tools.capture frames", help = "Contact-sheet PNG from a video, e.g. `poe contact clip.mp4`" }
