@@ -338,15 +338,57 @@ last eval against the baseline. CPU/RAM row; GPU row when a probe imports.
 curves overlaid. The point at which the console starts answering *"did that change
 help?"* rather than only *"what is happening now?"*.
 
-### Risks worth naming up front
+### Risks, and how each is mitigated structurally
 
-* **Charting.** Qt has no built-in plot. `pyqtgraph` is the pragmatic pick (fast,
-  live-updating, MIT); QtCharts is heavier and its licence is murkier for PySide.
-  Decide in Phase 1, because everything visual rests on it.
-* **Tailing a file being written.** Read incrementally from a held offset rather
-  than re-reading the CSV each tick, or a long run degrades as the file grows.
-* **Scope creep into a trainer.** The UI must never step a simulation or hold model
-  state. If a feature needs that, it belongs in `md.train`, exposed as an artifact.
+A risk with only "be careful" behind it is a worry. Each of these gets a mechanism.
+
+**1. Charting — the whole visual layer rests on a third-party library.**
+
+Qt ships no plot widget. `pyqtgraph` is the pragmatic pick (fast, live, MIT, fine
+alongside LGPL PySide6), but the failure mode is not licensing — it is *"fine at 100
+points, unusable at 10,000"*, discovered after everything is built on it.
+
+* **Isolate it behind our own widget.** `charts.py` exposes `CurveView.append(series,
+  x, y)` and `set_baseline(y)`; nothing else in the UI imports the plotting library.
+  Swapping it out is then one file, not a rewrite.
+* **Spike before committing.** In Phase 1, feed it 20k points updating at 10 Hz —
+  roughly a long run — and watch the frame time. That is a morning's work and it
+  either confirms the choice or kills it while the cost is still zero.
+* **Keep a real fallback.** What this actually needs is 2–4 line series, one
+  horizontal marker, no zoom or pan. That is ~150 lines of `QPainter`. Because a
+  hand-rolled version is genuinely viable, the dependency stays a convenience rather
+  than a lock-in.
+
+> **Licence note:** PySide6 is LGPL while this project is MIT. Dynamic linking keeps
+> that clean, but the console must stay an *optional* component — it must not become
+> a dependency of the game or the `.deb`.
+
+**2. Tailing a file that is still being written.**
+
+* **Hold a byte offset**, `seek` to it, read only what is new. Never re-parse the file.
+* **Buffer the torn last line.** A row can be half-written when you read; keep the
+  remainder and parse only complete lines. This is the bug people actually hit, not
+  the performance one.
+* **Detect replacement.** If the file is shorter than the last offset, it was reset —
+  reopen from zero rather than reading garbage.
+* **Decimate for display, not for storage.** Keep every row; draw a downsampled view
+  once a run is long enough that pixels run out.
+* **Test it without a display.** `sources.py` has no Qt precisely so pytest can write
+  a CSV incrementally — including a torn final line and a truncation — and assert the
+  tailer yields exactly the new rows.
+
+**3. Scope creep into a trainer.**
+
+Make it structural instead of a rule people remember:
+
+* **`md.ui` must never import `torch`.** That is a one-line test — import the package
+  and assert `torch` is absent from `sys.modules` — so the boundary is enforced by CI
+  rather than by discipline. It also keeps the console startable in an environment
+  with no torch at all, which is a feature: you can watch a remote run from anywhere.
+* The UI's only writes are the control file and spawning subprocesses. Everything
+  else is read-only.
+* Any feature that seems to need model state belongs in `md.train`, surfaced as an
+  artifact the UI reads.
 
 ### Before this: onboarding
 
