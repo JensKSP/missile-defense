@@ -23,6 +23,7 @@ app       = { cmd = "python -m tools.run_app", deps = ["release"], help = "Build
 eval      = { cmd = "python -m tools.run_eval", deps = ["release"], help = "Benchmark the scripted baseline (M4) over the canonical seed set" }
 bench     = { cmd = "python -m tools.run_bench", deps = ["release"], help = "Throughput benchmark: how many sims/s does this machine run?" }
 profile   = { cmd = "python -m tools.run_bench --profile", help = "Benchmark with per-phase timers (builds the 'profile' preset)" }
+train     = { cmd = "python -m md.train", help = "Train a policy with PPO (needs torch; see docs/TRAINING.md)" }
 bindings  = { cmd = "python -m tools.build_bindings", help = "Build the Python extension (_md_native) and put it beside the package" }
 shot      = { cmd = "python -m tools.capture screenshot", help = "Screenshot the running app -> shot.png (append --launch to spawn one)" }
 rec       = { cmd = "python -m tools.capture record", help = "Record the running app -> clip.mp4 (append --launch to spawn one)" }
@@ -73,9 +74,22 @@ python_version = "3.11"
 files = ["python/md", "tools"]
 strict = true
 
+# torch is optional and has no MSYS2/MinGW wheel, so the training modules cannot
+# be checked on every machine the rest of the tree is checked on.
+[[tool.mypy.overrides]]
+module = ["torch", "torch.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["md.ppo", "md.train"]
+ignore_errors = true
+
 # ---- pyright (strict static typing) -----------------------------------------
 [tool.pyright]
 include = ["python/md", "tools"]
+# See the mypy note above: without torch installed these degrade to Unknown, so
+# they are checked on a machine that has it rather than pretended to be clean.
+ignore = ["python/md/ppo.py", "python/md/train.py"]
 pythonVersion = "3.11"
 typeCheckingMode = "strict"
 
