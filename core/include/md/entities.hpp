@@ -57,6 +57,10 @@ struct Blast {
     Vec2 center{};
     float age = 0.0f;    // seconds since detonation
     float radius = 0.0f; // current radius, derived from age
+    // Threats this blast has destroyed over its whole life, not per tick. A
+    // training reward wants to know whether an interceptor earned its keep, and
+    // that is only answerable once the blast has finished expanding.
+    std::uint32_t kills = 0;
 };
 
 /// A cosmetic ground-impact fireball (does NOT destroy threats). Spawned when a

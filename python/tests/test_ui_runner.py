@@ -54,7 +54,19 @@ class FakeSpawn:
 
 
 def _build_app(root: Path, preset: str = "release") -> Path:
-    binary = root / "build" / preset / "app" / f"md_app{EXE}"
+    """A fake build, in the layout *this* machine's build would produce.
+
+    The tests below are about the search order — release before debug, MD_APP
+    over both, PATH last — which is the same everywhere. They ask app_binary for
+    this platform's answer, so the fake has to be this platform's shape, exactly
+    as `EXE` already does for Windows. The layouts themselves are pinned by the
+    tests that name a platform outright.
+    """
+    app_dir = root / "build" / preset / "app"
+    if sys.platform == "darwin":
+        binary = app_dir / "md_app.app" / "Contents" / "MacOS" / "md_app"
+    else:
+        binary = app_dir / f"md_app{EXE}"
     binary.parent.mkdir(parents=True)
     binary.write_text("", encoding="utf-8")
     return binary

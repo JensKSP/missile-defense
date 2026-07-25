@@ -21,6 +21,13 @@ namespace md {
 struct StepResult {
     std::int32_t reward = 0; // score delta this tick (the RL reward seed)
     bool terminated = false; // all cities destroyed — episode over
+    // Two facts about how the ammunition was spent. The simulation reports them
+    // and prices nothing: what a wasted shot or a double kill is *worth* is a
+    // reward-design question, and it lives in the training layer (md.env.Shaping)
+    // so that the score — and therefore the benchmark every agent is measured on
+    // — stays exactly what DESIGN §4.3 specifies.
+    std::int32_t wasted = 0;      // blasts that expired this tick having killed nothing
+    std::int32_t multi_kills = 0; // kills beyond a blast's first
 };
 
 /// The Missile Command simulation: a self-contained, deterministic POD value.
@@ -136,6 +143,12 @@ class Sim {
     std::uint64_t tick_ = 0;
     std::uint32_t wave_ = 0;
     bool terminated_ = false;
+
+    // Reset at the top of every step; reported in that step's StepResult. Members
+    // rather than return values because they are produced in two different phases
+    // (a blast expiring, and a blast killing) and consumed in one.
+    std::int32_t tick_wasted_ = 0;
+    std::int32_t tick_multi_kills_ = 0;
 
     // Wave/spawn progression.
     std::int32_t next_bonus_score_ = 0;  // score at which the next bonus city is earned

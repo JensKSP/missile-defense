@@ -34,8 +34,14 @@ jobs:
       - name: Install task runner + Python tools
         # numpy is not optional here: md.env types its buffer contract with
         # numpy.typing, so without it mypy cannot resolve the annotations and
-        # test_env.py fails to import.
-        run: pip install --break-system-packages poethepoet ruff pytest mypy pyright numpy
+        # test_env.py fails to import. Held below 2.5 because that release
+        # dropped Python 3.11 and writes PEP 695 `type` statements in its stubs,
+        # which mypy rejects outright under this project's python_version = 3.11
+        # — an error in numpy's own stub file, unfixable from here. Pillow so
+        # tools/make_icon.py is really type-checked rather than waved through.
+        run: |
+          pip install --break-system-packages poethepoet ruff pytest mypy pyright \
+                      "numpy<2.5" pillow
 
       - name: Full quality gate
         # format, lint, types, clang-tidy, tests (Debug + Release), coverage >=80%

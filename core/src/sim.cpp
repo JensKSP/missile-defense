@@ -84,6 +84,8 @@ void Sim::push_event(EventType type, Vec2 pos) noexcept {
 
 StepResult Sim::step(const Action& action) noexcept {
     event_count_ = 0; // events are per-step
+    tick_wasted_ = 0;
+    tick_multi_kills_ = 0;
 
     if (terminated_) {
         ++tick_;
@@ -113,7 +115,10 @@ StepResult Sim::step(const Action& action) noexcept {
     update_termination();           // all cities destroyed?
 
     ++tick_;
-    return StepResult{.reward = score_ - score_before, .terminated = terminated_};
+    return StepResult{.reward = score_ - score_before,
+                      .terminated = terminated_,
+                      .wasted = tick_wasted_,
+                      .multi_kills = tick_multi_kills_};
 }
 
 void Sim::update_cooldowns() noexcept {
@@ -216,6 +221,11 @@ void Sim::advance_blasts() noexcept {
         Blast& blast = blasts_[i];
         blast.age += config_.dt;
         if (blast.age >= config_.blast_lifetime) {
+            // It has finished expanding, so this is the first moment the question
+            // "did that interceptor achieve anything?" has a final answer.
+            if (blast.kills == 0) {
+                ++tick_wasted_;
+            }
             blasts_[i] = blasts_[blast_count_ - 1];
             --blast_count_;
         } else {
@@ -289,14 +299,23 @@ std::int32_t Sim::resolve_blast_hits() noexcept {
     std::uint32_t i = 0;
     while (i < threat_count_) {
         bool killed = false;
+        std::uint32_t by = 0; // which blast got it — needed to credit the kill
         for (std::uint32_t b = 0; b < blast_count_; ++b) {
             const float radius = blasts_[b].radius;
             if (distance_sq(threats_[i].pos, blasts_[b].center) <= (radius * radius)) {
                 killed = true;
+                by = b;
                 break;
             }
         }
         if (killed) {
+            // Every kill after a blast's first costs no extra ammunition — which
+            // is the whole of the headroom over the scripted agent's 1.10 kills
+            // per interceptor, so it is counted separately.
+            if (blasts_[by].kills > 0) {
+                ++tick_multi_kills_;
+            }
+            ++blasts_[by].kills;
             reward += config_.score_per_kill;
             push_event(EventType::ThreatKilled, threats_[i].pos);
             threats_[i] = threats_[threat_count_ - 1];

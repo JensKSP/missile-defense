@@ -68,6 +68,16 @@ class VecEnv {
     void step(const std::int32_t* actions, float* obs, float* final_obs, float* rewards,
               bool* terminated, bool* truncated);
 
+    /// How the last `step` spent its ammunition, one entry per environment:
+    /// blasts that expired having killed nothing, and kills beyond a blast's
+    /// first. Summed over the skipped ticks, exactly as the reward is.
+    ///
+    /// Read after `step` rather than returned from it, the same shape as
+    /// `take_episode_result`: these are optional diagnostics that only a training
+    /// reward wants, and threading two more output arrays through every caller
+    /// would make the common path pay for them.
+    void shot_stats(std::int32_t* wasted, std::int32_t* multi_kills) const;
+
     /// Validity mask over the discrete action space, `num_envs * action_count`
     /// entries. Masking these out saves a policy from having to discover that
     /// firing an empty battery does nothing. `bool` is one byte here and NumPy's
@@ -104,6 +114,9 @@ class VecEnv {
 
     std::vector<Sim> sims_;
     std::vector<std::uint64_t> episode_ticks_;
+    // Per-env tallies for the last step; one slot each so worker ranges stay disjoint.
+    std::vector<std::int32_t> wasted_;
+    std::vector<std::int32_t> multi_kills_;
     // Recording state, one slot per env so the worker ranges stay disjoint.
     std::vector<std::uint8_t> recording_on_; // not vector<bool>: workers write it
     std::vector<std::uint64_t> episode_seed_;
