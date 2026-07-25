@@ -124,11 +124,7 @@ class VecEnv:
         simulation state — just the layout offsets.
         """
         spec = self._spec
-        base = (
-            spec.threats * 9
-            + spec.interceptors * 7
-            + spec.blasts * 4
-        )
+        base = spec.threats * 9 + spec.interceptors * 7 + spec.blasts * 4
         bases = self._obs[:, base : base + _native.BASE_COUNT * 4].reshape(
             self.num_envs, _native.BASE_COUNT, 4
         )
@@ -155,7 +151,9 @@ class VecEnv:
         self._native.action_masks(self._mask)
         return self._mask
 
-    def step(self, actions: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, dict]:
+    def step(
+        self, actions: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, dict]:
         actions = np.ascontiguousarray(actions, dtype=np.int32)
         self._native.step(
             actions,

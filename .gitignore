@@ -10,6 +10,9 @@
 # Python
 .venv/
 venv/
+# The compiled extension, copied beside the package for in-place dev/test use
+/python/md/_md_native*.pyd
+/python/md/_md_native*.so
 __pycache__/
 *.py[cod]
 .pytest_cache/
