@@ -13,6 +13,7 @@
 #include <miniaudio.h>
 #include <mutex>
 #include <numbers>
+#include <utility>
 #include <vector>
 
 #ifdef _WIN32
@@ -372,14 +373,14 @@ template <class Fn> void init_audio_device(Fn&& fn) {
 #ifdef _WIN32
     std::thread worker([&] {
         const HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-        fn();
+        std::forward<Fn>(fn)(); // invoked exactly once, on this thread
         if (SUCCEEDED(hr)) {
             CoUninitialize();
         }
     });
     worker.join(); // join before returning: synchronises fn's writes to impl_
 #else
-    fn();
+    std::forward<Fn>(fn)();
 #endif
 }
 

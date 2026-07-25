@@ -15,7 +15,6 @@ Checks: >
   -cppcoreguidelines-avoid-do-while,
   -bugprone-easily-swappable-parameters,
   -cppcoreguidelines-pro-bounds-constant-array-index,
-  -cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,
   -readability-uppercase-literal-suffix,
   -readability-redundant-member-init,
   -modernize-use-designated-initializers,
@@ -35,13 +34,25 @@ Checks: >
 #    cognitive-complexity (the per-state renderer draw), pointer-arithmetic /
 #    array decay / C-arrays (audio mixer, vertex buffers, push constants,
 #    generated SPIR-V headers), owning-memory (Qt factory ownership handoff).
-#  * pro-bounds-avoid-unchecked-container-access (new in clang-tidy 22; the
-#    successor to pro-bounds-constant-array-index above) fires on *every*
-#    `operator[]`. The bounds-safe alternative it suggests, `.at()`, throws — and
-#    the simulation hot path is `noexcept` and exception-free by design
-#    (DESIGN.md §9). Indices there are bounded by fixed capacities and the
-#    surrounding logic, so this would be pure noise.
+
+# Two checks added in clang-tidy 22 are *scoped* rather than switched off, so they
+# keep working everywhere they are meaningful (see CheckOptions below):
+#  * pro-bounds-avoid-unchecked-container-access — successor to
+#    pro-bounds-constant-array-index. Excluded for the sequence containers this
+#    codebase indexes directly (array, span, vector): every such index is already
+#    bounded by a fixed capacity, a size() loop, or an explicit check, and the
+#    alternative it suggests, `.at()`, throws — which the noexcept, exception-free
+#    hot path forbids (DESIGN.md §9). Left enabled otherwise, so indexing a
+#    container we do not currently use still has to justify itself.
+#  * invalid-enum-default-initialization — ignored only for the Vulkan (`Vk*`) and
+#    miniaudio (`ma_*`) C enums. Those structs *must* be zero-initialised before
+#    their fields are filled in, and 0 is the documented "unset" state. It stays on
+#    for our own enums, where a zero-value gap would be a genuine bug.
 
 WarningsAsErrors: '*'
 HeaderFilterRegex: '.*/(core|bindings|app)/.*'
 FormatStyle: file
+
+CheckOptions:
+  cppcoreguidelines-pro-bounds-avoid-unchecked-container-access.ExcludeClasses: '::std::map;::std::unordered_map;::std::flat_map;::std::array;::std::span;::std::vector'
+  bugprone-invalid-enum-default-initialization.IgnoredEnums: '::std::errc;::Vk.*;::ma_.*'

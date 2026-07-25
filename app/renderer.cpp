@@ -308,7 +308,9 @@ void alloc_buffer(QVulkanWindow* win, QVulkanDeviceFunctions* dev, VkDeviceSize 
 
 } // namespace
 
-Renderer::Renderer(GameWindow* window) noexcept : window_{window} {
+// Not noexcept: build_stars() fills a std::vector, so construction can throw on
+// allocation failure. Only the simulation hot path promises never to throw.
+Renderer::Renderer(GameWindow* window) : window_{window} {
     build_stars();
 }
 
@@ -376,15 +378,20 @@ void Renderer::createPipeline() {
     layout_info.pPushConstantRanges = &push;
     dev_->vkCreatePipelineLayout(device, &layout_info, nullptr, &pipeline_layout_);
 
-    std::array<VkPipelineShaderStageCreateInfo, 2> stages{};
-    stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-    stages[0].module = vert;
-    stages[0].pName = "main";
-    stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-    stages[1].module = frag;
-    stages[1].pName = "main";
+    // Built as two separate structs rather than zero-initialising an array of
+    // them: each stage names its shader-stage bit explicitly, which is clearer and
+    // keeps the enum out of a default-initialised aggregate.
+    VkPipelineShaderStageCreateInfo vert_stage{};
+    vert_stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    vert_stage.stage = VK_SHADER_STAGE_VERTEX_BIT;
+    vert_stage.module = vert;
+    vert_stage.pName = "main";
+    VkPipelineShaderStageCreateInfo frag_stage{};
+    frag_stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    frag_stage.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    frag_stage.module = frag;
+    frag_stage.pName = "main";
+    const std::array<VkPipelineShaderStageCreateInfo, 2> stages{vert_stage, frag_stage};
 
     std::array<VkVertexInputBindingDescription, 2> bindings{};
     bindings[0].binding = 0;
@@ -607,7 +614,7 @@ void Renderer::startNextFrame() {
                   1.0f, true);
         draw_text(inst, "BY JENS KOEHLER", cx, world_h * 0.76f, world_h * 0.010f, 0.55f, 0.60f,
                   0.68f, true);
-        const int count = window_->menu_count();
+        const int count = GameWindow::menu_count();
         for (int i = 0; i < count; ++i) {
             const bool sel = window_->menu_index() == i;
             const float y = window_->menu_item_top_y(i);
@@ -653,10 +660,9 @@ void Renderer::startNextFrame() {
                                                     "MISSILE COMMAND IS AN",
                                                     "ATARI TRADEMARK",
                                                     "INDEPENDENT NON COMMERCIAL HOMAGE"};
-        for (int i = 0; i < static_cast<int>(lines.size()); ++i) {
+        for (std::size_t i = 0; i < lines.size(); ++i) {
             const float y = world_h * (0.79f - (static_cast<float>(i) * 0.08f));
-            draw_text(inst, lines[static_cast<std::size_t>(i)], cx, y, world_h * 0.011f, 0.78f,
-                      0.83f, 0.9f, true);
+            draw_text(inst, lines[i], cx, y, world_h * 0.011f, 0.78f, 0.83f, 0.9f, true);
         }
         draw_text(inst, "PRESS ENTER", cx, world_h * 0.05f, world_h * 0.010f, 0.6f, 0.65f, 0.7f,
                   true);

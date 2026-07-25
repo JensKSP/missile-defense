@@ -52,9 +52,10 @@ void HighscoreTable::load() {
         int score = 0;
         while (in >> initials >> score) {
             HighscoreEntry entry;
-            for (std::size_t i = 0; i < entry.initials.size(); ++i) {
-                entry.initials[i] = (i < initials.size()) ? initials[i] : ' ';
-            }
+            // Copy as many initials as the file supplied, space-padding the rest.
+            entry.initials.fill(' ');
+            std::copy_n(initials.begin(), std::min(initials.size(), entry.initials.size()),
+                        entry.initials.begin());
             entry.score = score;
             entries_.push_back(entry);
         }

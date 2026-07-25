@@ -27,7 +27,7 @@ struct Star {
 /// from the Sim into per-frame-in-flight buffers.
 class Renderer : public QVulkanWindowRenderer {
   public:
-    explicit Renderer(GameWindow* window) noexcept;
+    explicit Renderer(GameWindow* window);
 
     void initResources() override;
     void releaseResources() override;
