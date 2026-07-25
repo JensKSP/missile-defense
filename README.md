@@ -5,6 +5,8 @@ project for learning AI / machine learning. The same deterministic C++
 simulation is played by humans (Qt 6 + Vulkan) and — as a headless, fast,
 reproducible environment — used to train a reinforcement-learning agent.
 
+![A MIRV splitting mid-descent over the cities, with interceptor trails and a fireball](docs/images/gameplay.png)
+
 *By Jens Köhler · [MIT License](LICENSE) · developed with [Claude Code](https://claude.com/claude-code) (Anthropic).*
 
 - Game design (and reward spec): [docs/DESIGN.md](docs/DESIGN.md)
@@ -29,6 +31,11 @@ reproducible environment — used to train a reinforcement-learning agent.
   replays are bit-identical (Debug == Release), gated by a golden checksum test.
 - **Zero-warning, tested** — `-Werror`, strict clang-tidy, ruff + mypy, and
   ≥ 80 % core line coverage — all enforced by one `poe check` gate.
+
+| | |
+|:---:|:---:|
+| ![The title menu, drawn in the game's own pixel font](docs/images/menu.png) | ![Interceptor blasts expanding over the skyline](docs/images/intercept.png) |
+| **Full arcade shell** — menu, options, help, highscores | **Interceptors** — travel time, then an expanding blast |
 
 ## Requirements
 
