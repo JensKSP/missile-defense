@@ -293,3 +293,65 @@ surface.
   it never steps a simulation itself.
 * Depends on M6 being genuinely runnable — a console for a run that does not learn is a
   pretty window. Sequence it after the first real training run, not before.
+
+### Execution plan
+
+Sequenced so that **every phase ends with something usable**. Nothing here is a
+big-bang: if work stops after any phase, what exists still earns its place.
+
+```
+python/md/ui/
+  __init__.py
+  app.py         # QApplication bootstrap, window, `poe ui` entry point
+  runner.py      # spawn/attach to training; the control file; stdout stream
+  sources.py     # tail metrics.csv, list recordings + checkpoints (no Qt)
+  charts.py      # the curve widget, baseline line included
+  system.py      # psutil sampler + the GpuProbe protocol
+  probes/        # nvidia.py, amd.py — soft imports, one file per vendor
+  theme.py       # palette lifted from the game, dark by default
+```
+
+`sources.py` and `runner.py` hold **no Qt**, so both are unit-testable under
+pytest without a display — which is what keeps this from being a milestone with no
+tests.
+
+**Phase 1 — Monitor (read-only).** Tail `metrics.csv`, draw return / entropy /
+value with the baseline line, list recordings newest-first, double-click to launch
+`md_app --replay`. Attaches to a run started from a terminal; cannot start one.
+*Usable on its own: this is the panel you leave open during a run.*
+
+**Phase 2 — Control.** The control file protocol (`runs/control.json`), polled once
+per update by the training loop, plus start / pause / resume / graceful stop in the
+UI. **The training-loop half ships first and independently** — `touch runs/STOP`
+must work before any button does, because that is what keeps the UI a convenience
+over the mechanism rather than the only way in.
+
+**Phase 3 — Parameters.** The four headline fields plus *Advanced*, tooltips
+sourced from the dataclass docstrings so they cannot drift from the code. Launches
+a configured run; writes the config next to the checkpoints so a run records what
+produced it.
+
+**Phase 4 — Model & system.** Parameter count, layer shapes, checkpoint iteration,
+last eval against the baseline. CPU/RAM row; GPU row when a probe imports.
+
+**Phase 5 — Compare.** Two checkpoints side by side, their eval summaries and
+curves overlaid. The point at which the console starts answering *"did that change
+help?"* rather than only *"what is happening now?"*.
+
+### Risks worth naming up front
+
+* **Charting.** Qt has no built-in plot. `pyqtgraph` is the pragmatic pick (fast,
+  live-updating, MIT); QtCharts is heavier and its licence is murkier for PySide.
+  Decide in Phase 1, because everything visual rests on it.
+* **Tailing a file being written.** Read incrementally from a held offset rather
+  than re-reading the CSV each tick, or a long run degrades as the file grows.
+* **Scope creep into a trainer.** The UI must never step a simulation or hold model
+  state. If a feature needs that, it belongs in `md.train`, exposed as an artifact.
+
+### Before this: onboarding
+
+Independent of the console, and higher leverage for reach. The README is currently a
+reference, so a newcomer meets a dependency matrix before a missile. Add a **quick
+start** — clone, build, play, watch the AI — with the requirement tables demoted to
+reference below it. Small, self-contained, and the thing most likely to decide
+whether someone runs this at all.
