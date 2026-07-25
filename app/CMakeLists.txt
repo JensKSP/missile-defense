@@ -152,12 +152,10 @@ if(WIN32)
     DESTINATION .)
   install(DIRECTORY "${CMAKE_SOURCE_DIR}/licenses" DESTINATION .)
 elseif(APPLE)
-  # macOS: the .app for the DMG, the same shape as the Windows layout — the
-  # bundle carries its own Qt, and the licence texts sit beside it. It does not
-  # carry MoltenVK: macdeployqt bundles what the binary *links*, and the Metal
-  # driver is dlopened by the Vulkan loader from an ICD manifest outside the
-  # bundle. So this .app still needs MoltenVK on the target machine — the one
-  # gap between it and the Windows/Debian packages (docs/MACOS.md).
+  # macOS: a self-contained .app for the DMG, the same shape as the Windows
+  # layout — the bundle carries its own Qt *and* its own Metal driver, and the
+  # licence texts sit beside it. The work itself is in deploy_macos.cmake.in,
+  # which runs at install time; everything here is finding what it needs.
   install(TARGETS md_app BUNDLE DESTINATION .)
 
   # macdeployqt is qtbase's equivalent of tools/windeploy.sh: it copies the Qt
@@ -168,37 +166,37 @@ elseif(APPLE)
     get_filename_component(md_qt_bin "${md_qmake}" DIRECTORY)
   endif()
   find_program(MACDEPLOYQT macdeployqt HINTS "${md_qt_bin}")
-  if(NOT MACDEPLOYQT)
-    # Not fatal here: building and running from the build tree needs no
-    # deployment at all. Only installing/packaging does, so fail there instead.
-    message(STATUS "md_app: macdeployqt not found — `cmake --install` and "
-                   "`cpack` will fail until Qt's bin directory is on PATH")
+
+  # The driver the loader dlopens. Frameworks are searched last on purpose:
+  # molten-vk ships MoltenVK.xcframework beside the dylib, and find_library
+  # prefers frameworks on Apple — the bundle needs the plain dylib.
+  set(md_saved_find_framework "${CMAKE_FIND_FRAMEWORK}")
+  set(CMAKE_FIND_FRAMEWORK NEVER)
+  find_library(MD_MOLTENVK_LIBRARY NAMES MoltenVK)
+  set(CMAKE_FIND_FRAMEWORK "${md_saved_find_framework}")
+
+  # Its ICD manifest, taken from the same installation as the dylib rather than
+  # searched for independently, so the two can never come from different copies.
+  if(MD_MOLTENVK_LIBRARY)
+    get_filename_component(md_mvk_libdir "${MD_MOLTENVK_LIBRARY}" DIRECTORY)
+    get_filename_component(md_mvk_prefix "${md_mvk_libdir}" DIRECTORY)
+    find_file(MD_MOLTENVK_ICD
+      NAMES MoltenVK_icd.json
+      PATHS "${md_mvk_prefix}/etc/vulkan/icd.d" "${md_mvk_prefix}/share/vulkan/icd.d"
+      NO_DEFAULT_PATH)
   endif()
-  install(CODE "
-    set(md_macdeployqt \"${MACDEPLOYQT}\")
-    if(NOT md_macdeployqt)
-      message(FATAL_ERROR \"macdeployqt not found: cannot bundle Qt into the .app\")
-    endif()
-    set(md_bundle \"\${CMAKE_INSTALL_PREFIX}/md_app.app\")
-    message(STATUS \"macdeployqt: bundling Qt into \${md_bundle} ...\")
-    execute_process(
-      COMMAND \"\${md_macdeployqt}\" \"\${md_bundle}\" -always-overwrite
-      RESULT_VARIABLE md_deploy_rc)
-    if(NOT md_deploy_rc EQUAL 0)
-      message(FATAL_ERROR \"macdeployqt failed (code \${md_deploy_rc})\")
-    endif()
-    # Re-sign ad-hoc. The linker ad-hoc signs every arm64 binary it produces, and
-    # macdeployqt then rewrites the load commands, which invalidates that
-    # signature — an arm64 binary with a broken signature is killed on launch.
-    # This is not Developer ID signing: the DMG is still unsigned and unnotarised
-    # (see docs/MACOS.md), it just runs once the user clears quarantine.
-    execute_process(
-      COMMAND codesign --force --deep --sign - \"\${md_bundle}\"
-      RESULT_VARIABLE md_sign_rc)
-    if(NOT md_sign_rc EQUAL 0)
-      message(FATAL_ERROR \"ad-hoc codesign failed (code \${md_sign_rc})\")
-    endif()
-  ")
+
+  # None of these is fatal here: building and running from the build tree needs
+  # no deployment at all. Only installing and packaging do, and the script says
+  # so there, where the message can be about the thing you were actually doing.
+  if(NOT MACDEPLOYQT OR NOT MD_MOLTENVK_LIBRARY OR NOT MD_MOLTENVK_ICD)
+    message(STATUS "md_app: macdeployqt and/or MoltenVK not found — the build is "
+                   "fine, but `cmake --install` and `cpack` will fail")
+  endif()
+
+  configure_file(deploy_macos.cmake.in
+    "${CMAKE_CURRENT_BINARY_DIR}/deploy_macos.cmake" @ONLY)
+  install(SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/deploy_macos.cmake")
 
   install(FILES "${CMAKE_SOURCE_DIR}/LICENSE"
                 "${CMAKE_SOURCE_DIR}/THIRD_PARTY_LICENSES.md"

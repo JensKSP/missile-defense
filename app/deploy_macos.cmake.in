@@ -1,0 +1,111 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Jens Köhler
+# Assisted-by: Claude Code (Anthropic)
+#
+# Install-time deployment of the macOS bundle. Configured from
+# app/deploy_macos.cmake.in and run by `cmake --install` / `cpack` — a real file
+# rather than an install(CODE) string so the quoting stays readable.
+#
+# Three steps, and the order is forced: each one would undo the work of the next.
+#   1. macdeployqt copies Qt in and rewrites the executable's load commands.
+#   2. MoltenVK is placed by hand — macdeployqt follows link-time dependencies,
+#      and the driver is dlopened, not linked, so it never sees it.
+#   3. Everything is signed, which has to come after anything that edits a Mach-O
+#      file inside the bundle.
+
+set(macdeployqt "@MACDEPLOYQT@")
+set(moltenvk_lib "@MD_MOLTENVK_LIBRARY@")
+set(moltenvk_icd "@MD_MOLTENVK_ICD@")
+set(codesign_id "@MD_MACOS_CODESIGN_IDENTITY@")
+set(bundle "${CMAKE_INSTALL_PREFIX}/md_app.app")
+
+if(NOT macdeployqt)
+  message(FATAL_ERROR
+    "macdeployqt was not found when this build was configured, so Qt cannot be "
+    "bundled. Put Qt's bin directory on PATH (brew --prefix qtbase) and "
+    "reconfigure.")
+endif()
+if(NOT moltenvk_lib OR NOT moltenvk_icd)
+  message(FATAL_ERROR
+    "MoltenVK was not found when this build was configured. Without it the .app "
+    "would silently depend on the target machine having Homebrew's copy — which "
+    "is the one thing a disk image must not do. Run `brew install molten-vk` "
+    "and reconfigure.")
+endif()
+
+# ---- 1. Qt -------------------------------------------------------------------
+message(STATUS "macdeployqt: bundling Qt into ${bundle}")
+execute_process(
+  COMMAND "${macdeployqt}" "${bundle}" -always-overwrite
+  RESULT_VARIABLE rc)
+if(NOT rc EQUAL 0)
+  message(FATAL_ERROR "macdeployqt failed (code ${rc})")
+endif()
+
+# ---- 2. The Metal driver -----------------------------------------------------
+# Resolve the symlink chain first: Homebrew's lib/libMoltenVK.dylib points into
+# the Cellar, and a bundle that carries a dangling link into a directory the
+# target machine does not have is worse than carrying nothing.
+get_filename_component(moltenvk_real "${moltenvk_lib}" REALPATH)
+get_filename_component(moltenvk_name "${moltenvk_real}" NAME)
+set(frameworks "${bundle}/Contents/Frameworks")
+set(icd_dir "${bundle}/Contents/Resources/vulkan/icd.d")
+message(STATUS "MoltenVK: copying ${moltenvk_real} into the bundle")
+file(MAKE_DIRECTORY "${frameworks}" "${icd_dir}")
+file(COPY "${moltenvk_real}" DESTINATION "${frameworks}")
+
+# Rewrite library_path and nothing else. This manifest is the loader's whole
+# description of the driver, and api_version / is_portability_driver are how it
+# decides whether to expose the device at all — hand-writing them is how a device
+# quietly stops enumerating. A relative library_path resolves against the
+# manifest's own directory, which is what makes the bundle relocatable.
+file(READ "${moltenvk_icd}" icd_json)
+string(REGEX REPLACE
+  "\"library_path\"[ \t]*:[ \t]*\"[^\"]*\""
+  "\"library_path\": \"../../../Frameworks/${moltenvk_name}\""
+  icd_json "${icd_json}")
+if(NOT icd_json MATCHES "\\.\\./\\.\\./\\.\\./Frameworks/")
+  message(FATAL_ERROR
+    "could not rewrite library_path in ${moltenvk_icd}. The bundled manifest "
+    "would still point at this machine's MoltenVK, so the .app would only run "
+    "here. Manifest contents:\n${icd_json}")
+endif()
+file(WRITE "${icd_dir}/MoltenVK_icd.json" "${icd_json}")
+
+# ---- 3. Signature ------------------------------------------------------------
+# Not optional, even locally: the linker ad-hoc signs every arm64 binary it
+# emits, step 1 rewrote load commands and thereby broke that signature, and an
+# arm64 binary whose signature does not match is killed on launch.
+#
+# Nested code first, the bundle last — that order is what `codesign --deep` gets
+# wrong, and Apple rejects --deep for anything destined for notarisation. The
+# hardened runtime rides along with a real identity rather than being a separate
+# switch, because a Developer ID build without it is refused at submission.
+set(sign_args --force --sign "${codesign_id}")
+if(NOT codesign_id STREQUAL "-")
+  list(APPEND sign_args --options runtime --timestamp)
+endif()
+
+file(GLOB_RECURSE nested_binaries "${frameworks}/*.dylib" "${bundle}/Contents/PlugIns/*.dylib")
+# A Qt framework is a *versioned* bundle, and codesign wants the version
+# directory rather than the symlinked root, which it can reject as an
+# unrecognised layout. [A-Z] is one character, so it takes Versions/A and leaves
+# the Versions/Current symlink alone.
+file(GLOB framework_versions LIST_DIRECTORIES true "${frameworks}/*.framework/Versions/[A-Z]")
+message(STATUS "codesign: signing as '${codesign_id}'")
+foreach(item IN LISTS nested_binaries framework_versions)
+  execute_process(COMMAND codesign ${sign_args} "${item}" RESULT_VARIABLE rc)
+  if(NOT rc EQUAL 0)
+    message(FATAL_ERROR "codesign failed on ${item} (code ${rc})")
+  endif()
+endforeach()
+execute_process(COMMAND codesign ${sign_args} "${bundle}" RESULT_VARIABLE rc)
+if(NOT rc EQUAL 0)
+  message(FATAL_ERROR "codesign failed on ${bundle} (code ${rc})")
+endif()
+
+# Cheap proof the result is coherent; a bundle that fails this will not launch.
+execute_process(COMMAND codesign --verify --strict "${bundle}" RESULT_VARIABLE rc)
+if(NOT rc EQUAL 0)
+  message(FATAL_ERROR "the signed bundle does not verify (code ${rc})")
+endif()

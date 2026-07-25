@@ -51,6 +51,13 @@ option(MD_LTO "Link-time optimisation (ThinLTO) — cross-TU inlining" OFF)
 option(MD_BUILD_BINDINGS "Build the nanobind Python extension (needs Python + nanobind)" OFF)
 set(MD_PGO "off" CACHE STRING "Profile-guided optimisation: off | generate | use")
 set_property(CACHE MD_PGO PROPERTY STRINGS off generate use)
+# macOS only. "-" is an ad-hoc signature: enough to launch the bundle on the
+# machine that built it (arm64 refuses to run unsigned code at all), never enough
+# to hand to anyone else, because it carries no identity Gatekeeper can check.
+# Set it to a "Developer ID Application: ..." certificate to produce something
+# notarisable — see docs/MACOS.md.
+set(MD_MACOS_CODESIGN_IDENTITY "-" CACHE STRING
+    "codesign identity for the macOS bundle; \"-\" means ad-hoc")
 
 # ---- Warnings ----------------------------------------------------------------
 # Opt-in via `target_link_libraries(<t> PRIVATE md::warnings)`. Keeps strict

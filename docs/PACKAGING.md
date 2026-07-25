@@ -27,9 +27,10 @@ convenience for testing a local package — it cannot express the multi-binary
 split below, so when that lands, `debian/` is where it lands.
 
 On macOS, `poe dmg` builds a drag-to-Applications image containing `md_app.app`
-with the Qt frameworks inside it. It is unsigned, unnotarised, and still expects
-MoltenVK on the target machine; [MACOS.md](MACOS.md#packaging) has the detail on
-both limits and what closing them would take.
+with the Qt frameworks *and* MoltenVK inside it, so it depends on nothing but
+macOS. It is ad-hoc signed by default, which runs but is not distributable;
+[MACOS.md](MACOS.md#signing-it-for-other-people) covers the Developer ID and
+notarisation path.
 
 ## Where a run's files go
 

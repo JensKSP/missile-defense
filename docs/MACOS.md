@@ -14,9 +14,11 @@ macOS delta.
 > **Status: built and tested in CI, never run by a human.** This port was written
 > without access to a Mac. The `macos` job in
 > [.github/workflows/ci.yml](../.github/workflows/ci.yml) compiles the renderer
-> and runs the full simulation test suite on every push, so the *simulation* is
-> genuinely verified on arm64. Nobody has yet watched a frame of it. If you have
-> a Mac and it misbehaves, that is a bug worth reporting, not your setup.
+> and runs all 104 C++ tests — Debug with sanitizers, and Release — on Apple
+> silicon on every push, and they pass: the *simulation* is genuinely verified on
+> arm64 and libc++. What no runner can check is the part that needs a screen.
+> Nobody has yet watched a frame of this. If you have a Mac and it misbehaves,
+> that is a bug worth reporting, not your setup.
 
 ## Quick start
 
@@ -86,29 +88,56 @@ is installed.
 
 ## Packaging
 
-`poe dmg` builds a drag-to-Applications disk image into `build/release/`. It runs
-`macdeployqt` to copy the Qt frameworks into the bundle and rewrite the load
-paths — the direct equivalent of [tools/windeploy.sh](../tools/windeploy.sh) on
-Windows — then re-signs the bundle ad-hoc, because rewriting load commands
-invalidates the signature the linker applies to every arm64 binary, and an arm64
-binary with a broken signature is killed on launch.
+`poe dmg` builds a drag-to-Applications disk image into `build/release/`. The work
+is in [app/deploy_macos.cmake.in](../app/deploy_macos.cmake.in), which runs at
+install time in three steps whose order is forced — each would undo the next:
 
-Two honest limits on that DMG:
+1. **`macdeployqt`** copies the Qt frameworks and the cocoa platform plugin into
+   the bundle and rewrites the executable's load commands. The direct equivalent
+   of [tools/windeploy.sh](../tools/windeploy.sh) on Windows.
+2. **MoltenVK is copied in by hand**, and its ICD manifest rewritten to point at
+   the copy by a path relative to the bundle. `macdeployqt` cannot do this: it
+   follows link-time dependencies, and `md_app` links the Vulkan *loader*, never
+   the driver — the loader `dlopen`s that from a manifest it locates by path at
+   runtime. [app/main.cpp](../app/main.cpp) aims `VK_DRIVER_FILES` at the bundled
+   manifest before the first Vulkan call, and does nothing when there is none, so
+   a build tree still uses whatever Homebrew installed.
+3. **Everything is signed**, nested code first and the bundle last. Not optional
+   even for a local build: the linker ad-hoc signs every arm64 binary it emits,
+   step 1 invalidated that by rewriting load commands, and an arm64 binary whose
+   signature does not match is killed on launch.
 
-- **It is not notarised, and not signed with a Developer ID.** That needs an
-  Apple Developer account (99 USD/year). Gatekeeper will refuse to open it on
-  another machine until the user clears quarantine
-  (`xattr -dr com.apple.quarantine "/Applications/md_app.app"`). Signing and
-  notarising can in fact be done without a Mac — [`rcodesign`][rcodesign] does
-  Mach-O signing and notary submission from Linux or Windows — but it still needs
-  the paid certificate.
-- **MoltenVK is not inside the bundle.** `macdeployqt` bundles what the binary
-  *links*; the Metal driver is `dlopen`ed by the Vulkan loader from an ICD
-  manifest outside the bundle. So the DMG currently expects
-  `brew install molten-vk` on the target machine. Making it self-contained means
-  copying `libMoltenVK.dylib` into `Contents/Frameworks` with its own ICD JSON in
-  `Contents/Resources/vulkan/icd.d` and pointing `VK_DRIVER_FILES` at it on
-  launch. Worth doing before anything is published; not done yet.
+The result depends on nothing but macOS itself. It is the same promise the
+Windows installer and the .deb make.
+
+### Signing it for other people
+
+The identity defaults to `-`, an ad-hoc signature: enough to run the bundle on the
+machine that built it, never enough to hand to someone else, because it carries no
+identity for Gatekeeper to check. Whoever downloads that disk image has to clear
+quarantine by hand:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/md_app.app"
+```
+
+With a Developer ID Application certificate in the keychain, point the build at
+it. The hardened runtime and a secure timestamp are switched on with it rather
+than separately, because notarisation refuses a submission lacking either:
+
+```bash
+cmake --preset release \
+  -DMD_MACOS_CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"
+poe dmg
+xcrun notarytool submit build/release/missile-defense-*.dmg \
+  --apple-id you@example.com --team-id TEAMID --password "$APP_PASSWORD" --wait
+xcrun stapler staple build/release/missile-defense-*.dmg
+```
+
+The certificate is the part that cannot be worked around: it needs a paid Apple
+Developer account. The *machine* can be — [`rcodesign`][rcodesign] does Mach-O
+signing and notary submission from Linux or Windows, if running a release through
+a CI runner is not what you want.
 
 [rcodesign]: https://github.com/indygreg/apple-platform-tools
 

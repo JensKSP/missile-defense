@@ -9,12 +9,52 @@
 #include <exception>
 #include <string_view>
 
+#ifdef Q_OS_MACOS
+#include <QByteArray>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QString>
+#endif
+
 namespace {
+
+#ifdef Q_OS_MACOS
+/// Point the Vulkan loader at the MoltenVK the bundle carries, if it carries one.
+///
+/// macOS has no Vulkan driver of its own, and the loader finds drivers only
+/// through ICD manifests in a fixed set of system directories — none of which is
+/// inside an .app. So an installed bundle, which ships its own MoltenVK
+/// (app/deploy_macos.cmake.in), has to say where it put it or the loader will
+/// enumerate nothing and the game dies on the next line.
+///
+/// A build tree has no bundled driver and this does nothing, leaving the loader's
+/// normal search to find whatever Homebrew installed. An explicit setting always
+/// wins, so a developer can still aim it at another ICD.
+void use_bundled_vulkan_driver() {
+    if (!qEnvironmentVariableIsEmpty("VK_DRIVER_FILES") ||
+        !qEnvironmentVariableIsEmpty("VK_ICD_FILENAMES")) {
+        return;
+    }
+    const QString manifest = QDir::cleanPath(QCoreApplication::applicationDirPath() +
+                                             "/../Resources/vulkan/icd.d/MoltenVK_icd.json");
+    if (!QFileInfo::exists(manifest)) {
+        return;
+    }
+    const QByteArray encoded = QFile::encodeName(manifest);
+    qputenv("VK_DRIVER_FILES", encoded);  // the current spelling
+    qputenv("VK_ICD_FILENAMES", encoded); // what older loaders read
+}
+#endif
 
 int run(int argc, char** argv) {
     QGuiApplication app(argc, argv);
     QGuiApplication::setOrganizationName("MissileDefense");
     QGuiApplication::setApplicationName("MissileDefense"); // stable app-data path for highscores
+
+#ifdef Q_OS_MACOS
+    use_bundled_vulkan_driver(); // must precede every Vulkan call — see above
+#endif
 
     QVulkanInstance instance;
 #ifdef MD_VULKAN_VALIDATION

@@ -14,8 +14,13 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-_native = pytest.importorskip(
-    "md.env", reason="the _md_native extension is not built (cmake -DMD_BUILD_BINDINGS=ON)"
+# Guard on the extension, not on md.env. Importing md.env without the extension
+# raises ImportError ("cannot import name _md_native"), and importorskip only
+# turns ModuleNotFoundError into a skip — so asking it for md.env made this file a
+# collection *error* on every machine that has no bindings build, which is every
+# CI runner. It passed locally only because a dev checkout has one.
+pytest.importorskip(
+    "md._md_native", reason="the _md_native extension is not built (cmake -DMD_BUILD_BINDINGS=ON)"
 )
 
 from md.env import Shaping, VecEnv  # noqa: E402
