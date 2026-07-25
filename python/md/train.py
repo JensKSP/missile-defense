@@ -52,11 +52,12 @@ from typing import Any
 
 import numpy as np
 import torch
+from torch import nn
 
 from .control import Control
 from .env import Actions, Flags, Observations, Shaping, VecEnv
 from .eval import evaluate, format_summary
-from .ppo import Policy, PPOConfig, Rollout, update
+from .ppo import ObsLayout, PPOConfig, Rollout, build_policy, update
 
 #: Chooses an action index per environment, given the batch and its action mask.
 Policy_fn = Callable[[Observations, Flags], Actions]
@@ -102,7 +103,7 @@ def _device(name: str | None) -> torch.device:
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def train(config: TrainConfig, ppo: PPOConfig | None = None) -> Policy:
+def train(config: TrainConfig, ppo: PPOConfig | None = None) -> nn.Module:
     """Run the training loop and return the trained policy."""
     ppo = ppo or PPOConfig()
     device = _device(config.device)
@@ -115,7 +116,8 @@ def train(config: TrainConfig, ppo: PPOConfig | None = None) -> Policy:
         shaping=Shaping(),
         seed=config.seed,
     )
-    policy = Policy(env.obs_size, env.action_count, ppo.hidden).to(device)
+    layout = _layout(env)
+    policy = build_policy(ppo.architecture, layout, env.action_count, ppo.hidden).to(device)
     optimizer = torch.optim.Adam(policy.parameters(), lr=ppo.learning_rate, eps=1e-5)
     rollout = Rollout(config.steps, config.envs, env.obs_size, env.action_count, device)
 
@@ -260,7 +262,13 @@ def train(config: TrainConfig, ppo: PPOConfig | None = None) -> Policy:
 
         if config.checkpoint_every > 0 and iteration % config.checkpoint_every == 0:
             _save(
-                policy, optimizer, iteration, shape, ppo, checkpoints / f"policy-{iteration:05d}.pt"
+                policy,
+                optimizer,
+                iteration,
+                shape,
+                ppo,
+                layout,
+                checkpoints / f"policy-{iteration:05d}.pt",
             )
 
         # Between updates, never inside one: the rollout and the update are a
@@ -278,7 +286,7 @@ def train(config: TrainConfig, ppo: PPOConfig | None = None) -> Policy:
     # Always checkpoint the finished policy. Without this a run whose length is
     # not a multiple of checkpoint_every throws away the thing it just trained —
     # and it is what makes a graceful stop cost nothing at all.
-    _save(policy, optimizer, iteration, shape, ppo, checkpoints / "policy-final.pt")
+    _save(policy, optimizer, iteration, shape, ppo, layout, checkpoints / "policy-final.pt")
     metrics.close()
     control.clear()  # so the next run in this directory is not born stopped
     print(f"  final policy -> {checkpoints / 'policy-final.pt'}")
@@ -347,11 +355,12 @@ def _log_eval(path: Path, iteration: int, summary: Any) -> None:
 
 
 def _save(
-    policy: Policy,
+    policy: nn.Module,
     optimizer: torch.optim.Optimizer,
     iteration: int,
     shape: tuple[int, int],
     ppo: PPOConfig,
+    layout: ObsLayout,
     path: Path,
 ) -> None:
     """Write a checkpoint that is enough to *resume* from, not just to score.
@@ -370,22 +379,48 @@ def _save(
             "obs_size": shape[0],
             "action_count": shape[1],
             "hidden": ppo.hidden,
+            # Which network these weights belong to. Absent in checkpoints written
+            # before there was a choice, and those are all "mlp" — see load_policy.
+            "architecture": ppo.architecture,
+            "layout": dataclasses.asdict(layout),
         },
         path,
     )
 
 
-def load_policy(path: Path, device: torch.device | None = None) -> tuple[Policy, dict[str, Any]]:
+def _layout(env: VecEnv) -> ObsLayout:
+    """The observation's entity layout, for a policy that slices it."""
+    spec = env.spec
+    return ObsLayout(
+        threats=spec.threats,
+        interceptors=spec.interceptors,
+        blasts=spec.blasts,
+        obs_size=env.obs_size,
+    )
+
+
+def load_policy(path: Path, device: torch.device | None = None) -> tuple[nn.Module, dict[str, Any]]:
     """Rebuild a policy from a checkpoint. Returns it alongside the raw payload."""
     device = device or torch.device("cpu")
     payload: dict[str, Any] = torch.load(path, map_location=device, weights_only=True)
-    policy = Policy(payload["obs_size"], payload["action_count"], payload["hidden"]).to(device)
+    # Checkpoints from before the entity policy existed carry neither key, and
+    # every one of them is a flat MLP — so defaulting keeps them loadable.
+    architecture = payload.get("architecture", "mlp")
+    stored = payload.get("layout")
+    layout = (
+        ObsLayout(**stored)
+        if stored is not None
+        else ObsLayout(threats=0, interceptors=0, blasts=0, obs_size=int(payload["obs_size"]))
+    )
+    policy = build_policy(architecture, layout, payload["action_count"], payload["hidden"]).to(
+        device
+    )
     policy.load_state_dict(payload["policy"])
     policy.eval()
     return policy, payload
 
 
-def greedy_policy(policy: Policy, device: torch.device) -> Policy_fn:
+def greedy_policy(policy: nn.Module, device: torch.device) -> Policy_fn:
     """Wrap a network as the callable `md.eval.evaluate` expects.
 
     Greedy, because the scripted baseline is deterministic — comparing a sampled
@@ -400,7 +435,7 @@ def greedy_policy(policy: Policy, device: torch.device) -> Policy_fn:
     return act
 
 
-def _score(policy: Policy, device: torch.device) -> object:
+def _score(policy: nn.Module, device: torch.device) -> object:
     """Score the current policy on the canonical seeds, greedily.
 
     Greedy rather than sampled: the baseline is deterministic, so comparing a

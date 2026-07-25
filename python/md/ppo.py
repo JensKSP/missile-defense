@@ -64,6 +64,14 @@ class PPOConfig:
     entropy_coef: float = 0.01
     #: Gradient-norm clip.
     max_grad_norm: float = 0.5
+    #: "mlp" flattens the observation into one vector; "entity" encodes each
+    #: threat with *shared* weights and pools the interceptors and blasts into a
+    #: context vector. The flat MLP has to learn "is this threat already covered
+    #: by an interceptor in flight?" separately for all 128 threat slots, since
+    #: no weight is shared between them — and measurably does not: it fires into
+    #: an already-covered zone 72% of the time, worse than random's 56%. Sharing
+    #: the encoder lets it learn that comparison once.
+    architecture: str = "mlp"
 
 
 class Policy(nn.Module):
@@ -120,6 +128,197 @@ class Policy(nn.Module):
         distribution = torch.distributions.Categorical(logits=logits)
         action = distribution.sample()
         return action, distribution.log_prob(action), value
+
+
+@dataclass(frozen=True)
+class ObsLayout:
+    """Where the entity blocks sit in the flat observation.
+
+    The widths mirror ``md::encode`` (docs/API.md §4): a threat is
+    ``[present, x, y, vx, vy, one-hot type x4]``, an interceptor
+    ``[present, x, y, vx, vy, detonation x, detonation y]``, a blast
+    ``[present, x, y, radius]``. Everything after those blocks — bases, cities,
+    wave, score — is the per-episode context and is taken as one vector.
+    """
+
+    threats: int
+    interceptors: int
+    blasts: int
+    obs_size: int
+    threat_features: int = 9
+    interceptor_features: int = 7
+    blast_features: int = 4
+
+    @property
+    def interceptors_at(self) -> int:
+        return self.threats * self.threat_features
+
+    @property
+    def blasts_at(self) -> int:
+        return self.interceptors_at + (self.interceptors * self.interceptor_features)
+
+    @property
+    def globals_at(self) -> int:
+        return self.blasts_at + (self.blasts * self.blast_features)
+
+    @property
+    def globals_width(self) -> int:
+        return self.obs_size - self.globals_at
+
+    def validate(self) -> None:
+        """Fail loudly if the observation is not the shape assumed here.
+
+        Slicing silently misreads if a block width ever changes, and a policy fed
+        misaligned features would train to a plausible-looking mediocrity rather
+        than crash. Cheap to check once at construction.
+        """
+        if self.globals_width <= 0:
+            raise ValueError(
+                f"observation is {self.obs_size} floats but the entity blocks alone "
+                f"need {self.globals_at}; the layout in ObsLayout no longer matches md::encode"
+            )
+
+
+class EntityPolicy(nn.Module):
+    """Per-entity encoders with shared weights, instead of one flat trunk.
+
+    The action space is (battery, threat slot), so the network is built in that
+    shape: every threat slot goes through *the same* encoder, and the head emits
+    one logit per battery for each. Two things follow that the flat MLP cannot
+    get. The comparison "is this threat already covered by something in flight?"
+    is learned once and applied to all 128 slots, rather than being learned
+    separately per slot from whatever data happened to land there. And the
+    interceptors and blasts are pooled permutation-invariantly, so their meaning
+    does not depend on which array slot swap-and-pop left them in.
+
+    Both matter here specifically: the flat policy fires into an already-covered
+    zone 72% of the time — worse than random — which is the single behaviour
+    standing between it and the scripted baseline's 1.10 kills per interceptor.
+    """
+
+    def __init__(self, layout: ObsLayout, action_count: int, hidden: int = 512) -> None:
+        super().__init__()
+        layout.validate()
+        self.layout = layout
+        self.action_count = action_count
+        # One battery-column per (action_count - 1) / threats. Derived rather
+        # than assumed, so a Config with a different battery count still lines up.
+        batteries, remainder = divmod(action_count - 1, layout.threats)
+        if remainder or batteries < 1:
+            raise ValueError(
+                f"action_count {action_count} is not 1 + batteries x {layout.threats} threats"
+            )
+        self.batteries = batteries
+
+        # Per-entity work runs once per *slot*, so this width, not `hidden`, is
+        # what sets the network's cost: the threat path executes 128 times per
+        # sample, and its activations are 128x more numerous than a flat trunk's.
+        # That is memory traffic rather than arithmetic — the FLOP counts are
+        # within 10% of the flat MLP either way — which is why the fix is a narrow
+        # per-slot path and a wide context, not fewer layers. Measured against the
+        # flat policy on a 4096-sample update: hidden/2 was 6.3x, this is 3.4x.
+        #
+        # The remaining 3.4x is nearly all waste: 128 threat slots are encoded and
+        # typically 2 are occupied. Gathering only the live slots would remove it,
+        # at the cost of real complexity here — worth doing once this architecture
+        # has earned it, not before.
+        width = max(32, hidden // 16)
+        self.width = width
+
+        def encoder(in_features: int, out_features: int) -> nn.Sequential:
+            return nn.Sequential(
+                nn.Linear(in_features, out_features),
+                nn.Tanh(),
+                nn.Linear(out_features, out_features),
+                nn.Tanh(),
+            )
+
+        self.interceptor_encoder = encoder(layout.interceptor_features, width)
+        self.blast_encoder = encoder(layout.blast_features, width)
+        self.context = encoder(layout.globals_width + (2 * width), hidden)
+        # Conditioning is additive rather than concatenated: concatenating the
+        # context onto every threat would widen the per-slot input by `hidden` and
+        # pay for it 128 times over, where projecting it once and adding costs one
+        # matmul per sample and is the same function class.
+        self.threat_in = nn.Linear(layout.threat_features, width)
+        self.context_to_threat = nn.Linear(hidden, width)
+        self.threat_out = nn.Linear(width, width)
+        # One logit per battery for each threat slot, plus the always-legal NoOp.
+        self.fire_head = nn.Linear(width, batteries)
+        self.noop_head = nn.Linear(hidden, 1)
+        self.value_head = nn.Linear(hidden + width, 1)
+
+        for module in self.modules():
+            if isinstance(module, nn.Linear):
+                nn.init.orthogonal_(module.weight, gain=np.sqrt(2))
+                nn.init.zeros_(module.bias)
+        for head, gain in ((self.fire_head, 0.01), (self.noop_head, 0.01), (self.value_head, 1.0)):
+            nn.init.orthogonal_(head.weight, gain=gain)
+            nn.init.zeros_(head.bias)
+
+    def _features(self, obs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return (per-threat features, pooled context)."""
+        layout = self.layout
+        batch = obs.shape[0]
+        threats = obs[:, : layout.interceptors_at].view(batch, layout.threats, -1)
+        interceptors = obs[:, layout.interceptors_at : layout.blasts_at].view(
+            batch, layout.interceptors, -1
+        )
+        blasts = obs[:, layout.blasts_at : layout.globals_at].view(batch, layout.blasts, -1)
+        context = obs[:, layout.globals_at :]
+
+        # Feature 0 is the presence flag; empty slots read zero by construction,
+        # so masking before the sum keeps padding out of the pooled vector.
+        pooled_i = (self.interceptor_encoder(interceptors) * interceptors[..., :1]).sum(dim=1)
+        pooled_b = (self.blast_encoder(blasts) * blasts[..., :1]).sum(dim=1)
+        summary = self.context(torch.cat([context, pooled_i, pooled_b], dim=-1))
+
+        # Broadcast-add the projected context into every slot: one matmul for the
+        # context, then only slot-width work per threat.
+        hidden_threats = torch.tanh(
+            self.threat_in(threats) + self.context_to_threat(summary).unsqueeze(1)
+        )
+        per_threat = torch.tanh(self.threat_out(hidden_threats))
+        per_threat = per_threat * threats[..., :1]
+        return per_threat, summary
+
+    def forward(self, obs: torch.Tensor, mask: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return masked logits and the value estimate."""
+        per_threat, summary = self._features(obs)
+        # (batch, threats, batteries) -> battery-major, matching decode_action's
+        # index = 1 + battery * threats + slot.
+        fire = self.fire_head(per_threat).permute(0, 2, 1).reshape(obs.shape[0], -1)
+        logits = torch.cat([self.noop_head(summary), fire], dim=-1)
+        logits = torch.where(mask, logits, torch.full_like(logits, MASKED_LOGIT))
+        return logits, self._value(per_threat, summary)
+
+    def _value(self, per_threat: torch.Tensor, summary: torch.Tensor) -> torch.Tensor:
+        return self.value_head(torch.cat([summary, per_threat.sum(dim=1)], dim=-1)).squeeze(-1)
+
+    @torch.no_grad()
+    def value(self, obs: torch.Tensor) -> torch.Tensor:
+        """Value estimate only — no mask, same contract as `Policy.value`."""
+        per_threat, summary = self._features(obs)
+        return self._value(per_threat, summary)
+
+    @torch.no_grad()
+    def act(
+        self, obs: torch.Tensor, mask: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Sample actions. Returns (action, log-prob, value)."""
+        logits, value = self(obs, mask)
+        distribution = torch.distributions.Categorical(logits=logits)
+        action = distribution.sample()
+        return action, distribution.log_prob(action), value
+
+
+def build_policy(architecture: str, layout: ObsLayout, action_count: int, hidden: int) -> nn.Module:
+    """Construct the policy named by `PPOConfig.architecture`."""
+    if architecture == "mlp":
+        return Policy(layout.obs_size, action_count, hidden)
+    if architecture == "entity":
+        return EntityPolicy(layout, action_count, hidden)
+    raise ValueError(f"unknown architecture {architecture!r}; expected 'mlp' or 'entity'")
 
 
 class Rollout:

@@ -131,6 +131,15 @@ class VecEnv:
         """The live observation batch — the same array every step writes into."""
         return self._obs
 
+    @property
+    def spec(self) -> ObsSpec:
+        """How many threat / interceptor / blast slots the observation carries.
+
+        Public because a policy that reads the observation *as entities* rather
+        than as a flat vector needs the block sizes to slice it.
+        """
+        return self._spec
+
     # ---- the potential, read back out of the observation ------------------
     def _phi(self, obs: Observations | None = None) -> Rewards:
         """phi(s) for every env, recovered from the observation itself.
