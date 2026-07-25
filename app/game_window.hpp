@@ -54,6 +54,10 @@ class GameWindow : public QVulkanWindow {
     /// Is the scripted agent driving rather than the mouse?
     [[nodiscard]] bool ai_driving() const noexcept { return ai_driving_; }
 
+    /// Did the agent drive any part of this game? Such a run is never eligible for
+    /// the highscore table — those are the human's.
+    [[nodiscard]] bool ai_assisted() const noexcept { return ai_assisted_; }
+
     /// Simulation ticks run per frame — 1 is real time, higher fast-forwards.
     [[nodiscard]] int speed() const noexcept { return speed_; }
 
@@ -141,6 +145,7 @@ class GameWindow : public QVulkanWindow {
     std::uint64_t seed_ = 1;
     bool fire_pending_ = false; // a click arrived; fire on the next sim tick
     bool ai_driving_ = false;   // the scripted agent is at the controls
+    bool ai_assisted_ = false;  // ... at any point this game (sticky; blocks highscores)
     int speed_ = 1;             // sim ticks per frame: 1 = real time, up to 8x
     Vec2 aim_{};
     State state_ = State::Menu;

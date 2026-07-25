@@ -605,11 +605,13 @@ void Renderer::startNextFrame() {
         if (playing && window_->ai_driving()) {
             draw_text(inst, "AI PLAYING", cx, world_h * 0.955f, world_h * 0.012f, 0.45f, 0.95f,
                       0.65f, true);
+            // Always shown, including 1X — otherwise pressing the speed keys at
+            // normal speed looks like nothing happened.
             const int speed = window_->speed();
-            if (speed > 1) {
-                draw_text(inst, std::to_string(speed) + "X", cx, world_h * 0.915f, world_h * 0.011f,
-                          0.95f, 0.80f, 0.35f, true);
-            }
+            const bool fast = speed > 1;
+            draw_text(inst, "SPEED " + std::to_string(speed) + "X", cx, world_h * 0.915f,
+                      world_h * 0.011f, fast ? 0.95f : 0.45f, fast ? 0.80f : 0.55f,
+                      fast ? 0.35f : 0.50f, true);
             draw_text(inst, "T TAKE OVER    BRACKETS SPEED", cx, world_h * 0.055f, world_h * 0.008f,
                       0.35f, 0.45f, 0.40f, true);
         }
@@ -643,6 +645,11 @@ void Renderer::startNextFrame() {
         draw_text(inst, "SCORE", cx, world_h * 0.46f, world_h * 0.015f, 0.75f, 0.80f, 0.88f, true);
         draw_text(inst, std::to_string(sim.score() < 0 ? 0 : sim.score()), cx, world_h * 0.36f,
                   world_h * 0.028f, 1.0f, 1.0f, 1.0f, true);
+        if (window_->ai_assisted()) {
+            // Say why it was not offered, rather than silently skipping the entry.
+            draw_text(inst, "AI RUN   NOT A HIGHSCORE", cx, world_h * 0.25f, world_h * 0.011f,
+                      0.45f, 0.95f, 0.65f, true);
+        }
         draw_text(inst, "PRESS ENTER", cx, world_h * 0.12f, world_h * 0.013f, 0.6f, 0.65f, 0.7f,
                   true);
     } else if (state == GameWindow::State::Help) {

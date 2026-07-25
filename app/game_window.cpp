@@ -149,7 +149,9 @@ void GameWindow::end_game() {
     in_progress_ = false;
     accumulator_ = 0.0;
     final_score_ = sim_.score() < 0 ? 0 : sim_.score();
-    if (highscores_.qualifies(final_score_)) {
+    // The highscore table is the human's. A run the agent drove — even partly,
+    // before a takeover — never enters it, however well it scored.
+    if (!ai_assisted_ && highscores_.qualifies(final_score_)) {
         entry_initials_ = {'A', 'A', 'A'};
         entry_slot_ = 0;
         state_ = State::EnterScore; // arcade initials entry
@@ -218,6 +220,7 @@ void GameWindow::start_game() {
     accumulator_ = 0.0;
     fire_pending_ = false;
     ai_driving_ = false;
+    ai_assisted_ = false;
     speed_ = 1;
 }
 
@@ -229,6 +232,7 @@ void GameWindow::start_game() {
 void GameWindow::start_ai_game() {
     start_game();
     ai_driving_ = true;
+    ai_assisted_ = true; // sticky: taking over later does not make it your score
 }
 
 void GameWindow::activate(int index) {
