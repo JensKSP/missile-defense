@@ -14,13 +14,22 @@ the discrete action space, and the reward specification implemented below.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
 
 import numpy as np
+import numpy.typing as npt
 
 from . import _md_native as _native
 
 Config = _native.Config
 ObsSpec = _native.ObsSpec
+
+# The batch arrays, named once so the buffer contract reads the same everywhere:
+# observations are float32, the episode flags are bool, actions are int32.
+Observations = npt.NDArray[np.float32]
+Rewards = npt.NDArray[np.float32]
+Flags = npt.NDArray[np.bool_]
+Actions = npt.NDArray[np.int32]
 
 
 @dataclass(frozen=True)
@@ -84,13 +93,13 @@ class VecEnv:
         )
         n, k = self.num_envs, self.obs_size
         # Allocated once; C++ writes into these in place, for the process lifetime.
-        self._obs = np.zeros((n, k), dtype=np.float32)
-        self._final_obs = np.zeros((n, k), dtype=np.float32)
-        self._rewards = np.zeros(n, dtype=np.float32)
-        self._terminated = np.zeros(n, dtype=bool)
-        self._truncated = np.zeros(n, dtype=bool)
-        self._mask = np.zeros((n, self.action_count), dtype=bool)
-        self._potential = np.zeros(n, dtype=np.float32)
+        self._obs: Observations = np.zeros((n, k), dtype=np.float32)
+        self._final_obs: Observations = np.zeros((n, k), dtype=np.float32)
+        self._rewards: Rewards = np.zeros(n, dtype=np.float32)
+        self._terminated: Flags = np.zeros(n, dtype=np.bool_)
+        self._truncated: Flags = np.zeros(n, dtype=np.bool_)
+        self._mask: Flags = np.zeros((n, self.action_count), dtype=np.bool_)
+        self._potential: Rewards = np.zeros(n, dtype=np.float32)
         self._seed = seed
         self.reset(seed)
 
@@ -116,7 +125,7 @@ class VecEnv:
         return int(self._native.threads)
 
     # ---- the potential, read back out of the observation ------------------
-    def _phi(self) -> np.ndarray:
+    def _phi(self) -> Rewards:
         """phi(s) for every env, recovered from the observation itself.
 
         The city-alive flags and per-battery ammo are already in the observation
@@ -136,47 +145,45 @@ class VecEnv:
         # ammo is stored as a fraction of a full battery
         ammo = (bases[:, :, 2] * float(self._config.ammo_per_base)).sum(axis=1)
         s = self._shaping
-        return (s.city_weight * live_cities + s.ammo_weight * ammo).astype(np.float32)
+        phi = (s.city_weight * live_cities) + (s.ammo_weight * ammo)
+        # NumPy's reductions above are typed loosely enough that the sum comes back
+        # as Any; the cast states the dtype astype() has actually produced.
+        return cast(Rewards, phi.astype(np.float32))
 
     # ---- the loop ---------------------------------------------------------
-    def reset(self, seed: int | None = None) -> np.ndarray:
+    def reset(self, seed: int | None = None) -> Observations:
         if seed is not None:
             self._seed = seed
         self._native.reset(self._seed, self._obs)
         self._potential = self._phi()
         return self._obs
 
-    def action_masks(self) -> np.ndarray:
+    def action_masks(self) -> Flags:
         """Which actions are legal per env — apply before sampling."""
         self._native.action_masks(self._mask)
         return self._mask
 
     def step(
-        self, actions: np.ndarray
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, dict]:
-        actions = np.ascontiguousarray(actions, dtype=np.int32)
+        self, actions: npt.ArrayLike
+    ) -> tuple[Observations, Rewards, Flags, Flags, dict[str, Observations]]:
+        batch: Actions = np.ascontiguousarray(actions, dtype=np.int32)
         self._native.step(
-            actions,
+            batch,
             self._obs,
             self._final_obs,
             self._rewards,
             self._terminated,
             self._truncated,
         )
-        reward = self._rewards
+        reward: Rewards = self._rewards
         if self._shaping.enabled:
             phi_next = self._phi()
             done = self._terminated | self._truncated
             # A finished episode's phi(s') belongs to the *new* episode, so the
             # shaping term would compare across a discontinuity. Zero it there.
-            delta = np.where(done, 0.0, self._shaping.gamma * phi_next - self._potential)
-            reward = reward + delta.astype(np.float32)
+            delta = np.where(done, 0.0, (self._shaping.gamma * phi_next) - self._potential)
+            reward = (reward + delta).astype(np.float32)
             self._potential = phi_next
-        info = {"final_observation": self._final_obs}
-        return (
-            self._obs,
-            reward / self._shaping.scale,
-            self._terminated,
-            self._truncated,
-            info,
-        )
+        scaled: Rewards = (reward / self._shaping.scale).astype(np.float32)
+        info: dict[str, Observations] = {"final_observation": self._final_obs}
+        return (self._obs, scaled, self._terminated, self._truncated, info)

@@ -61,8 +61,8 @@ def render_master() -> Image.Image:
     d = ImageDraw.Draw(img)
 
     # Background: vertical navy gradient, rounded-square.
-    for y in range(R):
-        d.line([(0, y), (R, y)], fill=(*_lerp(NAVY_TOP, NAVY_BOT, y / (R - 1)), 255))
+    for row in range(R):
+        d.line([(0, row), (R, row)], fill=(*_lerp(NAVY_TOP, NAVY_BOT, row / (R - 1)), 255))
     # Faint starfield.
     for sx, sy, sr in [
         (0.16, 0.20, 3),
@@ -135,7 +135,8 @@ def main() -> None:
     mask = _rounded_mask(R, R * 0.18)
     master.putalpha(mask)
 
-    variants = {s: master.resize((s, s), Image.LANCZOS) for s in SIZES}
+    # Image.LANCZOS is a legacy alias; the enum is the typed spelling.
+    variants = {s: master.resize((s, s), Image.Resampling.LANCZOS) for s in SIZES}
 
     PKG.mkdir(parents=True, exist_ok=True)
     ico = PKG / "missile-defense.ico"
