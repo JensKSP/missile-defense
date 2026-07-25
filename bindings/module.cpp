@@ -8,17 +8,15 @@
 //     rollout never copies a batch;
 //   * the batch step releases the GIL, so the C++ worker pool actually runs in
 //     parallel instead of taking turns.
-#include "vec_env.hpp"
-
 #include "md/config.hpp"
 #include "md/observation.hpp"
 #include "md/version.hpp"
+#include "vec_env.hpp"
 
+#include <cstdint>
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>
 #include <nanobind/stl/string.h>
-
-#include <cstdint>
 #include <stdexcept>
 #include <string>
 
@@ -61,8 +59,8 @@ NB_MODULE(_md_native, m) {
         .def_rw("threats", &md::ObsSpec::threats)
         .def_rw("interceptors", &md::ObsSpec::interceptors)
         .def_rw("blasts", &md::ObsSpec::blasts)
-        .def_prop_ro("size", [](const md::ObsSpec& s) { return s.size(); },
-                     "Floats per observation.");
+        .def_prop_ro(
+            "size", [](const md::ObsSpec& s) { return s.size(); }, "Floats per observation.");
 
     m.attr("MAX_CITIES") = md::max_cities;
     m.attr("BASE_COUNT") = md::base_count;

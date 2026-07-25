@@ -66,13 +66,10 @@ bool already_covered(const Sim& sim, const Threat& threat) noexcept {
     if (cfg.interceptor_speed <= 0.0f) {
         return false;
     }
-    for (const Interceptor& shot : sim.interceptors()) {
+    return std::ranges::any_of(sim.interceptors(), [&](const Interceptor& shot) {
         const float arrive = distance(shot.pos, shot.target) / cfg.interceptor_speed;
-        if (passes_through(threat, shot.target, radius, arrive, arrive + cfg.blast_lifetime)) {
-            return true;
-        }
-    }
-    return false;
+        return passes_through(threat, shot.target, radius, arrive, arrive + cfg.blast_lifetime);
+    });
 }
 
 /// What this threat will destroy if left alone — inferred from where its current

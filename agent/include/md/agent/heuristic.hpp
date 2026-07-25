@@ -15,9 +15,9 @@ namespace md::agent {
 /// optimal — the point of the baseline is to be a *fair* yardstick, not to be
 /// unbeatable.
 struct Params {
-    float city_value = 3.0f;   // a threat that will destroy a live city
-    float base_value = 2.0f;   // ... a live battery
-    float stray_value = 0.15f; // ... only already-ruined ground: worth little
+    float city_value = 3.0f;     // a threat that will destroy a live city
+    float base_value = 2.0f;     // ... a live battery
+    float stray_value = 0.15f;   // ... only already-ruined ground: worth little
     float cluster_bonus = 1.2f;  // per *extra* threat caught in the same blast
     float urgency_weight = 1.5f; // preference for threats about to land
     float safety_margin = 0.1f;  // seconds of slack required before impact
@@ -52,6 +52,7 @@ struct Params {
 class Heuristic {
   public:
     Heuristic() noexcept = default;
+
     explicit Heuristic(Params params) noexcept : params_{params} {}
 
     /// The action for this tick. Deterministic and allocation-free.

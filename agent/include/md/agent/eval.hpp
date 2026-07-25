@@ -19,9 +19,9 @@ struct EpisodeResult {
     std::uint32_t wave_reached = 0; // the wave in progress when it ended
     std::uint32_t cities_left = 0;
     std::uint64_t ticks = 0;
-    std::uint32_t shots = 0;    // interceptors launched
-    std::uint32_t kills = 0;    // threats destroyed by a blast
-    bool terminated = false;    // false => stopped at the tick cap, still alive
+    std::uint32_t shots = 0; // interceptors launched
+    std::uint32_t kills = 0; // threats destroyed by a blast
+    bool terminated = false; // false => stopped at the tick cap, still alive
 
     /// Kills per interceptor spent — above 1.0 means blasts are catching clusters.
     [[nodiscard]] double accuracy() const noexcept {

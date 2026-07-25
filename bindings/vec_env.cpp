@@ -20,8 +20,7 @@ namespace md::rl {
 
 VecEnv::VecEnv(std::size_t num_envs, const Config& config, const ObsSpec& spec, unsigned threads,
                unsigned frame_skip, std::uint64_t max_ticks)
-    : config_{config}, spec_{spec},
-      threads_{threads == 0u ? VecSim::hardware_threads() : threads},
+    : config_{config}, spec_{spec}, threads_{threads == 0u ? VecSim::hardware_threads() : threads},
       frame_skip_{frame_skip == 0u ? 1u : frame_skip}, max_ticks_{max_ticks} {
     sims_.reserve(num_envs);
     for (std::size_t i = 0; i < num_envs; ++i) {
@@ -51,8 +50,7 @@ void VecEnv::reset(std::uint64_t seed, float* obs) {
 }
 
 void VecEnv::run_range(std::size_t begin, std::size_t end, const std::int32_t* actions, float* obs,
-                       float* final_obs, float* rewards, bool* terminated,
-                       bool* truncated) {
+                       float* final_obs, float* rewards, bool* terminated, bool* truncated) {
     const std::size_t stride = spec_.size();
     for (std::size_t i = begin; i < end; ++i) {
         Sim& sim = sims_[i];

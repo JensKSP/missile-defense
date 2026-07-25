@@ -13,7 +13,8 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
-#include <string>
+#include <exception>
+#include <print>
 #include <string_view>
 #include <vector>
 
@@ -25,9 +26,7 @@ std::uint64_t parse_u64(const char* text, std::uint64_t fallback) {
     return (end == text || value == 0ULL) ? fallback : static_cast<std::uint64_t>(value);
 }
 
-} // namespace
-
-int main(int argc, char** argv) {
+int run(int argc, char** argv) {
     std::size_t seed_count = 32;
     std::uint64_t max_ticks = 120000;
     bool per_episode = false;
@@ -41,7 +40,8 @@ int main(int argc, char** argv) {
         } else if (arg == "--max-ticks" && (i + 1) < argc) {
             max_ticks = parse_u64(argv[++i], 120000);
         } else {
-            std::fprintf(stderr, "usage: md_agent_eval [--seeds N] [--max-ticks N] [--per-episode]\n");
+            std::println(stderr,
+                         "usage: md_agent_eval [--seeds N] [--max-ticks N] [--per-episode]");
             return 2;
         }
     }
@@ -50,28 +50,47 @@ int main(int argc, char** argv) {
     const md::agent::Heuristic agent{};
     const std::vector<std::uint64_t> seeds = md::agent::default_seeds(seed_count);
 
-    std::printf("missile-defense %s — scripted baseline (M4)\n", std::string(md::version()).c_str());
-    std::printf("%zu episodes, cap %llu ticks (%.0f s of play)\n\n", seeds.size(),
-                static_cast<unsigned long long>(max_ticks),
-                static_cast<double>(max_ticks) * static_cast<double>(config.dt));
+    std::println("missile-defense {} — scripted baseline (M4)", md::version());
+    std::println("{} episodes, cap {} ticks ({:.0f} s of play)\n", seeds.size(), max_ticks,
+                 static_cast<double>(max_ticks) * static_cast<double>(config.dt));
 
     if (per_episode) {
-        std::printf("%-20s %8s %6s %7s %8s %7s %6s\n", "seed", "score", "wave", "cities", "shots",
-                    "kills", "k/s");
+        std::println("{:<20} {:>8} {:>6} {:>7} {:>8} {:>7} {:>6}", "seed", "score", "wave",
+                     "cities", "shots", "kills", "k/s");
         for (const std::uint64_t seed : seeds) {
-            const md::agent::EpisodeResult r = md::agent::run_episode(config, seed, agent, max_ticks);
-            std::printf("%-20llu %8d %6u %7u %8u %7u %6.2f\n",
-                        static_cast<unsigned long long>(r.seed), r.score, r.wave_reached,
-                        r.cities_left, r.shots, r.kills, r.accuracy());
+            const md::agent::EpisodeResult r =
+                md::agent::run_episode(config, seed, agent, max_ticks);
+            std::println("{:<20} {:>8} {:>6} {:>7} {:>8} {:>7} {:>6.2f}", r.seed, r.score,
+                         r.wave_reached, r.cities_left, r.shots, r.kills, r.accuracy());
         }
-        std::printf("\n");
+        std::println();
     }
 
     const md::agent::Summary s = md::agent::evaluate(config, seeds, agent, max_ticks);
-    std::printf("mean score      %10.1f   [%d .. %d]\n", s.mean_score, s.min_score, s.max_score);
-    std::printf("mean wave       %10.2f\n", s.mean_wave);
-    std::printf("mean cities left%10.2f  of %u\n", s.mean_cities_left, md::max_cities);
-    std::printf("kills per shot  %10.2f\n", s.mean_accuracy);
-    std::printf("survived cap    %10zu / %zu\n", s.survived, s.episodes);
+    std::println("mean score      {:>10.1f}   [{} .. {}]", s.mean_score, s.min_score, s.max_score);
+    std::println("mean wave       {:>10.2f}", s.mean_wave);
+    std::println("mean cities left{:>10.2f}  of {}", s.mean_cities_left, md::max_cities);
+    std::println("kills per shot  {:>10.2f}", s.mean_accuracy);
+    std::println("survived cap    {:>10} / {}", s.survived, s.episodes);
     return 0;
+}
+
+} // namespace
+
+int main(int argc, char** argv) {
+    // `main` must not let an exception escape (bugprone-exception-escape): the
+    // formatting layer can throw, and there is nothing useful above us to catch
+    // it. fputs is used here rather than std::println because the handler itself
+    // must not be able to throw.
+    try {
+        return run(argc, argv);
+    } catch (const std::exception& error) {
+        std::fputs("md_agent_eval: ", stderr);
+        std::fputs(error.what(), stderr);
+        std::fputs("\n", stderr);
+        return 1;
+    } catch (...) {
+        std::fputs("md_agent_eval: unknown error\n", stderr);
+        return 1;
+    }
 }

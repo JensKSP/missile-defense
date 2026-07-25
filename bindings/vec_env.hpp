@@ -30,10 +30,15 @@ class VecEnv {
            unsigned frame_skip, std::uint64_t max_ticks);
 
     [[nodiscard]] std::size_t num_envs() const noexcept { return sims_.size(); }
+
     [[nodiscard]] std::size_t obs_size() const noexcept { return spec_.size(); }
+
     [[nodiscard]] std::uint32_t action_count() const noexcept;
+
     [[nodiscard]] unsigned threads() const noexcept { return threads_; }
+
     [[nodiscard]] unsigned frame_skip() const noexcept { return frame_skip_; }
+
     [[nodiscard]] const Config& config() const noexcept { return config_; }
 
     /// Seed every environment (env *i* gets `seed + i`) and write the initial
@@ -62,8 +67,7 @@ class VecEnv {
   private:
     void encode_into(std::size_t index, float* obs) const;
     void run_range(std::size_t begin, std::size_t end, const std::int32_t* actions, float* obs,
-                   float* final_obs, float* rewards, bool* terminated,
-                   bool* truncated);
+                   float* final_obs, float* rewards, bool* terminated, bool* truncated);
 
     std::vector<Sim> sims_;
     std::vector<std::uint64_t> episode_ticks_;
