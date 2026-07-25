@@ -54,8 +54,12 @@ Compile with no fast-math and consistent FP settings. This is what makes replays
 
 - **30 interceptors total per wave**, replenished at the start of each wave.
 - Minimum inter-launch cooldown per base: `~6 ticks (0.1 s)` — prevents spamming one tick.
-- **[deviation, revisit]** Bases are **not destructible** in v0.1. In the arcade original
-  a base can be knocked out by incoming fire; we start simpler and may add this back.
+- Bases **are destructible**: a warhead that lands on one knocks it out, and it stops
+  firing for the remainder of the wave. Like the arcade, batteries are **rebuilt at the
+  start of the next wave** — losing one costs its remaining ammo and its coverage, but is
+  not permanent. (Permanent loss meant three dead batteries left the player unable to
+  fire ever again, watching a decided game finish itself: no agency for a human, and pure
+  noise in a training rollout.)
 
 ### 3.3 Interceptors (player projectiles)
 - Launched from a base toward an aim point `P`; fly in a straight line at fixed speed.
@@ -162,13 +166,24 @@ ammo/cooldown, per-city alive flags, and wave/time. Exact encoding (fixed-max pa
 set/attention encoder) is a Step-2 decision.
 
 ## 7. Deviations from the arcade original (v0.1)
-- Bases are **not destructible** (§3.2) — simplification to revisit.
 - No bomber/satellite enemies yet (only ICBM / MIRV / smart bomb).
 - Motion is straight-line; a **ballistic-arc variant** is deferred to `MissileDefense-v1`.
 
+### 7.1 Ground damage is resolved by impact point
+A warhead destroys whatever installation actually stands where it lands (within half a
+ground slot), **not** whatever it was aimed at when it spawned. The two differ for smart
+bombs, which steer sideways to dodge blasts and can drift clear of their original target.
+
+This is a parity requirement, not a detail: if the stored assignment decided the outcome,
+a bomb that visibly drifted away would still level the city it started towards, and
+neither the player nor a policy could predict that from what is on screen. `Threat`'s
+`target_kind`/`target_index` therefore record *intent at launch* — they fix the initial
+heading and nothing more. A dodging bomb can now miss entirely, which is the honest
+consequence of letting it dodge.
+
 ## 8. Open decisions & tuning knobs
 - Final wave-scaling curves (count, speed, MIRV/smart-bomb rates) — set during playtest.
-- Whether to restore destructible bases and bomber/satellite threats.
+- Whether to add bomber/satellite threats.
 - City weighting (equal vs. valued).
 - Reward shaping details (Step 2), observation encoding (Step 2), curriculum (Step 3).
 

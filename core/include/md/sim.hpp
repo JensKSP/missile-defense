@@ -98,7 +98,7 @@ class Sim {
     bool try_fire(const Action& action) noexcept;
     void advance_interceptors() noexcept;
     void advance_blasts() noexcept;
-    void spawn_blast(Vec2 center) noexcept;
+    [[nodiscard]] bool spawn_blast(Vec2 center) noexcept; // false when the pool is full
     void spawn_explosion(Vec2 center, float peak_radius) noexcept;
     void advance_explosions() noexcept;
     void move_threats() noexcept;

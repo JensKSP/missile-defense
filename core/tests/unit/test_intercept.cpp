@@ -34,7 +34,6 @@ Threat falling(Vec2 pos, float speed) {
     t.pos = pos;
     t.origin = pos;
     t.velocity = Vec2{0.0f, -speed};
-    t.active = true;
     return t;
 }
 

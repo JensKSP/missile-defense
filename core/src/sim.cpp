@@ -165,8 +165,7 @@ bool Sim::try_fire(const Action& action) noexcept {
         Interceptor{.pos = base.pos,
                     .origin = base.pos,
                     .velocity = direction * config_.interceptor_speed,
-                    .target = target,
-                    .active = true};
+                    .target = target};
     ++interceptor_count_;
     --base.ammo;
     base.cooldown_remaining = config_.base_cooldown;
@@ -184,8 +183,14 @@ void Sim::advance_interceptors() noexcept {
         Interceptor& it = interceptors_[i];
         const Vec2 to_target = it.target - it.pos;
         if (to_target.length_sq() <= step_len_sq) {
-            // Arrived (or would overshoot): detonate at the target point.
-            spawn_blast(it.target);
+            // Arrived (or would overshoot): detonate at the target point. If the
+            // blast pool is momentarily full, hold station rather than consuming
+            // the interceptor — spending a round and announcing a detonation that
+            // never happened would waste ammo and lie to the audio.
+            if (!spawn_blast(it.target)) {
+                ++i;
+                continue;
+            }
             push_event(EventType::Detonate, it.target);
             interceptors_[i] = interceptors_[interceptor_count_ - 1];
             --interceptor_count_;
@@ -196,12 +201,13 @@ void Sim::advance_interceptors() noexcept {
     }
 }
 
-void Sim::spawn_blast(Vec2 center) noexcept {
+bool Sim::spawn_blast(Vec2 center) noexcept {
     if (blast_count_ >= max_blasts) {
-        return;
+        return false;
     }
-    blasts_[blast_count_] = Blast{.center = center, .age = 0.0f, .radius = 0.0f, .active = true};
+    blasts_[blast_count_] = Blast{.center = center, .age = 0.0f, .radius = 0.0f};
     ++blast_count_;
+    return true;
 }
 
 void Sim::advance_blasts() noexcept {
@@ -223,8 +229,8 @@ void Sim::spawn_explosion(Vec2 center, float peak_radius) noexcept {
     if (explosion_count_ >= max_explosions) {
         return;
     }
-    explosions_[explosion_count_] = Explosion{
-        .center = center, .age = 0.0f, .radius = 0.0f, .peak_radius = peak_radius, .active = true};
+    explosions_[explosion_count_] =
+        Explosion{.center = center, .age = 0.0f, .radius = 0.0f, .peak_radius = peak_radius};
     ++explosion_count_;
 }
 
@@ -303,32 +309,62 @@ std::int32_t Sim::resolve_blast_hits() noexcept {
 }
 
 void Sim::resolve_ground_hits() noexcept {
+    // Damage is resolved by *where the warhead lands*, not by what it was aimed at
+    // when it spawned. Smart bombs steer sideways to dodge blasts, so the two can
+    // differ by a long way — and if the stored assignment decided the outcome, a
+    // bomb that visibly drifted clear would still level the city it started
+    // towards. Neither the player nor a policy could predict that from what they
+    // can see, which breaks the parity the whole observation design rests on.
+    //
+    // Ground slots are evenly spaced, so half a slot either side of the impact
+    // point covers exactly one installation; landing anywhere else just cracks the
+    // dirt.
+    const float reach = config_.world_width / static_cast<float>(base_count + max_cities) * 0.5f;
+
     std::uint32_t i = 0;
     while (i < threat_count_) {
-        const Threat& threat = threats_[i];
-        const bool city = threat.target_kind == TargetKind::City;
-        const Vec2 target_pos =
-            city ? cities_[threat.target_index].pos : bases_[threat.target_index].pos;
-        if (threat.pos.y <= target_pos.y) {
-            // A threat reaching its target destroys it (a dead base can no longer fire).
-            // A bigger fireball if it actually took out a live city/base.
-            const bool hit_live =
-                city ? cities_[threat.target_index].alive : bases_[threat.target_index].alive;
-            spawn_explosion({threat.pos.x, 2.0f}, hit_live ? config_.explosion_radius_target
-                                                           : config_.explosion_radius_ground);
-            if (hit_live) {
-                push_event(city ? EventType::CityLost : EventType::BaseLost, target_pos);
-            }
-            if (city) {
-                cities_[threat.target_index].alive = false;
-            } else {
-                bases_[threat.target_index].alive = false;
-            }
-            threats_[i] = threats_[threat_count_ - 1];
-            --threat_count_;
-        } else {
+        const Vec2 impact = threats_[i].pos;
+        if (impact.y > 0.0f) {
             ++i;
+            continue;
         }
+
+        float nearest = reach;
+        bool hit = false;
+        bool is_city = false;
+        std::uint32_t index = 0;
+        for (std::uint32_t c = 0; c < max_cities; ++c) {
+            const float d = std::abs(cities_[c].pos.x - impact.x);
+            if (cities_[c].alive && d <= nearest) {
+                nearest = d;
+                hit = true;
+                is_city = true;
+                index = c;
+            }
+        }
+        for (std::uint32_t b = 0; b < base_count; ++b) {
+            const float d = std::abs(bases_[b].pos.x - impact.x);
+            if (bases_[b].alive && d <= nearest) {
+                nearest = d;
+                hit = true;
+                is_city = false;
+                index = b;
+            }
+        }
+
+        // A bigger fireball when something actually went up.
+        spawn_explosion({impact.x, 2.0f},
+                        hit ? config_.explosion_radius_target : config_.explosion_radius_ground);
+        if (hit && is_city) {
+            cities_[index].alive = false;
+            push_event(EventType::CityLost, cities_[index].pos);
+        } else if (hit) {
+            bases_[index].alive = false; // a dead battery cannot fire for the rest of the wave
+            push_event(EventType::BaseLost, bases_[index].pos);
+        }
+
+        threats_[i] = threats_[threat_count_ - 1];
+        --threat_count_;
     }
 }
 
@@ -362,10 +398,15 @@ void Sim::start_wave(std::uint32_t wave) noexcept {
     wave_started_pending_ = true; // siren on the next step (survives step()'s event reset)
     threats_to_spawn_ = config_.wave_base_threats + ((wave - 1) * config_.wave_threats_increment);
     spawn_timer_ = 0.0f; // first threat of the wave spawns immediately
+    // Batteries are rebuilt between waves, as in the arcade. Losing one still
+    // costs you its remaining ammo and its coverage for the rest of the wave, but
+    // it is not permanent: without this, losing all three left the player unable
+    // to fire ever again, watching a decided game play itself out — no agency for
+    // a human, and pure noise in a training rollout.
     for (auto& base : bases_) {
-        if (base.alive) {
-            base.ammo = config_.ammo_per_base;
-        }
+        base.alive = true;
+        base.ammo = config_.ammo_per_base;
+        base.cooldown_remaining = 0.0f;
     }
 }
 
@@ -403,8 +444,7 @@ void Sim::spawn_threat() noexcept {
                                      .type = type,
                                      .target_kind = kind,
                                      .target_index = index,
-                                     .split_altitude = split_altitude,
-                                     .active = true};
+                                     .split_altitude = split_altitude};
     ++threat_count_;
 }
 
@@ -413,6 +453,14 @@ void Sim::split_mirvs() noexcept {
     while (i < threat_count_) {
         Threat& threat = threats_[i];
         if (threat.type != ThreatType::Mirv || threat.pos.y > threat.split_altitude) {
+            ++i;
+            continue;
+        }
+        // Only split when the whole spread fits. Removing the parent frees exactly
+        // one slot, so a saturated field would otherwise silently turn a MIRV into
+        // one warhead instead of `mirv_splits` — quietly handing the player kills
+        // it never earned. Holding the parent retries next tick instead.
+        if ((threat_count_ - 1u) + config_.mirv_splits > max_threats) {
             ++i;
             continue;
         }
@@ -435,8 +483,7 @@ void Sim::split_mirvs() noexcept {
                        .type = ThreatType::Warhead, // child re-entry vehicles
                        .target_kind = kind,
                        .target_index = index,
-                       .split_altitude = 0.0f,
-                       .active = true};
+                       .split_altitude = 0.0f};
             ++threat_count_;
         }
         // Re-check the element swapped into slot i (do not advance i).

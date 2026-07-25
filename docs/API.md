@@ -242,5 +242,5 @@ consequences the API leans on:
 
 The learned agent is scored by the **same** `md::agent::evaluate` over the **same**
 `default_seeds`, so "beat the baseline" is a concrete claim. Current baseline:
-mean score 15,718, mean wave 14.5, 0/6 cities surviving, 1.10 kills per
+mean score 18,036, mean wave 16.0, 0/6 cities surviving, 1.09 kills per
 interceptor ([ROADMAP.md](ROADMAP.md#m4--algorithmic-reference-ai--implemented--ready-for-sign-off)).

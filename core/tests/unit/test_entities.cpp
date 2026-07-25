@@ -13,6 +13,7 @@ using md::City;
 using md::Config;
 using md::Interceptor;
 using md::Threat;
+using md::Vec2;
 
 TEST_CASE("Entities are trivially copyable so a snapshot is a memcpy", "[unit][entities]") {
     STATIC_REQUIRE(std::is_trivially_copyable_v<City>);
@@ -22,12 +23,14 @@ TEST_CASE("Entities are trivially copyable so a snapshot is a memcpy", "[unit][e
     STATIC_REQUIRE(std::is_trivially_copyable_v<Blast>);
 }
 
-TEST_CASE("Entity defaults are the expected inactive/alive state", "[unit][entities]") {
+TEST_CASE("Entity defaults are the expected alive/empty state", "[unit][entities]") {
     REQUIRE(City{}.alive);
     REQUIRE(Base{}.ammo == 0u);
-    REQUIRE_FALSE(Interceptor{}.active);
-    REQUIRE_FALSE(Threat{}.active);
-    REQUIRE_FALSE(Blast{}.active);
+    // The transient pools carry no `active` flag: Sim keeps them compacted and
+    // hands out counted spans, so everything a caller can see is live.
+    REQUIRE(Threat{}.pos == Vec2{});
+    REQUIRE(Interceptor{}.target == Vec2{});
+    REQUIRE(Blast{}.radius == 0.0f);
 }
 
 TEST_CASE("Config defaults are sane", "[unit][entities]") {

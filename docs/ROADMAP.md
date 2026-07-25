@@ -88,15 +88,15 @@ already near is cheapest to shoot, which stops it oscillating between rivals.
 
 | Metric | Value |
 |---|---|
-| Mean score | **15,718** (range 9,790 – 18,580) |
-| Mean wave reached | **14.5** |
+| Mean score | **18,036** (range 15,275 – 20,610) |
+| Mean wave reached | **16.0** |
 | Mean cities surviving | **0.00** of 6 |
 | Kills per interceptor | **1.10** |
 | Episodes surviving the cap | 0 / 32 |
 
 **This settles the question the design turned on.** A perfect-marksmanship agent — one
 that solves the lead-intercept exactly and never misses — still loses *every* game, with
-every city gone, around wave 14. The difficulty is not aiming; it is allocation under an
+every city gone, around wave 16. The difficulty is not aiming; it is allocation under an
 ammunition budget that goes negative as waves grow. Exact velocity information does not
 trivialise the game, which is why the observation gives raw state rather than hiding it.
 

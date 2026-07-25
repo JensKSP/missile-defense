@@ -371,6 +371,108 @@ TEST_CASE("A destroyed city is rebuilt at the bonus-score threshold", "[unit][si
     REQUIRE(rebuilt);
 }
 
+TEST_CASE("Damage lands where the warhead lands, not where it was aimed", "[unit][sim]") {
+    // A smart bomb steers sideways to dodge blasts, so its impact point can end up
+    // far from the installation it launched at. What it destroys must follow the
+    // visible trajectory: if the stored assignment decided the outcome, a bomb that
+    // plainly drifted clear would still level the city it started towards, and
+    // neither the player nor a policy could predict that from what they can see.
+    Config cfg = unpaced();
+    cfg.smart_bomb_wave = 1;
+    cfg.smart_bomb_chance = 1.0f; // every spawn is a dodger
+    cfg.wave_base_threats = 1;
+    cfg.threat_base_speed = 10.0f;      // slow: plenty of time to be shoved
+    cfg.smart_bomb_dodge_range = 80.0f; // and it reacts from far away
+    cfg.smart_bomb_dodge_accel = 500.0f;
+    cfg.blast_lifetime = 8.0f; // a long-lived shove
+    cfg.blast_max_radius = 10.0f;
+    cfg.interceptor_speed = 900.0f;
+    cfg.base_cooldown = 0.0f;
+    Sim sim{cfg};
+    sim.reset(11);
+    sim.step(Action::noop());
+    REQUIRE(sim.threats().size() == 1);
+    REQUIRE(sim.threats()[0].type == ThreatType::SmartBomb);
+
+    const auto aimed_kind = sim.threats()[0].target_kind;
+    const std::uint32_t aimed_index = sim.threats()[0].target_index;
+    const Vec2 aim_point = (aimed_kind == md::TargetKind::City) ? sim.cities()[aimed_index].pos
+                                                                : sim.bases()[aimed_index].pos;
+
+    // Detonate beside the bomb so it steers away from where it was headed.
+    const Vec2 bomb = sim.threats()[0].pos;
+    sim.step(Action::fire_at(BaseId::Alpha, Vec2{bomb.x - 12.0f, bomb.y - 6.0f}));
+
+    float last_x = bomb.x;
+    for (int i = 0; i < 3000 && !sim.threats().empty(); ++i) {
+        last_x = sim.threats()[0].pos.x;
+        sim.step(Action::noop());
+    }
+
+    const float slot = cfg.world_width / static_cast<float>(md::base_count + md::max_cities);
+    REQUIRE(std::abs(last_x - aim_point.x) > slot * 0.5f); // it really did drift clear
+
+    // Having landed elsewhere, it cannot have destroyed what it was aimed at.
+    if (aimed_kind == md::TargetKind::City) {
+        REQUIRE(sim.cities()[aimed_index].alive);
+    } else {
+        REQUIRE(sim.bases()[aimed_index].alive);
+    }
+}
+
+TEST_CASE("Batteries are rebuilt between waves", "[unit][sim]") {
+    // Losing a battery costs its ammo and coverage for the rest of the wave, but
+    // must not be permanent: three dead batteries used to mean the player could
+    // never fire again and just watched a decided game finish itself.
+    Config cfg = unpaced();
+    cfg.threat_base_speed = 3000.0f; // everything lands almost at once
+    cfg.wave_base_threats = 40;      // enough to flatten the batteries
+    cfg.spawn_interval = 0.02f;
+    Sim sim{cfg};
+    sim.reset(4);
+
+    bool a_base_died = false;
+    for (int i = 0; i < 4000 && !sim.terminated(); ++i) {
+        sim.step(Action::noop());
+        for (const auto& base : sim.bases()) {
+            a_base_died = a_base_died || !base.alive;
+        }
+        if (a_base_died && sim.wave() >= 2u) {
+            break;
+        }
+    }
+    REQUIRE(a_base_died);
+    if (sim.wave() >= 2u) {
+        for (const auto& base : sim.bases()) {
+            REQUIRE(base.alive); // the new wave brought them all back
+            REQUIRE(base.ammo == cfg.ammo_per_base);
+        }
+    }
+}
+
+TEST_CASE("A MIRV whose spread will not fit holds instead of splitting short", "[unit][sim]") {
+    // Removing the parent frees exactly one slot, so a saturated field would turn
+    // a MIRV into a single warhead — quietly gifting the player the other two.
+    Config cfg = unpaced();
+    cfg.mirv_splits = md::max_threats + 10u; // can never fit
+    cfg.wave_base_threats = 1;
+    cfg.mirv_chance_per_wave = 1.0f; // guarantee a MIRV from wave 2
+    cfg.mirv_max_chance = 1.0f;
+    cfg.threat_base_speed = 20.0f;
+    Sim sim{cfg};
+    sim.reset(2);
+
+    // Run into wave 2+ so MIRVs can appear, and check none ever split short.
+    for (int i = 0; i < 3000 && !sim.terminated(); ++i) {
+        sim.step(Action::noop());
+        REQUIRE(sim.threats().size() <= md::max_threats);
+        for (const auto& threat : sim.threats()) {
+            // No child warheads can exist: every split was refused.
+            REQUIRE(threat.type != ThreatType::Warhead);
+        }
+    }
+}
+
 TEST_CASE("A bonus earned with every city standing is banked, not forfeited", "[unit][sim]") {
     // Crossing the threshold with a full skyline used to advance it and rebuild
     // nothing — so playing well threw the reward away. It must be held instead.

@@ -25,13 +25,17 @@ struct Base {
     bool alive = true;               // v0.1: bases are not destructible
 };
 
+// The transient entities below carry no `active` flag: `Sim` keeps each pool
+// compacted and hands out counted spans, so every element a caller can see is by
+// construction live. A flag would be redundant state that is always `true` —
+// and an inviting way to write a filter that silently does nothing.
+
 /// A player interceptor in flight toward its detonation point.
 struct Interceptor {
     Vec2 pos{};
     Vec2 origin{}; // launch point (for the trail)
     Vec2 velocity{};
     Vec2 target{}; // point at which it detonates
-    bool active = false;
 };
 
 /// An incoming enemy warhead.
@@ -40,10 +44,12 @@ struct Threat {
     Vec2 origin{}; // where it entered/split from (for the trail)
     Vec2 velocity{};
     ThreatType type = ThreatType::Icbm;
+    // The installation this threat was *launched at*, which fixes its heading at
+    // spawn. Damage is resolved by where it actually lands (a smart bomb steering
+    // around a blast can miss), so this is a record of intent, not of outcome.
     TargetKind target_kind = TargetKind::City;
     std::uint32_t target_index = 0; // index into cities or bases, per target_kind
     float split_altitude = 0.0f;    // MIRV: y at which it splits (0 = never)
-    bool active = false;
 };
 
 /// An expanding explosion that destroys threats within its current radius.
@@ -51,7 +57,6 @@ struct Blast {
     Vec2 center{};
     float age = 0.0f;    // seconds since detonation
     float radius = 0.0f; // current radius, derived from age
-    bool active = false;
 };
 
 /// A cosmetic ground-impact fireball (does NOT destroy threats). Spawned when a
@@ -61,7 +66,6 @@ struct Explosion {
     float age = 0.0f;
     float radius = 0.0f;
     float peak_radius = 0.0f;
-    bool active = false;
 };
 
 // The determinism / parallelism contract requires every entity to be trivially
