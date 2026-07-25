@@ -10,7 +10,7 @@ import sys
 
 from . import _util
 
-CPP_DIRS: tuple[str, ...] = ("core", "app", "bindings")
+CPP_DIRS: tuple[str, ...] = ("core", "app", "agent", "bindings")
 
 
 def format_sources(*, fix: bool) -> None:
@@ -23,8 +23,14 @@ def format_sources(*, fix: bool) -> None:
 
 
 def tidy() -> None:
+    # `module.cpp` is excluded: it is nanobind glue, and it only exists in the
+    # compile database when the optional bindings are configured.
     clang_tidy = _util.tool("clang-tidy-21", "clang-tidy")
-    files = _util.cpp_files(("core", "app"), exts=("cpp",), exclude=("/tests/", "miniaudio_impl"))
+    files = _util.cpp_files(
+        ("core", "app", "agent", "bindings"),
+        exts=("cpp",),
+        exclude=("/tests/", "miniaudio_impl", "module"),
+    )
     _util.run([clang_tidy, "-p", "build/debug", "--warnings-as-errors=*", *files])
 
 
