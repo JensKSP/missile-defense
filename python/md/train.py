@@ -33,9 +33,12 @@ interpretable rather than just a number going up:
 from __future__ import annotations
 
 import argparse
+import csv
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import torch
@@ -43,6 +46,9 @@ import torch
 from .env import Actions, Flags, Observations, Shaping, VecEnv
 from .eval import evaluate, format_summary
 from .ppo import Policy, PPOConfig, Rollout, update
+
+#: Chooses an action index per environment, given the batch and its action mask.
+Policy_fn = Callable[[Observations, Flags], Actions]
 
 #: The scripted baseline (docs/ROADMAP.md, M4). What a learned policy has to beat.
 BASELINE_MEAN_SCORE = 18_036.0
@@ -75,6 +81,8 @@ class TrainConfig:
     #: "cuda", "cpu", or None to pick automatically.
     device: str | None = None
     out_dir: Path = Path("runs")
+    #: Resume from this checkpoint (weights, optimizer and iteration).
+    resume: Path | None = None
 
 
 def _device(name: str | None) -> torch.device:
@@ -100,10 +108,39 @@ def train(config: TrainConfig, ppo: PPOConfig | None = None) -> Policy:
     optimizer = torch.optim.Adam(policy.parameters(), lr=ppo.learning_rate, eps=1e-5)
     rollout = Rollout(config.steps, config.envs, env.obs_size, env.action_count, device)
 
+    first = 1
+    if config.resume is not None:
+        payload: dict[str, Any] = torch.load(config.resume, map_location=device, weights_only=True)
+        policy.load_state_dict(payload["policy"])
+        optimizer.load_state_dict(payload["optimizer"])
+        first = int(payload["iteration"]) + 1
+        print(f"resumed from {config.resume} at update {first}")
+
     # Environment 0 carries the recordings — one watchable episode at a time.
     if config.record_every > 0:
         env.record(0)
     checkpoints = config.out_dir / "checkpoints"
+    shape = (env.obs_size, env.action_count)
+    # A CSV alongside the printed line: the terminal is for watching a run, this
+    # is for plotting it afterwards. Appended, so a resumed run keeps its history.
+    metrics_path = config.out_dir / "metrics.csv"
+    metrics_path.parent.mkdir(parents=True, exist_ok=True)
+    new_file = not metrics_path.exists()
+    metrics = metrics_path.open("a", newline="", encoding="utf-8")
+    writer = csv.writer(metrics)
+    if new_file:
+        writer.writerow(
+            [
+                "update",
+                "samples",
+                "return",
+                "entropy",
+                "policy_loss",
+                "value_loss",
+                "clip_fraction",
+                "steps_per_second",
+            ]
+        )
 
     print(
         f"training on {device} | {config.envs} envs x {config.steps} steps "
@@ -115,7 +152,7 @@ def train(config: TrainConfig, ppo: PPOConfig | None = None) -> Policy:
     running = np.zeros(config.envs, dtype=np.float64)
     started = time.perf_counter()
 
-    for iteration in range(1, config.updates + 1):
+    for iteration in range(first, first + config.updates):
         for step in range(config.steps):
             obs = torch.from_numpy(env.observations).to(device)
             mask = torch.from_numpy(env.action_masks()).to(device)
@@ -152,7 +189,22 @@ def train(config: TrainConfig, ppo: PPOConfig | None = None) -> Policy:
         steps_done = iteration * config.steps * config.envs
         # Early on no episode has finished yet, so there is nothing to average.
         # Say so rather than printing nan, which reads as a bug.
-        ret = f"{np.mean(recent):>8.2f}" if recent else "       -"
+        mean_return = float(np.mean(recent)) if recent else float("nan")
+        rate = steps_done / elapsed
+        writer.writerow(
+            [
+                iteration,
+                steps_done,
+                f"{mean_return:.4f}",
+                f"{stats['entropy']:.4f}",
+                f"{stats['policy_loss']:.6f}",
+                f"{stats['value_loss']:.6f}",
+                f"{stats['clip_fraction']:.4f}",
+                f"{rate:.1f}",
+            ]
+        )
+        metrics.flush()  # so a plot can follow a run that is still going
+        ret = f"{mean_return:>8.2f}" if recent else "       -"
         print(
             f"update {iteration:>5} | return {ret} "
             f"| entropy {stats['entropy']:.3f} | value {stats['value_loss']:.3f} "
@@ -172,20 +224,71 @@ def train(config: TrainConfig, ppo: PPOConfig | None = None) -> Policy:
             print(f"  {abs(delta):,.0f} {verdict} the scripted baseline")
 
         if config.checkpoint_every > 0 and iteration % config.checkpoint_every == 0:
-            _save(policy, checkpoints / f"policy-{iteration:05d}.pt")
+            _save(
+                policy, optimizer, iteration, shape, ppo, checkpoints / f"policy-{iteration:05d}.pt"
+            )
 
     # Always checkpoint the finished policy. Without this a run whose length is
     # not a multiple of checkpoint_every throws away the thing it just trained.
-    _save(policy, checkpoints / "policy-final.pt")
+    _save(policy, optimizer, iteration, shape, ppo, checkpoints / "policy-final.pt")
+    metrics.close()
     print(f"  final policy -> {checkpoints / 'policy-final.pt'}")
+    print(f"  metrics      -> {metrics_path}")
     return policy
 
 
-def _save(policy: Policy, path: Path) -> None:
-    """Write the weights. Only the policy — not the optimizer — so these are for
-    evaluating or watching a past policy, not for resuming a run."""
+def _save(
+    policy: Policy,
+    optimizer: torch.optim.Optimizer,
+    iteration: int,
+    shape: tuple[int, int],
+    ppo: PPOConfig,
+    path: Path,
+) -> None:
+    """Write a checkpoint that is enough to *resume* from, not just to score.
+
+    That means the optimizer too: Adam carries momentum estimates, and restarting
+    without them makes the first few updates after a resume behave nothing like
+    the ones before it. The observation/action sizes ride along so a checkpoint
+    can be loaded without first constructing an environment to ask.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(policy.state_dict(), path)
+    torch.save(
+        {
+            "policy": policy.state_dict(),
+            "optimizer": optimizer.state_dict(),
+            "iteration": iteration,
+            "obs_size": shape[0],
+            "action_count": shape[1],
+            "hidden": ppo.hidden,
+        },
+        path,
+    )
+
+
+def load_policy(path: Path, device: torch.device | None = None) -> tuple[Policy, dict[str, Any]]:
+    """Rebuild a policy from a checkpoint. Returns it alongside the raw payload."""
+    device = device or torch.device("cpu")
+    payload: dict[str, Any] = torch.load(path, map_location=device, weights_only=True)
+    policy = Policy(payload["obs_size"], payload["action_count"], payload["hidden"]).to(device)
+    policy.load_state_dict(payload["policy"])
+    policy.eval()
+    return policy, payload
+
+
+def greedy_policy(policy: Policy, device: torch.device) -> Policy_fn:
+    """Wrap a network as the callable `md.eval.evaluate` expects.
+
+    Greedy, because the scripted baseline is deterministic — comparing a sampled
+    policy against it would be measuring two different things.
+    """
+
+    def act(obs: Observations, mask: Flags) -> Actions:
+        with torch.no_grad():
+            logits, _ = policy(torch.from_numpy(obs).to(device), torch.from_numpy(mask).to(device))
+            return logits.argmax(dim=-1).cpu().numpy().astype(np.int32)
+
+    return act
 
 
 def _score(policy: Policy, device: torch.device) -> object:
@@ -201,6 +304,36 @@ def _score(policy: Policy, device: torch.device) -> object:
             return logits.argmax(dim=-1).cpu().numpy().astype(np.int32)
 
     return evaluate(act)
+
+
+def score_checkpoint(path: Path, device_name: str | None = None, record: Path | None = None) -> int:
+    """Score a saved policy on the canonical seeds, without training anything.
+
+    This is how you compare checkpoints: same seeds, same aggregation as the
+    scripted baseline, so the numbers sit next to each other honestly. Pass
+    `record` to also drop a watchable episode of that policy playing.
+    """
+    device = _device(device_name)
+    policy, payload = load_policy(path, device)
+    print(f"loaded {path} (update {payload['iteration']})")
+
+    if record is not None:
+        # One env, one seed, recorded start to finish.
+        env = VecEnv(num_envs=1, threads=1, shaping=Shaping(), seed=0)
+        env.record(0)
+        act = greedy_policy(policy, device)
+        for _ in range(200_000):
+            _, _, terminated, truncated, _ = env.step(act(env.observations, env.action_masks()))
+            if terminated[0] or truncated[0]:
+                break
+        if env.save_recording(0, record, update=int(payload["iteration"]), label=path.stem.upper()):
+            print(f"recorded {record}")
+
+    summary = evaluate(greedy_policy(policy, device))
+    print(format_summary(summary))
+    delta = summary.mean_score - BASELINE_MEAN_SCORE
+    print(f"  {abs(delta):,.0f} {'ahead of' if delta > 0 else 'behind'} the scripted baseline")
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -222,7 +355,22 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seed", type=int, default=defaults.seed)
     parser.add_argument("--device", type=str, default=defaults.device)
     parser.add_argument("--out-dir", type=Path, default=defaults.out_dir)
+    parser.add_argument(
+        "--resume", type=Path, default=None, help="Continue training from a checkpoint."
+    )
+    parser.add_argument(
+        "--load",
+        type=Path,
+        default=None,
+        help="Score a saved policy on the canonical seeds and exit (no training).",
+    )
+    parser.add_argument(
+        "--record-to", type=Path, default=None, help="With --load, also write a watchable episode."
+    )
     args = parser.parse_args(argv)
+
+    if args.load is not None:
+        return score_checkpoint(args.load, args.device, args.record_to)
 
     train(
         TrainConfig(
@@ -237,6 +385,7 @@ def main(argv: list[str] | None = None) -> int:
             seed=args.seed,
             device=args.device,
             out_dir=args.out_dir,
+            resume=args.resume,
         )
     )
     return 0
