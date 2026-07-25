@@ -154,3 +154,76 @@ Custom PPO (PyTorch) with a curriculum; **beat the M4 algorithmic baseline**.
 
 Export the policy → in-process C++ inference; live spectator mode; human takeover from any
 point in an AI-played game (scripted or learned).
+
+## M8 — Training console (PySide6)
+
+A desktop UI for running and understanding training: start / pause / stop / reset a
+run, tweak the parameters, watch the curves, browse and play back recordings, inspect
+the model, and launch the game — without leaving the window.
+
+**Why it earns a milestone.** The project already bets on interpretability: recordings
+exist because a return curve cannot tell you the policy has learned to ignore MIRVs.
+This puts the curve and the episode side by side, which is the whole loop in one place.
+
+### The decision that shapes everything: training stays out of process
+
+The UI **must not** train inside its own event loop. Training saturates the CPU for
+hours; in a Qt event loop that means a frozen window, and a UI crash would take the run
+with it.
+
+Instead the run is a subprocess and the existing artifacts *are* the interface:
+
+| Artifact | The UI's use |
+|---|---|
+| `runs/metrics.csv` | tail → live curves (return, entropy, value, clip fraction) |
+| `runs/update-*.mdr` | list → double-click launches `md_app --replay` |
+| `runs/checkpoints/*.pt` | list → `--load` to score, or `--resume` to continue |
+| stdout | streamed into a log pane |
+
+This buys more than responsiveness: the UI can **attach to a run started from a
+terminal**, a crashed UI leaves training untouched, and the whole thing works against a
+synced directory from the Debian box.
+
+### Control: a file the loop polls, not a signal
+
+Start is just spawning the process. The other three need the training loop to
+cooperate, and the simplest mechanism that works identically on Windows and Linux is a
+small control file checked **once per update** (an update is seconds, so that
+granularity is plenty):
+
+* **Pause** — the loop blocks between updates rather than being SIGSTOP'd, so it stays
+  responsive, keeps its allocations, and resumes exactly where it was. An OS-level
+  suspend would freeze it mid-update in an unknown state.
+* **Stop** — *graceful*: finish the current update, write a final checkpoint, flush
+  metrics, exit. Killing the process instead would throw away everything since the last
+  checkpoint.
+* **Reset** — start a fresh run directory. Destructive (it abandons checkpoints), so it
+  must confirm, and should default to a new `--out-dir` rather than deleting.
+
+Because it is a file, `touch runs/STOP` from a shell does the same thing — the UI is a
+convenience over the mechanism, never the only way to reach it.
+
+### Panels
+
+1. **Run** — parameter form (the `TrainConfig` / `PPOConfig` fields, each with the
+   reasoning already written beside them in code as tooltips), start/pause/stop/reset,
+   live status.
+2. **Curves** — return, entropy, value loss, clip fraction, from `metrics.csv`. The
+   **baseline drawn as a horizontal line**, because "beat 18,036" is the actual goal and
+   a curve without it is just a number going up.
+3. **Model** — parameter count, layer shapes, observation/action sizes, the iteration a
+   checkpoint came from, and its eval summary against the baseline.
+4. **Recordings** — browse `runs/`, play in the app, delete. Newest first.
+5. **System** — CPU and RAM via `psutil`. **GPU deliberately deferred**: there is no
+   good cross-vendor Python API (`pynvml` is NVIDIA-only), and on a machine training on
+   CPU it would display an idle meter that means nothing.
+
+### Notes
+
+* **PySide6**, installed into the *native* interpreter that already has torch and
+  `_md_native`. Its wheels are MSVC-built, so this needs no MSYS2 involvement and no
+  second toolchain — and it is consistent with the game already being Qt 6.
+* Lives in `python/md/ui/`, launched by `poe ui`. It imports `md.env` only for shapes;
+  it never steps a simulation itself.
+* Depends on M6 being genuinely runnable — a console for a run that does not learn is a
+  pretty window. Sequence it after the first real training run, not before.
