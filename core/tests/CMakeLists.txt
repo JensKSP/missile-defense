@@ -44,7 +44,9 @@ add_executable(md_core_unit_tests
   unit/test_rng.cpp
   unit/test_entities.cpp
   unit/test_action.cpp
-  unit/test_sim.cpp)
+  unit/test_sim.cpp
+  unit/test_observation.cpp
+  unit/test_intercept.cpp)
 target_link_libraries(md_core_unit_tests
   PRIVATE md::core md::warnings md_test_warnings Catch2::Catch2WithMain)
 catch_discover_tests(md_core_unit_tests PROPERTIES LABELS unit)

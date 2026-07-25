@@ -57,7 +57,7 @@ class GameWindow : public QVulkanWindow {
 
     [[nodiscard]] int menu_index() const noexcept { return menu_index_; }
 
-    [[nodiscard]] int menu_count() const noexcept;
+    [[nodiscard]] static int menu_count() noexcept;
     [[nodiscard]] std::string_view menu_label(int index) const;
 
     // Options screen (a second centered list): AUDIO / MUSIC / FULLSCREEN + BACK.

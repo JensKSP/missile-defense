@@ -15,6 +15,7 @@ Checks: >
   -cppcoreguidelines-avoid-do-while,
   -bugprone-easily-swappable-parameters,
   -cppcoreguidelines-pro-bounds-constant-array-index,
+  -cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,
   -readability-uppercase-literal-suffix,
   -readability-redundant-member-init,
   -modernize-use-designated-initializers,
@@ -34,6 +35,12 @@ Checks: >
 #    cognitive-complexity (the per-state renderer draw), pointer-arithmetic /
 #    array decay / C-arrays (audio mixer, vertex buffers, push constants,
 #    generated SPIR-V headers), owning-memory (Qt factory ownership handoff).
+#  * pro-bounds-avoid-unchecked-container-access (new in clang-tidy 22; the
+#    successor to pro-bounds-constant-array-index above) fires on *every*
+#    `operator[]`. The bounds-safe alternative it suggests, `.at()`, throws — and
+#    the simulation hot path is `noexcept` and exception-free by design
+#    (DESIGN.md §9). Indices there are bounded by fixed capacities and the
+#    surrounding logic, so this would be pure noise.
 
 WarningsAsErrors: '*'
 HeaderFilterRegex: '.*/(core|bindings|app)/.*'

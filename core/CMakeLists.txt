@@ -9,7 +9,9 @@ add_library(md::core ALIAS md_core)
 target_sources(md_core
   PRIVATE
     src/version.cpp
-    src/sim.cpp)
+    src/sim.cpp
+    src/observation.cpp
+    src/intercept.cpp)
 
 target_include_directories(md_core PUBLIC include)
 target_compile_features(md_core PUBLIC cxx_std_23)

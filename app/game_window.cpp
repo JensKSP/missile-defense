@@ -47,7 +47,7 @@ QVulkanWindowRenderer* GameWindow::createRenderer() {
     return new Renderer(this);
 }
 
-int GameWindow::menu_count() const noexcept {
+int GameWindow::menu_count() noexcept {
     return 6; // paused: RESUME NEW-GAME HELP OPTIONS HIGHSCORES EXIT
               // main:   START HELP OPTIONS HIGHSCORES ABOUT EXIT
 }
