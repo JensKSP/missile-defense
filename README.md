@@ -9,6 +9,10 @@ reproducible environment — used to train a reinforcement-learning agent.
 
 *By Jens Köhler · [MIT License](LICENSE) · developed with [Claude Code](https://claude.com/claude-code) (Anthropic).*
 
+**New here?** Three paths, in increasing order of fun:
+[build and play it](#build--run) → [watch the scripted AI](#watching-the-ai-play) →
+[train your own agent](docs/TRAINING.md).
+
 - Game design (and reward spec): [docs/DESIGN.md](docs/DESIGN.md)
 - Milestones / roadmap: [docs/ROADMAP.md](docs/ROADMAP.md)
 - Testing & quality gate: [docs/TESTING.md](docs/TESTING.md)
