@@ -50,6 +50,15 @@ far more entities per tick.
 For **training** throughput the relevant path is `step` + `encode` ≈ 90 ns/tick;
 the scripted agent is only used for the M4 baseline.
 
+That path is not, however, what bounds a training run at the PPO defaults. A full
+run measures **~7.6k agent-steps/s end to end** against ~1.1M for the environment
+alone at the same batch size, so the simulation is a few percent of the wall clock
+and PyTorch is the rest (see
+[Known rough edges](TRAINING.md#known-rough-edges)). Worth knowing before
+optimising anything here *for training's sake*: until the PPO update is cheaper, a
+faster `Sim::step` does not make a run finish sooner. The numbers above still
+govern evaluation, the scripted baseline, and any headless batch work.
+
 ## Parallelism
 
 `md::VecSim` owns a batch of independent simulations and offers two modes:

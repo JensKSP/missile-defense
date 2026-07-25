@@ -51,19 +51,31 @@ poe bindings          # build the C++ environment for Python
 poe train             # 1024 envs, defaults, ~131k samples per update
 ```
 
-You will see a line per update:
+You will see a line per update — this is a real run, on a 16-thread CPU:
 
 ```
 training on cpu | 1024 envs x 128 steps = 131,072 samples/update | baseline 18,036
-update     1 | return        - | entropy 1.619 | value 0.040 | 210k steps/s
-update     2 | return     4.87 | entropy 1.602 | value 0.349 | 214k steps/s
+update     1 | return        - | entropy 1.263 | value 1.503 | 8k steps/s
+update     2 | return        - | entropy 1.176 | value 1.040 | 8k steps/s
+update     5 | return     8.58 | entropy 0.548 | value 0.236 | 7k steps/s
+update    20 | return    13.46 | entropy 0.549 | value 0.485 | 8k steps/s
 ```
+
+**Budget about five hours for the 1000-update default**, ~17 s per update at
+these settings. Pass `--updates 20` if you only want to see the loop turn over.
 
 * `return` is `-` until the first episodes finish — episodes are thousands of
   ticks long, so this is normal, not a hang.
-* `entropy` is how undecided the policy is. It should fall *slowly*. A crash
-  toward zero in the first few dozen updates means it has committed early, and
-  the usual fix is more `entropy_coef`.
+* **`return` is not the game score**, and the two are not comparable. It is the
+  sum of *shaped* reward over an episode divided by `Shaping.scale` (100), so it
+  reads in the tens while the baseline's score is 18,036. The eval block every
+  `--eval-every` updates is what puts the policy and the baseline on one ruler.
+* `entropy` is how undecided the policy is. It starts near **1.2, not ln(385) =
+  5.9**, because action masking means only a handful of actions are ever legal —
+  so read it as "about `exp(entropy)` real choices". A quick early fall as it
+  learns which of those are worth taking is expected; what you are watching for
+  is it continuing toward zero over the first few dozen updates, which means it
+  has committed early, and the usual fix is more `entropy_coef`.
 * `value` is how badly the critic is predicting returns. Expect it to spike when
   the policy changes behaviour, then settle.
 
@@ -132,9 +144,21 @@ Honest list, so you do not chase these as bugs:
 
 * **No curriculum.** M6 calls for one; training currently starts at full
   difficulty.
-* **CPU by default.** Fine here: the policy is a two-layer MLP and the simulation
-  sustains ~1.7M agent-steps/s, so runs are often environment-bound. See
-  [Getting PyTorch](#getting-pytorch) if you want a GPU.
+* **CPU by default, and the optimizer is the bottleneck — not the simulation.**
+  Measured at the defaults on a 16-thread CPU: **~7.6k agent-steps/s**, ~17 s per
+  update. It is tempting to blame the environment for that, and wrong. At 1024
+  envs the batched simulation runs ~1.1M agent-steps/s
+  ([`bindings/README.md`](../bindings/README.md)), so collecting an update's 131k
+  samples costs well under a second — a few percent of the update at most. The
+  rest is torch: PPO takes `epochs` × `minibatches` = 4 × 8 passes over the
+  rollout, so the learning phase does **four times the forward passes of the
+  rollout and a backward pass with each**, through a 1895 → 512 → 512 trunk.
+
+  Two consequences worth knowing before you tune anything. Adding environments
+  does not raise steps/s — the batch grows with them, so the update gets
+  proportionally more expensive. And this is the part a GPU would actually
+  accelerate, which is the opposite of the usual RL situation where the
+  environment is the wall. See [Getting PyTorch](#getting-pytorch).
 
 ## Getting PyTorch
 
