@@ -43,6 +43,7 @@ void encode(const Sim& sim, const ObsSpec& spec, std::span<float> out) noexcept 
     const float inv_h = inv_or_zero(cfg.world_height);
     const float inv_speed = inv_or_zero(cfg.interceptor_speed);
     const float inv_radius = inv_or_zero(cfg.blast_max_radius);
+    const float inv_blast_lifetime = inv_or_zero(cfg.blast_lifetime);
     const float inv_ammo = inv_or_zero(static_cast<float>(cfg.ammo_per_base));
     const float inv_base_cd = inv_or_zero(cfg.base_cooldown);
     const float inv_trigger = inv_or_zero(cfg.fire_interval);
@@ -93,7 +94,11 @@ void encode(const Sim& sim, const ObsSpec& spec, std::span<float> out) noexcept 
         offset += static_cast<std::size_t>(spec.interceptors) * ObsSpec::interceptor_features;
     }
 
-    // ---- Blasts: present, position, current radius ---------------------------
+    // ---- Blasts: present, position, radius, rendered lifetime phase -----------
+    // Radius alone stops carrying time once a blast reaches full size. The
+    // renderer continues to show its age through the fireball phase, so expose the
+    // same age/lifetime value here. This lets a policy judge how long an otherwise
+    // identical full-radius blast will remain active without privileged state.
     {
         const auto blasts = sim.blasts();
         const std::size_t count = std::min<std::size_t>(blasts.size(), spec.blasts);
@@ -104,6 +109,7 @@ void encode(const Sim& sim, const ObsSpec& spec, std::span<float> out) noexcept 
             slot[1] = nx(blast.center.x);
             slot[2] = ny(blast.center.y);
             slot[3] = blast.radius * inv_radius;
+            slot[4] = blast.age * inv_blast_lifetime;
         }
         offset += static_cast<std::size_t>(spec.blasts) * ObsSpec::blast_features;
     }
@@ -149,7 +155,7 @@ void encode(const Sim& sim, const ObsSpec& spec, std::span<float> out) noexcept 
         offset += ObsSpec::global_features;
     }
 
-    // ---- Events this tick: what the human hears (DESIGN.md §13) --------------
+    // ---- Direct encode: events from this tick (DESIGN.md §13) ----------------
     {
         float* slot = base + offset;
         for (const Event& event : sim.events()) {

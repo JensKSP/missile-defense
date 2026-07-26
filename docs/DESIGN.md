@@ -68,6 +68,10 @@ Compile with no fast-math and consistent FP settings. This is what makes replays
 - Any enemy warhead entering the blast during its lifetime is destroyed — one blast can
   **chain-kill** several warheads.
 - Defaults: speed `~220 u/s`, blast max radius `~14 u`, blast lifetime `~0.9 s`.
+- The fireball's colour/opacity phase is driven by normalized age
+  (`age / blast_lifetime`). The observation exposes that same visible phase alongside
+  radius; a full-size lingering blast otherwise gives no indication how close it is to
+  expiry.
 
 ### 3.4 Threats (enemies)
 | Type | Behavior | Appears |
@@ -90,7 +94,9 @@ Compile with no fast-math and consistent FP settings. This is what makes replays
 
 ### 4.2 Termination
 - The episode ends when **all 6 cities are destroyed** ("THE END"). No win condition —
-  it is endless survival. (For RL we also impose a max-steps truncation.)
+  it is endless survival. Canonical evaluation also truncates at exactly 120,000
+  simulation ticks; a final partial four-tick decision window stops at the cap
+  instead of rounding the episode up.
 
 ### 4.3 Scoring (also the reward seed)
 | Event | Points |
@@ -119,12 +125,14 @@ optionally to launch from `base_id` at wherever the crosshair actually ended up.
 - **Preconditions** for a launch: the chosen base is alive, has ammo `> 0` and is off its
   own cooldown, **and** the global trigger interval has elapsed. A rejected launch is a
   no-op (no crash, no ammo spent, no penalty beyond the wasted opportunity).
-- **Human client:** the mouse position is fed as `aim` every tick; a click sets `fire`.
+- **Human client:** the current mouse position is submitted as `aim`; a click is
+  latched until the next 15 Hz decision tick, then sets `fire` once.
 - **AI policy:** action space stays **target-selection** — "assign an interceptor from
   base *j* to threat *i*" — with a helper turning that into steer-then-fire over several
   ticks. Discrete-over-entities, friendly to a from-scratch PPO, same underlying primitive.
-- **Cadence:** the agent may act **every tick** (`K = 1`). Frame-skip may be introduced
-  later as a training optimization.
+- **Cadence:** the simulation samples a new action every 4 ticks (15 Hz) and holds it
+  between decisions. Training's frame-skip uses the same interval, so neither the
+  scripted nor learned driver gets faster reactions by how its outer loop is written.
 
 ### 5.1 The player model — why the limits exist
 
@@ -138,10 +146,11 @@ actuation, not perception** — so we cap the hands and leave the eyes alone:
 | Knob | Models | Default |
 |---|---|---|
 | `aim_max_speed` | How fast a hand moves the cursor (world units/s; `0` = instant) | `1200` |
-| `fire_interval` | The trigger finger — min seconds between **any** two launches | `0.15` |
+| `fire_interval` | The trigger finger — min seconds between **any** two launches | `0.33` |
 | `base_cooldown` | The battery's own reload, applied on top | `0.1` |
+| `decision_interval` | Reaction rate — simulation ticks per newly sampled action | `4` |
 
-Both limits are enforced inside `Sim::step`, so **every driver obeys them identically** —
+These player limits are enforced inside `Sim::step`, so **every driver obeys them identically** —
 human, scripted baseline, and learned policy. Consequences worth noting:
 
 - The two limits cover different regimes: the trigger interval binds on *clustered* targets
@@ -153,17 +162,19 @@ human, scripted baseline, and learned policy. Consequences worth noting:
 - Defaults are strawman values. `aim_max_speed` is set generously so it is invisible during
   human play (a mouse rarely exceeds it) while still denying the agent free teleportation;
   calibrate both from recorded human play before the mechanics freeze.
-- Setting either to `0` disables it, which is how tests of *other* mechanics avoid being
-  paced by the player model.
+- Setting `aim_max_speed` or `fire_interval` to `0` disables that limit, which is how
+  tests of *other* mechanics avoid being paced by the player model.
 
 ## 6. Observation model (data availability, finalized in Step 2)
 
 The core sim state must be fully introspectable so the observation vector can be built
 **inside the C++ core** (shared by training and by live inference — no train/serve skew).
-The observation is *set-structured* (variable threat/interceptor counts) and will include:
-threats (position, velocity, type), in-flight interceptors and active blasts, per-base
-ammo/cooldown, per-city alive flags, and wave/time. Exact encoding (fixed-max padding vs.
-set/attention encoder) is a Step-2 decision.
+The observation is *set-structured* (variable threat/interceptor counts) and includes:
+threats (position, velocity, type), in-flight interceptors, active blasts (position,
+radius, and their visibly rendered lifetime phase), per-base ammo/cooldown, per-city
+alive flags, and wave/time. It is encoded as a fixed-capacity, zero-padded vector
+of 1,959 floats. Event counts returned to a policy cover every underlying tick in
+its four-tick decision window, so frame skip cannot erase an audible cue.
 
 ## 7. Deviations from the arcade original (v0.1)
 - No bomber/satellite enemies yet (only ICBM / MIRV / smart bomb).
@@ -236,28 +247,30 @@ Every mode is just "a driver feeds `Action`s into a `Sim`; the renderer draws th
 
 ## 12. Milestones
 
-**M1 (current target): a human can play a fresh game in the Vulkan UI.** Full milestone list and
-the path to M1 are in [`ROADMAP.md`](ROADMAP.md).
+**M1 passed: a human can play a fresh game in the Vulkan UI.** The current
+milestone status and remaining work are in [`ROADMAP.md`](ROADMAP.md).
 
 ## 13. Audio & game events
 
 Discrete game events — interceptor launched, detonation, threat destroyed, city destroyed, wave
 cleared, game over — are **first-class, deterministic outputs of `md::core`**, accumulated during
-`step()` and returned in `StepResult`. One event stream feeds three consumers *identically*:
+each `step()` and available from the simulation. One event stream feeds three consumers:
 
 - **Audio (human):** the app plays a sound effect per event (launch *thunk*, intercept *boom*, a
   city lost, …).
-- **AI observation (parity):** the same events are encoded into the agent's observation, so the
-  policy receives the cues a human *hears*. This is a deliberate fairness principle — **no
-  information asymmetry between human and AI.** What you hear, the model "hears."
+- **AI observation (parity):** the same events are counted in the agent's observation. A direct
+  encoder reports one tick; the vector environment sums all four ticks before the next 15 Hz
+  decision, so the policy receives every cue a human *hears*. This is a deliberate fairness
+  principle — **no information asymmetry between human and AI.** What you hear, the model
+  "hears."
 - **Replay:** events derive deterministically from `(seed, actions)`, so replays reproduce
   identical audio and cues.
 
-The sim already computes these moments internally (firing, kills, city hits, wave clear,
-termination); surfacing them as an event list is a small, pure, test-first core addition. The
-audio backend (Qt 6 Multimedia `QSoundEffect` vs. a vendored zero-dependency library such as
-miniaudio) is decided when audio is implemented — `qt6-multimedia-dev` is not currently installed.
-Recordings capture the game's audio from the PipeWire sink monitor (`scripts/record.sh`).
+The sim computes these moments internally (firing, kills, city hits, wave clear,
+termination) and surfaces them as a fixed-capacity event list. Audio uses miniaudio
+(preferring the system header, otherwise fetched at build time), so it does not
+need Qt Multimedia. Recordings capture the game's audio from the PipeWire sink
+monitor (`scripts/record.sh`).
 
 ---
 *Freeze this spec before Step 2. Every mechanics change after the freeze invalidates

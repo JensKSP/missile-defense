@@ -21,14 +21,23 @@ import pytest
 
 torch = pytest.importorskip("torch", reason="torch is optional; see docs/TRAINING.md")
 
-from md.ppo import MASKED_LOGIT, EntityPolicy, ObsLayout, build_policy  # noqa: E402
+from md import ppo as ppo_module  # noqa: E402
+from md.ppo import (  # noqa: E402
+    MASKED_LOGIT,
+    EntityPolicy,
+    ObsLayout,
+    PPOConfig,
+    Rollout,
+    build_policy,
+    update,
+)
 
 THREATS, INTERCEPTORS, BLASTS, GLOBALS = 4, 3, 2, 5
 BATTERIES = 3
 
 
 def _layout() -> ObsLayout:
-    size = (THREATS * 9) + (INTERCEPTORS * 7) + (BLASTS * 4) + GLOBALS
+    size = (THREATS * 9) + (INTERCEPTORS * 7) + (BLASTS * 5) + GLOBALS
     return ObsLayout(threats=THREATS, interceptors=INTERCEPTORS, blasts=BLASTS, obs_size=size)
 
 
@@ -73,9 +82,203 @@ def test_absent_entities_do_not_reach_the_pooled_context(policy: EntityPolicy) -
     for obs in (a, b):
         obs[0, 0:9] = torch.tensor([1.0, 0.5, 0.5, 0.0, -1.0, 1.0, 0.0, 0.0, 0.0])
     b[0, layout.interceptors_at + 1 : layout.interceptors_at + 7] = 3.7  # present flag stays 0
+    b[0, layout.blasts_at + 1 : layout.blasts_at + 5] = 2.4  # including lifetime phase
 
     mask = torch.ones(1, policy.action_count, dtype=torch.bool)
     assert torch.allclose(policy(a, mask)[0], policy(b, mask)[0], atol=1e-6)
+
+
+def test_entity_slot_order_does_not_change_relational_features(policy: EntityPolicy) -> None:
+    layout = policy.layout
+    obs = torch.zeros(1, layout.obs_size)
+    obs[0, 0:9] = torch.tensor([1.0, 0.2, 0.3, 0.1, -0.2, 1.0, 0.0, 0.0, 0.0])
+    interceptors = obs[:, layout.interceptors_at : layout.blasts_at].view(
+        1, INTERCEPTORS, layout.interceptor_features
+    )
+    interceptors[0, 0] = torch.tensor([1.0, 0.1, 0.2, 0.0, -0.1, 0.3, 0.4])
+    interceptors[0, 1] = torch.tensor([1.0, 0.8, 0.7, -0.1, 0.0, 0.6, 0.5])
+    blasts = obs[:, layout.blasts_at : layout.globals_at].view(1, BLASTS, layout.blast_features)
+    blasts[0, 0] = torch.tensor([1.0, 0.3, 0.4, 0.2, 0.5])
+    blasts[0, 1] = torch.tensor([1.0, 0.7, 0.6, 0.1, 0.2])
+
+    permuted = obs.clone()
+    permuted_i = permuted[:, layout.interceptors_at : layout.blasts_at].view(
+        1, INTERCEPTORS, layout.interceptor_features
+    )
+    permuted_b = permuted[:, layout.blasts_at : layout.globals_at].view(
+        1, BLASTS, layout.blast_features
+    )
+    permuted_i[:, [0, 1]] = permuted_i[:, [1, 0]].clone()
+    permuted_b[:, [0, 1]] = permuted_b[:, [1, 0]].clone()
+
+    features, summary = policy._actor_features(obs)
+    permuted_features, permuted_summary = policy._actor_features(permuted)
+    assert torch.allclose(features, permuted_features, atol=1e-6)
+    assert torch.allclose(summary, permuted_summary, atol=1e-6)
+
+
+def test_each_threat_gets_its_own_attended_relationship(policy: EntityPolicy) -> None:
+    # Make the projections identities so two orthogonal threat queries must
+    # select their corresponding interceptor. This distinguishes real
+    # per-threat attention from broadcasting one pooled entity summary.
+    attention = policy.interceptor_attention
+    with torch.no_grad():
+        identity = torch.eye(policy.width)
+        attention.query.weight.copy_(identity)
+        attention.key.weight.copy_(identity)
+        attention.value.weight.copy_(identity)
+        attention.output.weight.copy_(identity)
+        attention.output.bias.zero_()
+    encoded_t = torch.zeros(1, THREATS, policy.width)
+    encoded_i = torch.zeros(1, INTERCEPTORS, policy.width)
+    encoded_t[0, 0, 0] = 10.0
+    encoded_t[0, 1, 1] = 10.0
+    encoded_i[0, 0, 0] = 10.0
+    encoded_i[0, 1, 1] = 10.0
+    present = torch.tensor([[True, True, False]])
+
+    related = attention(encoded_t, encoded_i, present)
+
+    assert related.shape == (1, THREATS, policy.width)
+    assert related[0, 0, 0] > related[0, 0, 1]
+    assert related[0, 1, 1] > related[0, 1, 0]
+
+
+def test_relational_actor_and_critic_gradients_are_disjoint(policy: EntityPolicy) -> None:
+    network = policy
+    obs = torch.randn(2, _layout().obs_size)
+    # Presence flags need to describe live entities for attention gradients.
+    threats = obs[:, : _layout().interceptors_at].view(2, THREATS, 9)
+    interceptors = obs[:, _layout().interceptors_at : _layout().blasts_at].view(2, INTERCEPTORS, 7)
+    blasts = obs[:, _layout().blasts_at : _layout().globals_at].view(2, BLASTS, 5)
+    threats[..., 0] = 1.0
+    interceptors[..., 0] = 1.0
+    blasts[..., 0] = 1.0
+    mask = torch.ones(2, 1 + (BATTERIES * THREATS), dtype=torch.bool)
+
+    logits, values = network(obs, mask)
+    values.square().mean().backward()
+    actor_parameters = [
+        parameter
+        for name, parameter in network.named_parameters()
+        if not name.startswith("critic_trunk.") and not name.startswith("value_head.")
+    ]
+    critic_parameters = [
+        parameter
+        for name, parameter in network.named_parameters()
+        if name.startswith("critic_trunk.") or name.startswith("value_head.")
+    ]
+    assert all(parameter.grad is None for parameter in actor_parameters)
+    assert any(parameter.grad is not None for parameter in critic_parameters)
+
+    network.zero_grad(set_to_none=True)
+    logits, _ = network(obs, mask)
+    logits.square().mean().backward()
+    assert all(parameter.grad is None for parameter in critic_parameters)
+    assert any(parameter.grad is not None for parameter in actor_parameters)
+
+
+def test_auxiliary_predictions_reuse_per_threat_features_and_mask_padding(
+    policy: EntityPolicy,
+) -> None:
+    layout = policy.layout
+    obs = torch.zeros(2, layout.obs_size)
+    threats = obs[:, : layout.interceptors_at].view(2, THREATS, layout.threat_features)
+    threats[:, 0] = torch.tensor([1.0, 0.3, 0.4, 0.0, -0.1, 1.0, 0.0, 0.0, 0.0])
+
+    predictions = policy.auxiliary_predictions(obs)
+
+    assert predictions.shape == (2, THREATS, 3)
+    assert torch.count_nonzero(predictions[:, 1:]) == 0
+    predictions[:, 0].sum().backward()
+    assert policy.auxiliary_head.weight.grad is not None
+    assert policy.relation[0].weight.grad is not None
+    assert all(parameter.grad is None for parameter in policy.critic_trunk.parameters())
+
+
+def test_forward_with_auxiliary_matches_separate_interfaces(policy: EntityPolicy) -> None:
+    obs = torch.randn(2, policy.layout.obs_size)
+    threats = obs[:, : policy.layout.interceptors_at].view(
+        2, THREATS, policy.layout.threat_features
+    )
+    threats[..., 0] = 1.0
+    mask = torch.ones(2, policy.action_count, dtype=torch.bool)
+
+    logits, values = policy(obs, mask)
+    predictions = policy.auxiliary_predictions(obs)
+    combined_logits, combined_values, combined_predictions = policy.forward_with_auxiliary(
+        obs, mask
+    )
+
+    assert torch.allclose(combined_logits, logits)
+    assert torch.allclose(combined_values, values)
+    assert torch.allclose(combined_predictions, predictions)
+
+
+def test_ppo_update_trains_the_auxiliary_head(
+    policy: EntityPolicy, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rollout = Rollout(
+        steps=1,
+        num_envs=2,
+        obs_size=policy.layout.obs_size,
+        action_count=policy.action_count,
+        device=torch.device("cpu"),
+    )
+    threats = rollout.obs[:, :, : policy.layout.interceptors_at].view(
+        1, 2, THREATS, policy.layout.threat_features
+    )
+    threats[:, :, 0, :5] = torch.tensor([1.0, 0.2, 0.6, 0.0, -0.1])
+    rollout.masks[:] = True
+    with torch.no_grad():
+        logits, values = policy(rollout.obs[0], rollout.masks[0])
+        distribution = torch.distributions.Categorical(logits=logits)
+        rollout.actions[0] = torch.tensor([0, 1])
+        rollout.log_probs[0] = distribution.log_prob(rollout.actions[0])
+        rollout.values[0] = values
+
+    before = policy.auxiliary_head.weight.detach().clone()
+    optimizer = torch.optim.Adam(policy.parameters(), lr=1.0e-3)
+    calls: list[str] = []
+    original_targets = ppo_module.auxiliary_targets
+    original_forward = EntityPolicy.forward_with_auxiliary
+
+    def tracked_targets(obs, layout):  # noqa: ANN001, ANN202 - mirrors torch helper
+        calls.append("targets")
+        return original_targets(obs, layout)
+
+    def tracked_forward(self, obs, mask):  # noqa: ANN001, ANN202 - mirrors module method
+        calls.append("forward")
+        return original_forward(self, obs, mask)
+
+    monkeypatch.setattr(ppo_module, "auxiliary_targets", tracked_targets)
+    monkeypatch.setattr(EntityPolicy, "forward_with_auxiliary", tracked_forward)
+    stats = update(
+        policy,
+        optimizer,
+        rollout,
+        advantages=torch.tensor([[1.0, -1.0]]),
+        returns=rollout.values.clone(),
+        config=PPOConfig(
+            hidden=16,
+            epochs=1,
+            minibatches=1,
+            value_coef=0.0,
+            entropy_coef=0.0,
+            auxiliary_coef=1.0,
+            architecture="entity",
+        ),
+    )
+
+    assert stats["auxiliary_loss"] > 0.0
+    assert not torch.equal(policy.auxiliary_head.weight, before)
+    assert calls == ["targets", "forward"]
+
+
+def test_layout_accounts_for_the_blast_lifetime_phase() -> None:
+    layout = _layout()
+    assert layout.blast_features == 5
+    assert layout.globals_at == (THREATS * 9) + (INTERCEPTORS * 7) + (BLASTS * 5)
 
 
 def test_layout_rejects_an_observation_that_cannot_hold_its_blocks() -> None:

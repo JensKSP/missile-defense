@@ -29,6 +29,9 @@ from dataclasses import dataclass
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+
+from .auxiliary import targets as auxiliary_targets
 
 # Actions that the mask forbids get this logit, so softmax gives them ~0
 # probability. Not -inf: that produces NaNs if an env ever masks *everything*.
@@ -39,8 +42,8 @@ MASKED_LOGIT = -1.0e8
 class PPOConfig:
     """Hyperparameters, with the reasoning for each default."""
 
-    #: Hidden width of the shared trunk. The observation is ~1900 floats of mostly
-    #: padding, so width matters more than depth here.
+    #: Hidden width of the MLP trunk, or of the relational policy's episode
+    #: context and independent critic. Entity-slot encoders stay narrow.
     hidden: int = 512
     #: Discount, and it has to match `Shaping.gamma`. One agent step is frame_skip
     #: ticks (~1/15 s), so 1/(1-gamma) reads directly as an horizon: 0.997 is 333
@@ -76,15 +79,19 @@ class PPOConfig:
     #: to entropy ~0.4 (committing to one tactic) and regressing after its peak;
     #: more pressure to keep exploring is the first defence against that.
     entropy_coef: float = 0.02
+    #: Weight on three training-only relational predictions: time-to-impact,
+    #: existing coverage, and local threat density. The targets are derived only
+    #: from the raw observation, never added to it, and are available on the
+    #: relational entity architecture. This supplies a dense signal before sparse
+    #: score and survival rewards can distinguish good tactical representations.
+    auxiliary_coef: float = 0.1
     #: Gradient-norm clip.
     max_grad_norm: float = 0.5
-    #: "mlp" flattens the observation into one vector; "entity" encodes each
-    #: threat with *shared* weights and pools the interceptors and blasts into a
-    #: context vector. The flat MLP has to learn "is this threat already covered
-    #: by an interceptor in flight?" separately for all 128 threat slots, since
-    #: no weight is shared between them — and measurably does not: it fires into
-    #: an already-covered zone 72% of the time, worse than random's 56%. Sharing
-    #: the encoder lets it learn that comparison once.
+    #: "mlp" is the checkpoint-compatible flat network; "entity" is the new
+    #: relational actor with shared threat encoding, per-threat cross-attention
+    #: over interceptors/blasts, and a separate critic. The flat MLP must learn
+    #: "is this threat already covered?" separately for all 128 threat slots and
+    #: measurably does not; the relational path learns that comparison once.
     architecture: str = "mlp"
 
 
@@ -93,7 +100,9 @@ class Policy(nn.Module):
 
     Deliberately small and dense: the observation is already the raw state the
     human sees (see ``docs/API.md``), so there is nothing to convolve over — no
-    image, no spatial grid, just a flat list of entities.
+    image, no spatial grid, just a flat list of entities. Kept unchanged so
+    existing ``architecture="mlp"`` checkpoints remain loadable; the relational
+    architecture below is the new actor/critic-separated training path.
     """
 
     def __init__(self, obs_size: int, action_count: int, hidden: int = 512) -> None:
@@ -151,8 +160,9 @@ class ObsLayout:
     The widths mirror ``md::encode`` (docs/API.md §4): a threat is
     ``[present, x, y, vx, vy, one-hot type x4]``, an interceptor
     ``[present, x, y, vx, vy, detonation x, detonation y]``, a blast
-    ``[present, x, y, radius]``. Everything after those blocks — bases, cities,
-    wave, score — is the per-episode context and is taken as one vector.
+    ``[present, x, y, radius, lifetime phase]``. Everything after those blocks —
+    bases, cities, wave, score — is the per-episode context and is taken as one
+    vector.
     """
 
     threats: int
@@ -161,7 +171,7 @@ class ObsLayout:
     obs_size: int
     threat_features: int = 9
     interceptor_features: int = 7
-    blast_features: int = 4
+    blast_features: int = 5
 
     @property
     def interceptors_at(self) -> int:
@@ -193,21 +203,50 @@ class ObsLayout:
             )
 
 
+class _CrossAttention(nn.Module):
+    """One-head cross-attention from every threat to another entity set.
+
+    PyTorch's fused scaled-dot-product implementation avoids materialising the
+    large ``batch x threats x entities`` score tensor on supported GPUs. Presence
+    masks exclude padding; an entirely empty entity set produces an exact zero.
+    """
+
+    def __init__(self, width: int) -> None:
+        super().__init__()
+        self.query = nn.Linear(width, width, bias=False)
+        self.key = nn.Linear(width, width, bias=False)
+        self.value = nn.Linear(width, width, bias=False)
+        self.output = nn.Linear(width, width)
+
+    def forward(
+        self,
+        threats: torch.Tensor,
+        entities: torch.Tensor,
+        present: torch.Tensor,
+    ) -> torch.Tensor:
+        query = self.query(threats).unsqueeze(1)
+        key = self.key(entities).unsqueeze(1)
+        value = self.value(entities).unsqueeze(1)
+        # True entries participate. The singleton head/query dimensions make the
+        # entity mask broadcast to every threat without allocating a copy.
+        mask = present[:, None, None, :]
+        attended = F.scaled_dot_product_attention(query, key, value, attn_mask=mask)
+        has_entity = present.any(dim=-1, keepdim=True).unsqueeze(-1)
+        return self.output(attended.squeeze(1)) * has_entity
+
+
 class EntityPolicy(nn.Module):
-    """Per-entity encoders with shared weights, instead of one flat trunk.
+    """Relational actor with an entirely independent critic.
 
-    The action space is (battery, threat slot), so the network is built in that
-    shape: every threat slot goes through *the same* encoder, and the head emits
-    one logit per battery for each. Two things follow that the flat MLP cannot
-    get. The comparison "is this threat already covered by something in flight?"
-    is learned once and applied to all 128 slots, rather than being learned
-    separately per slot from whatever data happened to land there. And the
-    interceptors and blasts are pooled permutation-invariantly, so their meaning
-    does not depend on which array slot swap-and-pop left them in.
+    The action space is (battery, threat slot), so every threat passes through the
+    same encoder and emits one logit per battery. Each encoded threat separately
+    attends to live interceptors and blasts. Thus "is this threat already
+    covered?" is a direct relation, learned once for all slots, rather than a fact
+    compressed into one global pool or relearned per slot by a flat MLP.
 
-    Both matter here specifically: the flat policy fires into an already-covered
-    zone 72% of the time — worse than random — which is the single behaviour
-    standing between it and the scripted baseline's 1.10 kills per interceptor.
+    The critic is a separate flat MLP. It shares no actor-side encoder, attention
+    projection, context, or relation feature, so value-loss gradients cannot
+    corrupt the action representation.
     """
 
     def __init__(self, layout: ObsLayout, action_count: int, hidden: int = 512) -> None:
@@ -215,8 +254,6 @@ class EntityPolicy(nn.Module):
         layout.validate()
         self.layout = layout
         self.action_count = action_count
-        # One battery-column per (action_count - 1) / threats. Derived rather
-        # than assumed, so a Config with a different battery count still lines up.
         batteries, remainder = divmod(action_count - 1, layout.threats)
         if remainder or batteries < 1:
             raise ValueError(
@@ -224,54 +261,68 @@ class EntityPolicy(nn.Module):
             )
         self.batteries = batteries
 
-        # Per-entity work runs once per *slot*, so this width, not `hidden`, is
-        # what sets the network's cost: the threat path executes 128 times per
-        # sample, and its activations are 128x more numerous than a flat trunk's.
-        # That is memory traffic rather than arithmetic — the FLOP counts are
-        # within 10% of the flat MLP either way — which is why the fix is a narrow
-        # per-slot path and a wide context, not fewer layers. Measured against the
-        # flat policy on a 4096-sample update: hidden/2 was 6.3x, this is 3.4x.
-        #
-        # The remaining 3.4x is nearly all waste: 128 threat slots are encoded and
-        # typically 2 are occupied. Gathering only the live slots would remove it,
-        # at the cost of real complexity here — worth doing once this architecture
-        # has earned it, not before.
+        # This path runs once per entity slot, so keep it narrow. Attention then
+        # relates every candidate threat to the live interceptor/blast sets.
         width = max(32, hidden // 16)
         self.width = width
+        self.threat_encoder = self._encoder(layout.threat_features, width)
+        self.interceptor_encoder = self._encoder(layout.interceptor_features, width)
+        self.blast_encoder = self._encoder(layout.blast_features, width)
+        self.interceptor_attention = _CrossAttention(width)
+        self.blast_attention = _CrossAttention(width)
 
-        def encoder(in_features: int, out_features: int) -> nn.Sequential:
-            return nn.Sequential(
-                nn.Linear(in_features, out_features),
-                nn.Tanh(),
-                nn.Linear(out_features, out_features),
-                nn.Tanh(),
-            )
-
-        self.interceptor_encoder = encoder(layout.interceptor_features, width)
-        self.blast_encoder = encoder(layout.blast_features, width)
-        self.context = encoder(layout.globals_width + (2 * width), hidden)
-        # Conditioning is additive rather than concatenated: concatenating the
-        # context onto every threat would widen the per-slot input by `hidden` and
-        # pay for it 128 times over, where projecting it once and adding costs one
-        # matmul per sample and is the same function class.
-        self.threat_in = nn.Linear(layout.threat_features, width)
+        # The pool carries episode-level context (bases, cities, wave, score) and
+        # supports NoOp. Pairwise facts stay in the attention outputs.
+        self.actor_context = self._encoder(layout.globals_width + (2 * width), hidden)
         self.context_to_threat = nn.Linear(hidden, width)
-        self.threat_out = nn.Linear(width, width)
-        # One logit per battery for each threat slot, plus the always-legal NoOp.
+        self.relation = self._encoder(4 * width, width)
+
         self.fire_head = nn.Linear(width, batteries)
         self.noop_head = nn.Linear(hidden, 1)
-        self.value_head = nn.Linear(hidden + width, 1)
+        self.auxiliary_head = nn.Linear(width, 3)
+
+        # No actor feature enters this path.
+        self.critic_trunk = self._encoder(layout.obs_size, hidden)
+        self.value_head = nn.Linear(hidden, 1)
 
         for module in self.modules():
             if isinstance(module, nn.Linear):
                 nn.init.orthogonal_(module.weight, gain=np.sqrt(2))
-                nn.init.zeros_(module.bias)
-        for head, gain in ((self.fire_head, 0.01), (self.noop_head, 0.01), (self.value_head, 1.0)):
+                if module.bias is not None:
+                    nn.init.zeros_(module.bias)
+        for head, gain in (
+            (self.fire_head, 0.01),
+            (self.noop_head, 0.01),
+            (self.auxiliary_head, 0.01),
+            (self.value_head, 1.0),
+        ):
             nn.init.orthogonal_(head.weight, gain=gain)
             nn.init.zeros_(head.bias)
 
-    def _features(self, obs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        """Return (per-threat features, pooled context)."""
+    @staticmethod
+    def _encoder(in_features: int, out_features: int) -> nn.Sequential:
+        return nn.Sequential(
+            nn.Linear(in_features, out_features),
+            nn.Tanh(),
+            nn.Linear(out_features, out_features),
+            nn.Tanh(),
+        )
+
+    @property
+    def context(self) -> nn.Sequential:
+        """Backward-compatible name for the actor context encoder."""
+        return self.actor_context
+
+    @staticmethod
+    def _masked_mean(encoded: torch.Tensor, present: torch.Tensor) -> torch.Tensor:
+        """Permutation-invariant mean whose empty-set value is exactly zero."""
+        weights = present.unsqueeze(-1).to(encoded.dtype)
+        count = weights.sum(dim=1).clamp_min(1.0)
+        return (encoded * weights).sum(dim=1) / count
+
+    def _split(
+        self, obs: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         layout = self.layout
         batch = obs.shape[0]
         threats = obs[:, : layout.interceptors_at].view(batch, layout.threats, -1)
@@ -280,40 +331,85 @@ class EntityPolicy(nn.Module):
         )
         blasts = obs[:, layout.blasts_at : layout.globals_at].view(batch, layout.blasts, -1)
         context = obs[:, layout.globals_at :]
+        return threats, interceptors, blasts, context
 
-        # Feature 0 is the presence flag; empty slots read zero by construction,
-        # so masking before the sum keeps padding out of the pooled vector.
-        pooled_i = (self.interceptor_encoder(interceptors) * interceptors[..., :1]).sum(dim=1)
-        pooled_b = (self.blast_encoder(blasts) * blasts[..., :1]).sum(dim=1)
-        summary = self.context(torch.cat([context, pooled_i, pooled_b], dim=-1))
+    def _actor_features(self, obs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return relational per-threat features and the actor-only summary."""
+        threats, interceptors, blasts, context = self._split(obs)
+        threat_present = threats[..., 0].bool()
+        interceptor_present = interceptors[..., 0].bool()
+        blast_present = blasts[..., 0].bool()
 
-        # Broadcast-add the projected context into every slot: one matmul for the
-        # context, then only slot-width work per threat.
-        hidden_threats = torch.tanh(
-            self.threat_in(threats) + self.context_to_threat(summary).unsqueeze(1)
-        )
-        per_threat = torch.tanh(self.threat_out(hidden_threats))
-        per_threat = per_threat * threats[..., :1]
+        encoded_t = self.threat_encoder(threats)
+        encoded_i = self.interceptor_encoder(interceptors)
+        encoded_b = self.blast_encoder(blasts)
+        pooled_i = self._masked_mean(encoded_i, interceptor_present)
+        pooled_b = self._masked_mean(encoded_b, blast_present)
+        summary = self.actor_context(torch.cat([context, pooled_i, pooled_b], dim=-1))
+
+        related_i = self.interceptor_attention(encoded_t, encoded_i, interceptor_present)
+        related_b = self.blast_attention(encoded_t, encoded_b, blast_present)
+        episode = self.context_to_threat(summary).unsqueeze(1).expand(-1, self.layout.threats, -1)
+        per_threat = self.relation(torch.cat([encoded_t, related_i, related_b, episode], dim=-1))
+        per_threat = per_threat * threat_present.unsqueeze(-1)
         return per_threat, summary
 
-    def forward(self, obs: torch.Tensor, mask: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        """Return masked logits and the value estimate."""
-        per_threat, summary = self._features(obs)
+    # Kept as a narrow compatibility shim for tests and analysis notebooks that
+    # inspected the old entity policy's shared feature function.
+    def _features(self, obs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        return self._actor_features(obs)
+
+    def _logits(
+        self,
+        per_threat: torch.Tensor,
+        summary: torch.Tensor,
+        mask: torch.Tensor,
+    ) -> torch.Tensor:
         # (batch, threats, batteries) -> battery-major, matching decode_action's
         # index = 1 + battery * threats + slot.
-        fire = self.fire_head(per_threat).permute(0, 2, 1).reshape(obs.shape[0], -1)
+        fire = self.fire_head(per_threat).permute(0, 2, 1).flatten(1)
         logits = torch.cat([self.noop_head(summary), fire], dim=-1)
-        logits = torch.where(mask, logits, torch.full_like(logits, MASKED_LOGIT))
-        return logits, self._value(per_threat, summary)
+        return torch.where(mask, logits, torch.full_like(logits, MASKED_LOGIT))
 
-    def _value(self, per_threat: torch.Tensor, summary: torch.Tensor) -> torch.Tensor:
-        return self.value_head(torch.cat([summary, per_threat.sum(dim=1)], dim=-1)).squeeze(-1)
+    def _auxiliary(self, obs: torch.Tensor, per_threat: torch.Tensor) -> torch.Tensor:
+        present = obs[:, : self.layout.interceptors_at].view(
+            obs.shape[0], self.layout.threats, self.layout.threat_features
+        )[..., :1]
+        return self.auxiliary_head(per_threat) * present
+
+    def forward(self, obs: torch.Tensor, mask: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return masked logits and the independent value estimate."""
+        per_threat, summary = self._actor_features(obs)
+        return self._logits(per_threat, summary, mask), self._value(obs)
+
+    def forward_with_auxiliary(
+        self, obs: torch.Tensor, mask: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Return logits, value, and auxiliary predictions from one actor pass."""
+        per_threat, summary = self._actor_features(obs)
+        return (
+            self._logits(per_threat, summary, mask),
+            self._value(obs),
+            self._auxiliary(obs, per_threat),
+        )
+
+    def auxiliary_predictions(self, obs: torch.Tensor) -> torch.Tensor:
+        """Predict per-threat [time-to-impact, coverage, cluster-density].
+
+        The head deliberately reuses the actor's relational features, so these
+        observable auxiliary tasks teach the representation used to choose fire
+        actions. Padding rows are zero because `_actor_features` masks them.
+        """
+        per_threat, _ = self._actor_features(obs)
+        return self._auxiliary(obs, per_threat)
+
+    def _value(self, obs: torch.Tensor) -> torch.Tensor:
+        return self.value_head(self.critic_trunk(obs)).squeeze(-1)
 
     @torch.no_grad()
     def value(self, obs: torch.Tensor) -> torch.Tensor:
-        """Value estimate only — no mask, same contract as `Policy.value`."""
-        per_threat, summary = self._features(obs)
-        return self._value(per_threat, summary)
+        """Value estimate only; skips all actor encoders and attention."""
+        return self._value(obs)
 
     @torch.no_grad()
     def act(
@@ -385,7 +481,7 @@ class Rollout:
 
 
 def update(
-    policy: Policy,
+    policy: nn.Module,
     optimizer: torch.optim.Optimizer,
     rollout: Rollout,
     advantages: torch.Tensor,
@@ -404,7 +500,13 @@ def update(
 
     batch = obs.shape[0]
     minibatch = max(1, batch // config.minibatches)
-    stats = {"policy_loss": 0.0, "value_loss": 0.0, "entropy": 0.0, "clip_fraction": 0.0}
+    stats = {
+        "policy_loss": 0.0,
+        "value_loss": 0.0,
+        "auxiliary_loss": 0.0,
+        "entropy": 0.0,
+        "clip_fraction": 0.0,
+    }
     updates = 0
 
     for _ in range(config.epochs):
@@ -418,7 +520,25 @@ def update(
                 sample_advantages.std() + 1e-8
             )
 
-            logits, values = policy(obs[index], masks[index])
+            sample_obs = obs[index]
+            if isinstance(policy, EntityPolicy) and config.auxiliary_coef > 0.0:
+                # Targets are immutable functions of the observation. Build them
+                # before the actor's gradient graph: both operations contain
+                # entity-pair tensors, and keeping the forward activations alive
+                # while deriving labels needlessly adds their peaks together.
+                # This ordering is what lets the documented 1024 x 256 batch fit
+                # on a 32 GiB training GPU.
+                target = auxiliary_targets(sample_obs, policy.layout)
+                logits, values, predictions = policy.forward_with_auxiliary(
+                    sample_obs, masks[index]
+                )
+                present = target.present.unsqueeze(-1)
+                auxiliary_loss = ((predictions - target.stacked()).square() * present).sum() / (
+                    present.sum().clamp_min(1.0) * predictions.shape[-1]
+                )
+            else:
+                logits, values = policy(sample_obs, masks[index])
+                auxiliary_loss = torch.zeros((), device=obs.device)
             distribution = torch.distributions.Categorical(logits=logits)
             log_probs = distribution.log_prob(actions[index])
             entropy = distribution.entropy().mean()
@@ -441,7 +561,12 @@ def update(
                 (values - sample_returns).square(), (values_clipped - sample_returns).square()
             ).mean()
 
-            loss = policy_loss + (config.value_coef * value_loss) - (config.entropy_coef * entropy)
+            loss = (
+                policy_loss
+                + (config.value_coef * value_loss)
+                + (config.auxiliary_coef * auxiliary_loss)
+                - (config.entropy_coef * entropy)
+            )
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
             nn.utils.clip_grad_norm_(policy.parameters(), config.max_grad_norm)
@@ -452,6 +577,7 @@ def update(
             with torch.no_grad():
                 stats["policy_loss"] += policy_loss.item()
                 stats["value_loss"] += value_loss.item()
+                stats["auxiliary_loss"] += auxiliary_loss.item()
                 stats["entropy"] += entropy.item()
                 stats["clip_fraction"] += ((ratio - 1.0).abs() > config.clip).float().mean().item()
             updates += 1

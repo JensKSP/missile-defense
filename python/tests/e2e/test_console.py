@@ -23,6 +23,17 @@ import time
 from pathlib import Path
 
 import pytest
+from md.benchmark import (
+    CANONICAL_BASELINE_MEAN_SCORE,
+    CANONICAL_FRAME_SKIP,
+    CANONICAL_INFERENCE_DEVICE,
+    CANONICAL_MAX_TICKS,
+    CANONICAL_SEED_OFFSET,
+    CANONICAL_SPLIT,
+    SEEDS_PER_SPLIT,
+    VALIDATION_SEED_OFFSET,
+    VALIDATION_SPLIT,
+)
 
 from .harness import needs_native, needs_qt, needs_torch
 
@@ -119,6 +130,81 @@ def test_the_console_on_an_empty_directory_explains_itself(qt_app: object, tmp_p
         message = window.statusBar().currentMessage()
         assert "metrics.csv" in message
         assert window._updates == 0
+    finally:
+        window.close()
+
+
+def test_a_protocol_change_starts_a_new_score_curve_and_controls_the_baseline(
+    qt_app: object, tmp_path: Path
+) -> None:
+    from md.ui.app import Console  # noqa: PLC0415
+
+    path = tmp_path / "evals.csv"
+    header = (
+        "update,mean_score,seed_split,seed_offset,seed_count,frame_skip,"
+        "max_ticks,inference_device\n"
+    )
+    path.write_text(
+        header + f"50,120000,{VALIDATION_SPLIT},{VALIDATION_SEED_OFFSET},"
+        f"{SEEDS_PER_SPLIT},4,120000,cpu\n",
+        encoding="utf-8",
+    )
+    window = Console(tmp_path)
+    try:
+        window._tick()
+        assert window._score._count == 1
+        assert window._score._baseline is None
+        assert "validation" in window._tile_score._note.text()
+        assert "baseline" not in window._tile_score._note.text()
+
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(
+                f"100,{CANONICAL_BASELINE_MEAN_SCORE + 100},{CANONICAL_SPLIT},"
+                f"{CANONICAL_SEED_OFFSET},{SEEDS_PER_SPLIT},{CANONICAL_FRAME_SKIP},"
+                f"{CANONICAL_MAX_TICKS},{CANONICAL_INFERENCE_DEVICE}\n"
+            )
+        window._tick()
+
+        # No line or peak spans validation -> canonical. Only the newest,
+        # internally comparable segment remains on screen.
+        assert window._score._count == 1
+        assert window._peak_score.update == 100
+        assert window._score._baseline == CANONICAL_BASELINE_MEAN_SCORE
+        assert "ahead of" in window._tile_score._note.text()
+    finally:
+        window.close()
+
+
+def test_comparison_scores_wait_for_the_primary_protocol(qt_app: object, tmp_path: Path) -> None:
+    from md.ui.app import Console  # noqa: PLC0415
+
+    primary = tmp_path / "primary"
+    comparison = tmp_path / "comparison"
+    primary.mkdir()
+    comparison.mkdir()
+    header = (
+        "update,mean_score,seed_split,seed_offset,seed_count,frame_skip,"
+        "max_ticks,inference_device\n"
+    )
+    (comparison / "evals.csv").write_text(
+        header + f"50,90000,{VALIDATION_SPLIT},{VALIDATION_SEED_OFFSET},"
+        f"{SEEDS_PER_SPLIT},4,120000,cpu\n",
+        encoding="utf-8",
+    )
+
+    window = Console(primary)
+    try:
+        window._compare_with(comparison)
+        window._tick()
+        assert window._score._compare_count == 0
+
+        (primary / "evals.csv").write_text(
+            header + f"50,91000,{VALIDATION_SPLIT},{VALIDATION_SEED_OFFSET},"
+            f"{SEEDS_PER_SPLIT},4,120000,cpu\n",
+            encoding="utf-8",
+        )
+        window._tick()
+        assert window._score._compare_count == 1
     finally:
         window.close()
 

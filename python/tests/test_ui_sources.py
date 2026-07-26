@@ -13,6 +13,16 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from md.benchmark import (
+    CANONICAL_FRAME_SKIP,
+    CANONICAL_INFERENCE_DEVICE,
+    CANONICAL_MAX_TICKS,
+    CANONICAL_SEED_OFFSET,
+    CANONICAL_SPLIT,
+    SEEDS_PER_SPLIT,
+    VALIDATION_SEED_OFFSET,
+    VALIDATION_SPLIT,
+)
 from md.ui.sources import (
     BASELINE_MEAN_SCORE,
     MAX_RUN_CHOICES,
@@ -22,6 +32,7 @@ from md.ui.sources import (
     Peak,
     checkpoint_note,
     curve_note,
+    eval_protocol_label,
     evals_tail,
     find_runs,
     human_age,
@@ -30,11 +41,13 @@ from md.ui.sources import (
     list_checkpoints,
     list_recordings,
     log_tail,
+    matching_eval_protocol,
     metrics_tail,
     next_run_dir,
     peak_note,
     readout_note,
     run_choices,
+    same_eval_series,
 )
 
 HEADER = "update,samples,return,entropy,policy_loss,value_loss,clip_fraction,steps_per_second\r\n"
@@ -100,6 +113,39 @@ def test_a_truncated_file_is_read_again_from_the_top(tmp_path: Path) -> None:
     assert [row.update for row in batch.rows] == [1]
 
 
+def test_an_atomically_replaced_file_is_read_again_from_the_top(tmp_path: Path) -> None:
+    path = tmp_path / "metrics.csv"
+    _append(path, HEADER + _row(1))
+    tail = metrics_tail(tmp_path)
+    assert [row.update for row in tail.poll().rows] == [1]
+
+    replacement = tmp_path / ".metrics.csv.new"
+    _append(replacement, HEADER + _row(9) + _row(10))
+    os.replace(replacement, path)
+
+    batch = tail.poll()
+    assert batch.restarted
+    assert [row.update for row in batch.rows] == [9, 10]
+
+
+def test_a_csv_tail_can_be_rewound_when_its_consumer_changes_protocol(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "evals.csv"
+    _append(
+        path,
+        "update,mean_score,seed_split\r\n10,100.0,validation\r\n20,200.0,heldout\r\n",
+    )
+    tail = evals_tail(tmp_path)
+    assert [row.update for row in tail.poll().rows] == [10, 20]
+    assert tail.poll().rows == ()
+
+    tail.rewind()
+    batch = tail.poll()
+    assert [row.update for row in batch.rows] == [10, 20]
+    assert not batch.restarted
+
+
 def test_a_file_that_disappears_invalidates_what_was_read(tmp_path: Path) -> None:
     path = tmp_path / "metrics.csv"
     _append(path, HEADER + _row(1))
@@ -144,16 +190,21 @@ def test_a_header_appended_mid_file_re_maps_the_columns(tmp_path: Path) -> None:
     assert (row.update, row.entropy, row.mean_return) == (2, 1.61, 5.20)
 
 
-def test_evals_carry_the_baseline_comparable_summary(tmp_path: Path) -> None:
+def test_evals_carry_the_summary_and_reproduction_protocol(tmp_path: Path) -> None:
     _append(
         tmp_path / "evals.csv",
         "update,mean_score,min_score,max_score,mean_wave,mean_cities_left,"
-        "mean_accuracy,survived,episodes\r\n"
-        "50,3014.50,1200,5400,6.500,0.000,0.4200,0,32\r\n",
+        "mean_accuracy,survived,episodes,seed_split,seed_offset,seed_count,frame_skip,"
+        "max_ticks,inference_device\r\n"
+        "50,3014.50,1200,5400,6.500,0.000,0.4200,0,32,"
+        "validation,0,32,7,9999,cpu\r\n",
     )
     row = evals_tail(tmp_path).poll().rows[0]
     assert (row.update, row.mean_score, row.episodes, row.survived) == (50, 3014.5, 32, 0)
     assert row.mean_accuracy == 0.42
+    assert (row.seed_split, row.seed_count, row.frame_skip) == (VALIDATION_SPLIT, 32, 7)
+    assert row.seed_offset == VALIDATION_SEED_OFFSET
+    assert (row.max_ticks, row.inference_device) == (9_999, "cpu")
 
 
 def test_a_row_without_a_score_is_not_a_row(tmp_path: Path) -> None:
@@ -333,13 +384,102 @@ def test_the_model_note_scores_the_checkpoint_by_its_own_update(tmp_path: Path) 
     # Written against the baseline rather than a literal: what it is worth is
     # the scripted agent's business and it moves when the game's scoring does.
     evals = {
-        200: EvalRow(200, BASELINE_MEAN_SCORE + 1964, None, None, None, None, None, None, None),
-        250: EvalRow(250, BASELINE_MEAN_SCORE - 5000, None, None, None, None, None, None, None),
+        200: EvalRow(
+            200,
+            BASELINE_MEAN_SCORE + 1964,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            seed_split=CANONICAL_SPLIT,
+            seed_offset=CANONICAL_SEED_OFFSET,
+            seed_count=SEEDS_PER_SPLIT,
+            frame_skip=CANONICAL_FRAME_SKIP,
+            max_ticks=CANONICAL_MAX_TICKS,
+            inference_device=CANONICAL_INFERENCE_DEVICE,
+        ),
+        250: EvalRow(
+            250,
+            BASELINE_MEAN_SCORE - 5000,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            seed_split=CANONICAL_SPLIT,
+            seed_offset=CANONICAL_SEED_OFFSET,
+            seed_count=SEEDS_PER_SPLIT,
+            frame_skip=CANONICAL_FRAME_SKIP,
+            max_ticks=CANONICAL_MAX_TICKS,
+            inference_device=CANONICAL_INFERENCE_DEVICE,
+        ),
     }
     note = checkpoint_note(list_checkpoints(tmp_path), evals)
     assert f"scored {BASELINE_MEAN_SCORE + 1964:,.0f}" in note
     assert "1,964 ahead of baseline" in note
     assert f"{BASELINE_MEAN_SCORE - 5000:,.0f}" not in note
+
+
+def test_validation_checkpoint_note_never_claims_a_baseline_delta(tmp_path: Path) -> None:
+    _checkpoint(tmp_path, "policy-00200.pt", 2000)
+    row = EvalRow(
+        200,
+        BASELINE_MEAN_SCORE + 10_000,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        seed_split=VALIDATION_SPLIT,
+        seed_offset=VALIDATION_SEED_OFFSET,
+        seed_count=SEEDS_PER_SPLIT,
+        frame_skip=CANONICAL_FRAME_SKIP,
+        max_ticks=CANONICAL_MAX_TICKS,
+        inference_device=CANONICAL_INFERENCE_DEVICE,
+    )
+    note = checkpoint_note(list_checkpoints(tmp_path), {200: row})
+    assert f"validation score {row.mean_score:,.0f}" in note
+    assert "baseline" not in note
+
+
+def test_run_scores_only_compare_when_every_protocol_field_matches() -> None:
+    validation = EvalRow(
+        50,
+        10_000,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        seed_split=VALIDATION_SPLIT,
+        seed_offset=VALIDATION_SEED_OFFSET,
+        seed_count=SEEDS_PER_SPLIT,
+        frame_skip=4,
+        max_ticks=120_000,
+        inference_device="cpu",
+    )
+    same = EvalRow(**{**validation.__dict__, "mean_score": 11_000})
+    different_cadence = EvalRow(**{**validation.__dict__, "frame_skip": 1})
+    legacy = EvalRow(50, 10_000, None, None, None, None, None, None, None)
+
+    assert matching_eval_protocol(validation, same)
+    assert not matching_eval_protocol(validation, different_cadence)
+    assert not matching_eval_protocol(legacy, legacy)
+    assert same_eval_series(validation, same)
+    assert not same_eval_series(validation, different_cadence)
+    assert same_eval_series(legacy, legacy)
+    assert not same_eval_series(validation, legacy)
+    assert eval_protocol_label(validation) == "validation"
+    assert eval_protocol_label(legacy) == "protocol unknown"
 
 
 def test_an_unscored_checkpoint_simply_says_nothing_about_a_score(tmp_path: Path) -> None:

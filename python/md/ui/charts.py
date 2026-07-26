@@ -10,9 +10,9 @@ argument that would push toward pyqtgraph does not arise. Everything still goes
 through this wrapper (``append`` / ``set_baseline`` / ``clear``), so swapping the
 library later touches this file and no other (docs/ROADMAP.md, M8, risk 1).
 
-The baseline is the reason this is a wrapper and not a bare ``QChartView``: a
-horizontal line at 113,834 is what turns a number going up into "am I winning
-yet", and it has to keep spanning the plot as the run grows.
+For a canonical benchmark row, a horizontal line at 98,542 turns a number going
+up into "am I winning yet"; validation and mismatched protocols hide it. The
+line has to keep spanning the plot as a canonical segment grows.
 
 A curve can carry a **second run** as well (M8 phase 5). Overlaid rather than in
 a second chart beside it: two plots with independent axes make you compare by
@@ -213,6 +213,7 @@ class CurveView(QChartView):
         self._compare.setName(name)
         self._compare.setVisible(True)
         self._show_compare_marker(True)
+        self._chart.legend().setVisible(True)
 
     def append_comparison(self, x: float, y: float | None) -> None:
         if y is None:
@@ -240,18 +241,31 @@ class CurveView(QChartView):
         self.clear_comparison()
         self._compare.setVisible(False)
         self._show_compare_marker(False)
+        self._chart.legend().setVisible(self._baseline is not None)
 
     def _show_compare_marker(self, shown: bool) -> None:
         for marker in self._chart.legend().markers(self._compare):
             marker.setVisible(shown)
 
-    def set_baseline(self, value: float, label: str) -> None:
-        """Draw a horizontal reference line — the number the run is chasing."""
+    def set_baseline(self, value: float | None, label: str = "") -> None:
+        """Draw a valid reference line, or hide it when protocols do not match."""
         self._baseline = value
+        if value is None:
+            self._baseline_series.clear()
+            self._baseline_series.setVisible(False)
+            self._show_baseline_marker(False)
+            self._chart.legend().setVisible(self._compare.isVisible())
+            self._rescale()
+            return
         self._baseline_series.setName(label)
         self._baseline_series.setVisible(True)
+        self._show_baseline_marker(True)
         self._chart.legend().setVisible(True)
         self._rescale()
+
+    def _show_baseline_marker(self, shown: bool) -> None:
+        for marker in self._chart.legend().markers(self._baseline_series):
+            marker.setVisible(shown)
 
     def set_x_extent(self, x: float) -> None:
         """Stretch the axis to ``x`` even where this curve has no points yet.
@@ -373,9 +387,9 @@ class CurveView(QChartView):
     def _rescale(self) -> None:
         """Fit both axes around the data, the baseline included.
 
-        The baseline has to be inside the y range or the whole point of it is
-        invisible — early in a run the curve is nowhere near 113,834, and that gap
-        *is* the information.
+        When present, the baseline has to be inside the y range or the whole
+        point of it is invisible — a canonical score may be nowhere near 98,542,
+        and that gap *is* the information.
         """
         x_min, x_max = (0.0, 10.0) if self._count == 0 else (self._x_min, self._x_max)
         if self._x_hint:  # a hinted axis spans the whole run, points or not

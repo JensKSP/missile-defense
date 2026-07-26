@@ -29,16 +29,18 @@ struct Params {
 /// allocation-free.
 ///
 /// **It is deliberately held to the same information as the neural policy.** It
-/// reads only what `md::encode` exposes (positions, velocities, ammo, cooldowns,
-/// the crosshair) and never touches the simulation's internal bookkeeping — in
-/// particular not `Threat::target_index`, which would tell it for free which city
-/// a warhead is aimed at. It infers that from the trajectory, exactly as a human
-/// or a policy must. Otherwise "beat the baseline" would be an unfair race.
+/// reads only what `md::encode` exposes (positions, velocities, blast lifetime
+/// phase, ammo, cooldowns, the crosshair) and never touches the simulation's
+/// internal bookkeeping — in particular not `Threat::target_index`, which would
+/// tell it for free which city a warhead is aimed at. It infers that from the
+/// trajectory, exactly as a human or a policy must. Otherwise "beat the
+/// baseline" would be an unfair race.
 ///
-/// It is also subject to the same player model (crosshair travel, trigger
-/// interval), because those live in `Sim::step`, not in the driver.
+/// It is also subject to the same player model (15 Hz decisions, crosshair
+/// travel, trigger interval), because those live in `Sim::step`, not in the
+/// driver.
 ///
-/// Strategy, per tick:
+/// Strategy, per sampled decision:
 ///  1. Discard threats already doomed by an in-flight interceptor or a live blast
 ///     — no double-spending ammo.
 ///  2. Score every (threat, battery) pair by what the threat would destroy, how
@@ -55,7 +57,8 @@ class Heuristic {
 
     explicit Heuristic(Params params) noexcept : params_{params} {}
 
-    /// The action for this tick. Deterministic and allocation-free.
+    /// The candidate action for this tick. `Sim` samples it at the shared player
+    /// cadence and holds the chosen action between samples.
     [[nodiscard]] Action act(const Sim& sim) const noexcept;
 
     [[nodiscard]] const Params& params() const noexcept { return params_; }

@@ -9,6 +9,7 @@
 #include "md/replay/recording.hpp"
 #include "md/sim.hpp"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -23,6 +24,9 @@ namespace md::rl {
 /// Deliberately **not** part of `md::core`. None of this is a rule of the game —
 /// it is how a trainer chooses to consume the game — and the core stays a pure
 /// simulation that knows nothing about episodes-as-training-data.
+/// The one player-model consequence is explicit: `frame_skip` also sets the
+/// copied Config's `decision_interval`, so policy cadence and the core reaction
+/// limit cannot disagree.
 ///
 /// All the heavy methods take raw pointers to caller-owned buffers so the Python
 /// layer can hand over NumPy arrays directly: observations are written straight
@@ -50,21 +54,25 @@ class VecEnv {
 
     /// Seed each environment explicitly and write the initial observations.
     ///
-    /// Evaluation needs this: the M4 baseline is measured over `default_seeds`,
-    /// which is not an arithmetic run of `seed + i`, so scoring a policy on the
-    /// same protocol means naming the seeds rather than deriving them.
+    /// Evaluation needs this: validation and the held-out benchmark are disjoint
+    /// blocks of the deterministic `default_seeds` stream, neither of which is an
+    /// arithmetic run of `seed + i`.
     void reset(std::span<const std::uint64_t> seeds, float* obs);
 
-    /// Advance every environment by `frame_skip` ticks under its action index.
+    /// Advance every environment by up to `frame_skip` ticks under its action
+    /// index, stopping exactly at `max_ticks` even when the cap is not divisible by
+    /// the skip.
     ///
     /// The action index is re-decoded on each of those ticks against the *current*
     /// state, because an engagement is a steer-then-fire macro: holding the index
     /// means "keep pursuing that target", not "replay the same raw action".
     ///
-    /// Rewards are summed across the skipped ticks. An environment that ends is
-    /// reset immediately, so `obs` always holds a live state ready for the next
-    /// forward pass, while `final_obs` keeps the last observation of the finished
-    /// episode — which the learner needs to bootstrap a truncated return.
+    /// Rewards and event features are summed across the skipped ticks, so a sound
+    /// cue on the first tick is still present in the observation delivered after
+    /// the window. An environment that ends is reset immediately, so `obs` always
+    /// holds a live state ready for the next forward pass, while `final_obs` keeps
+    /// the last observation of the finished episode — which the learner needs to
+    /// bootstrap a truncated return.
     void step(const std::int32_t* actions, float* obs, float* final_obs, float* rewards,
               bool* terminated, bool* truncated);
 
@@ -89,7 +97,9 @@ class VecEnv {
     /// Recording one environment out of a batch is the point: a training run wants
     /// the occasional watchable episode, not a copy of every rollout. The log is
     /// four bytes per agent step, so leaving one env recording costs nothing next
-    /// to the forward pass.
+    /// to the forward pass. Enabling is only valid while the selected environment
+    /// is at episode tick zero; otherwise the action log would be missing its
+    /// prefix and could not replay the claimed seed. Disable at any time.
     void set_recording(std::size_t index, bool on);
 
     [[nodiscard]] bool is_recording(std::size_t index) const;
@@ -104,11 +114,14 @@ class VecEnv {
     [[nodiscard]] std::optional<agent::EpisodeResult> take_episode_result(std::size_t index);
 
   private:
+    using EventObservation = std::array<float, ObsSpec::event_features>;
+
     void finish_recording(std::size_t index, std::uint64_t next_episode_seed);
     void begin_episode(std::size_t index, std::uint64_t seed);
     void finish_episode(std::size_t index, bool terminated);
 
-    void encode_into(std::size_t index, float* obs) const;
+    void encode_into(std::size_t index, float* obs,
+                     const EventObservation* window_events = nullptr) const;
     void run_range(std::size_t begin, std::size_t end, const std::int32_t* actions, float* obs,
                    float* final_obs, float* rewards, bool* terminated, bool* truncated);
 

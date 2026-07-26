@@ -3,12 +3,16 @@
 # Assisted-by: Claude Code (Anthropic)
 """Score a policy on the M4 evaluation protocol.
 
-The point of this module is that "beat the baseline" stays a concrete claim. The
-scripted agent's numbers in ``docs/ROADMAP.md`` come from ``md::agent::evaluate``
-over ``default_seeds``; a learned policy is measured here over *the same seeds*,
-with the per-episode fields filled by the same code path and aggregated by the
-same ``summarize`` function. Nothing about the comparison is reimplemented on the
-Python side, because a reimplementation is exactly where the two would drift.
+The point of this module is that "beat the baseline" stays a concrete claim.
+Routine learned-policy scores use the historical validation prefix; the scripted
+yardstick and one final learned-policy score use the next, held-out seed block.
+Both sides fill the same per-episode records and call the same C++ ``summarize``
+function. Nothing about the comparison is reimplemented on the Python side,
+because a reimplementation is exactly where the two would drift.
+
+The first 32 deterministic seeds were historically used during training, so
+they are the validation split. The next disjoint 32 values are the held-out
+canonical benchmark; choosing ``policy-best.pt`` must never inspect them.
 
     from md.eval import evaluate, default_seeds
 
@@ -23,7 +27,8 @@ from collections.abc import Callable, Sequence
 import numpy as np
 
 from . import _md_native as _native
-from .env import Actions, Flags, Observations, VecEnv
+from .benchmark import CANONICAL_SEED_OFFSET, SEEDS_PER_SPLIT, VALIDATION_SEED_OFFSET
+from .env import Actions, Flags, Observations, ObsSpec, VecEnv
 
 EpisodeResult = _native.EpisodeResult
 Summary = _native.Summary
@@ -32,9 +37,20 @@ Summary = _native.Summary
 Policy = Callable[[Observations, Flags], Actions]
 
 
-def default_seeds(count: int = 32) -> list[int]:
-    """The canonical evaluation seeds. Never tune against these."""
-    return list(_native.default_seeds(count))
+def default_seeds(count: int = SEEDS_PER_SPLIT) -> list[int]:
+    """The held-out canonical seeds. Never tune or select checkpoints on these."""
+    if count < 0:
+        raise ValueError("canonical seed count must not be negative")
+    pool = _native.default_seeds(CANONICAL_SEED_OFFSET + count)
+    return list(pool[CANONICAL_SEED_OFFSET:])
+
+
+def validation_seeds(count: int = SEEDS_PER_SPLIT) -> list[int]:
+    """The historical prefix used for routine evaluation and selection."""
+    if count < 0:
+        raise ValueError("validation seed count must not be negative")
+    pool = _native.default_seeds(VALIDATION_SEED_OFFSET + count)
+    return list(pool[VALIDATION_SEED_OFFSET:])
 
 
 def evaluate(
@@ -42,6 +58,7 @@ def evaluate(
     *,
     seeds: Sequence[int] | None = None,
     config: object | None = None,
+    obs_spec: ObsSpec | None = None,
     frame_skip: int = 4,
     max_ticks: int = 120_000,
     threads: int = 0,
@@ -52,14 +69,33 @@ def evaluate(
     fast-finishing seed would otherwise start a second episode and be counted
     twice. Environments that have finished keep stepping (their actions are
     ignored) until the slowest one is done; only the first result per env is kept.
+
+    The canonical scripted baseline sees the full simulation, so this protocol
+    rejects reduced observation specs rather than attaching a comparable-looking
+    score to an information-handicapped policy. ``frame_skip`` is the authoritative
+    decision cadence; any value already present in ``config.decision_interval`` is
+    replaced in the environment's private copy.
     """
     seed_list = list(default_seeds() if seeds is None else seeds)
     if not seed_list:
         raise ValueError("evaluate needs at least one seed")
 
+    spec = ObsSpec() if obs_spec is None else obs_spec
+    canonical = ObsSpec()
+    if (
+        spec.threats != canonical.threats
+        or spec.interceptors != canonical.interceptors
+        or spec.blasts != canonical.blasts
+    ):
+        raise ValueError(
+            "policy evaluation requires the default full-capacity ObsSpec; "
+            "a truncated policy cannot be compared with the full-state scripted baseline"
+        )
+
     env = VecEnv(
         num_envs=len(seed_list),
         config=config,  # type: ignore[arg-type]
+        obs_spec=spec,
         threads=threads,
         frame_skip=frame_skip,
         max_ticks=max_ticks,

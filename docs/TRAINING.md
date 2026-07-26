@@ -10,66 +10,87 @@ to bottom. If you have, skip to [The knobs](#the-knobs).
 ## What you are actually training
 
 The agent sees the same thing you do — positions, velocities, ammo, which cities
-are still standing — as ~1,900 floats. It picks one of 385 discrete actions per
-step: *do nothing*, or *send battery B at threat T*. That is it.
+are still standing, and the visible phase of every blast — as 1,959 floats. It
+picks one of 385 discrete actions per decision: *do nothing*, or *send battery B
+at threat T*. That is it.
 
 Two details shape everything else:
 
-**It is bound by the same hands you are.** The crosshair has a top speed and the
-trigger has a minimum interval, and both live in `Sim::step` rather than in any
-driver. The agent cannot out-click you; it can only out-*think* you. That is what
-makes "the AI beat the baseline" an interesting claim.
+**It is bound by the same hands you are.** The crosshair has a top speed, the
+trigger has a minimum interval, and the simulation samples every driver at 15 Hz.
+Those limits live in `Sim::step` rather than in a policy driver; a human click is
+kept pending until the next decision tick instead of being dropped between
+samples. The agent cannot out-click you; it can only out-*think* you. That is
+what makes "the AI beat the baseline" an interesting claim.
 
 **Illegal actions are masked, not punished.** Firing an empty battery does
 nothing, so those actions are removed before the network's softmax. The policy
 never has to spend gradient discovering that wasted moves are wasted.
 
+Each policy decision advances four simulation ticks. Its next observation sums
+the event counts from that whole window, rather than showing only the last tick,
+so frame skip cannot hide a launch, detonation or loss cue that the human hears.
+
 ## The yardstick
 
-The scripted agent (`poe eval`) plays 32 fixed seeds and scores:
+The scripted agent (`poe eval`) plays the 32 fixed held-out canonical seeds
+under the published protocol and scores:
 
 | Metric | Baseline |
 |---|---|
-| Mean score | **113,834** |
-| Mean wave reached | **17.09** |
+| Mean score | **98,542.34375** (range 83,525–108,920) |
+| Mean wave reached | **15.75** |
 | Cities surviving | **0.00** of 6 |
-| Kills per interceptor | **1.10** |
+| Kills per interceptor | **1.09** |
 
 That last row is where the headroom is. A blast that catches two warheads scores
 twice for one interceptor, and the scripted agent manages that only occasionally.
 Ammunition — not aim — is what runs out. **A perfect-marksmanship agent still
-loses every game around wave 17**, which is exactly why this is worth learning
+loses every game around wave 16**, which is exactly why this is worth learning
 on: the problem is allocation under a budget, not reflexes.
 
-Your policy is scored on those same 32 seeds, aggregated by the same C++
-function, so the numbers sit next to each other honestly.
+There are two fixed, disjoint 32-seed blocks from the same deterministic stream:
+
+* **Validation, offset 0:** the historical first 32 seeds. Routine evaluations
+  and `policy-best.pt` selection use these. They are not held out because earlier
+  runs already selected checkpoints on them.
+* **Canonical held-out, offset 32:** the next 32 seeds. `poe eval` and the final
+  `--load` benchmark use these at frame skip 4 (15 Hz), an exact 120,000-tick
+  cap, and CPU inference for the learned policy.
+
+Both sides are aggregated by the same C++ function. Keep the canonical block
+unseen until one checkpoint has been selected on validation; scoring many
+checkpoints on it would simply turn it into another validation set.
 
 ## Your first run
 
 ```bash
 poe bindings          # build the C++ environment for Python
-poe train             # 1024 envs, defaults, ~131k samples per update
+poe train             # 1024 envs, defaults, ~262k samples per update
 ```
 
 You will see a line per update — this is a real run, on a 16-thread CPU:
 
 ```
-training on cpu | 1024 envs x 128 steps = 131,072 samples/update | baseline 113,834
-update     1 | return        - | entropy 1.263 | value 1.503 | 8k steps/s
-update     2 | return        - | entropy 1.176 | value 1.040 | 8k steps/s
-update     5 | return     8.58 | entropy 0.548 | value 0.236 | 7k steps/s
-update    20 | return    13.46 | entropy 0.549 | value 0.485 | 8k steps/s
+training on cpu | 1024 envs x 256 steps = 262,144 samples/update | validation 32 seeds
+update     1 | shaped ret        - | entropy 1.263 | value 1.503 | lr 3.00e-04 | ent coef 0.0200 | 8k steps/s
+update     2 | shaped ret        - | entropy 1.176 | value 1.040 | lr 3.00e-04 | ent coef 0.0200 | 8k steps/s
+update     5 | shaped ret     8.58 | entropy 0.548 | value 0.236 | lr 2.99e-04 | ent coef 0.0199 | 7k steps/s
+update    20 | shaped ret    13.46 | entropy 0.549 | value 0.485 | lr 2.94e-04 | ent coef 0.0197 | 8k steps/s
 ```
 
-**Budget about five hours for the 1000-update default**, ~17 s per update at
-these settings. Pass `--updates 20` if you only want to see the loop turn over.
+The 256-step rollout is intentionally twice the previous default: it carries
+credit across more of a wave, at the cost of roughly twice the samples and
+optimizer work per update. Pass `--updates 20` if you only want to see the loop
+turn over.
 
 * `return` is `-` until the first episodes finish — episodes are thousands of
   ticks long, so this is normal, not a hang.
 * **`return` is not the game score**, and the two are not comparable. It is the
   sum of *shaped* reward over an episode divided by `Shaping.scale` (100), so it
-  reads in the tens while the baseline's score is 113,834. The eval block every
-  `--eval-every` updates is what puts the policy and the baseline on one ruler.
+  reads in the tens while the scripted score is 98,542. The validation block
+  every `--eval-every` updates is a game score, but it is not a canonical
+  ahead/behind claim because it uses a different seed block.
 * `entropy` is how undecided the policy is. It starts near **1.2, not ln(385) =
   5.9**, because action masking means only a handful of actions are ever legal —
   so read it as "about `exp(entropy)` real choices". A quick early fall as it
@@ -78,6 +99,10 @@ these settings. Pass `--updates 20` if you only want to see the loop turn over.
   has committed early, and the usual fix is more `entropy_coef`.
 * `value` is how badly the critic is predicting returns. Expect it to spike when
   the policy changes behaviour, then settle.
+* `auxiliary` is the relational policy's error on three observation-derived
+  tactical tasks. It is zero for the legacy MLP. For `--architecture entity`,
+  it should fall as the actor learns time pressure, existing blast/interceptor
+  coverage, and which threats form useful clusters.
 
 Every 25 updates an episode is written to `runs/`. **Go and watch one.** Open the
 app, choose **REPLAYS**, pick the newest. This is the single most useful habit in
@@ -93,10 +118,10 @@ Everything under `runs/` (`--out-dir` to change it):
 |---|---|
 | `runs/checkpoints/policy-<n>.pt` | weights + optimizer + iteration, every `--checkpoint-every` |
 | `runs/checkpoints/policy-final.pt` | always written at the end |
-| `runs/checkpoints/policy-best.pt` | the highest-scoring evaluation so far — **usually not the final one** |
+| `runs/checkpoints/policy-best.pt` | the highest validation score so far — **usually not the final one** |
 | `runs/update-<n>.mdr` | a watchable episode, ~80 kB |
 | `runs/metrics.csv` | one row per update, for plotting afterwards |
-| `runs/evals.csv` | one row per `--eval-every` scoring, in the baseline's units |
+| `runs/evals.csv` | validation rows, plus a final canonical row after `--load` |
 | `runs/config.json` | every setting the run was started with |
 | `runs/model.json` | the network it is training — layers, shapes, parameter count |
 | `runs/train.log` | a copy of everything it printed, flushed line by line |
@@ -108,16 +133,18 @@ follows the same rule so it finds what the trainer wrote. The order is in
 [PACKAGING.md](PACKAGING.md#where-a-runs-files-go).
 
 Those last two are deliberately separate files. `metrics.csv` is the training
-return, which as above is *not* a score; `evals.csv` is the 32-seed summary that
-is, so it is the one a "beat 113,834" line can honestly be drawn across. Keeping
-them apart also keeps the sparse rows out of the dense file.
+return, which as above is *not* a score; `evals.csv` contains sparse game-score
+summaries. Each row records its seed split and offset, seed count, frame skip,
+tick cap, and inference device. The console draws the scripted baseline only for
+a canonical row whose entire protocol matches.
 
 **Take `policy-best.pt`, not `policy-final.pt`.** PPO does not improve
 monotonically — a moving target destabilises the critic and entropy collapses —
 so a run that peaked at update 800 can quite normally finish worse at 1000. The
-best checkpoint is kept separately, by canonical eval score rather than by shaped
+best checkpoint is kept separately, by validation score rather than by shaped
 return, and the trainer says which update it came from when it exits. The final
-one is what `--resume` continues; the best one is what you score or ship.
+one is what `--resume` continues; the validation-selected best one is what you
+benchmark once and, if it succeeds, ship.
 
 ## What a run reports about itself
 
@@ -134,38 +161,43 @@ stream the agent itself observes — no privileged look inside the simulation:
 | `shots`, `kills`, `hits`, `mirv_splits` | how the ammunition went |
 | **`kills_per_shot[]`** — bins 0, 1, 2, 3, 4+ | the distribution behind the average |
 
-The histogram is the one worth learning to read. "1.10 kills per interceptor" is
+The histogram is the one worth learning to read. "1.09 kills per interceptor" is
 a mean, and a mean cannot distinguish an agent that reliably takes one threat per
 shot from one that wastes half its ammunition and catches pairs with the rest.
 The distribution separates them at a glance: bin 0 is wasted shots, and weight in
 bins 2+ is the only evidence of *catching clusters*, which is where a score above
-the baseline has to come from. The scripted baseline sits at 2% wasted, 86% single
-kills and 12% multiples — a learned policy that beats it will not look like that.
+the baseline has to come from. On the canonical block, the scripted baseline sits
+at 4% wasted, 83% single kills and 13% multiples — a learned policy that beats it
+will not look like that.
 
-Two places show them. `poe eval` prints the block for the scripted baseline:
+Two places show them. `poe eval` prints the canonical block for the scripted
+baseline:
 
 ```
-mean score          15592.5   [14895 .. 16470]
-survived               4000 ticks (66.7 s)   4 / 4 reached the cap
-last wave              7.00   (6.00 cleared)
-cities                 6.00 left   0.00 lost   0.00 rebuilt   (of 6)
-bases                  3.00 left   0.00 lost   (of 3)
-ammo unfired          19.75   (interceptors still loaded at the end)
-targets killed        88.00   (0.00 MIRV splits)
-shots fired           80.75   78.00 hit (98%)   1.09 kills/shot
-kills per shot   0:5 (2%)  1:274 (86%)  2:36 (11%)  3:2 (1%)  4+:0 (0%)
+mean score          98542.3   [83525 .. 108920]
+survived              15427 ticks (257.1 s)   0 / 32 reached the cap
+last wave             15.75   (14.81 cleared)
+cities                 0.00 left   14.03 lost   8.03 rebuilt   (of 6)
+bases                  0.75 left   5.94 lost   (of 3)
+ammo unfired           0.00   (interceptors still loaded at the end)
+targets killed       342.78   (9.53 MIRV splits)
+shots fired          315.81   301.69 hit (96%)   1.09 kills/shot
+kills per shot   0:452 (4%)  1:8395 (83%)  2:1204 (12%)  3:54 (1%)  4+:1 (0%)
+survived cap              0 / 32
 ```
 
-and a training run prints the same block at every `--eval-every`, having written
-it to `evals.csv` first. That file's original nine columns keep their names and
-their order, so anything that read it before still finds them; the rest are
-appended — the per-episode means, then the histogram as `shots_0kill` …
-`shots_4plus`. Both printouts come from one C++ `Summary` and one `summarize`,
-which is what makes the learned policy and the scripted baseline comparable at
-all: the numbers are not merely alike, they are produced by the same code.
+and a training run prints the same block on the validation split at every
+`--eval-every`, having written it to `evals.csv` first. That file's original nine
+columns keep their names and their order, so anything that read it before still
+finds them; the rest are appended — the per-episode means, the histogram as
+`shots_0kill` … `shots_4plus`, and the full evaluation protocol. Old files are
+atomically widened with blank protocol fields, which keeps their data without
+pretending those rows are baseline-comparable.
 
-`poe eval --frame-skip 4` throttles the scripted agent to the neural policy's
-own decision rate, if what you want to compare is tactics rather than reflexes.
+Both printouts come from one C++ `Summary` and one `summarize`; matching protocol
+metadata is what makes a direct comparison valid. Canonical `poe eval` already
+uses frame skip 4. Passing another `--frame-skip` is useful for experiments, but
+the result is no longer the published baseline.
 
 ## Stopping a run without losing it
 
@@ -192,8 +224,8 @@ poe ui                    # attach to ./runs
 poe ui -- path/to/run     # or to a run directory synced from another machine
 ```
 
-The eval score against the baseline as the big curve, return / entropy / value
-loss underneath, and the recordings listed newest-first — select one and press
+The validation score as the big curve, return / entropy / value loss underneath,
+and the recordings listed newest-first — select one and press
 **▶ Play** (or double-click it) and it opens in the game; **Delete** removes one
 you are done with. Under them is the network itself: architecture, parameter
 count, the observation and action sizes and a line per layer, read out of
@@ -227,8 +259,10 @@ meant to beat.
 
 The **vs** dropdown next to it holds one run against another: every curve gains
 the second run's line in the same colour, faintly, and each headline number gains
-its value underneath. That is the "did that change help?" view — one plot, two
-lines, no arithmetic between two y-scales.
+its value underneath. Score curves are overlaid only when seed split and offset,
+seed count, cadence, cap, and inference backend all match. A protocol change
+starts a new score segment and peak instead of drawing a line between unlike
+measurements.
 
 The bar across the top is deliberately small: one button that changes meaning
 (**Start** → **Pause** → **Resume**), **Stop**, and **Reset**, which attaches to a
@@ -276,18 +310,64 @@ poe train -- --resume runs/checkpoints/policy-00400.pt
 Checkpoints carry the optimizer, not just the weights. That matters: Adam keeps
 momentum estimates, and resuming without them makes the next few updates behave
 unlike the ones before — which looks like a mysterious kink in your curve rather
-than the artefact it is. `metrics.csv` is appended, so the history stays whole.
+than the artefact it is. They also carry the original learning-rate and entropy
+schedule, so update 401 resumes with update 401's coefficients instead of
+restarting the decay. If the original run used custom start, final, or schedule
+length flags, pass those same flags when resuming; incompatible settings are
+rejected rather than silently changing the run. `metrics.csv` is appended, so
+the history stays whole.
+
+The blast lifetime phase enlarged the observation from 1,895 to 1,959 floats.
+Older checkpoints use the previous input schema and are intentionally rejected
+by both `--load` and `--resume`; retrain them rather than silently padding or
+misaligning their inputs.
 
 ## Comparing what you have trained
 
 ```bash
-poe train -- --load runs/checkpoints/policy-00400.pt
-poe train -- --load runs/checkpoints/policy-00400.pt --record-to runs/at-400.mdr
+poe train -- --load runs/checkpoints/policy-best.pt
+poe train -- --load runs/checkpoints/policy-best.pt --record-to runs/best.mdr
 ```
 
-Scores a saved policy on the canonical seeds without training anything, and
-optionally records an episode of it playing. This is how you tell whether update
-800 is really better than update 400, instead of trusting what scrolled past.
+Runs the held-out canonical benchmark without training anything, and optionally
+records an episode. It defaults to CPU and pins the canonical seed offset, count,
+frame skip, and tick cap. A different `--device` is allowed for diagnosis, but
+the output explicitly disables the published ahead/behind comparison. For a
+checkpoint under a run's `checkpoints/` directory, the result is appended to that
+run's `evals.csv`, which is when the console can honestly draw the baseline.
+
+Use validation scores to decide whether update 800 is better than update 400,
+then run this command once for the selected `policy-best.pt`. Choosing among
+checkpoints from repeated canonical results leaks the benchmark back into
+training.
+
+## Breaking an MLP plateau
+
+The flat MLP is retained for old checkpoints and controlled comparisons, but the
+plateau-breaking path is the relational policy:
+
+```bash
+poe train -- \
+  --architecture entity \
+  --out-dir runs/relational-seed-1000 \
+  --seed 1000
+```
+
+Every threat uses the same encoder and separately attends to the live
+interceptors and blasts. This makes “is this particular threat already covered?”
+a direct relationship rather than something the network must reconstruct from
+1,959 unrelated positions in a flat vector. Its critic is a separate network, so
+a large value-loss update cannot overwrite the actor's tactical features.
+
+During PPO updates, the actor also predicts time-to-impact, coverage, and local
+cluster density for each live threat. Those labels are derived from the same raw
+observation available to the deployed policy; they are never appended to the
+observation and require no hidden target or scripted-agent knowledge. Set
+`--auxiliary-coef 0` for an ablation.
+
+One seed is evidence about one run, not an architecture. Use the
+[multi-seed runner](MULTI_SEED.md) to compare several fresh seeds on validation,
+then benchmark only its selected checkpoint once on the canonical split.
 
 ## The knobs
 
@@ -299,15 +379,24 @@ to it. The ones actually worth touching first:
 | Flag | Default | Try changing it when |
 |---|---|---|
 | `--envs` | 1024 | more is usually better until you run out of RAM |
-| `--steps` | 128 | longer rollouts help credit assignment on slow outcomes |
+| `--steps` | 256 | try 512 when later-wave resource decisions still receive weak credit |
 | `--updates` | 1000 | the return is still climbing when it stops |
+| `--learning-rate-final` | 1e-5 | the late policy still moves too much or freezes too early |
+| `--entropy-coef-final` | 0.002 | late exploration is too costly or collapses too soon |
+| `--schedule-updates` | same as `--updates` | decay should finish earlier or later than the run |
+| `--architecture` | `mlp` | use `entity` for relational attention and a separate critic |
+| `--auxiliary-coef` | 0.1 | ablate or tune the relational tactical prediction loss |
 | `--eval-every` | 50 | you want the yardstick more or less often |
 | `--record-every` | 25 | you want more episodes to watch |
 | `--max-ticks` | 120000 | you are smoke-testing and want episodes to end fast |
 
-`entropy_coef` (in `PPOConfig`) is the first thing to reach for if the policy
-collapses onto one tactic early. `gamma` is already 0.997 because an episode is
-tens of thousands of ticks and the payoff for saving a city arrives late.
+`learning_rate` and `entropy_coef` in `PPOConfig` are the starting values. The
+trainer linearly reduces them to the two final values above, reaching them on
+the last scheduled update and clamping there. `gamma` is already 0.999 because
+an episode is tens of thousands of ticks and the payoff for saving a city
+arrives late. `--gae-lambda 0.97` is a reasonable next experiment if even a
+512-step rollout is still too short-sighted, but it raises variance and is not
+the default.
 
 ## Known rough edges
 
@@ -316,14 +405,15 @@ Honest list, so you do not chase these as bugs:
 * **No curriculum.** M6 calls for one; training currently starts at full
   difficulty.
 * **CPU by default, and the optimizer is the bottleneck — not the simulation.**
-  Measured at the defaults on a 16-thread CPU: **~7.6k agent-steps/s**, ~17 s per
+  The previous 128-step batch measured **~7.6k agent-steps/s**, ~17 s per update
+  on a 16-thread CPU; the current 256-step batch does roughly twice the work per
   update. It is tempting to blame the environment for that, and wrong. At 1024
   envs the batched simulation runs ~1.1M agent-steps/s
-  ([`bindings/README.md`](../bindings/README.md)), so collecting an update's 131k
-  samples costs well under a second — a few percent of the update at most. The
-  rest is torch: PPO takes `epochs` × `minibatches` = 4 × 8 passes over the
-  rollout, so the learning phase does **four times the forward passes of the
-  rollout and a backward pass with each**, through a 1895 → 512 → 512 trunk.
+  ([`bindings/README.md`](../bindings/README.md)), so collection is only a small
+  part of an update. The rest is torch: PPO takes `epochs` × `minibatches` =
+  4 × 8 passes over the rollout, so the learning phase does **four times the
+  forward passes of the rollout and a backward pass with each**, through a
+  1959 → 512 → 512 trunk.
 
   Two consequences worth knowing before you tune anything. Adding environments
   does not raise steps/s — the batch grows with them, so the update gets

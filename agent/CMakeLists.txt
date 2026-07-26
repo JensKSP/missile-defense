@@ -33,4 +33,11 @@ endif()
 
 if(BUILD_TESTING)
   add_subdirectory(tests)
+  if(MD_BUILD_TOOLS)
+    add_test(NAME md_agent_eval_rejects_malformed_seed_offset
+      COMMAND md_agent_eval --seed-offset not-a-number)
+    set_tests_properties(md_agent_eval_rejects_malformed_seed_offset PROPERTIES
+      LABELS unit
+      WILL_FAIL TRUE)
+  endif()
 endif()

@@ -36,6 +36,12 @@ from pathlib import Path
 from statistics import fmean, pstdev
 from typing import Generic, TypeVar
 
+from ..benchmark import (
+    CANONICAL_BASELINE_MEAN_SCORE,
+    VALIDATION_SPLIT,
+    canonical_baseline_comparable,
+)
+
 #: Files a run writes, relative to its output directory (``--out-dir``).
 METRICS_NAME = "metrics.csv"
 EVALS_NAME = "evals.csv"
@@ -46,11 +52,8 @@ CHECKPOINT_SUFFIX = ".pt"
 #: run this console never started still gets a log pane.
 LOG_NAME = "train.log"
 
-#: The scripted agent's mean score over the canonical seeds (docs/ROADMAP.md, M4)
-#: — the line the console draws across the score curve. ``md.train`` keeps its own
-#: copy of this number rather than importing it, because the console must not be a
-#: dependency of the trainer and the trainer must not be one of the console.
-BASELINE_MEAN_SCORE = 113_834.0
+#: Compatibility alias; benchmark.py owns the value and the protocol it belongs to.
+BASELINE_MEAN_SCORE = CANONICAL_BASELINE_MEAN_SCORE
 
 T = TypeVar("T")
 
@@ -80,12 +83,11 @@ class MetricRow:
 
 @dataclass(frozen=True)
 class EvalRow:
-    """One line of ``evals.csv`` — the policy scored on the canonical seeds.
+    """One line of ``evals.csv`` and the protocol that produced its score.
 
-    This is the only number in a run that is directly comparable to the scripted
-    baseline's 113,834: same seeds, same C++ ``summarize``, greedy play. The
-    training return in ``metrics.csv`` is shaped, scaled and undiscounted, so it
-    lives in units of its own.
+    Old files have no protocol fields. They remain readable, but the console
+    cannot honestly compare them with a baseline or another run until the seed
+    split, offset and count, cadence, cap and inference backend are known.
     """
 
     update: int
@@ -97,6 +99,86 @@ class EvalRow:
     mean_accuracy: float | None
     survived: int | None
     episodes: int | None
+    seed_split: str | None = None
+    seed_offset: int | None = None
+    seed_count: int | None = None
+    frame_skip: int | None = None
+    max_ticks: int | None = None
+    inference_device: str | None = None
+
+
+def is_canonical_benchmark(row: EvalRow) -> bool:
+    """Whether ``row`` can be compared with the published scripted baseline."""
+
+    return canonical_baseline_comparable(
+        seed_split=row.seed_split,
+        seed_offset=row.seed_offset,
+        seed_count=row.seed_count,
+        frame_skip=row.frame_skip,
+        max_ticks=row.max_ticks,
+        inference_device=row.inference_device,
+    )
+
+
+def matching_eval_protocol(left: EvalRow, right: EvalRow) -> bool:
+    """Whether two scores were produced under the same fully known protocol."""
+
+    left_protocol = eval_protocol(left)
+    right_protocol = eval_protocol(right)
+    return all(value is not None for value in left_protocol) and left_protocol == right_protocol
+
+
+def same_eval_series(left: EvalRow, right: EvalRow) -> bool:
+    """Whether adjacent rows may share a line, including legacy-to-legacy."""
+
+    left_protocol = eval_protocol(left)
+    right_protocol = eval_protocol(right)
+    both_legacy = all(value is None for value in (*left_protocol, *right_protocol))
+    return both_legacy or (
+        all(value is not None for value in left_protocol) and left_protocol == right_protocol
+    )
+
+
+def eval_protocol(row: EvalRow) -> tuple[str | int | None, ...]:
+    """The fields that define score comparability, in stable CSV order."""
+
+    return (
+        row.seed_split,
+        row.seed_offset,
+        row.seed_count,
+        row.frame_skip,
+        row.max_ticks,
+        row.inference_device,
+    )
+
+
+def eval_protocol_label(row: EvalRow) -> str:
+    """Compact, honest label for a score tile or checkpoint note."""
+
+    if is_canonical_benchmark(row):
+        return "held-out canonical"
+    if row.seed_split == VALIDATION_SPLIT:
+        return "validation"
+    if row.seed_split:
+        return f"{row.seed_split} (nonstandard protocol)"
+    return "protocol unknown"
+
+
+def eval_protocol_note(row: EvalRow) -> str:
+    """Protocol label plus the fields needed to reproduce the measurement."""
+
+    parts = [eval_protocol_label(row)]
+    if row.seed_offset is not None:
+        parts.append(f"seed offset {row.seed_offset}")
+    if row.seed_count is not None:
+        parts.append(f"{row.seed_count} seeds")
+    if row.frame_skip is not None:
+        parts.append(f"frame skip {row.frame_skip}")
+    if row.max_ticks is not None:
+        parts.append(f"cap {row.max_ticks:,}")
+    if row.inference_device is not None:
+        parts.append(row.inference_device)
+    return " · ".join(parts)
 
 
 @dataclass(frozen=True)
@@ -156,6 +238,7 @@ class LineTail:
         self._path = path
         self._offset = 0
         self._fragment = b""
+        self._identity: tuple[int, int] | None = None
 
     @property
     def path(self) -> Path:
@@ -163,7 +246,8 @@ class LineTail:
 
     def poll(self) -> Batch[str]:
         try:
-            size = self._path.stat().st_size
+            stat = self._path.stat()
+            size = stat.st_size
         except OSError:
             # Not there yet, or gone. A run that has not started is the normal
             # case, so it is an empty batch and not an error; a file that has
@@ -173,10 +257,14 @@ class LineTail:
                 return Batch((), restarted=True)
             return Batch((), restarted=False)
 
-        restarted = False
+        identity = (stat.st_dev, stat.st_ino)
+        restarted = self._identity is not None and identity != self._identity
+        if restarted:
+            self.rewind()
         if size < self._offset:
             self.rewind()
             restarted = True
+        self._identity = identity
 
         with self._path.open("rb") as handle:
             handle.seek(self._offset)
@@ -200,6 +288,7 @@ class LineTail:
     def rewind(self) -> None:
         self._offset = 0
         self._fragment = b""
+        self._identity = None
 
 
 def log_tail(run_dir: Path) -> LineTail:
@@ -229,6 +318,17 @@ class CsvTail(Generic[T]):
     @property
     def path(self) -> Path:
         return self._lines.path
+
+    def rewind(self) -> None:
+        """Read the CSV from its header again on the next :meth:`poll`.
+
+        The dashboard uses this when the primary run changes evaluation
+        protocol. Rows that were irrelevant while the tail advanced to EOF can
+        become the exact rows needed for the new protocol.
+        """
+
+        self._lines.rewind()
+        self._fields = []
 
     def poll(self) -> Batch[T]:
         batch = self._lines.poll()
@@ -282,6 +382,11 @@ def _count(row: Mapping[str, str], key: str) -> int | None:
     return None if value is None else int(value)
 
 
+def _text(row: Mapping[str, str], key: str) -> str | None:
+    value = row.get(key, "").strip()
+    return value or None
+
+
 def _metric_row(row: Mapping[str, str]) -> MetricRow | None:
     update = _count(row, "update")
     if update is None:
@@ -313,6 +418,12 @@ def _eval_row(row: Mapping[str, str]) -> EvalRow | None:
         mean_accuracy=_number(row, "mean_accuracy"),
         survived=_count(row, "survived"),
         episodes=_count(row, "episodes"),
+        seed_split=_text(row, "seed_split"),
+        seed_offset=_count(row, "seed_offset"),
+        seed_count=_count(row, "seed_count"),
+        frame_skip=_count(row, "frame_skip"),
+        max_ticks=_count(row, "max_ticks"),
+        inference_device=_text(row, "inference_device"),
     )
 
 
@@ -634,7 +745,10 @@ def checkpoint_note(checkpoints: Sequence[Checkpoint], evals: Mapping[int, EvalR
     parts = [newest.name, f"{len(checkpoints)} saved"]
     row = evals.get(newest.iteration) if newest.iteration is not None else None
     if row is not None:
-        delta = row.mean_score - BASELINE_MEAN_SCORE
-        verdict = "ahead of" if delta > 0 else "behind"
-        parts.append(f"scored {row.mean_score:,.0f}, {abs(delta):,.0f} {verdict} baseline")
+        if is_canonical_benchmark(row):
+            delta = row.mean_score - BASELINE_MEAN_SCORE
+            verdict = "ahead of" if delta > 0 else "behind"
+            parts.append(f"scored {row.mean_score:,.0f}, {abs(delta):,.0f} {verdict} baseline")
+        else:
+            parts.append(f"{eval_protocol_label(row)} score {row.mean_score:,.0f}")
     return " · ".join(parts)

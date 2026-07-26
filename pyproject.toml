@@ -88,6 +88,7 @@ console = [
 [project.scripts]
 md-train = "md.cli:train"
 md-console = "md.ui.__main__:main"
+md-multiseed = "md.multiseed:main"
 
 # ---- Task runner (poe) -------------------------------------------------------
 # Run with: poe <task>   (after `python3 -m tools.bootstrap`)
@@ -177,7 +178,7 @@ module = ["torch", "torch.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = ["md.ppo", "md.train"]
+module = ["md.auxiliary", "md.ppo", "md.train"]
 ignore_errors = true
 
 # The console is optional (LGPLv3, never a dependency of the game), so PySide6 is
@@ -205,6 +206,7 @@ include = ["python/md", "tools"]
 # See the mypy note above: without torch installed these degrade to Unknown, so
 # they are checked on a machine that has it rather than pretended to be clean.
 ignore = [
+  "python/md/auxiliary.py",
   "python/md/ppo.py",
   "python/md/train.py",
   # Same reason, one layer out: PySide6 is optional, so the widgets are checked

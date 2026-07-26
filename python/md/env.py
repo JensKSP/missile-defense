@@ -56,9 +56,9 @@ class Shaping:
 
     ``waste_penalty`` and ``multikill_bonus`` are **not** potential terms. They
     genuinely change the objective, which is the only way to change what the
-    policy converges to — and the reason they must be judged on the 32-seed score
-    rather than on themselves. Neither touches the score, so
-    ``md::agent::evaluate`` and the 113,834 baseline are unaffected.
+    policy converges to — and the reason they must be judged first on validation
+    rather than on themselves. Neither touches the game score, so the final
+    98,542.34375 scripted yardstick is unaffected.
     """
 
     city_weight: float = 100.0
@@ -77,8 +77,8 @@ class Shaping:
 
     #: Charged when an interceptor's blast expires having destroyed nothing. Unlike
     #: the terms above this is *not* potential-based, so it genuinely changes the
-    #: objective — which is the point, and the reason to judge it on the 32-seed
-    #: score rather than on itself.
+    #: objective — which is the point, and the reason to judge it on validation
+    #: rather than on itself.
     #:
     #: **Off by default, on the evidence.** Set to 10 it moved break-even accuracy
     #: from 20% to 60%, and across 800 updates the policy's accuracy did not move
@@ -110,6 +110,10 @@ class VecEnv:
     observation separately in ``info`` — a truncated return has to bootstrap from
     it, and conflating truncation with termination would teach the agent that
     running out of clock is as bad as losing.
+
+    ``frame_skip`` is also the copied simulation Config's decision interval. It is
+    authoritative even when a caller-supplied Config says otherwise, so policy
+    inference and action latching cannot quietly run at different rates.
     """
 
     def __init__(
@@ -197,7 +201,7 @@ class VecEnv:
         """
         source = self._obs if obs is None else obs
         spec = self._spec
-        base = spec.threats * 9 + spec.interceptors * 7 + spec.blasts * 4
+        base = spec.threats * 9 + spec.interceptors * 7 + spec.blasts * 5
         bases = source[:, base : base + _native.BASE_COUNT * 4].reshape(
             self.num_envs, _native.BASE_COUNT, 4
         )
@@ -224,6 +228,8 @@ class VecEnv:
         Record one environment, not the batch: a training run wants the occasional
         watchable episode, not a copy of every rollout. The log is four bytes per
         agent step, so leaving one recording costs nothing next to the forward pass.
+        Enable it only at episode tick 0 (normally just after construction or
+        ``reset``); starting mid-episode would omit the replay's action prefix.
         """
         self._native.record(index, on)
 
@@ -248,7 +254,7 @@ class VecEnv:
         return bool(self._native.save_recording(index, str(path), update, label))
 
     def reset_seeds(self, seeds: Sequence[int]) -> Observations:
-        """Seed each environment explicitly — for the canonical evaluation set.
+        """Seed each environment explicitly — for a fixed evaluation seed block.
 
         ``reset`` derives env *i*'s seed as ``seed + i``; the evaluation seeds are
         not an arithmetic run, so they have to be named.
@@ -281,6 +287,12 @@ class VecEnv:
     def step(
         self, actions: npt.ArrayLike
     ) -> tuple[Observations, Rewards, Flags, Flags, dict[str, Observations]]:
+        """Advance by at most one frame-skip window.
+
+        The native layer stops at the exact episode tick cap and aggregates the
+        event suffix over every simulation tick in the window; a cue cannot vanish
+        merely because it happened before the last skipped tick.
+        """
         batch: Actions = np.ascontiguousarray(actions, dtype=np.int32)
         self._native.step(
             batch,

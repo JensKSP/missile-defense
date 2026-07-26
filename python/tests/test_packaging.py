@@ -27,7 +27,7 @@ PYPROJECT = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 def test_every_console_script_points_at_something_that_exists() -> None:
     """A renamed function turns into a `pip install` that produces a dead command."""
     scripts = PYPROJECT["project"]["scripts"]
-    assert set(scripts) == {"md-train", "md-console"}
+    assert set(scripts) == {"md-train", "md-console", "md-multiseed"}
     for name, target in scripts.items():
         module_name, _, attribute = target.partition(":")
         module = importlib.import_module(module_name)

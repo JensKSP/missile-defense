@@ -155,18 +155,20 @@ determinism test afterwards like any other codegen change.
 
 ## Findings so far
 
-**Observation encoding was 8× above its memory floor.** `md::encode` writes 1895
-floats, and cost 406 ns — while merely zeroing that buffer costs 51 ns (it stays in
+**Observation encoding was 8× above its memory floor.** The then-1,895-float
+observation cost 406 ns — while merely zeroing that buffer costs 51 ns (it stays in
 L1). The gap was a per-element bounds check on every one of those writes. Clearing
 the buffer once and then storing only live entities removed it: **406 ns → 65 ns, a
 6.2× speedup**, and the padding contract ("empty slots read zero") is now true by
 construction rather than by loop. This matters more than it looks: every RL step
 needs an observation, so encoding was about to dominate the training loop at ~9×
-the cost of the simulation step it describes.
+the cost of the simulation step it describes. These timings are historical: the
+current vector is 1,959 floats after adding the visible blast-lifetime phase and
+has not been substituted into that older benchmark result.
 
 ## Known opportunities
 
-- **The observation is mostly padding.** 1895 floats cover full simulation capacity
+- **The observation is mostly padding.** 1,959 floats cover full simulation capacity
   (128 threat slots), but the busiest state observed under agent play holds 6
   threats. A smaller `ObsSpec` would cut the buffer sharply — at the cost of being
   able to hide a live threat from the policy, which the fairness rule in

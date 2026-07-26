@@ -44,4 +44,5 @@ TEST_CASE("Config defaults are sane", "[unit][entities]") {
     REQUIRE(c.interceptor_speed > 0.0f);
     REQUIRE(c.blast_max_radius > 0.0f);
     REQUIRE(c.ammo_per_base > 0u);
+    REQUIRE(c.decision_interval == 4u);
 }

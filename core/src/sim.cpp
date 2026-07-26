@@ -83,6 +83,11 @@ void Sim::push_event(EventType type, Vec2 pos) noexcept {
     ++event_count_;
 }
 
+bool Sim::samples_action_this_tick() const noexcept {
+    const std::uint64_t interval = std::max<std::uint64_t>(1, config_.decision_interval);
+    return !terminated_ && tick_ % interval == 0;
+}
+
 StepResult Sim::step(const Action& action) noexcept {
     event_count_ = 0; // events are per-step
     tick_wasted_ = 0;
@@ -106,25 +111,24 @@ StepResult Sim::step(const Action& action) noexcept {
     // scripted, or learned — re-decides faster than a hand can. The crosshair
     // still steers toward the latched aim every tick, so only the *decision* is
     // paced, never the motion.
-    const std::uint64_t interval = std::max<std::uint64_t>(1, config_.decision_interval);
-    if (tick_ % interval == 0) {
+    if (samples_action_this_tick()) {
         latched_action_ = action;
     }
 
     update_cooldowns();
     move_crosshair(latched_action_); // steer the shared cursor (speed-capped)
     try_fire(latched_action_);       // launches detonate at the crosshair
-    advance_interceptors();         // may spawn blasts
-    advance_blasts();               // age blasts, update radius, expire
-    advance_explosions();           // age cosmetic ground-impact fireballs
-    steer_smart_bombs();            // smart bombs adjust heading to dodge blasts
-    move_threats();                 // integrate threat positions
-    split_mirvs();                  // MIRVs split into child warheads at altitude
-    score_ += resolve_blast_hits(); // blasts kill threats (blasts win ties)
-    resolve_ground_hits();          // landings destroy whatever stands there
-    update_waves();                 // spawn, and advance waves with end-of-wave bonus
-    award_bonus_cities();           // rebuild a destroyed city at score thresholds
-    update_termination();           // all cities destroyed?
+    advance_interceptors();          // may spawn blasts
+    advance_blasts();                // age blasts, update radius, expire
+    advance_explosions();            // age cosmetic ground-impact fireballs
+    steer_smart_bombs();             // smart bombs adjust heading to dodge blasts
+    move_threats();                  // integrate threat positions
+    split_mirvs();                   // MIRVs split into child warheads at altitude
+    score_ += resolve_blast_hits();  // blasts kill threats (blasts win ties)
+    resolve_ground_hits();           // landings destroy whatever stands there
+    update_waves();                  // spawn, and advance waves with end-of-wave bonus
+    award_bonus_cities();            // rebuild a destroyed city at score thresholds
+    update_termination();            // all cities destroyed?
 
     ++tick_;
     return StepResult{.reward = score_ - score_before,
@@ -324,7 +328,7 @@ std::int32_t Sim::resolve_blast_hits() noexcept {
         }
         if (killed) {
             // Every kill after a blast's first costs no extra ammunition — which
-            // is the whole of the headroom over the scripted agent's 1.10 kills
+            // is the whole of the headroom over the scripted agent's 1.09 kills
             // per interceptor, so it is counted separately.
             if (blasts_[by].kills > 0) {
                 ++tick_multi_kills_;

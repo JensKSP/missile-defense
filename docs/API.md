@@ -20,6 +20,10 @@ const md::StepResult r = sim.step(action);   // r.reward = score delta, r.termin
 
 - **Tick rate** is fixed at 60 Hz (`Config::dt = 1/60`). Training runs as fast as
   the CPU allows; only the app throttles to wall-clock.
+- **Decision rate** defaults to every 4 ticks (15 Hz). `Sim` samples and holds
+  the action itself, so human, scripted and learned drivers cannot gain reaction
+  speed by calling `step` more often. The app keeps a mouse click pending until
+  the next sampling tick.
 - **The field** is a fixed 320 × 180 world box, origin bottom-left, y-up. Window
   size is decoupled by the renderer's letterbox projection, so screen resolution
   never leaks into the simulation or the observation.
@@ -75,11 +79,11 @@ ways, and the second direction is the one that matters:
 |---|---|
 | threat position, velocity, type | time-to-impact |
 | interceptor position, velocity, detonation point | which city a threat is aimed at |
-| blast position and current radius | danger / priority ranking |
+| blast position, current radius, lifetime phase | danger / priority ranking |
 | per-battery ammo, cooldown, alive | intercept points |
 | per-city alive, position | "recommended target" |
 | crosshair position, trigger cooldown | anything a heuristic would compute |
-| wave, score, this tick's event counts | |
+| wave, score, event counts for the agent decision window | |
 
 Deriving those excluded quantities **is** the job we want the policy to learn.
 Supplying them would be doing the hard part and then claiming the network
@@ -104,21 +108,29 @@ flag; empty slots are all-zero.
 |---|---|
 | threats | `spec.threats` × 9 — present, pos(2), vel(2), type one-hot(4) |
 | interceptors | `spec.interceptors` × 7 — present, pos(2), vel(2), target(2) |
-| blasts | `spec.blasts` × 4 — present, pos(2), radius |
+| blasts | `spec.blasts` × 5 — present, pos(2), radius, lifetime phase |
 | batteries | 3 × 4 — alive, x, ammo, cooldown |
 | cities | 6 × 2 — alive, x |
 | globals | 5 — crosshair(2), trigger cooldown, wave, score |
-| events | 10 — count per `EventType` this tick |
+| events | 10 — count per `EventType` in the current agent window |
+
+At the default full capacities this is exactly **1,959 floats**.
 
 Positions map to `[-1, 1]` against the world box, velocities scale by
 `interceptor_speed`, timers by their own intervals, score by `bonus_city_score`
 (so `1.0` is one bonus city's worth — the threshold the policy must actually reason
-about). The event block is what delivers audio parity: the model "hears" what you
-hear.
+about). A blast's lifetime phase is `age / blast_lifetime`, the same value that
+drives its rendered fireball; radius alone is ambiguous while a full-size blast
+lingers. A direct `encode` call reports the current simulation tick's events;
+`VecEnv` sums them across every tick in the frame-skip window so an early cue is
+not lost before the policy's next decision. The event block is what delivers audio
+parity: the model "hears" what you hear.
 
 `ObsSpec` defaults to the simulation's own capacities, so the policy is never blind
 to a threat you can see. Lowering the caps speeds training but truncates by slot
-index and can hide a live threat — an information asymmetry. Do that knowingly.
+index and can hide a live threat — an information asymmetry. Such a policy may be
+trained and inspected, but the canonical evaluator rejects its reduced spec rather
+than comparing it with the full-state scripted baseline.
 
 ## 3. Action — a discrete space over entities
 
@@ -213,7 +225,8 @@ single most important fact about the objective, because it is what makes the gam
 about *surviving deep* rather than playing early waves cleanly — at the cap a
 surviving city is worth 600 and a smart bomb 750. A version of this simulation
 without the multiplier flattened that incentive completely, and the scripted
-baseline's score rose from 18,036 to 113,834 when it was restored.
+baseline's score increased several-fold when it was restored. On the held-out
+canonical protocol, the current paced baseline averages 98,542.34375.
 
 ### The trap: at 60 Hz, discounting erases the city bonus
 
@@ -233,9 +246,11 @@ hazard in the project.
 
 Two fixes, and the recommendation is to use both.
 
-**1. Frame-skip.** Act every 4 ticks (15 Hz — decisions are ~100 ms scale anyway,
+**1. Frame-skip.** Act every 4 ticks (15 Hz — decisions are ~67 ms apart,
 and most ticks are NoOp). That shortens every horizon by 4× in step counts, making
-γ = 0.997 span a whole wave.
+γ = 0.997 span a whole wave. `VecEnv` makes this value the copied Config's
+`decision_interval`, aggregates events across the four ticks, and stops a final
+window at the exact episode tick cap rather than rounding its duration up.
 
 **2. Potential-based shaping**, which moves the deferred bonus to the instant it is
 earned *without* changing the optimal policy (Ng, Harada & Russell, 1999):
@@ -285,10 +300,18 @@ consequences the API leans on:
 | `Sim`, `Action`, player model | done |
 | `md/observation.hpp`, `md/intercept.hpp` | done |
 | Scripted baseline + evaluation protocol (`md::agent`, M4) | done — `poe eval` |
-| nanobind bindings, Gymnasium env, `VecSim` (M5) | planned |
-| Episode recording / replay / takeover (M3) | planned |
+| nanobind bindings and batched Python `VecEnv` (M5) | done |
+| PPO training, split evaluation and checkpoints (M6) | done — `poe train` |
+| Episode recording / replay / takeover (M3) | done |
+| Native in-game inference for a learned checkpoint (M7) | planned |
 
-The learned agent is scored by the **same** `md::agent::evaluate` over the **same**
-`default_seeds`, so "beat the baseline" is a concrete claim. Current baseline:
-mean score 113,834, mean wave 17.1, 0/6 cities surviving, 1.10 kills per
-interceptor ([ROADMAP.md](ROADMAP.md#m4--algorithmic-reference-ai--implemented--ready-for-sign-off)).
+The fixed deterministic seed stream is split before any policy is selected.
+Routine learned-policy evaluation uses offset 0, count 32 as validation and may
+choose `policy-best.pt`; the final benchmark uses the disjoint held-out block at
+offset 32, count 32. That canonical run is pinned to 4 ticks per decision,
+exactly 120,000 ticks, and CPU inference. Both drivers feed the same C++
+episode records into the same `summarize` implementation, so "beat the
+baseline" remains a concrete claim without using the test set to choose a model.
+Current held-out baseline: mean score 98,542.34375 (83,525–108,920), mean wave
+15.75, 0/6 cities surviving, and 1.0853 kills per interceptor
+([ROADMAP.md](ROADMAP.md#m4--algorithmic-reference-ai--implemented--ready-for-sign-off)).

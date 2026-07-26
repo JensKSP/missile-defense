@@ -126,7 +126,7 @@ class Summary:
         """Kills-per-shot histogram summed over the seed set: [0, 1, 2, 3, 4+]."""
 
 def default_seeds(count: int = ...) -> list[int]:
-    """The canonical evaluation seeds."""
+    """The fixed deterministic seed stream; protocols select disjoint blocks."""
 
 def summarize(episodes: list[EpisodeResult]) -> Summary:
     """Aggregate outcomes with the same function the scripted baseline uses."""
@@ -141,6 +141,7 @@ class Config:
     base_cooldown: float
     aim_max_speed: float
     fire_interval: float
+    decision_interval: int
     bonus_city_score: int
     score_per_kill: int
     score_per_unused_interceptor: int
@@ -193,7 +194,10 @@ class VecEnv:
         terminated: npt.NDArray[np.bool_],
         truncated: npt.NDArray[np.bool_],
     ) -> None:
-        """Advance every env by ``frame_skip`` ticks, writing all outputs in place."""
+        """Advance by up to ``frame_skip`` ticks without crossing ``max_ticks``.
+
+        Rewards and event features aggregate every simulation tick in the window.
+        """
 
     def action_masks(self, mask: npt.NDArray[np.bool_]) -> None:
         """Fill ``mask`` with which actions are legal per env."""
@@ -211,7 +215,7 @@ class VecEnv:
 
     def take_episode_result(self, index: int) -> EpisodeResult | None: ...
     def record(self, index: int, on: bool = ...) -> None:
-        """Log this env's actions so the episode can be watched in the app."""
+        """Log this env's actions from episode tick 0 so it can be watched in the app."""
 
     def is_recording(self, index: int) -> bool: ...
     def save_recording(self, index: int, path: str, update: int = ..., label: str = ...) -> bool:

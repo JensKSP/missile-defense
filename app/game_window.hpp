@@ -5,6 +5,7 @@
 
 #include "audio.hpp"
 #include "highscores.hpp"
+#include "human_input.hpp"
 #include "md/agent/heuristic.hpp"
 #include "md/replay/recording.hpp"
 #include "md/sim.hpp"
@@ -224,7 +225,7 @@ class GameWindow : public QVulkanWindow {
     bool closing_ = false; // a close is already queued; do not queue a second
     bool silent_ = false;  // --silent: no sound, and no writing that preference
     std::uint64_t seed_ = 1;
-    bool fire_pending_ = false; // a click arrived; fire on the next sim tick
+    HumanFireLatch fire_latch_; // a click waits until Sim samples its next action
     bool ai_driving_ = false;   // the scripted agent is at the controls
     bool ai_assisted_ = false;  // ... at any point this game (sticky; blocks highscores)
     int speed_ = 1;             // sim ticks per frame: 1 = real time, up to 8x

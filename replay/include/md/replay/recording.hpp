@@ -28,7 +28,10 @@ namespace md::replay {
 ///
 /// `frame_skip` matters: a training driver holds one index across that many ticks,
 /// re-decoding it each tick (an engagement is a steer-then-fire macro). A replay
-/// has to repeat that exactly, which is what `Player` does.
+/// has to repeat that exactly, which is what `Player` does. If an episode ends
+/// part-way through its last window, the recorder may store a per-tick log
+/// (`frame_skip == 1`) while retaining the original decision cadence in `config`;
+/// this represents the exact tick count without changing the file format.
 struct Recording {
     Config config{};
     ObsSpec spec{};

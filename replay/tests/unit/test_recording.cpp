@@ -70,6 +70,7 @@ Recording make_recording(std::uint64_t seed, std::size_t steps, std::uint32_t fr
     Recording recording;
     recording.seed = seed;
     recording.frame_skip = frame_skip;
+    recording.config.decision_interval = frame_skip;
     recording.update = 1200;
     recording.set_label("update-1200");
     recording.actions = scripted_actions(steps, md::action_count(recording.spec));
@@ -178,7 +179,10 @@ TEST_CASE("a player reports progress and stops at the end", "[replay]") {
 TEST_CASE("seeking lands on the same state as playing there", "[replay]") {
     // Scrubbing restores from a snapshot and replays forward. If that ever differed
     // from having played straight through, the frame you scrub to would be a lie.
-    const Recording recording = make_recording(2026, 500, 4); // 2000 ticks, past several snapshots
+    Recording recording = make_recording(2026, 500, 4); // 2000 ticks, past several snapshots
+    // Seeking, not episode termination, is under test. Keep this deterministic
+    // fixture alive through every requested target while retaining real threats.
+    recording.config.threat_base_speed = 1.0f;
 
     const auto state_at = [&](std::uint64_t target) {
         Player straight{recording};

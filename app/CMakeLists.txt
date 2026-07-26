@@ -124,6 +124,10 @@ endif()
 
 set_target_properties(md_app PROPERTIES AUTOMOC ON)
 
+if(BUILD_TESTING)
+  add_subdirectory(tests)
+endif()
+
 # Vulkan validation layers are opt-in (dev builds); never requested in a
 # release/package build, so shipped binaries don't depend on the layer package.
 if(MD_VULKAN_VALIDATION)

@@ -104,41 +104,46 @@ Deterministic, allocation-free, unit-tested. Run it with `poe eval`.
 reads only what `md::encode` exposes and never touches the simulation's internal
 bookkeeping — in particular not `Threat::target_index`, which would reveal for free which
 city a warhead is aimed at. It infers that from the trajectory, exactly as a policy must.
-It is equally bound by the player model (crosshair travel, trigger interval), because
-those live in `Sim::step`, not in the driver.
+Blast lifetime phase is included beside radius, so the heuristic no longer knows when a
+full-size blast expires unless the model can know it too. It is equally bound by the
+player model (15 Hz decisions, crosshair travel, trigger interval), because those limits
+live in `Sim::step`, not in the driver.
 
-Heuristics, per tick: discard threats already doomed by an in-flight interceptor or a
-live blast; score every (threat, battery) pair by what the threat would destroy, how many
-*other* threats one blast would catch, how soon it lands, and how long the shot takes to
-set up (cursor travel included); engage the best pair. Scoring is a pure function of
-observable state, so target commitment falls out for free — whatever the crosshair is
-already near is cheapest to shoot, which stops it oscillating between rivals.
+At each sampled decision, the heuristic discards threats already doomed by an in-flight
+interceptor or a live blast; scores every (threat, battery) pair by what the threat would
+destroy, how many *other* threats one blast would catch, how soon it lands, and how long
+the shot takes to set up (cursor travel included); then engages the best pair. Scoring is
+a pure function of observable state, so target commitment falls out for free — whatever
+the crosshair is already near is cheapest to shoot, which stops it oscillating between
+rivals.
 
 ### Baseline results — the numbers to beat
 
-32 canonical seeds (`md::agent::default_seeds`), default `Config`:
+32 held-out canonical seeds (deterministic stream offset 32), default `Config`,
+15 Hz decisions, and an exact 120,000-tick cap:
 
 | Metric | Value |
 |---|---|
-| Mean score | **113,834** (range 97,805 – 128,965) |
-| Mean wave reached | **17.09** |
+| Mean score | **98,542.34375** (range 83,525–108,920) |
+| Mean wave reached | **15.75** |
 | Mean cities surviving | **0.00** of 6 |
-| Kills per interceptor | **1.10** |
+| Kills per interceptor | **1.0853** |
 | Episodes surviving the cap | 0 / 32 |
 
 **This settles the question the design turned on.** A perfect-marksmanship agent — one
 that solves the lead-intercept exactly and never misses — still loses *every* game, with
-every city gone, around wave 17. The difficulty is not aiming; it is allocation under an
+every city gone, around wave 16. The difficulty is not aiming; it is allocation under an
 ammunition budget that goes negative as waves grow. Exact velocity information does not
 trivialise the game, which is why the observation gives raw state rather than hiding it.
 
-Kills-per-interceptor of 1.10 is where the visible headroom is: blasts are catching a
+Kills-per-interceptor of about 1.09 is where the visible headroom is: blasts are catching a
 cluster only occasionally. Waiting for MIRV spreads to converge, and spending the
 end-of-wave ammo bonus wisely, are exactly the judgement calls a learned policy can beat a
 greedy one at.
 
-*(Deliberately reasonable, not optimal — a yardstick, not a champion. It is never tuned
-against the evaluation seeds.)*
+*(Deliberately reasonable, not optimal — a yardstick, not a champion. Routine
+policy evaluation and checkpoint selection use the disjoint stream prefix at
+offset 0, not this held-out block.)*
 
 ## M5 — ML infrastructure
 
@@ -189,9 +194,10 @@ their defaults are good and reasoned. Show the four that change a run's characte
 Each field carries the reasoning already written beside it in code as its tooltip —
 the UI should teach, since that is what this project is for.
 
-**The baseline is the hero.** 113,834 drawn as a horizontal line the return curve is
-climbing toward. That single element is the difference between "a number going up"
-and "am I winning yet". Everything else on the plot is secondary.
+**The baseline is the hero — on the held-out benchmark.** 98,542 is the final
+number to beat. Routine training curves use a separate validation seed split so
+selecting `policy-best.pt` cannot tune against the headline test; the console
+labels the split and only draws a baseline that belongs to the same protocol.
 
 **It should look like it belongs to the game.** The game already has a palette —
 deep navy field, orange fireballs, cool blue cities, a pixel font. The console
@@ -224,14 +230,15 @@ Instead the run is a subprocess and the existing artifacts *are* the interface:
 | `runs/train.log` | tail → a log pane, for a run this console never started |
 | stdout | the same pane, when the run *is* this console's child |
 
-> **`evals.csv` was added for this.** The plan said to draw 113,834 across the
+> **`evals.csv` was added for this.** The plan said to draw the scripted baseline across the
 > *return* curve, and that turned out to be wrong: the return in `metrics.csv` is
 > shaped, scaled and summed undiscounted, so it reads in the tens and has no fixed
 > relationship to a game score. The only number in a run that *is* comparable is
-> the periodic evaluation — same 32 seeds, same C++ `summarize`, greedy play — and
-> it was being printed and thrown away. It is now appended to `runs/evals.csv` by
-> the trainer, one row per `--eval-every`, which is what the console plots the
-> baseline against. Return, entropy and value loss keep their own axes below it.
+> an evaluation score — deterministic seeds, shared C++ `summarize`, greedy play —
+> and it was being printed and thrown away. It is now appended to `runs/evals.csv`
+> with its seed split, cadence, and inference device. Periodic rows use validation
+> seeds for checkpoint selection; the canonical 32 seeds remain untouched until a
+> final held-out score. Return, entropy and value loss keep their own axes below it.
 
 This buys more than responsiveness: the UI can **attach to a run started from a
 terminal**, a crashed UI leaves training untouched, and the whole thing works against a
@@ -277,9 +284,9 @@ surface.
 1. **Run** — parameter form (the `TrainConfig` / `PPOConfig` fields, each with the
    reasoning already written beside them in code as tooltips), start/pause/stop/reset,
    live status.
-2. **Curves** — return, entropy, value loss, clip fraction, from `metrics.csv`. The
-   **baseline drawn as a horizontal line**, because "beat 113,834" is the actual goal and
-   a curve without it is just a number going up.
+2. **Curves** — return, entropy, value loss, clip fraction, from `metrics.csv`, plus
+   split-labelled evaluation scores. The **98,542 canonical baseline** is drawn only
+   for held-out rows produced by that same protocol.
 3. **Model** — parameter count, layer shapes, observation/action sizes, the iteration a
    checkpoint came from, and its eval summary against the baseline.
 4. **Recordings** — browse `runs/`, play in the app, delete. Newest first.

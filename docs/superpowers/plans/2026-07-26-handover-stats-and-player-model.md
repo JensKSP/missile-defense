@@ -88,3 +88,89 @@ before `md.train.main`). **The box hard-locked once** on 15-min idle screen-off
 (NVIDIA 610 + Wayland + KDE DDC/CI) — see memory `system-hardlock-idle-dpms`;
 disable idle screen-off before unattended runs. Human plays ~8k–10k (memory
 `human-play-baseline`).
+
+## Continuation — fair baseline and fresh training run (2026-07-26 19:00)
+
+The user explicitly asked to stop here until another agent has made more fairness
+fixes. Do not resume or start another run without that signal.
+
+- Uniform 15 Hz was completed: `Config::decision_interval = 4` by default and
+  `VecEnv` copies its `frame_skip` into the core decision interval. Mechanic tests
+  that intentionally change actions every tick opt into interval 1.
+- Debug and Release were both **109/109 green** immediately after that wiring.
+  Their shared trajectory golden is `0x01fe4f2c28b1e200`.
+- New canonical scripted baseline, 32 fixed seeds, 120,000 tick cap:
+  **98,170.15625** mean, range **81,930–115,065**, mean wave 15.81,
+  1.08 kills/shot. This was the interim offset-0 threshold replacing 113,834.
+- That number was the offset-0 development block and is now **superseded** by
+  the fairness agent's split fix. The authoritative held-out canonical block is
+  offset 32: **98,542.34375**, range **83,525–108,920**. Routine checkpoint
+  selection uses offset 0 as validation; only the final selected policy sees the
+  canonical block. `python/md/benchmark.py` is the source of truth.
+- A genuinely from-zero MLP PPO run was started (no `--resume`) with 4,096 envs,
+  128 steps/update, CUDA+TF32, default PPO hyperparameters, evaluations every 25,
+  intended for 1,500 updates:
+  `runs/player-model-v2-from-zero/`.
+- The user stopped it gracefully after update **1,437**. The final checkpoint and
+  metrics were flushed. The stop marker was cleared by the trainer.
+- Best checkpoint: update **1,300**, historical offset-0 validation mean
+  **73,402.8**, range 16,180–88,045, mean wave 14.00, 0.79 kills/shot. It is at
+  `runs/player-model-v2-from-zero/checkpoints/policy-best.pt`.
+  `policy-final.pt` is the stopped update-1,437 policy and is not the model to
+  prefer.
+- Operational success condition discussed with the user: beat the canonical
+  baseline, then beat it on 256+ unseen paired seeds with the 95% confidence
+  interval of the score difference above zero, and stop after 10 evaluations /
+  250 updates without a meaningful unseen-seed improvement. Global mathematical
+  optimality cannot be established.
+
+The working tree changed substantially during the run because the other agent was
+active (GPU telemetry, observation/model-card/benchmark/docs work). Preserve those
+changes; do not stage directories or revert them.
+
+## Plateau-breaking training work (2026-07-26, after the stopped run)
+
+The user assigned the remaining improvements while a separate agent continues
+fairness fixes. The implementation is ready, but **no new training run was
+started**; wait until the fairness work and canonical baseline are frozen.
+
+- `--architecture entity` is now a relational actor: every threat uses shared
+  weights and cross-attends separately to live interceptors and blasts. Its
+  critic is a disjoint flat network, so value-loss gradients cannot overwrite
+  actor features. The legacy MLP remains available for old checkpoints and
+  ablations.
+- The relational actor has a training-only three-output auxiliary head. Targets
+  in `md.auxiliary` derive time-to-impact, current coverage, and local threat
+  density from the raw observation only. PPO applies the masked loss with
+  `auxiliary_coef=0.1`; inference receives no extra or privileged features.
+- Rollouts default to 256 steps. Learning rate and entropy anneal linearly from
+  the PPO starting values to `1e-5` and `0.002`, with the resolved schedule
+  stored in checkpoints and continued by absolute update number on resume.
+- `md-multiseed` starts genuinely fresh seed runs in separate directories,
+  rejects resume/load overrides, and selects `policy-best.pt` from matching
+  validation protocols only. It deliberately leaves the canonical split unseen
+  until one final checkpoint is selected. See `docs/MULTI_SEED.md`.
+
+Recommended fresh experiment after the fairness signal:
+
+```bash
+md-multiseed \
+  --out-dir runs/relational-3seed \
+  --num-seeds 3 \
+  --seed-start 1000 \
+  -- \
+  --architecture entity \
+  --updates 1500 \
+  --envs 4096 \
+  --eval-every 25
+```
+
+Use one isolated smoke run first to establish safe GPU memory and throughput for
+the attention policy; do not assume the old MLP's 4,096-environment batch has the
+same memory footprint.
+
+Verification at handoff: all non-e2e Python tests pass, Ruff lint/format and
+Pyright (using the torch-enabled `.venv` interpreter) pass, and Release is
+115/115 green. The Debug build's Catch2 discovery cannot run under this session's
+ptrace because LeakSanitizer rejects ptrace; this is an environment limitation,
+not a discovered test failure.

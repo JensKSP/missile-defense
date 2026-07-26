@@ -5,7 +5,7 @@ project for learning AI / machine learning. The same deterministic C++
 simulation is played by humans (Qt 6 + Vulkan) and — as a headless, fast,
 reproducible environment — used to train a reinforcement-learning agent.
 
-![A MIRV splitting mid-descent over the cities, with interceptor trails and a fireball](docs/images/gameplay.png)
+![Missiles, MIRVs and interceptors crossing the sky through several fireballs](docs/images/gameplay.png)
 
 *By Jens Köhler · [MIT License](LICENSE) · developed with [Claude Code](https://claude.com/claude-code) (Anthropic).*
 
@@ -55,13 +55,17 @@ ammo. Six cities, three batteries, and less ammunition than you would like.
 
 **Watch the AI play it.** `./build/release/app/md_app --watch` boots straight
 into a game driven by the scripted agent — held to the same crosshair speed and
-trigger interval as your hand. `]` fast-forwards to 8×; `T` takes the controls
-back mid-game. It averages **113,834** points and still loses every game around
-wave 17, because this game is about spending ammunition, not about aiming.
-→ [More](#watching-the-ai-play)
+trigger interval and 15 Hz decision rate as your hand and a trained model. `]`
+fast-forwards to 8×; `T` takes the controls back mid-game. On the held-out
+canonical benchmark it averages **98,542** points and still loses every game
+around wave 16, because this game is about spending ammunition, not about
+aiming.
+→ [More](#run-the-scripted-ai)
 
-**Train one that beats it.** 113,834 is the number a learned policy has to beat,
-scored on the same 32 seeds by the same code. → [docs/TRAINING.md](docs/TRAINING.md)
+**Train one that beats it.** 98,542 is the number a learned policy has to beat.
+Routine evaluation selects a checkpoint on 32 validation seeds; one final,
+CPU-pinned score uses a different 32-seed held-out block and the same C++
+summary code. → [docs/TRAINING.md](docs/TRAINING.md)
 
 On **Windows** the same toolchain runs under MSYS2 — its own ten-minute path is
 in [docs/WINDOWS.md](docs/WINDOWS.md). On **macOS** it is Homebrew and MoltenVK:
@@ -85,7 +89,7 @@ Deeper reading: [design & reward spec](docs/DESIGN.md) ·
   shapes per threat type, an animated twinkling starfield, and a pixel HUD/menu.
 - **Procedural audio** — retro SFX *and* a looping FM-synth soundtrack, all
   generated in code (no asset files), driven by the core's deterministic event
-  stream (which will also give the AI observation parity).
+  stream (whose complete decision-window counts are also observed by the AI).
 - **Full arcade shell** — menu, pause, help, **options** (audio / music /
   fullscreen), and a persistent **top-10 highscore** table with arcade initials
   entry.
@@ -97,7 +101,7 @@ Deeper reading: [design & reward spec](docs/DESIGN.md) ·
 | | |
 |:---:|:---:|
 | ![The title menu, drawn in the game's own pixel font](docs/images/menu.png) | ![Interceptor blasts expanding over the skyline](docs/images/intercept.png) |
-| **Full arcade shell** — menu, options, help, highscores | **Interceptors** — travel time, then an expanding blast |
+| **Full arcade shell** — menu, replays, options, help, highscores | **Interceptors** — travel time, then an expanding blast |
 
 ## Requirements
 
@@ -201,7 +205,7 @@ your three batteries.
 | Input | Action |
 |---|---|
 | Mouse | Move the crosshair (aim) |
-| Left click | Fire from the nearest battery with ammo |
+| Left click | Queue one shot from the nearest battery for the next 15 Hz decision tick |
 | Arrow keys / W,S + Enter | Navigate the menu (mouse works too — hover + click) |
 | `Esc` | Pause → menu (resume with `Esc` or the RESUME item) |
 | `P` | Pause → menu |
@@ -209,15 +213,50 @@ your three batteries.
 | `M` | Toggle music |
 | `A` | Toggle audio (SFX) |
 
-Menu: **START** a new game, **WATCH AI**, **HELP**, **OPTIONS** (audio / music /
-fullscreen), **HIGHSCORES**, **ABOUT**, **EXIT**. Beat a high score to enter your
-initials, arcade style.
+Menu: **START** a new game, **WATCH AI**, **REPLAYS**, **HELP**, **OPTIONS**
+(audio / music / fullscreen), **HIGHSCORES**, **ABOUT**, **EXIT**. Beat a high
+score to enter your initials, arcade style.
 
-### Watching the AI play
+## AI training
+
+The training console puts the policy's real game score beside the scripted
+baseline, with the learning diagnostics, recordings, model and hardware on the
+same screen:
+
+![The AI training console showing a live run's score and diagnostic curves, recordings, model and system use](docs/images/training-console.png)
+
+It can start, pause, resume and stop a run without owning the training process;
+close the window and training carries on. The full explanation of every curve,
+file and control is in [docs/TRAINING.md](docs/TRAINING.md).
+
+### Set up your machine for AI training
+
+From a checkout, install the development and console dependencies, then PyTorch
+and the native Python binding:
+
+```bash
+python3 -m tools.bootstrap
+source .venv/bin/activate
+python -m pip install torch
+poe bindings
+```
+
+CPU training works everywhere PyTorch does. For a CUDA wheel that matches an
+NVIDIA driver — without installing the CUDA toolkit — use the measured
+[Debian/NVIDIA recipe](docs/NVIDIA.md); Windows has a separate
+[native-Python path](docs/WINDOWS.md#training-on-windows). An installed training
+console can set up its own managed PyTorch runtime from the **Set up training…**
+button instead.
+
+### Run the scripted AI
 
 **WATCH AI** hands the controls to the scripted baseline agent (M4) and lets you
-watch it defend — same game, same crosshair travel and trigger interval a hand is
-held to, just a different driver. `md_app --watch` boots straight into it.
+watch it defend — same game, same crosshair travel, decision rate and trigger
+interval a hand is held to, just a different driver:
+
+```bash
+./build/release/app/md_app --watch
+```
 
 | Input | Action |
 |---|---|
@@ -229,13 +268,54 @@ Because both the simulation and the agent are deterministic, watching seed *N* i
 bit-identical to the run `poe eval` measured for that seed — no recording needed,
 the seed alone reproduces it.
 
-### Watching a recorded run
+### Run the pre-trained, packed model
+
+There is not one to run yet. The repository currently ships the scripted agent,
+but no portable packed-policy format, bundled learned checkpoint or native C++
+inference path. **WATCH AI** therefore always means the scripted baseline. The
+honest route for a learned policy today is the checkpoint → recording → replay
+path below; native in-game inference is still on the roadmap.
+
+### Train your own model
+
+Open the console and press **Start**, or run the same defaults in a terminal:
+
+```bash
+poe ui
+poe train
+```
+
+The default is 1,024 parallel environments and 1,000 PPO updates. Evaluation
+every 50 updates scores the policy on the fixed validation block and selects
+`policy-best.pt`; it does not inspect the held-out **98,542** benchmark.
+Recordings and checkpoints accumulate under `runs/`, while `policy-final.pt` is
+the state to resume. After selection, `--load` runs the final canonical block
+once at 15 Hz, a 120,000-tick cap and CPU inference. Start with
+[the first-run walkthrough](docs/TRAINING.md#your-first-run) before changing
+the knobs.
+
+### Run your own model in the game
+
+Direct live inference in the C++ game is not implemented yet. Score the best
+checkpoint through Python and record an episode, then play that recording in the
+game:
+
+```bash
+poe train -- --load runs/checkpoints/policy-best.pt --record-to runs/mine.mdr
+./build/release/app/md_app --replay runs/mine.mdr
+```
+
+The recording contains the policy's actions, so playback uses the real
+deterministic simulation and renderer rather than a video. You can take over
+with `T` at any point.
+
+### Watch replays
 
 Pick one from the **REPLAYS** menu entry, which lists what is in `runs/` (newest
 first), or name it directly:
 
 ```bash
-md_app --replay runs/update-1200.mdr
+./build/release/app/md_app --replay runs/update-1200.mdr
 ```
 
 A *learned* policy is not reproducible from a seed the way the scripted agent is, so
@@ -284,8 +364,8 @@ produced by CPack's DEB generator directly from the CMake build.
 |---|---|
 | `core/` | Pure C++ simulation library (`md::core`) + tests — no Qt, no rendering |
 | `app/` | Qt 6 + Vulkan human client (renderer, input, HUD, menu) |
-| `bindings/` | Python bindings (nanobind) — *planned* |
-| `python/` | Gymnasium env + RL training — *planned* |
+| `bindings/` | nanobind vector environment and shared evaluation bindings |
+| `python/` | NumPy environment wrapper, PPO training/evaluation, and training console |
 | `docs/` | Design spec, roadmap, testing, training, Windows + macOS notes |
 | `tools/` | Cross-platform Python dev tooling (coverage, format/tidy, capture) |
 

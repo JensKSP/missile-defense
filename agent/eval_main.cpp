@@ -4,31 +4,47 @@
 // Runs the scripted baseline over the canonical seed set and prints the metrics
 // the learned agent will be measured against.
 //
-//   md_agent_eval [--seeds N] [--max-ticks N] [--per-episode]
+//   md_agent_eval [--seeds N] [--seed-offset N] [--max-ticks N]
+//                 [--frame-skip N] [--per-episode]
 #include "md/agent/eval.hpp"
 #include "md/agent/heuristic.hpp"
 #include "md/config.hpp"
 #include "md/version.hpp"
 
+#include <charconv>
 #include <cstdint>
 #include <cstdio>
-#include <cstdlib>
 #include <exception>
+#include <limits>
 #include <numeric>
+#include <optional>
 #include <print>
 #include <string_view>
+#include <system_error>
 #include <vector>
 
 namespace {
 
-std::uint64_t parse_u64(const char* text, std::uint64_t fallback) {
-    char* end = nullptr;
-    const unsigned long long value = std::strtoull(text, &end, 10);
-    return (end == text || value == 0ULL) ? fallback : static_cast<std::uint64_t>(value);
+constexpr std::size_t canonical_seed_offset = 32;
+
+std::optional<std::uint64_t> parse_u64(std::string_view text, bool allow_zero = false) {
+    std::uint64_t value = 0;
+    const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
+    if (error != std::errc{} || end != text.data() + text.size() || (!allow_zero && value == 0u)) {
+        return std::nullopt;
+    }
+    return value;
+}
+
+void usage() {
+    std::println(stderr,
+                 "usage: md_agent_eval [--seeds N] [--seed-offset N] [--max-ticks N] "
+                 "[--frame-skip N] [--per-episode]");
 }
 
 int run(int argc, char** argv) {
     std::size_t seed_count = 32;
+    std::size_t seed_offset = canonical_seed_offset;
     std::uint64_t max_ticks = 120000;
     bool per_episode = false;
     md::Config config{}; // defaults, including the 15 Hz decision cadence and 3/s fire
@@ -38,31 +54,58 @@ int run(int argc, char** argv) {
         if (arg == "--per-episode") {
             per_episode = true;
         } else if (arg == "--seeds" && (i + 1) < argc) {
-            seed_count = static_cast<std::size_t>(parse_u64(argv[++i], 32));
+            const auto value = parse_u64(argv[++i]);
+            if (!value.has_value() || *value > std::numeric_limits<std::size_t>::max()) {
+                std::println(stderr, "invalid positive integer for --seeds: {}", argv[i]);
+                return 2;
+            }
+            seed_count = static_cast<std::size_t>(*value);
+        } else if (arg == "--seed-offset" && (i + 1) < argc) {
+            const auto value = parse_u64(argv[++i], true);
+            if (!value.has_value() || *value > std::numeric_limits<std::size_t>::max()) {
+                std::println(stderr, "invalid non-negative integer for --seed-offset: {}", argv[i]);
+                return 2;
+            }
+            seed_offset = static_cast<std::size_t>(*value);
         } else if (arg == "--max-ticks" && (i + 1) < argc) {
-            max_ticks = parse_u64(argv[++i], 120000);
+            const auto value = parse_u64(argv[++i]);
+            if (!value.has_value()) {
+                std::println(stderr, "invalid positive integer for --max-ticks: {}", argv[i]);
+                return 2;
+            }
+            max_ticks = *value;
         } else if (arg == "--frame-skip" && (i + 1) < argc) {
             // The reaction rate, ticks per decision, straight into the sim's own
             // limit: 1 = native 60 Hz, 4 = the neural policy's ~15 Hz. The honest
             // same-reaction-rate knob for comparing the two — the sim enforces it.
-            config.decision_interval =
-                static_cast<std::uint32_t>(parse_u64(argv[++i], config.decision_interval));
+            const auto value = parse_u64(argv[++i]);
+            if (!value.has_value() || *value > std::numeric_limits<std::uint32_t>::max()) {
+                std::println(stderr, "invalid positive integer for --frame-skip: {}", argv[i]);
+                return 2;
+            }
+            config.decision_interval = static_cast<std::uint32_t>(*value);
         } else {
-            std::println(stderr, "usage: md_agent_eval [--seeds N] [--max-ticks N] [--frame-skip "
-                                 "N] [--per-episode]");
+            usage();
             return 2;
         }
     }
 
+    if (seed_offset > std::numeric_limits<std::size_t>::max() - seed_count) {
+        std::println(stderr, "seed offset plus count is too large");
+        return 2;
+    }
     const md::agent::Heuristic agent{};
-    const std::vector<std::uint64_t> seeds = md::agent::default_seeds(seed_count);
+    const std::vector<std::uint64_t> stream = md::agent::default_seeds(seed_offset + seed_count);
+    const std::vector<std::uint64_t> seeds(
+        stream.begin() + static_cast<std::ptrdiff_t>(seed_offset), stream.end());
 
     std::println("missile-defense {} — scripted baseline (M4)", md::version());
     std::println("{} episodes, cap {} ticks ({:.0f} s of play)", seeds.size(), max_ticks,
                  static_cast<double>(max_ticks) * static_cast<double>(config.dt));
-    std::println("decisions every {} tick(s) (~{:.0f} Hz)\n", config.decision_interval,
-                 1.0 / (static_cast<double>(config.dt) *
-                        static_cast<double>(config.decision_interval)));
+    std::println("seed stream offset {}", seed_offset);
+    std::println(
+        "decisions every {} tick(s) (~{:.0f} Hz)\n", config.decision_interval,
+        1.0 / (static_cast<double>(config.dt) * static_cast<double>(config.decision_interval)));
 
     if (per_episode) {
         std::println("{:<20} {:>8} {:>5} {:>5} {:>8} {:>7} {:>7} {:>6} {:>6} {:>6}", "seed",

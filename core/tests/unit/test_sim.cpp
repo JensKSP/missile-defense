@@ -28,8 +28,9 @@ namespace {
 /// aiming model. The player model itself is covered by its own tests below.
 Config unpaced() {
     Config cfg;
-    cfg.aim_max_speed = 0.0f; // instant aim
-    cfg.fire_interval = 0.0f; // no global trigger interval
+    cfg.aim_max_speed = 0.0f;  // instant aim
+    cfg.fire_interval = 0.0f;  // no global trigger interval
+    cfg.decision_interval = 1; // accept a deliberately different action every tick
     return cfg;
 }
 
@@ -638,6 +639,7 @@ TEST_CASE("The trigger interval paces shots across different batteries", "[unit]
     cfg.aim_max_speed = 0.0f;  // isolate the trigger interval from crosshair travel
     cfg.base_cooldown = 0.0f;  // and from the per-battery cooldown
     cfg.fire_interval = 0.15f; // 9 ticks at dt = 1/60
+    cfg.decision_interval = 1; // this test deliberately changes the action each tick
     Sim sim{cfg};
     sim.reset(0);
 

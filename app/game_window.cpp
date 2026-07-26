@@ -321,7 +321,7 @@ void GameWindow::start_game() {
     in_progress_ = true;
     started_ = false;
     accumulator_ = 0.0;
-    fire_pending_ = false;
+    fire_latch_.clear();
     ai_driving_ = false;
     ai_assisted_ = false;
     replay_.reset(); // a new game is never still playing back a recording
@@ -536,14 +536,13 @@ void GameWindow::advance() {
                 // same crosshair and trigger limits a hand is held to.
                 action = agent_.act(sim_);
             } else {
-                // Steer the crosshair toward the mouse every tick (the sim caps how
-                // far it travels); a click fires exactly once, from the battery
-                // nearest the crosshair — which is where the shot will detonate.
+                // Keep aiming at the mouse; the sim samples that intent at its
+                // 15 Hz decision cadence and keeps steering between samples. A
+                // click stays pending until the next sample, then fires exactly
+                // once from the battery nearest the crosshair.
                 action = Action::aim_at(aim_);
-                if (fire_pending_) {
-                    action.fire = true;
-                    action.base = nearest_base_with_ammo(sim_.crosshair());
-                    fire_pending_ = false;
+                if (fire_latch_.pending()) {
+                    fire_latch_.apply(sim_, action, nearest_base_with_ammo(sim_.crosshair()));
                 }
             }
             sim_.step(action);
@@ -599,7 +598,12 @@ void GameWindow::mousePressEvent(QMouseEvent* event) {
         break;
     }
     case State::Playing:
-        fire_pending_ = true; // consumed by the next sim tick (advance)
+        // WATCH AI and replay playback have their own action sources. Do not
+        // queue a stray mouse edge that would fire immediately if the human
+        // later presses T to take over.
+        if (!ai_driving_ && !replay_.has_value()) {
+            fire_latch_.request(); // consumed at the next action-sampling tick
+        }
         break;
     case State::Replays: {
         // A chooser, not a notice board: click a recording to watch it. Clicking

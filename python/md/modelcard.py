@@ -39,7 +39,7 @@ TENSOR_ROLES = ("weight", "bias")
 
 @dataclass(frozen=True)
 class Tensor:
-    """One entry of the state dict: ``("trunk.0.weight", (512, 1895))``."""
+    """One entry of the state dict: ``("trunk.0.weight", (512, 1959))``."""
 
     name: str
     shape: tuple[int, ...]
@@ -64,7 +64,7 @@ class Block:
 
     @property
     def wiring(self) -> str:
-        """``1895 → 512`` for a weight matrix; the bare extent for anything else.
+        """``1959 → 512`` for a weight matrix; the bare extent for anything else.
 
         Torch stores a linear layer's weight as ``(out, in)``, so it reads
         backwards; turning it round is the whole reason this is not just the
@@ -118,12 +118,12 @@ class ModelCard:
 
 
 def headline(card: ModelCard) -> str:
-    """``mlp · 1,431,426 parameters`` — the two facts about a network."""
+    """``mlp · 1,464,194 parameters`` — the two facts about a network."""
     return f"{card.architecture} · {card.parameters:,} parameters"
 
 
 def wiring(card: ModelCard) -> str:
-    """``1,895 observations → 385 actions`` — the shape of the problem."""
+    """``1,959 observations → 385 actions`` — the shape of the problem."""
     return f"{card.obs_size:,} observations → {card.action_count:,} actions"
 
 

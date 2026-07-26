@@ -32,7 +32,7 @@ inline constexpr std::uint32_t max_events = 128; // events emitted per step (cap
 // threats destroyed by a single interceptor's blast. A blast can occasionally
 // catch a larger MIRV cluster; those fold into the top bin. This is how "is the
 // agent catching clusters or wasting shots?" reads as a distribution rather than
-// a single mean (the scripted baseline's is 1.10).
+// a single mean (the held-out scripted baseline's is about 1.09).
 inline constexpr std::uint32_t kills_per_shot_bins = 5;
 
 /// Tunable simulation constants (see DESIGN.md §2–4). Values here are the v0.1

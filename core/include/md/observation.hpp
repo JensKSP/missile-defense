@@ -39,11 +39,11 @@ struct ObsSpec {
     // Per-slot feature widths.
     static constexpr std::size_t threat_features = 9;      // present, pos2, vel2, type4
     static constexpr std::size_t interceptor_features = 7; // present, pos2, vel2, target2
-    static constexpr std::size_t blast_features = 4;       // present, pos2, radius
+    static constexpr std::size_t blast_features = 5;       // present, pos2, radius, lifetime phase
     static constexpr std::size_t base_features = 4;        // alive, x, ammo, cooldown
     static constexpr std::size_t city_features = 2;        // alive, x
     static constexpr std::size_t global_features = 5;      // crosshair2, trigger, wave, score
-    static constexpr std::size_t event_features = 10;      // per-EventType count this tick
+    static constexpr std::size_t event_features = 10;      // per-EventType count; see encode below
 
     /// Total float count — the exact number `encode` writes.
     [[nodiscard]] constexpr std::size_t size() const noexcept {
@@ -62,6 +62,9 @@ struct ObsSpec {
 /// velocities against `interceptor_speed`, timers against their own intervals.
 /// Unused slots are zero-padded, and their leading `present` flag is 0. Writes
 /// nothing if `out` is too small; allocation-free and `noexcept` throughout.
+/// This direct encoder counts `sim.events()` from the current simulation tick.
+/// Decision-window drivers such as `VecEnv` replace that suffix with counts
+/// accumulated over every tick advanced for one policy action.
 void encode(const Sim& sim, const ObsSpec& spec, std::span<float> out) noexcept;
 
 } // namespace md

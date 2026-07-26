@@ -17,9 +17,9 @@ from pathlib import Path
 from md import modelcard
 from md.modelcard import ModelCard, Tensor, describe, headline, layer_table, read, wiring, write
 
-#: The state dict of the default MLP policy, as `policy-00800.pt` carries it.
+#: The state dict of the default MLP policy for the current observation schema.
 MLP = {
-    "trunk.0.weight": (512, 1895),
+    "trunk.0.weight": (512, 1959),
     "trunk.0.bias": (512,),
     "trunk.2.weight": (512, 512),
     "trunk.2.bias": (512,),
@@ -31,16 +31,16 @@ MLP = {
 
 
 def _card() -> ModelCard:
-    return describe(MLP, architecture="mlp", obs_size=1895, action_count=385, hidden=512)
+    return describe(MLP, architecture="mlp", obs_size=1959, action_count=385, hidden=512)
 
 
 # ---- counting ---------------------------------------------------------------
 
 
 def test_the_parameter_count_is_every_element_of_every_tensor() -> None:
-    # 1,431,426 — checked against `sum(p.numel() for p in policy.parameters())`
+    # 1,464,194 — checked against `sum(p.numel() for p in policy.parameters())`
     # on a real checkpoint, which is the number this is standing in for.
-    assert _card().parameters == 1_431_426
+    assert _card().parameters == 1_464_194
 
 
 def test_a_bias_is_folded_into_the_layer_it_belongs_to() -> None:
@@ -52,7 +52,7 @@ def test_a_bias_is_folded_into_the_layer_it_belongs_to() -> None:
         "policy_head",
         "value_head",
     ]
-    assert blocks[0].parameters == 512 * 1895 + 512
+    assert blocks[0].parameters == 512 * 1959 + 512
 
 
 def test_layers_stay_in_the_order_the_data_flows_through() -> None:
@@ -62,14 +62,14 @@ def test_layers_stay_in_the_order_the_data_flows_through() -> None:
 
 def test_a_weight_reads_in_to_out_rather_than_out_by_in() -> None:
     """Torch stores `(out, in)`; nobody reads a network backwards."""
-    assert _card().blocks()[0].wiring == "1895 → 512"
+    assert _card().blocks()[0].wiring == "1959 → 512"
 
 
 def test_a_one_dimensional_layer_shows_its_extent() -> None:
     card = describe(
         {"norm.weight": (512,), "norm.bias": (512,)},
         architecture="entity",
-        obs_size=1895,
+        obs_size=1959,
         action_count=385,
         hidden=512,
     )
@@ -80,7 +80,7 @@ def test_a_one_dimensional_layer_shows_its_extent() -> None:
 
 def test_a_tensor_that_belongs_to_no_layer_keeps_its_own_name() -> None:
     card = describe(
-        {"log_std": (385,)}, architecture="mlp", obs_size=1895, action_count=385, hidden=512
+        {"log_std": (385,)}, architecture="mlp", obs_size=1959, action_count=385, hidden=512
     )
     assert [block.name for block in card.blocks()] == ["log_std"]
 
@@ -89,11 +89,11 @@ def test_a_tensor_that_belongs_to_no_layer_keeps_its_own_name() -> None:
 
 
 def test_the_headline_is_the_architecture_and_the_size() -> None:
-    assert headline(_card()) == "mlp · 1,431,426 parameters"
+    assert headline(_card()) == "mlp · 1,464,194 parameters"
 
 
 def test_the_wiring_line_is_the_shape_of_the_problem() -> None:
-    assert wiring(_card()) == "1,895 observations → 385 actions"
+    assert wiring(_card()) == "1,959 observations → 385 actions"
 
 
 def test_the_layer_table_lines_up() -> None:
@@ -101,11 +101,11 @@ def test_the_layer_table_lines_up() -> None:
     assert len(lines) == 4
     assert len({len(line) for line in lines}) == 1, lines
     assert lines[0].startswith("trunk.0")
-    assert "970,752" in lines[0]
+    assert "1,003,520" in lines[0]
 
 
 def test_a_card_with_no_tensors_has_no_table() -> None:
-    empty = ModelCard("mlp", 1895, 385, 512, ())
+    empty = ModelCard("mlp", 1959, 385, 512, ())
     assert layer_table(empty) == []
     assert empty.parameters == 0
 
@@ -127,8 +127,8 @@ def test_the_file_lands_beside_config_json(tmp_path: Path) -> None:
 def test_the_file_carries_the_derived_count_for_a_human_reading_it(tmp_path: Path) -> None:
     write(tmp_path, _card())
     payload = json.loads((tmp_path / modelcard.FILENAME).read_text(encoding="utf-8"))
-    assert payload["parameters"] == 1_431_426
-    assert payload["tensors"][0] == {"name": "trunk.0.weight", "shape": [512, 1895]}
+    assert payload["parameters"] == 1_464_194
+    assert payload["tensors"][0] == {"name": "trunk.0.weight", "shape": [512, 1959]}
 
 
 def test_a_run_without_a_card_reads_as_nothing_to_show(tmp_path: Path) -> None:
@@ -157,4 +157,4 @@ def test_shapes_survive_the_round_trip_as_tuples(tmp_path: Path) -> None:
     write(tmp_path, _card())
     restored = read(tmp_path)
     assert restored is not None
-    assert Tensor("trunk.0.weight", (512, 1895)) in restored.tensors
+    assert Tensor("trunk.0.weight", (512, 1959)) in restored.tensors

@@ -23,7 +23,7 @@ pytest.importorskip(
     "md._md_native", reason="the _md_native extension is not built (cmake -DMD_BUILD_BINDINGS=ON)"
 )
 
-from md.env import Shaping, VecEnv  # noqa: E402
+from md.env import ObsSpec, Shaping, VecEnv  # noqa: E402
 
 
 @pytest.fixture
@@ -58,6 +58,28 @@ def test_buffers_are_reused_rather_than_reallocated(env: VecEnv) -> None:
     first = env.reset(0)
     obs, _, _, _, _ = env.step(np.zeros(env.num_envs, dtype=np.int32))
     assert obs is first
+
+
+def test_recording_cannot_start_part_way_through_an_episode() -> None:
+    env = VecEnv(num_envs=2, threads=1, frame_skip=4, max_ticks=8, seed=31)
+    actions = np.zeros(env.num_envs, dtype=np.int32)
+    _, _, _, truncated, _ = env.step(actions)
+    assert not truncated.any()
+
+    with pytest.raises(
+        RuntimeError,
+        match=r"target environment is at episode tick 0; call reset\(\) before record\(\)",
+    ):
+        env.record(0)
+    assert not env.is_recording(0)
+
+    # The rejected request must not reset the live batch.
+    _, _, _, truncated, _ = env.step(actions)
+    assert truncated.all()
+
+    env.reset(31)
+    env.record(0)
+    assert env.is_recording(0)
 
 
 def test_action_masks_are_per_env_and_allow_noop(env: VecEnv) -> None:
@@ -284,14 +306,21 @@ def test_a_batch_is_reproducible_from_its_seed() -> None:
     np.testing.assert_array_equal(first_total, second_total)
 
 
-def test_default_seeds_are_the_canonical_set() -> None:
-    from md.eval import default_seeds
+def test_validation_and_canonical_seeds_are_fixed_disjoint_splits() -> None:
+    from md import _md_native
+    from md.eval import default_seeds, validation_seeds
 
-    seeds = default_seeds()
-    assert len(seeds) == 32
-    assert len(set(seeds)) == 32  # a repeated seed would double-count an episode
-    assert default_seeds() == seeds  # fixed, so results compare across time
-    assert default_seeds(4) == seeds[:4]
+    validation = validation_seeds()
+    canonical = default_seeds()
+    assert len(validation) == len(canonical) == 32
+    assert len(set(validation)) == len(set(canonical)) == 32
+    assert set(validation).isdisjoint(canonical)
+    # The historical stream prefix remains validation; canonical starts at 32.
+    assert validation == list(_md_native.default_seeds(32))
+    assert canonical == list(_md_native.default_seeds(64))[32:]
+    assert validation_seeds(4) == validation[:4]
+    assert default_seeds(4) == canonical[:4]
+    assert (validation_seeds(), default_seeds()) == (validation, canonical)
 
 
 def test_evaluate_scores_a_policy_on_the_shared_protocol() -> None:
@@ -308,6 +337,19 @@ def test_evaluate_scores_a_policy_on_the_shared_protocol() -> None:
     assert summary.episodes == 4
     assert summary.min_score <= summary.mean_score <= summary.max_score
     assert 0 <= summary.survived <= 4
+
+
+def test_evaluate_rejects_a_truncated_observation_spec() -> None:
+    from md.eval import evaluate
+
+    spec = ObsSpec()
+    spec.threats -= 1
+
+    def policy(obs: np.ndarray, mask: np.ndarray) -> np.ndarray:
+        return np.zeros(obs.shape[0], dtype=np.int32)
+
+    with pytest.raises(ValueError, match="full-capacity ObsSpec"):
+        evaluate(policy, seeds=[1], obs_spec=spec, max_ticks=4)
 
 
 def test_evaluate_reports_the_full_statistics() -> None:

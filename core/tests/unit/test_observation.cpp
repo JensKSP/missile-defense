@@ -100,6 +100,46 @@ TEST_CASE("A live threat occupies its slot with normalised state", "[unit][obs]"
     REQUIRE(one_hot == 1.0f);
 }
 
+TEST_CASE("A blast carries the same lifetime phase the renderer shows", "[unit][obs]") {
+    Config cfg;
+    cfg.aim_max_speed = 0.0f;  // place the crosshair exactly at the launch point
+    cfg.decision_interval = 1; // replace the fire action with NoOp on the next tick
+    Sim sim{cfg};
+    sim.reset(42);
+
+    const Vec2 centre = sim.bases()[0].pos;
+    sim.step(Action::fire_at(BaseId::Alpha, centre));
+    REQUIRE(sim.blasts().size() == 1u);
+
+    constexpr ObsSpec spec;
+    STATIC_REQUIRE(ObsSpec::blast_features == 5u);
+    const std::size_t blasts_at = (spec.threats * ObsSpec::threat_features) +
+                                  (spec.interceptors * ObsSpec::interceptor_features);
+
+    // Once expansion finishes, radius no longer says how close the blast is to
+    // expiry. Its rendered phase — age / lifetime — must keep advancing.
+    while (sim.blasts()[0].radius < cfg.blast_max_radius) {
+        sim.step(Action::noop());
+        REQUIRE(sim.blasts().size() == 1u);
+    }
+    const std::vector<float> first = encode_to_vector(sim, spec);
+    const float first_phase = sim.blasts()[0].age / cfg.blast_lifetime;
+    for (int tick = 0; tick < 3; ++tick) {
+        sim.step(Action::noop());
+    }
+    REQUIRE(sim.blasts().size() == 1u);
+    const std::vector<float> later = encode_to_vector(sim, spec);
+    const float later_phase = sim.blasts()[0].age / cfg.blast_lifetime;
+
+    REQUIRE_THAT(static_cast<double>(first[blasts_at + 3]), WithinAbs(1.0, 1e-5));
+    REQUIRE_THAT(static_cast<double>(later[blasts_at + 3]), WithinAbs(1.0, 1e-5));
+    REQUIRE_THAT(static_cast<double>(first[blasts_at + 4]),
+                 WithinAbs(static_cast<double>(first_phase), 1e-5));
+    REQUIRE_THAT(static_cast<double>(later[blasts_at + 4]),
+                 WithinAbs(static_cast<double>(later_phase), 1e-5));
+    REQUIRE(later[blasts_at + 4] > first[blasts_at + 4]);
+}
+
 TEST_CASE("Positions stay inside [-1, 1] across the whole field", "[unit][obs]") {
     Sim sim;
     sim.reset(7);
@@ -150,7 +190,7 @@ TEST_CASE("Event counts reach the observation (audio parity)", "[unit][obs]") {
     for (std::size_t i = 0; i < ObsSpec::event_features; ++i) {
         total += obs[events + i];
     }
-    REQUIRE(total > 0.0f); // the Fire event this tick is visible to the policy
+    REQUIRE(total > 0.0f); // direct encoding exposes the Fire event from this tick
 }
 
 TEST_CASE("Encoding is a pure function of the state", "[unit][obs]") {

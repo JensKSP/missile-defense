@@ -58,8 +58,8 @@ struct EpisodeResult {
     }
 };
 
-/// Aggregate over a seed set. This is the shared yardstick: the learned agent is
-/// scored with the same function over the same seeds, so "beat the baseline" is a
+/// Aggregate over a seed set. Scripted and learned drivers use this same
+/// implementation on a protocol-matched split, so "beat the baseline" is a
 /// concrete claim rather than a vibe.
 struct Summary {
     std::size_t episodes = 0;
@@ -87,9 +87,8 @@ struct Summary {
     std::array<std::uint64_t, kills_per_shot_bins> kills_per_shot{};
 };
 
-/// The canonical evaluation seeds. Fixed on purpose: comparable across agents and
-/// across time. Do not tune an agent against these — that is overfitting a
-/// benchmark.
+/// A fixed deterministic seed stream. Protocols select disjoint blocks from it;
+/// the prefix alone is not inherently a held-out benchmark.
 [[nodiscard]] std::vector<std::uint64_t> default_seeds(std::size_t count = 32);
 
 /// Fold one step's events into a running `EpisodeResult`. Shared between the

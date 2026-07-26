@@ -58,6 +58,7 @@ NB_MODULE(_md_native, m) {
         .def_rw("base_cooldown", &md::Config::base_cooldown)
         .def_rw("aim_max_speed", &md::Config::aim_max_speed)
         .def_rw("fire_interval", &md::Config::fire_interval)
+        .def_rw("decision_interval", &md::Config::decision_interval)
         .def_rw("bonus_city_score", &md::Config::bonus_city_score)
         .def_rw("score_per_kill", &md::Config::score_per_kill)
         .def_rw("score_per_unused_interceptor", &md::Config::score_per_unused_interceptor)
@@ -118,7 +119,7 @@ NB_MODULE(_md_native, m) {
         .def_ro("kills_per_shot", &md::agent::Summary::kills_per_shot);
 
     m.def("default_seeds", &md::agent::default_seeds, nb::arg("count") = 32u,
-          "The canonical evaluation seeds — the same set the M4 baseline is measured on.");
+          "The fixed deterministic seed stream; evaluation protocols select disjoint blocks.");
     m.def(
         "summarize",
         [](const std::vector<md::agent::EpisodeResult>& episodes) {
@@ -198,7 +199,8 @@ allocated per step. `step` releases the GIL, so the worker pool runs in parallel
             },
             nb::arg("actions"), nb::arg("obs"), nb::arg("final_obs"), nb::arg("rewards"),
             nb::arg("terminated"), nb::arg("truncated"),
-            "Advance every env by frame_skip ticks, writing all outputs in place.")
+            "Advance every env by up to frame_skip ticks without crossing max_ticks; "
+            "rewards and event features cover the whole window.")
         .def(
             "shot_stats",
             [](const md::rl::VecEnv& env, OutIntArray wasted, OutIntArray multi_kills) {
@@ -226,7 +228,7 @@ allocated per step. `step` releases the GIL, so the worker pool runs in parallel
             "record",
             [](md::rl::VecEnv& env, std::size_t index, bool on) { env.set_recording(index, on); },
             nb::arg("index"), nb::arg("on") = true,
-            "Log this env's actions so the episode can be watched in the app.")
+            "Log this env's actions from episode tick 0 so it can be watched in the app.")
         .def(
             "is_recording",
             [](const md::rl::VecEnv& env, std::size_t index) { return env.is_recording(index); },

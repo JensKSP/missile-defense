@@ -12,18 +12,41 @@
 #include "md/vec_sim.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <stdexcept>
 #include <thread>
 #include <vector>
 
 namespace md::rl {
 
+namespace {
+
+// Event features are counts scaled by one quarter in md::encode. VecEnv presents
+// one observation per agent decision rather than per simulation tick, so it adds
+// every tick's events into that same representation across the skipped window.
+void accumulate_events(std::array<float, ObsSpec::event_features>& out,
+                       std::span<const Event> events) noexcept {
+    for (const Event& event : events) {
+        const auto index = static_cast<std::size_t>(event.type);
+        if (index < out.size()) {
+            out[index] += 0.25f;
+        }
+    }
+}
+
+} // namespace
+
 VecEnv::VecEnv(std::size_t num_envs, const Config& config, const ObsSpec& spec, unsigned threads,
                unsigned frame_skip, std::uint64_t max_ticks)
     : config_{config}, spec_{spec}, threads_{threads == 0u ? VecSim::hardware_threads() : threads},
       frame_skip_{frame_skip == 0u ? 1u : frame_skip}, max_ticks_{max_ticks} {
+    // `frame_skip` is the policy's decision cadence, not only a batching
+    // optimization. Keep the core player-model limit in lockstep so changing the
+    // trainer's cadence cannot quietly give it faster reactions than evaluation.
+    config_.decision_interval = frame_skip_;
     sims_.reserve(num_envs);
     for (std::size_t i = 0; i < num_envs; ++i) {
         sims_.emplace_back(config_);
@@ -84,6 +107,14 @@ void VecEnv::set_recording(std::size_t index, bool on) {
     if (index >= sims_.size()) {
         return;
     }
+    if (on && recording_on_[index] != 0u) {
+        return; // already logging this whole episode; do not erase its prefix
+    }
+    if (on && episode_ticks_[index] != 0u) {
+        throw std::logic_error(
+            "recording can only be enabled when the target environment is at episode tick 0; "
+            "call reset() before record()");
+    }
     recording_on_[index] = on ? 1u : 0u;
     live_log_[index].clear(); // a log only ever covers one whole episode
 }
@@ -108,7 +139,34 @@ void VecEnv::finish_recording(std::size_t index, std::uint64_t next_episode_seed
     recording.spec = spec_;
     recording.seed = episode_seed_[index];
     recording.frame_skip = frame_skip_;
-    recording.actions = std::move(live_log_[index]);
+
+    // A terminal transition or an exact time-limit cutoff can end part-way through
+    // the final frame-skip window. The v1 replay format deliberately stores only a
+    // fixed frame_skip, so represent that uncommon partial episode as a per-tick
+    // action log instead of changing the format or replaying ticks that never ran.
+    // The Config keeps the real decision_interval; repeated indices are therefore
+    // latched on exactly the same ticks as they were during training.
+    const std::uint64_t ticks = episode_ticks_[index];
+    const std::uint64_t nominal_ticks = static_cast<std::uint64_t>(live_log_[index].size()) *
+                                        static_cast<std::uint64_t>(frame_skip_);
+    if (ticks < nominal_ticks) {
+        std::vector<std::int32_t> tick_actions;
+        tick_actions.reserve(static_cast<std::size_t>(ticks));
+        std::uint64_t remaining = ticks;
+        for (const std::int32_t action : live_log_[index]) {
+            const auto repeats =
+                static_cast<std::size_t>(std::min<std::uint64_t>(remaining, frame_skip_));
+            tick_actions.insert(tick_actions.end(), repeats, action);
+            remaining -= static_cast<std::uint64_t>(repeats);
+            if (remaining == 0u) {
+                break;
+            }
+        }
+        recording.frame_skip = 1u;
+        recording.actions = std::move(tick_actions);
+    } else {
+        recording.actions = std::move(live_log_[index]);
+    }
     finished_[index] = std::move(recording);
     live_log_[index].clear();
     episode_seed_[index] = next_episode_seed;
@@ -118,8 +176,13 @@ std::uint32_t VecEnv::action_count() const noexcept {
     return md::action_count(spec_);
 }
 
-void VecEnv::encode_into(std::size_t index, float* obs) const {
+void VecEnv::encode_into(std::size_t index, float* obs,
+                         const EventObservation* window_events) const {
     md::encode(sims_[index], spec_, std::span<float>{obs, spec_.size()});
+    if (window_events != nullptr) {
+        const std::size_t events_at = spec_.size() - ObsSpec::event_features;
+        std::ranges::copy(*window_events, obs + events_at);
+    }
 }
 
 void VecEnv::reset(std::uint64_t seed, float* obs) {
@@ -178,9 +241,12 @@ void VecEnv::run_range(std::size_t begin, std::size_t end, const std::int32_t* a
 
         float reward = 0.0f;
         bool done = false;
+        EventObservation window_events{};
         wasted_[i] = 0;
         multi_kills_[i] = 0;
-        for (unsigned k = 0; k < frame_skip_ && !done; ++k) {
+        for (unsigned k = 0;
+             k < frame_skip_ && !done && (max_ticks_ == 0u || episode_ticks_[i] < max_ticks_);
+             ++k) {
             // Re-decode each tick: an engagement is a steer-then-fire macro, so
             // holding the index means "keep pursuing that target".
             const Action action = decode_action(sim, spec_, index);
@@ -190,6 +256,7 @@ void VecEnv::run_range(std::size_t begin, std::size_t end, const std::int32_t* a
             multi_kills_[i] += result.multi_kills;
             done = result.terminated;
             ++episode_ticks_[i];
+            accumulate_events(window_events, sim.events());
             // The full per-episode tallies, off the same event stream and the same
             // StepResult as md::agent::run_episode — the counting is *shared* code,
             // so the scripted baseline and a learned policy cannot drift apart.
@@ -209,7 +276,7 @@ void VecEnv::run_range(std::size_t begin, std::size_t end, const std::int32_t* a
             // Keep the last state of the finished episode — a truncated return has
             // to bootstrap from it — then start the next one straight away so the
             // batch never contains a dead environment.
-            encode_into(i, final_obs + (i * stride));
+            encode_into(i, final_obs + (i * stride), &window_events);
             finish_episode(i, done); // truncation is "still alive", as in M4
             const auto next = next_seed_ + static_cast<std::uint64_t>(i);
             if (recording_on_[i] != 0u) {
@@ -218,8 +285,10 @@ void VecEnv::run_range(std::size_t begin, std::size_t end, const std::int32_t* a
             sim.reset(next);
             episode_ticks_[i] = 0;
             begin_episode(i, next);
+            encode_into(i, obs + (i * stride));
+        } else {
+            encode_into(i, obs + (i * stride), &window_events);
         }
-        encode_into(i, obs + (i * stride));
     }
 }
 

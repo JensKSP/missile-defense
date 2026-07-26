@@ -57,6 +57,12 @@ class Sim {
 
     [[nodiscard]] std::uint64_t tick() const noexcept { return tick_; }
 
+    /// Whether the action passed to the next `step()` will replace the one
+    /// currently held by the player-model cadence. Drivers with edge-triggered
+    /// input (notably a mouse click) use this to keep the edge pending until the
+    /// simulation can actually sample it.
+    [[nodiscard]] bool samples_action_this_tick() const noexcept;
+
     [[nodiscard]] std::uint32_t wave() const noexcept { return wave_; }
 
     /// The arcade's wave score multiplier: 1x for waves 1-2, 2x for 3-4, and so

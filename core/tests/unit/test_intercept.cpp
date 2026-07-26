@@ -102,6 +102,7 @@ TEST_CASE("A threat already at the ground is infeasible", "[unit][intercept]") {
 TEST_CASE("engage steers toward the target, then fires on arrival", "[unit][intercept]") {
     Config cfg;
     cfg.aim_max_speed = 200.0f; // slow enough that arrival takes several ticks
+    cfg.decision_interval = 1;  // exercise each steer-then-fire transition directly
     cfg.wave_base_threats = 1;
     cfg.threat_base_speed = 10.0f; // lingers, so the plan stays feasible
     Sim sim{cfg};
@@ -184,6 +185,7 @@ TEST_CASE("The action mask keeps live threats engageable while cooling down", "[
     Config cfg;
     cfg.wave_base_threats = 1;
     cfg.aim_max_speed = 0.0f;
+    cfg.decision_interval = 1; // the setup changes from spawn to fire on the next tick
     Sim sim{cfg};
     sim.reset(42);
     sim.step(Action::noop());

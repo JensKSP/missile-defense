@@ -124,11 +124,16 @@ poe train                                        # auto-selects the GPU
 The first line of a run tells you which device won:
 
 ```
-training on cuda | 1024 envs x 128 steps = 131,072 samples/update | baseline 113,834
+training on cuda | 1024 envs x 128 steps = 131,072 samples/update | validation 32 seeds
 ```
 
 If it says `training on cpu`, torch cannot see the card — go back and re-run the
 verification in step 2; the answer is always there.
+
+CUDA is for training and routine validation. After validation has selected
+`policy-best.pt`, the one final held-out benchmark defaults to CPU so backend
+rounding cannot change an argmax and quietly make the published score
+device-dependent.
 
 ### What the GPU buys you here
 

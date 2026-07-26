@@ -82,7 +82,7 @@ NO_RECORDINGS = (
 )
 NO_EVALS = (
     "No evaluation scored yet.\n"
-    "The trainer scores the policy on the 32 canonical seeds every\n"
+    "The trainer scores the policy on the 32 validation seeds every\n"
     "--eval-every updates and appends it to evals.csv."
 )
 #: The compare picker's first entry, and its default. Comparing is something you
@@ -209,8 +209,12 @@ class Console(QMainWindow):
         #: Every eval, by the update it scored. A checkpoint is described by the
         #: evaluation at *its* update, which is not always the newest one.
         self._eval_rows: dict[int, EvalRow] = {}
+        #: The newest contiguous protocol segment, which is the only set a
+        #: single curve and peak can compare without joining unlike scores.
+        self._display_eval_rows: list[EvalRow] = []
         for curve in (self._score, self._return, self._entropy, self._value):
             curve.clear()
+        self._score.set_baseline(None)
         for tile in (self._tile_update, self._tile_score, self._tile_return, self._tile_entropy):
             tile.set_value("—")
             tile.set_peak("")
@@ -305,7 +309,7 @@ class Console(QMainWindow):
         row = QHBoxLayout()
         row.setSpacing(10)
         self._tile_update = StatTile("update", "no run attached")
-        self._tile_score = StatTile("eval score", f"baseline {BASELINE_MEAN_SCORE:,.0f}")
+        self._tile_score = StatTile("eval score", "validation or held-out benchmark")
         self._tile_return = StatTile("mean return", "shaped, scaled — not a score")
         self._tile_entropy = StatTile("entropy", "how undecided the policy is")
         for tile in (self._tile_update, self._tile_score, self._tile_return, self._tile_entropy):
@@ -318,18 +322,15 @@ class Console(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
 
-        # The hero: the only curve in the same units as the scripted agent, so
-        # the only one the baseline can honestly be drawn across.
+        # The hero. Its rows carry protocol metadata; the held-out baseline is
+        # drawn only when every plotted score actually used that protocol.
         self._score = CurveView(
-            "score on the canonical seeds",
+            "policy evaluation score",
             theme.SCORE,
             value_format="%.0f",
             markers=True,  # an eval every 50 updates is dots, not a dense line
             series_name="learned policy",
             from_zero=True,
-        )
-        self._score.set_baseline(
-            BASELINE_MEAN_SCORE, f"scripted baseline {BASELINE_MEAN_SCORE:,.0f}"
         )
         self._score.set_placeholder(NO_EVALS)
         layout.addWidget(self._score, stretch=3)
@@ -474,25 +475,65 @@ class Console(QMainWindow):
         batch = self._evals.poll()
         if batch.restarted:
             self._score.clear()
+            self._score.set_baseline(None)
+            self._rewind_comparison_evals()
             self._last_eval = None
             self._eval_rows.clear()
+            self._display_eval_rows.clear()
             self._peak_score.clear()
             self._tile_score.set_value("—")
             self._tile_score.set_peak("")
         for row in batch.rows:
+            if self._last_eval is not None and not sources.same_eval_series(self._last_eval, row):
+                # A line between unlike protocols is invented evidence. Show
+                # only the newest contiguous protocol segment and start its peak
+                # again; the CSV still retains every historical row.
+                self._score.clear()
+                self._score.set_baseline(None)
+                self._rewind_comparison_evals()
+                self._display_eval_rows.clear()
+                self._peak_score.clear()
             self._score.append(row.update, row.mean_score)
             self._eval_rows[row.update] = row
+            self._display_eval_rows.append(row)
             self._peak_score.offer(row.update, row.mean_score)
+            self._last_eval = row
         if not batch.rows:
             return
         self._tile_score.set_peak(sources.peak_note(self._peak_score, "{:,.0f}"))
-        row = self._last_eval = batch.rows[-1]
-        delta = row.mean_score - BASELINE_MEAN_SCORE
-        ahead = delta > 0
-        self._tile_score.set_value(f"{row.mean_score:,.0f}", theme.AHEAD if ahead else theme.BEHIND)
-        self._tile_score.set_note(
-            f"{abs(delta):,.0f} {'ahead of' if ahead else 'behind'} baseline · update {row.update}"
+        row = batch.rows[-1]
+
+        all_canonical = bool(self._display_eval_rows) and all(
+            sources.is_canonical_benchmark(item) for item in self._display_eval_rows
         )
+        if all_canonical:
+            self._score.set_baseline(
+                BASELINE_MEAN_SCORE, f"scripted baseline {BASELINE_MEAN_SCORE:,.0f}"
+            )
+        else:
+            self._score.set_baseline(None)
+
+        if sources.is_canonical_benchmark(row):
+            delta = row.mean_score - BASELINE_MEAN_SCORE
+            ahead = delta > 0
+            self._tile_score.set_value(
+                f"{row.mean_score:,.0f}", theme.AHEAD if ahead else theme.BEHIND
+            )
+            self._tile_score.set_note(
+                f"{abs(delta):,.0f} {'ahead of' if ahead else 'behind'} baseline "
+                f"· update {row.update}"
+            )
+        else:
+            self._tile_score.set_value(f"{row.mean_score:,.0f}")
+            self._tile_score.set_note(f"{sources.eval_protocol_note(row)} · update {row.update}")
+
+    def _rewind_comparison_evals(self) -> None:
+        """Reconsider the other run when this run's score protocol changes."""
+
+        self._score.clear_comparison()
+        self._tile_score.set_compare("")
+        if self._compare_evals is not None:
+            self._compare_evals.rewind()
 
     def _refresh_recordings(self) -> None:
         found = sources.list_recordings(self._run_dir)
@@ -632,17 +673,30 @@ class Console(QMainWindow):
             self._tile_return.set_compare(_compare_note(self._name(), last.mean_return, "{:,.1f}"))
             self._tile_entropy.set_compare(_compare_note(self._name(), last.entropy, "{:.3f}"))
 
+        # Do not consume the comparison scores before there is a primary
+        # protocol to match them against. Otherwise selecting a comparison
+        # while this run is still waiting for its first evaluation advances the
+        # tail to EOF and the matching curve never appears.
+        if self._last_eval is None:
+            return
         evals = self._compare_evals.poll()
         if evals.restarted:
             self._score.clear_comparison()
         for row in evals.rows:
-            self._score.append_comparison(row.update, row.mean_score)
+            if self._last_eval is not None and sources.matching_eval_protocol(self._last_eval, row):
+                self._score.append_comparison(row.update, row.mean_score)
         if evals.rows:
             # Its *latest* score, not its best: the tile above shows this run's
             # latest, and two tiles reporting different statistics under the same
             # caption is a comparison you cannot make.
             last = evals.rows[-1]
-            self._tile_score.set_compare(f"{self._name()} {last.mean_score:,.0f}")
+            if self._last_eval is not None and sources.matching_eval_protocol(
+                self._last_eval, last
+            ):
+                self._tile_score.set_compare(f"{self._name()} {last.mean_score:,.0f}")
+            else:
+                self._score.clear_comparison()
+                self._tile_score.set_compare(f"{self._name()} · protocol mismatch")
 
     def _name(self) -> str:
         return "—" if self._compare_dir is None else self._compare_dir.name
