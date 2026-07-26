@@ -218,8 +218,9 @@ Instead the run is a subprocess and the existing artifacts *are* the interface:
 |---|---|
 | `runs/metrics.csv` | tail → live curves (return, entropy, value, clip fraction) |
 | `runs/evals.csv` | tail → the score curve the baseline is drawn across |
-| `runs/update-*.mdr` | list → double-click launches `md_app --replay` |
+| `runs/update-*.mdr` | list → ▶ Play (or double-click) launches `md_app --replay` |
 | `runs/checkpoints/*.pt` | list → `--load` to score, or `--resume` to continue |
+| `runs/model.json` | the network being trained — layers, shapes, parameter count |
 | stdout | streamed into a log pane |
 
 > **`evals.csv` was added for this.** The plan said to draw 113,834 across the
@@ -376,16 +377,37 @@ generated from the dataclass: the form could not otherwise offer the learning
 rate at all. `runs/config.json` records what a run was started with — written by
 the trainer, so a terminal-started run gets one too.
 
-**Phase 4 — Model & system.** *(system half implemented; model half open.)* CPU and
+**Phase 4 — Model & system.** ✅ *(implemented — ready for sign-off)* CPU and
 RAM from psutil, and a GPU row from whichever vendor backend imports — both
 optional, each saying which package would fill it in rather than showing a dead
-meter. The strip sits under the recordings list, which is where the space
-already was; no fly-out or tab was needed. **The vendor backends are written from
-the published APIs and tested against stand-in modules, not against real
-hardware** — there is no NVIDIA or ROCm machine in this project's loop, which is
-why every field is read defensively and a probe that starts failing is dropped
-rather than raised. Still to do: parameter count, layer shapes, checkpoint
-iteration, last eval against the baseline.
+meter. The strip sits at the foot of the recordings column, which is where the
+space already was; no fly-out or tab was needed. **The vendor backends are
+written from the published APIs and tested against stand-in modules, not against
+real hardware** — there is no NVIDIA or ROCm machine in this project's loop,
+which is why every field is read defensively and a probe that starts failing is
+dropped rather than raised.
+
+The model half sits above it: architecture, parameter count, the observation and
+action sizes, a line per layer, and which checkpoint is newest with what it
+scored. The rule above ("anything needing model state belongs in `md.train`,
+surfaced as an artifact the UI reads") decided its shape — the console cannot
+open a `.pt` without torch, so the trainer writes `runs/model.json` at start-up
+and the console reads that. `md.modelcard` holds the format and imports torch
+*nowhere*, not even lazily: `describe()` takes a state dict's **shapes**, and a
+shape is a tuple of ints. Like `md.control`, it is a file both sides agree on
+and neither has to import the other for.
+
+> **One file per run, not a sidecar per checkpoint.** Within a run the
+> architecture, the layer shapes and the observation and action sizes never
+> change — only the iteration does, and that is already in each checkpoint's
+> *name*. A file beside every `policy-*.pt` would be the same bytes repeated once
+> per hundred updates. It lands beside `config.json` for the symmetry: one says
+> what the run was started with, the other what it is training.
+
+A checkpoint's score is looked up by *its own* update rather than taken from the
+most recent evaluation. Those are usually the same row and occasionally are not,
+and labelling update 750's score as update 800's would make the one panel whose
+job is "this is the model you have" the one that lies about it.
 
 > On Windows an AMD card has no supported Python telemetry API at all (`amdsmi`
 > and `pyrsmi` are ROCm, so effectively Linux). The row therefore stays empty on
