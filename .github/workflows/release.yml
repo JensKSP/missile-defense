@@ -1,0 +1,124 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Jens Köhler
+# Assisted-by: Claude Code (Anthropic)
+#
+# Tag -> GitHub Release. Push an annotated tag and this builds every artifact on
+# its own platform, collects them under names that say what they are, and opens
+# a draft release with checksums.
+#
+#     poe version v0.2.0                 # do the three files agree with the tag?
+#     git tag -a v0.2.0 -m "v0.2.0"
+#     git push origin v0.2.0
+#
+# The build itself is build.yml, the same file ci.yml calls on every push. A
+# release therefore ships the artifact CI has been building all along rather than
+# one assembled by a second recipe that nobody exercises between releases.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  # For rehearsing the whole path — including the draft — without spending a tag
+  # on it. A tag is public and permanent; a dry run should cost neither.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build a release from"
+        required: true
+
+permissions:
+  contents: write # required to create the release
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    # Before spending twenty minutes of runner time on four platforms. A tag that
+    # disagrees with the tree produces artifacts named after the tree, published
+    # under a release named after the tag — which nothing downstream would catch.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # On a tag push this is already the tag; on a manual run it is the
+          # default branch, which is the wrong tree to check a tag against.
+          ref: ${{ inputs.tag || github.ref }}
+      - name: The tag and the tree must agree
+        run: python3 -m tools.version "${{ inputs.tag || github.ref_name }}"
+
+  build:
+    needs: verify
+    uses: ./.github/workflows/build.yml
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Collect every artifact
+        uses: actions/download-artifact@v4
+        with:
+          path: incoming
+
+      - name: Lay them out under names that say what they are
+        # download-artifact nests each artifact in a directory of its own name,
+        # so everything is flattened first. The two .debs arrive with identical
+        # filenames — same package, same version, different distribution — and a
+        # release cannot hold two assets of one name, so the distribution goes
+        # into the filename. Getting those two mixed up is an install failure at
+        # the far end: they resolve against different Qt ABIs.
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for deb in incoming/missile-defense-deb-*/*.deb; do
+            [ -e "$deb" ] || continue
+            slug="$(basename "$(dirname "$deb")")"; slug="${slug#missile-defense-deb-}"
+            cp "$deb" "dist/$(basename "$deb" .deb)-${slug}.deb"
+          done
+          find incoming -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.exe' \) \
+            -exec cp {} dist/ \;
+          cd dist && sha256sum * > SHA256SUMS
+          ls -l
+
+      - name: Write the download guide
+        # Its own step, and its own file: gh prepends this to the notes it
+        # generates from the commit log, and a heredoc threaded through a
+        # continued command line is a quoting bug waiting to happen.
+        run: |
+          cat > notes.md <<'NOTES'
+          ## Downloads
+
+          | Platform | File |
+          |---|---|
+          | macOS (Apple silicon) | `*-macos-arm64.dmg` |
+          | Windows | `*-win64.exe` (installer) or `*-win64.zip` (portable) |
+          | Debian trixie | `*-debian-trixie.deb` |
+          | Ubuntu 24.04 | `*-ubuntu-24.04.deb` |
+
+          The two `.deb`s are not interchangeable: each is linked against its own
+          distribution's Qt. `SHA256SUMS` covers every file here.
+
+          The macOS bundle is ad-hoc signed and not notarised, so macOS will
+          refuse to open it until you clear quarantine — see
+          [docs/MACOS.md](https://github.com/JensKSP/missile-defense/blob/master/docs/MACOS.md#signing-it-for-other-people).
+          Nobody has yet run this build on a Mac.
+          NOTES
+
+      - name: Draft the release
+        # Draft on purpose. Everything before this point is reproducible from the
+        # tag; publishing is not. It mails watchers and hands the world a
+        # download, so the artifacts get to be checked first and the release goes
+        # out when a human presses the button. Drop --draft to change that.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" dist/* \
+            --draft \
+            --title "Missile Defense $TAG" \
+            --generate-notes \
+            --notes-file notes.md

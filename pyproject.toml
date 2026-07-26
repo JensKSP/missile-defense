@@ -47,6 +47,7 @@ tidy         = { cmd = "python -m tools.quality tidy", deps = ["build"], help = 
 coverage     = { cmd = "python -m tools.coverage 80", help = "Measure md::core line coverage; fail if below 80%" }
 deb          = { cmd = "cpack --config build/release/CPackConfig.cmake -B build/release -G DEB", deps = ["release"], help = "Build a .deb into build/release/ (needs dpkg-dev)" }
 dmg          = { cmd = "cpack --config build/release/CPackConfig.cmake -B build/release -G DragNDrop", deps = ["release"], help = "Build a .dmg into build/release/ (macOS; needs macdeployqt)" }
+version      = { cmd = "python -m tools.version", help = "Check CMakeLists/pyproject/changelog agree; pass a tag to check that too" }
 
 # --- Quality gates (Python) ---
 lint       = { cmd = "ruff check python tools", help = "Ruff lint the Python code" }

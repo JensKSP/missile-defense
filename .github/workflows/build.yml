@@ -1,0 +1,260 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Jens Köhler
+# Assisted-by: Claude Code (Anthropic)
+#
+# Every shippable artifact, built on the platform it is meant for. Called by
+# ci.yml on each push and by release.yml on a tag, so what a release ships is
+# byte-for-byte the thing CI has been building all along — not a second recipe
+# that drifts from it.
+#
+# The quality gate is deliberately not here. It judges the source, runs once on
+# Linux, and has nothing to say about a tag.
+name: Build artifacts
+
+on:
+  workflow_call:
+
+jobs:
+  macos:
+    # There is no macOS container and no supported way to cross-build one, so
+    # hosted Apple hardware is the entire macOS story here — see docs/MACOS.md.
+    #
+    # Deliberately not a second `poe check`: format, lint, types, clang-tidy and
+    # coverage all measure the source, not the platform, and the Linux job
+    # already holds them. What only this job can prove is that the simulation
+    # behaves the same on arm64/libc++ and that the renderer still compiles
+    # against MoltenVK — so it runs the tests and builds the app, nothing else.
+    runs-on: macos-15
+    env:
+      HOMEBREW_NO_INSTALL_CLEANUP: 1
+      HOMEBREW_NO_AUTO_UPDATE: 1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        # qtbase rather than the `qt` umbrella: the app needs Qt6::Gui alone, and
+        # `qt` pulls in WebEngine and three dozen other modules for no gain.
+        # Homebrew's qtbase build-depends on molten-vk and vulkan-headers, so it
+        # is configured with Vulkan support. molten-vk ships the Metal driver but
+        # deliberately no loader, hence vulkan-loader too.
+        run: |
+          brew install ninja qtbase molten-vk vulkan-headers vulkan-loader \
+                       vulkan-tools glslang
+
+      - name: Install task runner + Python tools
+        # numpy because python/tests/test_env.py imports it above its
+        # importorskip guard, so without it that file errors instead of skipping.
+        run: pip3 install --break-system-packages poethepoet pytest numpy
+
+      - name: Point CMake and the Vulkan loader at Homebrew
+        # Homebrew's prefix is not a place CMake or the Vulkan loader look by
+        # default (and on Apple Silicon it is /opt/homebrew, not /usr/local).
+        run: |
+          set -euo pipefail
+          brew_prefix="$(brew --prefix)"
+          icd="${brew_prefix}/etc/vulkan/icd.d/MoltenVK_icd.json"
+          if [ ! -f "$icd" ]; then
+            icd="$(brew --prefix molten-vk)/etc/vulkan/icd.d/MoltenVK_icd.json"
+          fi
+          {
+            echo "CMAKE_PREFIX_PATH=$(brew --prefix qtbase):${brew_prefix}"
+            # VK_DRIVER_FILES is the current spelling; VK_ICD_FILENAMES is the
+            # older one, still honoured. Setting both covers either loader.
+            echo "VK_DRIVER_FILES=${icd}"
+            echo "VK_ICD_FILENAMES=${icd}"
+          } >> "$GITHUB_ENV"
+          echo "$(brew --prefix qtbase)/bin" >> "$GITHUB_PATH"
+
+      - name: Report the toolchain
+        run: |
+          clang++ --version
+          cmake --version
+          echo "Vulkan ICD: ${VK_DRIVER_FILES}"
+
+      - name: Probe MoltenVK
+        # Informational. Whether the runner's paravirtualised GPU enumerates a
+        # Vulkan device decides only whether the game could be *run* here; the
+        # build and the simulation tests below do not need it.
+        continue-on-error: true
+        run: vulkaninfo --summary
+
+      - name: Configure without -Werror or -Wpedantic
+        # This job builds an artifact; it does not judge the code. Apple Clang is
+        # whatever the runner image ships and moves under us, and a new diagnostic
+        # from it must not be able to stop the .dmg being built. The Linux gate,
+        # on a pinned clang-21, is where zero-warnings is enforced.
+        #
+        # Set on the cache here rather than in the presets so the poe tasks below
+        # inherit it: they re-run `cmake --preset ...`, and since the presets say
+        # nothing about these two, the cached values survive the reconfigure.
+        run: |
+          cmake --preset debug -DMD_WERROR=OFF -DMD_PEDANTIC=OFF
+          cmake --preset release -DMD_WERROR=OFF -DMD_PEDANTIC=OFF
+
+      - name: C++ tests (Debug + sanitizers)
+        run: poe test
+
+      - name: C++ tests (Release)
+        run: poe test-release
+
+      - name: Python tests
+        run: poe pytest
+
+      - name: Build the disk image
+        run: poe dmg
+
+      - name: Upload the .dmg
+        uses: actions/upload-artifact@v4
+        with:
+          name: missile-defense-dmg
+          path: build/release/*.dmg
+
+  windows:
+    # The MSYS2 CLANG64 toolchain from docs/WINDOWS.md — the one the Qt app is
+    # actually built with here. Not `poe`: the task runner would need pip inside
+    # the MSYS2 interpreter, and what it would be running is four cmake commands.
+    #
+    # Scoped like the macOS job, and for the same reason: the source-level checks
+    # live on Linux. What only Windows can show is that the tree still compiles
+    # against a third standard library, that the simulation agrees there, and that
+    # windeploy.sh can still assemble a bundle that runs without MSYS2 installed.
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: CLANG64
+          update: true
+          # Neither Catch2 nor miniaudio is packaged for MSYS2 at all, so CMake
+          # fetches both — which is what it already does on a developer's machine
+          # here, so CI is not taking a different path to get them.
+          # No vulkan-validation-layers either: a runtime debugging aid, and CI
+          # never opens a window.
+          install: >-
+            mingw-w64-clang-x86_64-clang
+            mingw-w64-clang-x86_64-lld
+            mingw-w64-clang-x86_64-cmake
+            mingw-w64-clang-x86_64-ninja
+            mingw-w64-clang-x86_64-qt6-base
+            mingw-w64-clang-x86_64-vulkan-headers
+            mingw-w64-clang-x86_64-vulkan-loader
+            mingw-w64-clang-x86_64-glslang
+            mingw-w64-clang-x86_64-nsis
+
+      - name: Report the toolchain
+        run: |
+          clang++ --version
+          cmake --version
+
+      - name: C++ tests (Debug)
+        # The debug preset asks for ASan/UBSan; CMakeLists degrades that to a
+        # plain Debug build here, because there is no LeakSanitizer runtime under
+        # MinGW. The tests are the point either way.
+        #
+        # No -Werror or -Wpedantic: this job exists to produce an installer, and
+        # MSYS2 rolls its clang forward continuously — a new warning arriving in
+        # a pacman update must not be able to stop a release being built. The
+        # Linux gate holds the zero-warning line on a pinned compiler.
+        run: |
+          cmake --preset debug -DMD_WERROR=OFF -DMD_PEDANTIC=OFF
+          cmake --build --preset debug
+          ctest --preset debug
+
+      - name: C++ tests (Release)
+        run: |
+          cmake --preset release -DMD_WERROR=OFF -DMD_PEDANTIC=OFF
+          cmake --build --preset release
+          ctest --preset release
+
+      - name: Build the installer and the portable ZIP
+        # Runs tools/windeploy.sh through the install step, which is the part
+        # worth having in CI: it walks the dependency closure of md_app.exe and
+        # copies every CLANG64 DLL beside it. A missing DLL is invisible on the
+        # machine that built it and fatal on any other.
+        run: cpack --config build/release/CPackConfig.cmake -B build/release -G "NSIS;ZIP"
+
+      - name: Upload the installer and ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: missile-defense-windows
+          path: |
+            build/release/*.exe
+            build/release/*.zip
+
+  debian:
+    # The package Debian itself would build: debian/ via debhelper, which is the
+    # authority for Linux packaging (docs/PACKAGING.md). The gate's `poe deb` is
+    # CPack and a different code path entirely — no -Werror, hardening=+all,
+    # dh_auto_* rather than cmake --install — so one can break while the other
+    # still works. This job is the one that would catch it.
+    #
+    # In containers rather than on the runner, because "the package this
+    # distribution would build" is the whole claim, and it is only true if the
+    # compiler and every Build-Depends version are that distribution's own.
+    #
+    # Both, because the two disagree about the thing this package needs most.
+    # Trixie's default g++ is 14 and has <print>; Ubuntu 24.04's is 13 and does
+    # not, so agent/ and bench/ do not compile there with the default at all.
+    # debian/control asks for `g++ (>= 4:14) | g++-14` and debian/rules picks
+    # g++-14 when it is there — which is the default on trixie and the explicit
+    # package on Ubuntu. This matrix is what keeps that claim honest.
+    runs-on: ubuntu-24.04
+    container: ${{ matrix.image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: debian:trixie
+            slug: debian-trixie
+          - image: ubuntu:24.04
+            slug: ubuntu-24.04
+    steps:
+      - name: Install git
+        # The image has none, and without it actions/checkout silently falls back
+        # to a REST-API tarball rather than a checkout.
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git ca-certificates
+
+      - uses: actions/checkout@v4
+
+      - name: Install the declared build dependencies
+        # From debian/control itself, so the job cannot drift from what the
+        # package claims to need — which is half of what it exists to check.
+        # No sudo: a container runs as root, and Rules-Requires-Root: no means
+        # dpkg-buildpackage is content either way.
+        run: |
+          apt-get install -y --no-install-recommends devscripts equivs lintian
+          mk-build-deps --install --remove \
+            --tool 'apt-get -y --no-install-recommends' debian/control
+
+      - name: Build the package
+        # Binary-only: the source format is 3.0 (quilt), which wants an orig
+        # tarball a git checkout does not have. dh runs the test suite on the way
+        # through, so this covers the packaged build's own ctest run too.
+        run: dpkg-buildpackage -us -uc -b
+
+      - name: Lintian
+        # Errors fail the job; warnings and info are printed and do not, because
+        # a policy nit should not block a build that installs and runs.
+        run: lintian --fail-on error --display-info ../missile-defense_*.deb
+
+      - name: Collect the package
+        # dpkg-buildpackage writes to the parent directory, which is outside the
+        # workspace and so out of reach of upload-artifact.
+        run: |
+          mkdir -p dist
+          cp ../missile-defense_*.deb ../*.changes ../*.buildinfo dist/
+
+      - name: Upload the .deb
+        uses: actions/upload-artifact@v4
+        with:
+          # Per distribution. Both legs uploading one name gave two artifacts
+          # that could not be told apart — and the two are not interchangeable:
+          # each is linked against its own distribution's Qt and libstdc++.
+          name: missile-defense-deb-${{ matrix.slug }}
+          path: dist/*
