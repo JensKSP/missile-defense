@@ -12,7 +12,10 @@ Build-Depends:
  libvulkan-dev,
  glslang-tools,
  libminiaudio-dev,
- catch2 (>= 3)
+ catch2 (>= 3),
+ python3-all-dev,
+ python3-nanobind,
+ dh-sequence-python3
 Standards-Version: 4.7.2
 Homepage: https://github.com/JensKSP/missile-defense
 Vcs-Git: https://github.com/JensKSP/missile-defense.git
@@ -38,3 +41,49 @@ Description: faithful Atari Missile Command clone (Qt 6 + Vulkan)
  .
  The audio backend (ALSA or PulseAudio) is loaded at runtime if present; the
  game runs silently if neither is available, hence the Recommends.
+ .
+ This package is the game alone and depends on no Python. Training your own
+ agent is the separate missile-defense-training package.
+
+Package: python3-md
+Section: python
+Architecture: any
+Depends:
+ ${python3:Depends},
+ ${shlibs:Depends},
+ ${misc:Depends},
+ python3-numpy
+Description: Python bindings for the Missile Defense simulation
+ The deterministic C++ Missile Command simulation from the missile-defense
+ game, exposed to Python as a batched, vectorised environment for reinforcement
+ learning, together with the evaluation protocol the scripted baseline is
+ measured with.
+ .
+ This is the library half only: it needs neither the game nor a GUI toolkit, so
+ it is usable on a headless machine. It does not depend on PyTorch — the
+ trainer does, and says so when you run it without one.
+
+Package: missile-defense-training
+Architecture: all
+Depends:
+ ${python3:Depends},
+ ${misc:Depends},
+ python3-md (>= ${source:Version}),
+ python3-pyside6.qtcharts,
+ python3-pyside6.qtwidgets
+Recommends:
+ missile-defense
+Suggests:
+ python3-torch
+Description: training console for the Missile Defense learned agent
+ A desktop console for training, watching and comparing learned Missile Defense
+ policies: it starts and stops runs, plots the score against the scripted
+ baseline live, lists the episodes a run recorded, and opens them in the game.
+ .
+ The console never needs PyTorch itself — it starts the trainer as a separate
+ process, so a run survives the console being closed or crashing, and it can
+ install a managed training runtime for you if this machine has no PyTorch.
+ That is why python3-torch is only Suggested.
+ .
+ Installing this pulls in PySide6 (LGPL-3), which is why it is a package of its
+ own: the game is MIT and depends on none of it.

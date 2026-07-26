@@ -68,6 +68,15 @@ MACOS_APP_PATHS = ("/Applications", "~/Applications")
 MSYS2_BIN = "clang64/bin"
 
 
+#: What the training console is called once installed. The Debian package and
+#: the pyproject entry point agree on the name, so one search finds either.
+CONSOLE_NAMES = ("md-console",)
+
+#: Where an installer leaves it. `/usr/games` is not searched: the console is not
+#: a game and its Debian package puts it in `/usr/bin`.
+CONSOLE_SYSTEM_PATHS = ("/usr/bin", "/usr/local/bin")
+
+
 class AppNotFound(RuntimeError):
     """The game binary could not be located — the message says how to fix it."""
 
@@ -133,6 +142,75 @@ def app_binary(
         if candidate.exists():
             return candidate
     return None
+
+
+def console_executable(
+    environ: Mapping[str, str] | None = None,
+    *,
+    root: Path | None = None,
+    platform: str = sys.platform,
+) -> Path | None:
+    """Locate the training console, or ``None`` if this install does not have one.
+
+    **This lookup is the boundary between the two products.** The game adds its
+    TRAIN AI entry only when this resolves, so on a game-only install — where
+    there is no Python, no ``md`` package and no ``md-console`` — it must return
+    ``None``, and the menu simply does not offer training. The C++ side searches
+    the same places in the same order for exactly that reason: a disagreement
+    between them is a menu entry that launches nothing, or a console that is
+    installed and unreachable.
+
+    Three places, most explicit first, mirroring :func:`app_binary`:
+
+    1. ``MD_CONSOLE`` — someone said which one. A path that does not exist is
+       ``None`` rather than a fallback, because falling back would start a
+       *different* console than the one that was named.
+    2. ``md-console`` on ``PATH``, then the directories an installer uses — the
+       answer for anyone who installed the package.
+    3. this checkout's own ``python/md/ui``, run as ``-m md.ui`` — a developer
+       has no installed launcher but does have the console, and the game should
+       still offer it there.
+    """
+    env = os.environ if environ is None else environ
+    root = PROJECT_ROOT if root is None else root
+    exe = ".exe" if platform == "win32" else ""
+
+    override = env.get("MD_CONSOLE")
+    if override:
+        candidate = Path(override)
+        return candidate if candidate.exists() else None
+    for name in CONSOLE_NAMES:
+        found = shutil.which(f"{name}{exe}", path=env.get("PATH"))
+        if found:
+            return Path(found)
+    for directory in CONSOLE_SYSTEM_PATHS:
+        for name in CONSOLE_NAMES:
+            candidate = Path(directory) / f"{name}{exe}"
+            if candidate.exists():
+                return candidate
+    if (root / "python" / "md" / "ui" / "__main__.py").exists():
+        return Path(sys.executable)
+    return None
+
+
+def console_command(
+    environ: Mapping[str, str] | None = None,
+    *,
+    root: Path | None = None,
+    platform: str = sys.platform,
+) -> list[str] | None:
+    """The console as an argv, or ``None``. Adds ``-m md.ui`` for the checkout case.
+
+    Split from :func:`console_executable` because the game only needs to know
+    *whether* there is one to decide its menu, while starting it needs the whole
+    command — and only one of the three answers above is not self-contained.
+    """
+    found = console_executable(environ, root=root, platform=platform)
+    if found is None:
+        return None
+    if found == Path(sys.executable):
+        return [str(found), "-m", "md.ui"]
+    return [str(found)]
 
 
 def launch_environ(

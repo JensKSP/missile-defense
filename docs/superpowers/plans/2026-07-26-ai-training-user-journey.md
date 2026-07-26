@@ -209,6 +209,32 @@ Neither belongs to this program of work — they are renderer bugs, and fixing
 them is a separate change with its own tests. They are recorded here because the
 e2e layer is what surfaced them, on the day it was written.
 
+### Reported by the human, not yet reproduced
+
+- [ ] **A sound repeats endlessly after game over.** Reported 2026-07-26 from
+      real play: the game reaches game over and one sound loops "over and over".
+      Not reproduced by an agent — reading the code ruled out the obvious cause
+      (`Sim::update_termination` emits `GameOver` exactly once, `Sim::step`
+      clears events once `terminated_`, and `advance()` stops stepping the moment
+      `state_ != Playing`, so nothing re-emits the event; the SFX itself is a
+      one-shot 0.75 s tone). Two candidates remain, and they need a repro to
+      separate:
+      * **Voice-slot thrashing** — `audio.cpp`'s `play()` always steals
+        `voices[0]` when all 16 are busy rather than the oldest, and the final
+        cascade (six `CityLost`, three `BaseLost`, detonations, `max_events` 128)
+        far exceeds 16, so slot 0 is reset repeatedly and restarts the same
+        sample. This should stop within a second, which does *not* match
+        "over and over".
+      * **Callback starvation** — one buffer looping forever is the classic
+        signature of the audio callback no longer being serviced, with the
+        backend replaying its last chunk. This one does not stop on its own, so
+        it fits the report better. Something on the game-over path would have to
+        be blocking or tearing down the device.
+
+      Whoever picks this up: reproduce first, with sound, and only then fix. The
+      voice-stealing defect is worth correcting either way, but fixing it and
+      declaring victory without a repro would very likely leave the real bug in.
+
 ### Then: one per task, from here on
 
 Every task below gains an **e2e step** stating the user-visible claim it must
@@ -431,6 +457,21 @@ Turn **WATCH AI** into a choice between **SCRIPTED** and **PRETRAINED**. Add
 `--watch-scripted` and `--watch-model <path>` for package/E2E tests. Both drivers
 must use the same `Action` timing path as human input.
 
+- [ ] **Step 4b: Say on screen who is playing** *(asked for directly, 2026-07-26)*
+
+While the AI plays, the HUD names the driver — `SCRIPTED` or the model's display
+name — and the game-over screen keeps it, so a watched game is attributable
+after the fact. Watching two agents and being unable to tell which one is on
+screen makes the whole feature nearly useless, and it is the same question the
+spectator mode (Task 8) and the league (Task 6) answer with names rather than
+paths.
+
+The name comes from `models/<id>/model.json`, not from the filename: a path is
+not a name, and `policy-best.pt` says nothing about which run produced it. A
+model with no display name falls back to its stable ID. `--report` gains the
+same field, which is what lets the e2e assert it rather than a human squinting
+at a screenshot.
+
 - [ ] **Step 5: Install the resource on every platform**
 
 Embed it in Qt resources or install it beside the executable using one
@@ -601,6 +642,15 @@ not merely a file that the Python that wrote it can read back.
 
 Cover named runs, incomplete runs, active runs, byte totals, best evaluated
 checkpoint selection, pinned recordings, and paths outside the managed root.
+
+**Naming is a first-class requirement, not a nicety** *(asked for directly,
+2026-07-26)*. A run and a promoted model each carry an editable display name
+alongside the immutable ID, the new-run dialog asks for one and defaults to
+something better than a timestamp, and the name travels with the model into
+`model.json` — which is where the game reads it for the HUD in Task 3 Step 4b
+and the league reads it for the ranking table. `runs-2` and a bare checkpoint
+path are not identities anyone can hold in their head while comparing four
+agents.
 
 - [ ] **Step 2: Add the run library screen**
 
@@ -987,6 +1037,8 @@ becomes visible at a glance and comparable across runs.
 ## Program completion checklist
 
 - [ ] Game-only packages contain both bundled agents and no Python/training UI.
+- [ ] While an agent plays, the screen says which one — `SCRIPTED` or the model's
+      display name — and runs and models are named by their owner, not by path.
 - [ ] Full Windows/macOS packages launch the existing console directly and from
       the game.
 - [ ] Debian produces three binary packages from one source.

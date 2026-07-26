@@ -27,15 +27,30 @@ export CXX := $(shell command -v g++-14 || command -v g++)
 
 # No -Werror in the package (new compilers must not break the archive build),
 # no sanitizers/coverage, and the Qt+Vulkan app enabled.
+# Where this distribution's Python expects a third-party package to live. Asked
+# of the interpreter rather than hard-coded, because the answer moves between
+# releases (and between Debian and Ubuntu) and a wrong guess installs a package
+# nothing can import.
+DIST_PACKAGES := $(shell py3versions -d -i) -c \
+	"import sysconfig; print(sysconfig.get_path('purelib', 'deb_system'))"
+MD_DIST_PACKAGES := $(shell $(DIST_PACKAGES))
+
+# One source package, three binaries: the game (no Python at all), the Python
+# bindings, and the training console. MD_INSTALL_PYTHON_PACKAGE is what puts the
+# .py sources and the md-console / md-train launchers into the staging tree for
+# the .install files to split; MD_BUILD_BINDINGS builds the extension beside them.
 override_dh_auto_configure:
 	dh_auto_configure -- \
 		-DMD_WERROR=OFF \
 		-DMD_PEDANTIC=OFF \
 		-DMD_SANITIZE=OFF \
 		-DMD_COVERAGE=OFF \
-		-DMD_BUILD_APP=ON
+		-DMD_BUILD_APP=ON \
+		-DMD_BUILD_BINDINGS=ON \
+		-DMD_INSTALL_PYTHON_PACKAGE=ON \
+		-DMD_PYTHON_INSTALL_DIR=$(MD_DIST_PACKAGES)/md
 
 override_dh_auto_install:
 	dh_auto_install
 	# Licensing is covered by debian/copyright; drop the duplicate shipped file.
-	rm -f debian/missile-defense/usr/share/doc/missile-defense/LICENSE
+	rm -f debian/tmp/usr/share/doc/missile-defense/LICENSE

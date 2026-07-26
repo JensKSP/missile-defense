@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Missile Defense Training
+GenericName=Reinforcement Learning Console
+Comment=Train, watch and compare learned Missile Defense agents
+Exec=md-console
+Icon=missile-defense
+Terminal=false
+Categories=Development;Science;ArtificialIntelligence;
+Keywords=missile;training;reinforcement;learning;ai;agent;

@@ -251,6 +251,57 @@ if(MD_BUILD_APP)
   add_subdirectory(app)
 endif()
 
+# ---- The Python half as a distribution package -------------------------------
+# Off by default, and that is the important part: a wheel gets its .py sources
+# and its `md-console` / `md-train` commands from scikit-build-core, so CMake
+# installing them too would put two copies of everything in it. Only a
+# distribution package — which is not built by pip and has no entry-point
+# machinery — needs this, and debian/rules is what turns it on.
+#
+# It is what makes the console *reachable from an install* rather than only from
+# a checkout, which is the whole point of the split: the game is one product and
+# the training console is another, and neither may drag the other in.
+option(MD_INSTALL_PYTHON_PACKAGE
+       "Install the md Python sources, launcher scripts and console desktop entry" OFF)
+
+if(MD_INSTALL_PYTHON_PACKAGE)
+  include(GNUInstallDirs)
+
+  # The sources. _md_native and its stub are excluded because bindings/ installs
+  # those — it is the one that knows whether the extension was built at all.
+  install(DIRECTORY "${CMAKE_SOURCE_DIR}/python/md/"
+    DESTINATION "${MD_PYTHON_INSTALL_DIR}"
+    COMPONENT python
+    FILES_MATCHING
+      PATTERN "*.py"
+      PATTERN "*.pyi"
+      PATTERN "_md_native.pyi" EXCLUDE
+      PATTERN "__pycache__" EXCLUDE)
+
+  # `python3` unqualified, so the package follows the distribution's Python
+  # rather than pinning the absolute path of whichever one configured the build.
+  set(MD_LAUNCHER_PYTHON "python3" CACHE STRING
+      "The interpreter the installed md-console / md-train launchers exec")
+
+  foreach(md_launcher md-console md-train)
+    if(md_launcher STREQUAL "md-console")
+      set(MD_LAUNCHER_MODULE "md.ui")
+    else()
+      set(MD_LAUNCHER_MODULE "md.cli")
+    endif()
+    configure_file(packaging/launcher.in "${CMAKE_CURRENT_BINARY_DIR}/${md_launcher}" @ONLY)
+    install(PROGRAMS "${CMAKE_CURRENT_BINARY_DIR}/${md_launcher}"
+      DESTINATION "${CMAKE_INSTALL_BINDIR}"
+      COMPONENT python)
+  endforeach()
+
+  # Its own menu entry, in Development/Science rather than Games — someone
+  # looking for the arcade cabinet must not find two of them.
+  install(FILES "${CMAKE_SOURCE_DIR}/packaging/missile-defense-training.desktop"
+    DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/applications"
+    COMPONENT python)
+endif()
+
 # ---- Packaging (CPack) -------------------------------------------------------
 # Only meaningful for the full app build (that is what gets installed).
 #   Windows: cmake --build --preset release && cpack --preset release  (-> NSIS + ZIP)

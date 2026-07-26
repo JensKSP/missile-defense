@@ -1,0 +1,13 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Jens Köhler
+# Assisted-by: Claude Code (Anthropic)
+#
+# Generated from packaging/launcher.in — do not edit the installed copy.
+#
+# A shell wrapper rather than a generated Python console script, because a
+# distribution package is not built by pip and has no entry-point machinery to
+# hand. `-m` is what makes it equivalent: both @MD_LAUNCHER_MODULE@ modules end
+# in the same `if __name__ == "__main__"` the pyproject entry point names, so the
+# installed command and `pip install missile-defense` run the same code.
+exec @MD_LAUNCHER_PYTHON@ -m @MD_LAUNCHER_MODULE@ "$@"

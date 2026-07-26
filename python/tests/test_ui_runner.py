@@ -27,6 +27,7 @@ from md.ui.runner import (
     TrainingRun,
     app_binary,
     can_train,
+    console_executable,
     find_interpreter,
     launch_environ,
     training_environ,
@@ -347,3 +348,53 @@ def test_no_msys2_no_change(tmp_path: Path) -> None:
         {"MSYS2_ROOT": str(tmp_path / "nope"), "PATH": "C:/Windows"}, platform="win32"
     )
     assert env["PATH"] == "C:/Windows"
+
+
+# ---- finding the console -----------------------------------------------------
+# The game offers TRAIN AI only when this lookup resolves, so its answer *is* the
+# difference between the two products: a game-only install must find nothing.
+
+
+def _install_console(root: Path, name: str = "md-console") -> Path:
+    console = root / f"{name}{EXE}"
+    console.write_text("", encoding="utf-8")
+    console.chmod(0o755)
+    return console
+
+
+def test_a_game_only_install_finds_no_console(tmp_path: Path) -> None:
+    # The negative half, and the one that matters most: nothing on PATH, no
+    # checkout. If this ever starts finding something, the game has stopped being
+    # installable on its own.
+    assert console_executable({"PATH": str(tmp_path)}, root=tmp_path / "nowhere") is None
+
+
+def test_an_installed_console_is_found_on_path(tmp_path: Path) -> None:
+    console = _install_console(tmp_path)
+    found = console_executable({"PATH": str(tmp_path)}, root=tmp_path / "no-checkout")
+    assert found == console
+
+
+def test_md_console_overrides_the_search(tmp_path: Path) -> None:
+    # The same escape hatch MD_APP is for the game: someone who knows where it is
+    # is not second-guessed.
+    elsewhere = _install_console(tmp_path, "console-somewhere")
+    found = console_executable({"MD_CONSOLE": str(elsewhere), "PATH": ""}, root=tmp_path)
+    assert found == elsewhere
+
+
+def test_an_md_console_pointing_at_nothing_is_not_silently_ignored(tmp_path: Path) -> None:
+    # Falling back to a search would launch a *different* console than the one
+    # that was named, which is worse than reporting none.
+    assert console_executable({"MD_CONSOLE": str(tmp_path / "missing")}, root=tmp_path) is None
+
+
+def test_a_checkout_can_run_the_console_it_contains(tmp_path: Path) -> None:
+    # A developer has no md-console on PATH but does have the package, and the
+    # game should still offer TRAIN AI there — the checkout is an install too.
+    package = tmp_path / "python" / "md" / "ui"
+    package.mkdir(parents=True)
+    (package / "__main__.py").write_text("", encoding="utf-8")
+    found = console_executable({"PATH": ""}, root=tmp_path)
+    assert found is not None
+    assert found.name.startswith("python")
