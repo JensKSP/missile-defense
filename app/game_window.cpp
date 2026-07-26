@@ -174,6 +174,56 @@ int GameWindow::menu_hit(Vec2 world) const noexcept {
     return -1;
 }
 
+float GameWindow::replay_row_px() const noexcept {
+    return sim_.config().world_height * 0.011f;
+}
+
+float GameWindow::replay_row_top_y(int index) const noexcept {
+    const float h = sim_.config().world_height;
+    return h * (0.76f - (static_cast<float>(index - replay_scroll_) * 0.075f));
+}
+
+int GameWindow::replay_hit(Vec2 world) const noexcept {
+    const float px = replay_row_px();
+    const float advance = px * 4.0f; // per-glyph horizontal step (matches draw_text)
+    const float center_x = sim_.config().world_width * 0.5f;
+    const float pad_x = advance * 0.5f;
+    const float pad_y = px * 0.5f;
+    const int last = std::min(replay_count(), replay_scroll_ + replay_rows_visible);
+    for (int i = replay_scroll_; i < last; ++i) {
+        const float top_y = replay_row_top_y(i);
+        const float bottom_y = top_y - (5.0f * px); // glyphs span ~5 rows below top_y
+        const auto chars = static_cast<float>(replay_name(i).size());
+        const float half_w = (chars * advance * 0.5f) + pad_x;
+        if (std::abs(world.x - center_x) <= half_w && world.y <= (top_y + pad_y) &&
+            world.y >= (bottom_y - pad_y)) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+void GameWindow::scroll_replays_into_view() noexcept {
+    const int count = replay_count();
+    const int most = std::max(0, count - replay_rows_visible);
+    if (menu_index_ < replay_scroll_) {
+        replay_scroll_ = menu_index_;
+    } else if (menu_index_ >= replay_scroll_ + replay_rows_visible) {
+        replay_scroll_ = menu_index_ - replay_rows_visible + 1;
+    }
+    replay_scroll_ = std::clamp(replay_scroll_, 0, most);
+}
+
+void GameWindow::play_selected_replay() {
+    if (menu_index_ < 0 || menu_index_ >= replay_count()) {
+        return;
+    }
+    const std::string path = replay_files_[static_cast<std::size_t>(menu_index_)];
+    if (!watch_replay(path)) {
+        open_menu(); // unreadable (wrong build, truncated): do not pretend
+    }
+}
+
 void GameWindow::end_game() {
     in_progress_ = false;
     accumulator_ = 0.0;
@@ -330,6 +380,7 @@ void GameWindow::open_replays() {
     std::ranges::sort(replay_files_, std::greater{});
     std::ranges::sort(replay_names_, std::greater{});
     menu_index_ = 0;
+    replay_scroll_ = 0; // a fresh visit starts at the top, however it was left
     state_ = State::Replays;
 }
 
@@ -488,6 +539,11 @@ void GameWindow::mouseMoveEvent(QMouseEvent* event) {
         if (hit >= 0) {
             menu_index_ = hit; // hover highlights the item under the pointer
         }
+    } else if (state_ == State::Replays) {
+        const int hit = replay_hit(aim_);
+        if (hit >= 0) {
+            menu_index_ = hit; // the recording list highlights on hover too
+        }
     }
 }
 
@@ -507,11 +563,22 @@ void GameWindow::mousePressEvent(QMouseEvent* event) {
     case State::Playing:
         fire_pending_ = true; // consumed by the next sim tick (advance)
         break;
+    case State::Replays: {
+        // A chooser, not a notice board: click a recording to watch it. Clicking
+        // off the list still backs out, so the mouse alone can leave the screen.
+        const int hit = replay_hit(aim_);
+        if (hit >= 0) {
+            menu_index_ = hit;
+            play_selected_replay();
+        } else {
+            open_menu();
+        }
+        break;
+    }
     case State::GameOver:
     case State::Highscores:
     case State::Help:
     case State::About:
-    case State::Replays:
         open_menu(); // a click dismisses these screens back to the menu
         break;
     case State::EnterScore:
@@ -598,13 +665,12 @@ void GameWindow::keyPressEvent(QKeyEvent* event) {
         } else if (replay_count() > 0) {
             if (key == Qt::Key_Up || key == Qt::Key_W) {
                 menu_index_ = (menu_index_ + replay_count() - 1) % replay_count();
+                scroll_replays_into_view();
             } else if (key == Qt::Key_Down || key == Qt::Key_S) {
                 menu_index_ = (menu_index_ + 1) % replay_count();
+                scroll_replays_into_view();
             } else if (confirm) {
-                const std::string path = replay_files_[static_cast<std::size_t>(menu_index_)];
-                if (!watch_replay(path)) {
-                    open_menu(); // unreadable (wrong build, truncated): do not pretend
-                }
+                play_selected_replay();
             }
         }
         break;

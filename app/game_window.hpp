@@ -116,6 +116,21 @@ class GameWindow : public QVulkanWindow {
     [[nodiscard]] float menu_item_top_y(int index) const noexcept;
     [[nodiscard]] int menu_hit(Vec2 world) const noexcept; // item under a point in the active list
 
+    // The recording list is a chooser, not a notice board, so it gets the same
+    // treatment: one layout both the renderer and the hit test read. `scroll` is
+    // the first visible row and moves only under the keyboard — if hovering
+    // changed it, the rows would slide out from under the pointer that selected
+    // them, and the highlight would chase itself down the list.
+    static constexpr int replay_rows_visible = 8;
+
+    [[nodiscard]] int replay_scroll() const noexcept { return replay_scroll_; }
+
+    [[nodiscard]] float replay_row_px() const noexcept;
+    [[nodiscard]] float replay_row_top_y(int index) const noexcept;
+    [[nodiscard]] int replay_hit(Vec2 world) const noexcept;
+    void scroll_replays_into_view() noexcept;
+    void play_selected_replay();
+
     // Highscores + arcade initials entry (for the Highscores / EnterScore screens).
     [[nodiscard]] const HighscoreTable& highscores() const noexcept { return highscores_; }
 
@@ -182,6 +197,7 @@ class GameWindow : public QVulkanWindow {
     Vec2 aim_{};
     State state_ = State::Menu;
     int menu_index_ = 0;
+    int replay_scroll_ = 0; // first visible row of the recording list
     bool cursor_hidden_ = false;
     bool audio_on_ = true;
     bool music_on_ = true;    // looping FM-synth background music

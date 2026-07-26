@@ -717,19 +717,20 @@ void Renderer::startNextFrame() {
             draw_text(inst, "TRAINING WRITES THEM THERE", cx, world_h * 0.46f, world_h * 0.009f,
                       0.4f, 0.45f, 0.5f, true);
         } else {
-            // Show a window of at most `visible` rows around the selection, so a
-            // long training run does not overflow the screen.
-            constexpr int visible = 8;
+            // A window of at most `replay_rows_visible` rows, scrolled by the
+            // window rather than computed here: the mouse hit test reads the same
+            // layout, and two copies of it would drift apart the moment either
+            // moved.
             const int selected = window_->menu_index();
-            const int first = std::clamp(selected - (visible / 2), 0, std::max(0, count - visible));
-            const int last = std::min(count, first + visible);
+            const int first = window_->replay_scroll();
+            const int last = std::min(count, first + GameWindow::replay_rows_visible);
             for (int i = first; i < last; ++i) {
                 const bool sel = selected == i;
-                const float y = world_h * (0.76f - (static_cast<float>(i - first) * 0.075f));
-                draw_text(inst, window_->replay_name(i), cx, y, world_h * 0.011f,
-                          sel ? 0.95f : 0.45f, sel ? 0.75f : 0.45f, sel ? 0.25f : 0.50f, true);
+                draw_text(inst, window_->replay_name(i), cx, window_->replay_row_top_y(i),
+                          window_->replay_row_px(), sel ? 0.95f : 0.45f, sel ? 0.75f : 0.45f,
+                          sel ? 0.25f : 0.50f, true);
             }
-            if (count > visible) {
+            if (count > GameWindow::replay_rows_visible) {
                 draw_text(inst, std::to_string(selected + 1) + " OF " + std::to_string(count), cx,
                           world_h * 0.14f, world_h * 0.009f, 0.4f, 0.45f, 0.5f, true);
             }
