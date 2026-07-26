@@ -294,5 +294,8 @@ jobs:
       - name: Upload the .deb
         uses: actions/upload-artifact@v4
         with:
-          name: missile-defense-debian-package
+          # Per distribution. Both legs uploading one name gave two artifacts
+          # that could not be told apart — and the two are not interchangeable:
+          # each is linked against its own distribution's Qt and libstdc++.
+          name: missile-defense-deb-${{ matrix.slug }}
           path: dist/*
