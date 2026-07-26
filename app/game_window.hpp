@@ -139,6 +139,9 @@ class GameWindow : public QVulkanWindow {
     /// failure a packaging test has to be able to see.
     [[nodiscard]] static int installed_model_count();
 
+    /// How many recordings the browser would find, for the same reason.
+    [[nodiscard]] static int discovered_recording_count();
+
     /// Is a recorded run being played back?
     [[nodiscard]] bool replaying() const noexcept { return replay_.has_value(); }
 

@@ -753,45 +753,103 @@ void GameWindow::open_models() {
     state_ = State::Replays;
 }
 
+namespace {
+
+/// One discovered recording: where it is, what to call it, and when it landed.
+///
+/// Path, label and sort key travel together deliberately. They used to be two
+/// vectors sorted independently — and since a label is the path uppercased with
+/// separators turned into spaces, the two orders are *not* the same one, so a
+/// row could show one episode's name above another episode's file.
+struct Found {
+    std::filesystem::path path;
+    std::string label;
+    std::filesystem::file_time_type modified{};
+};
+
+/// Fold a filename into something the pixel font can draw.
+std::string shout_stem(std::string name) {
+    std::ranges::transform(name, name.begin(), [](unsigned char c) {
+        return static_cast<char>(c == '_' || c == '-' ? ' ' : std::toupper(c));
+    });
+    return name;
+}
+
+/// Add every `.mdr` directly inside `directory` to `found`.
+void collect_recordings(const std::filesystem::path& directory, std::string_view run,
+                        std::vector<Found>& found) {
+    std::error_code ec; // the directory simply may not exist yet; that is not an error
+    for (const auto& entry : std::filesystem::directory_iterator{directory, ec}) {
+        if (!entry.is_regular_file(ec) || entry.path().extension() != ".mdr") {
+            continue;
+        }
+        std::string label = shout_stem(entry.path().stem().string());
+        if (!run.empty()) {
+            // Which *run* produced it, first. Every run names its episodes
+            // `update-00025`, so a flat list of those is a list of duplicates.
+            std::string named = shout_stem(std::string{run});
+            named += "  ";
+            named += label;
+            label = std::move(named);
+        }
+        if (label.size() > 40) {
+            label = label.substr(0, 37) + "...";
+        }
+        found.push_back(Found{entry.path(), std::move(label), entry.last_write_time(ec)});
+    }
+}
+
 /// Rescanned on every visit, so a run that is still training shows its newest
 /// episodes without restarting the app.
+///
+/// Two levels, because there are two layouts and both are real: a runs
+/// directory whose episodes sit directly in it (what `--out runs/` produces),
+/// and a *library* of managed runs, each its own directory (what the console
+/// creates). Scanning only the first is why the browser was empty for anyone
+/// who had used the console — every recording they could see there was one
+/// level down from where the game looked.
+///
+/// Not recursive beyond that, and no symlinks followed: a runs directory is a
+/// place a person points at, and walking an arbitrary tree from it is how a
+/// browser ends up listing somebody's home directory.
+std::vector<Found> discovered_recordings(const std::filesystem::path& root) {
+    std::vector<Found> found;
+    collect_recordings(root, {}, found);
+
+    std::error_code ec;
+    for (const auto& entry : std::filesystem::directory_iterator{root, ec}) {
+        // `is_directory` and not `status().type()`: a symlink to a directory
+        // answers true to the former, so it is checked separately.
+        if (!entry.is_directory(ec) || entry.is_symlink(ec)) {
+            continue;
+        }
+        collect_recordings(entry.path(), entry.path().filename().string(), found);
+    }
+
+    // Newest first, once, over whole records. While training, the interesting
+    // episode is the one just written — whatever it happens to be called.
+    std::ranges::sort(found, [](const Found& a, const Found& b) {
+        return a.modified != b.modified ? a.modified > b.modified : a.path > b.path;
+    });
+    return found;
+}
+
+} // namespace
+
+int GameWindow::discovered_recording_count() {
+    return static_cast<int>(discovered_recordings(runs_directory()).size());
+}
+
 void GameWindow::open_replays() {
     browse_ = Browse::Replays;
     replay_files_.clear();
     replay_names_.clear();
-    std::error_code ec; // the directory simply may not exist yet; that is not an error
-    for (const auto& entry : std::filesystem::directory_iterator{runs_directory(), ec}) {
-        if (!entry.is_regular_file(ec) || entry.path().extension() != ".mdr") {
-            continue;
-        }
-        replay_files_.push_back(entry.path().string());
-        std::string name = entry.path().stem().string();
-        // The pixel font has no lower case, and no punctuation beyond the period.
-        std::ranges::transform(name, name.begin(), [](unsigned char c) {
-            return static_cast<char>(c == '_' || c == '-' ? ' ' : std::toupper(c));
-        });
-        replay_names_.push_back(std::move(name));
+
+    for (Found& record : discovered_recordings(runs_directory())) {
+        replay_files_.push_back(record.path.string());
+        replay_names_.push_back(std::move(record.label));
     }
-    // Newest first: while training, the interesting episode is the latest one.
-    // Sorted as *pairs*: the two vectors were sorted independently, and since a
-    // name is the path uppercased with separators turned into spaces, the two
-    // orders are not the same one — which silently put a row's label next to
-    // another row's file.
-    std::vector<std::size_t> order(replay_files_.size());
-    std::ranges::iota(order, std::size_t{0});
-    std::ranges::sort(order, [this](std::size_t a, std::size_t b) {
-        return replay_files_[a] > replay_files_[b];
-    });
-    std::vector<std::string> files;
-    std::vector<std::string> names;
-    files.reserve(order.size());
-    names.reserve(order.size());
-    for (const std::size_t index : order) {
-        files.push_back(std::move(replay_files_[index]));
-        names.push_back(std::move(replay_names_[index]));
-    }
-    replay_files_ = std::move(files);
-    replay_names_ = std::move(names);
+
     menu_index_ = 0;
     replay_scroll_ = 0; // a fresh visit starts at the top, however it was left
     state_ = State::Replays;
