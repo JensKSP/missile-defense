@@ -34,7 +34,7 @@ names using [Requirements](#requirements) below:
 ```bash
 # 1 — dependencies (a few hundred MB: Qt 6, Vulkan, a C++23 compiler)
 sudo apt update
-sudo apt install g++-14 cmake ninja-build \
+sudo apt install -y g++-14 cmake ninja-build \
   qt6-base-dev qt6-base-dev-tools \
   libvulkan-dev glslang-tools mesa-vulkan-drivers libminiaudio-dev
 
