@@ -333,14 +333,14 @@ git commit -m "Package the training console as an optional companion"
 - Modify: `python/md/paths.py`
 - Modify: `python/tests/test_ui_runner.py`
 
-- [ ] **Step 1: Write state-machine tests**
+- [x] **Step 1: Write state-machine tests**
 
 Use fake probes, downloader, and subprocess runner to cover absent, recommended,
 installing, ready, broken, repairable, cancelled, and removable states. Assert
 that only allow-listed package indexes and compatible backend choices produce an
 install plan.
 
-- [ ] **Step 2: Implement runtime planning**
+- [x] **Step 2: Implement runtime planning**
 
 Expose pure planning separately from effects:
 
@@ -357,29 +357,29 @@ class RuntimePlan:
 def recommend(system: SystemInfo, probes: Sequence[BackendProbe]) -> RuntimePlan: ...
 ```
 
-- [ ] **Step 3: Implement transactional installation**
+- [x] **Step 3: Implement transactional installation**
 
 Install into a new versioned directory, run an import/native-binding health
 check, write a signed-by-checksum local manifest, then atomically switch the
 `current` marker. Cancellation removes only the incomplete directory.
 
-- [ ] **Step 4: Add the setup dialog**
+- [x] **Step 4: Add the setup dialog**
 
 Show recommendation, backend, source, disk requirement, progress, cancel, retry,
 repair, and remove. Keep logs behind disclosure. On success, return directly to
 the new-run dialog.
 
-- [ ] **Step 5: Route training through the managed interpreter**
+- [x] **Step 5: Route training through the managed interpreter**
 
 Replace `can_train()`'s current-interpreter assumption with runtime health.
 Browsing and replay actions remain enabled when runtime setup is absent/broken.
 
-- [ ] **Step 6: Verify**
+- [x] **Step 6: Verify**
 
 Run: `pytest python/tests/test_runtime.py python/tests/test_ui_runner.py -q`
 Expected: all state, cancellation, recovery, and interpreter-routing tests pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add python/md/runtime.py python/md/ui/runtime_dialog.py python/md/ui/app.py \
@@ -673,6 +673,82 @@ git add README.md docs .github/workflows python/tests
 git commit -m "Document and verify the UI-only AI training journey"
 ```
 
+### Task 11: Complete per-run simulation statistics
+
+**Why:** Today a run reports score, wave, cities-left and kills-per-shot only.
+"Why did that policy plateau?" needs the full picture — how long episodes
+survived, how much damage they took, and *how* the ammunition was spent — as
+first-class, aggregated numbers rather than something inferred from a replay.
+This is the data layer the console analysis in Task 12 draws on, so it lands
+first.
+
+**Files:**
+- Modify: `core/include/md/sim.hpp`, `core/src/sim.cpp` (kills-per-shot histogram in `StepResult`)
+- Modify: `agent/include/md/agent/eval.hpp` (extend `EpisodeResult` + `Summary`)
+- Modify: `agent/src/eval.cpp` (`run_episode` counting + `summarize` aggregation)
+- Modify: `bindings/vec_env.hpp`, `bindings/vec_env.cpp` (populate the new fields per env)
+- Modify: `bindings/module.cpp`, `python/md/_md_native.pyi` (expose the fields)
+- Modify: `python/md/eval.py` (`format_summary`), `python/md/train.py` (`evals.csv` columns)
+- Modify: `agent/tests/unit/test_heuristic.cpp` (or a new `test_eval.cpp`), `python/tests/test_env.py`
+- Modify: `docs/TRAINING.md`, `docs/API.md`
+
+**The complete per-episode stat set** (sourced from the deterministic event
+stream and end-state, the same way `shots`/`kills` already are):
+
+| Stat | Source |
+|---|---|
+| `ticks` (survival time; ÷60 = seconds) | `sim.tick()` *(exists)* |
+| `wave_reached` (last level) | `sim.wave()` *(exists)* |
+| `waves_cleared` | count `WaveCleared` |
+| `score` | `sim.score()` *(exists)* |
+| `cities_left` / `cities_lost` | alive count / count `CityLost` |
+| `bases_left` / `bases_lost` | alive count / count `BaseLost` |
+| `bonus_cities` (rebuilt) | count `BonusCity` |
+| `mirv_splits` | count `MirvSplit` |
+| `shots` (fired) | count `Fire` *(exists)* |
+| `kills` (targets destroyed) | count `ThreatKilled` *(exists)* |
+| `hits` (shots that killed ≥1) = `shots − wasted` | derived |
+| `wasted` (shots that killed nothing) | `StepResult.wasted` |
+| **`kills_per_shot[]`** histogram (0,1,2,3,4+) | new: binned at blast expiry from `Blast.kills` |
+
+`Summary` gains the per-episode means plus the summed `kills_per_shot`
+histogram over the whole seed set. `evals.csv` widens to carry them; the eval
+printout grows a full block. The histogram is the one new piece of core
+instrumentation — every other field is event-counting already proven in
+`run_episode`.
+
+- [ ] Steps: TDD each layer (C++ Catch2 for counting + `summarize` + histogram
+      where `bin[0] == wasted`; pytest for the surfaced fields and `evals.csv`
+      columns), rebuild bindings, `poe check`, verify with `poe eval` + a short
+      GPU run. Commit: `Report the full statistics of a simulated run`.
+
+### Task 12: Statistical analysis of runs in the console
+
+**Why:** Numbers in `evals.csv` are only as useful as what you can see in them.
+The console already tails those files for the score curve; this turns it into an
+instrument for *understanding* a policy — distributions, not just trend lines —
+so "it stopped catching clusters" or "it dies to base loss, not city loss"
+becomes visible at a glance and comparable across runs.
+
+**Files (new UI service + view, composing existing sources):**
+- Create: `python/md/ui/stats.py` (aggregate/derive distributions from run stats — no Qt)
+- Create: `python/md/ui/analysis.py` (the analysis view/widgets)
+- Create: `python/tests/test_ui_stats.py`
+- Modify: `python/md/ui/app.py`, `python/md/ui/sources.py`, `python/md/ui/theme.py`
+
+- [ ] **Kills-per-shot distribution** — the histogram from Task 11 as a bar
+      chart (0/1/2/3/4+), the single clearest read on "is it catching clusters".
+- [ ] **Survival & damage over the run** — mean ticks-survived, cities/bases lost,
+      waves cleared as curves alongside the score, so a plateau's *cause* shows.
+- [ ] **Per-run summary card** — the full latest-eval stat block in one panel.
+- [ ] **Compare across runs** — reuse the existing vs-run picker so a distribution
+      or curve overlays the run being beaten (same hue, lower opacity, as Phase 5).
+- [ ] Follows the M8 design intent: one screen, live, dark, empty-states handled;
+      `md.ui` still never imports `torch`. Charts via the existing `CurveView`
+      escape hatch / Qt Charts. Build charts with the `dataviz` guidance.
+- [ ] Steps: TDD `stats.py` under pytest (no display), then the view; `poe check`.
+      Commit: `Analyse a run's statistics in the console`.
+
 ## Program completion checklist
 
 - [ ] Game-only packages contain both bundled agents and no Python/training UI.
@@ -688,4 +764,8 @@ git commit -m "Document and verify the UI-only AI training journey"
       bytes.
 - [ ] Archives verify before deletion and restore without unsafe extraction.
 - [ ] README and platform docs describe the installed UI flow as the default.
+- [ ] A run reports the full per-episode statistics (survival, damage, spend,
+      kills-per-shot distribution), aggregated and in `evals.csv`.
+- [ ] The console can analyse those statistics — distributions and cause-of-plateau
+      views — within a run and across runs.
 - [ ] `poe check` and all packaging/installed-user CI jobs pass.
