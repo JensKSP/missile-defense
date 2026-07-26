@@ -4,14 +4,19 @@
 #pragma once
 
 #include "md/agent/heuristic.hpp"
+#include "md/agent/policy.hpp"
 #include "md/config.hpp"
 #include "md/entities.hpp"
 #include "md/event.hpp"
+#include "md/observation.hpp"
 
 #include <array>
 #include <cstdint>
+#include <memory>
 #include <numeric>
 #include <span>
+#include <string>
+#include <string_view>
 #include <vector>
 
 namespace md::agent {
@@ -103,11 +108,117 @@ void tally_events(EpisodeResult& result, std::span<const Event> events) noexcept
 /// Shared for the same reason as `tally_events`.
 void bin_active_blasts(EpisodeResult& result, std::span<const Blast> blasts) noexcept;
 
+/// Something that can play: the scripted baseline, or a learned policy.
+///
+/// One virtual call per tick, against a `Sim::step` that is thousands of times
+/// more work — and it buys the thing this whole comparison rests on, which is
+/// that both contestants go through *the same* episode loop, the same event
+/// tallying and the same `summarize`. A second loop for learned policies is how
+/// two agents end up measured by two subtly different rulers.
+class Driver {
+  public:
+    Driver() = default;
+    Driver(const Driver&) = delete;
+    Driver(Driver&&) = delete;
+    Driver& operator=(const Driver&) = delete;
+    Driver& operator=(Driver&&) = delete;
+    virtual ~Driver() = default;
+
+    /// The candidate action for this tick. `Sim` samples it at the shared player
+    /// cadence and holds the chosen action between samples.
+    [[nodiscard]] virtual Action act(const Sim& sim) = 0;
+
+    /// The discrete action index behind the last decision, for an action log.
+    /// The scripted agent has no index — it produces an `Action` directly — so
+    /// it reports `no_index` and its log is empty rather than invented.
+    [[nodiscard]] virtual std::uint32_t last_index() const noexcept { return no_index; }
+
+    /// What to call this contestant in a result table. A model's display name
+    /// where it has one, so a league ranks names rather than paths.
+    [[nodiscard]] virtual std::string_view name() const noexcept = 0;
+
+    static constexpr std::uint32_t no_index = 0xFFFFFFFFu;
+};
+
+/// The M4 baseline as a `Driver`.
+class ScriptedDriver final : public Driver {
+  public:
+    ScriptedDriver() = default;
+
+    explicit ScriptedDriver(Params params) noexcept : agent_{params} {}
+
+    [[nodiscard]] Action act(const Sim& sim) override { return agent_.act(sim); }
+
+    // NOLINTNEXTLINE(readability-convert-member-functions-to-static) — an override
+    [[nodiscard]] std::string_view name() const noexcept override { return "SCRIPTED"; }
+
+  private:
+    Heuristic agent_;
+};
+
+/// A learned `.mdp` policy as a `Driver`, through the same `Action` primitive.
+///
+/// The forward pass runs only on the ticks `Sim` will actually sample — one in
+/// `Config::decision_interval` — because on every other tick the action is
+/// ignored, and doing the arithmetic anyway would be four times the work for an
+/// answer nobody reads. It is also what makes the action log line up with the
+/// Python evaluator's, which steps a whole decision window per action.
+class PolicyDriver final : public Driver {
+  public:
+    PolicyDriver(const Policy& policy, const ObsSpec& spec);
+
+    [[nodiscard]] Action act(const Sim& sim) override;
+
+    [[nodiscard]] std::uint32_t last_index() const noexcept override { return last_index_; }
+
+    [[nodiscard]] std::string_view name() const noexcept override { return name_; }
+
+    /// The critic's estimate at the last decision. An evaluator that logs it can
+    /// tell "played badly" from "knew it was losing".
+    [[nodiscard]] float last_value() const noexcept { return last_value_; }
+
+  private:
+    const Policy* policy_;
+    ObsSpec spec_;
+    std::string name_;
+    std::vector<float> observation_;
+    /// `action_mask` writes `bool`; `Policy::act` takes `std::uint8_t`, because
+    /// a `std::span<bool>` cannot be formed over a `std::vector<bool>` and the
+    /// policy's interface should not be shaped by that accident. So: a real
+    /// array of `bool` for the first, a byte buffer for the second, and one
+    /// copy per decision. Reinterpreting one as the other would be an aliasing
+    /// violation that happens to work, which this project does not do.
+    std::unique_ptr<bool[]> mask_;
+    std::vector<std::uint8_t> legal_;
+    /// Events seen since the last decision, in `md::encode`'s own scaling.
+    ///
+    /// **The observation is per *decision*, not per tick.** `md::encode` writes
+    /// the current tick's events into the suffix; a policy that only ever sees
+    /// the decision tick's events is blind to the three ticks in between, where
+    /// most of them happen. `VecEnv` accumulates across the window and overwrites
+    /// that suffix, and this has to do the identical thing — the parity e2e
+    /// caught it diverging at decision 401, on the first event that fell in a
+    /// skipped tick.
+    std::array<float, ObsSpec::event_features> window_{};
+    std::uint32_t last_index_ = 0;
+    float last_value_ = 0.0F;
+};
+
 /// Play one episode to termination or `max_ticks`, whichever comes first. The
 /// agent's reaction rate is the sim's own `Config::decision_interval` (the core
 /// samples a new action once per that many ticks), so there is no per-driver
 /// cadence knob here — a scripted agent and a learned policy are throttled
 /// identically by the simulation, not by how their driver happens to loop.
+///
+/// `action_log`, when given, receives one index per *sampled* decision — not per
+/// tick. That is the granularity at which two implementations can be compared:
+/// the ticks in between are ones the simulation never asked about.
+EpisodeResult run_episode(const Config& config, std::uint64_t seed, Driver& driver,
+                          std::uint64_t max_ticks = 120000,
+                          std::vector<std::uint32_t>* action_log = nullptr);
+
+/// The scripted overload, kept because most callers have a `Heuristic` and not
+/// a `Driver`, and wrapping one at every call site would be noise.
 [[nodiscard]] EpisodeResult run_episode(const Config& config, std::uint64_t seed,
                                         const Heuristic& agent, std::uint64_t max_ticks = 120000);
 

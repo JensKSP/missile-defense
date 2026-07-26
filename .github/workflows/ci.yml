@@ -28,7 +28,7 @@ jobs:
             cmake ninja-build \
             qt6-base-dev qt6-base-dev-tools \
             libvulkan-dev glslang-tools mesa-vulkan-drivers \
-            libminiaudio-dev catch2 \
+            libminiaudio-dev catch2 nlohmann-json3-dev \
             dpkg-dev python3 python3-pip
 
       - name: Install task runner + Python tools
@@ -77,7 +77,7 @@ jobs:
             cmake ninja-build g++-14 \
             qt6-base-dev qt6-base-dev-tools \
             libvulkan-dev glslang-tools mesa-vulkan-drivers \
-            libminiaudio-dev catch2 \
+            libminiaudio-dev catch2 nlohmann-json3-dev \
             xvfb python3 python3-pip
 
       - name: Install the Python halves

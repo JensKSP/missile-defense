@@ -3,16 +3,21 @@
 // Assisted-by: Claude Code (Anthropic)
 #include "md/agent/eval.hpp"
 
+#include "md/action.hpp"
 #include "md/agent/heuristic.hpp"
 #include "md/config.hpp"
 #include "md/event.hpp"
+#include "md/intercept.hpp"
+#include "md/observation.hpp"
 #include "md/rng.hpp"
 #include "md/sim.hpp"
 
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <span>
+#include <string>
 #include <vector>
 
 namespace md::agent {
@@ -74,8 +79,65 @@ void bin_active_blasts(EpisodeResult& result, std::span<const Blast> blasts) noe
     }
 }
 
-EpisodeResult run_episode(const Config& config, std::uint64_t seed, const Heuristic& agent,
-                          std::uint64_t max_ticks) {
+PolicyDriver::PolicyDriver(const Policy& policy, const ObsSpec& spec)
+    : policy_{&policy}, spec_{spec}, name_{policy.display_name()} {
+    if (spec_.size() != policy.observation_size()) {
+        throw Policy::Error{"this policy expects an observation of " +
+                            std::to_string(policy.observation_size()) + " values, and this " +
+                            "simulation encodes " + std::to_string(spec_.size())};
+    }
+    if (md::action_count(spec_) != policy.action_count()) {
+        throw Policy::Error{"this policy has " + std::to_string(policy.action_count()) +
+                            " actions, and this simulation offers " +
+                            std::to_string(md::action_count(spec_))};
+    }
+    // A model with no display name falls back to something stable rather than
+    // to an empty string, so a result table never has a blank row.
+    if (name_.empty()) {
+        name_ = "LEARNED";
+    }
+    observation_.resize(spec_.size());
+    mask_ = std::make_unique_for_overwrite<bool[]>(policy.action_count());
+    legal_.resize(policy.action_count());
+}
+
+Action PolicyDriver::act(const Sim& sim) {
+    // Called at the *start* of every tick, so `sim.events()` here is what the
+    // previous tick's step produced. Accumulating on every tick — not only on
+    // decision ticks — is what makes the window below the events of the whole
+    // interval rather than of its last tick.
+    for (const Event& event : sim.events()) {
+        const auto index = static_cast<std::size_t>(event.type);
+        if (index < window_.size()) {
+            window_[index] += 0.25F; // md::encode's own scaling; see bindings/vec_env.cpp
+        }
+    }
+    if (!sim.samples_action_this_tick()) {
+        // The simulation is holding the last decision; whatever is returned now
+        // is discarded. Skipping the forward pass here is not an optimisation
+        // detail — it is also what makes the action log one entry per decision,
+        // which is the only granularity the Python evaluator can be compared at.
+        return Action::noop();
+    }
+    md::encode(sim, spec_, observation_);
+    // Overwrite the event suffix `encode` just wrote with the window's counts,
+    // exactly as `VecEnv::encode_into` does.
+    std::ranges::copy(window_, observation_.end() - ObsSpec::event_features);
+    window_.fill(0.0F);
+
+    const std::span<bool> mask{mask_.get(), legal_.size()};
+    md::action_mask(sim, spec_, mask);
+    for (std::size_t i = 0; i < legal_.size(); ++i) {
+        legal_[i] = static_cast<std::uint8_t>(mask[i] ? 1 : 0);
+    }
+    const Policy::Decision decision = policy_->act(observation_, legal_);
+    last_index_ = decision.action;
+    last_value_ = decision.value;
+    return md::decode_action(sim, spec_, decision.action);
+}
+
+EpisodeResult run_episode(const Config& config, std::uint64_t seed, Driver& driver,
+                          std::uint64_t max_ticks, std::vector<std::uint32_t>* action_log) {
     Sim sim{config};
     sim.reset(seed);
 
@@ -83,10 +145,15 @@ EpisodeResult run_episode(const Config& config, std::uint64_t seed, const Heuris
     result.seed = seed;
 
     for (std::uint64_t tick = 0; tick < max_ticks; ++tick) {
-        // The agent proposes an action every tick; the sim samples it once per
+        // The driver proposes an action every tick; the sim samples it once per
         // Config::decision_interval and holds it between, so the reaction-rate
-        // limit is the simulation's — identical to the learned policy's.
-        const StepResult step = sim.step(agent.act(sim));
+        // limit is the simulation's and is identical for every contestant.
+        const bool sampling = sim.samples_action_this_tick();
+        const Action action = driver.act(sim);
+        if (action_log != nullptr && sampling && driver.last_index() != Driver::no_index) {
+            action_log->push_back(driver.last_index());
+        }
+        const StepResult step = sim.step(action);
         tally_events(result, sim.events());
         for (std::size_t b = 0; b < result.kills_per_shot.size(); ++b) {
             result.kills_per_shot[b] += static_cast<std::uint32_t>(step.kills_per_shot[b]);
@@ -113,6 +180,12 @@ EpisodeResult run_episode(const Config& config, std::uint64_t seed, const Heuris
         }
     }
     return result;
+}
+
+EpisodeResult run_episode(const Config& config, std::uint64_t seed, const Heuristic& agent,
+                          std::uint64_t max_ticks) {
+    ScriptedDriver driver{agent.params()};
+    return run_episode(config, seed, driver, max_ticks);
 }
 
 Summary summarize(std::span<const EpisodeResult> episodes) {

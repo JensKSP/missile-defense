@@ -12,6 +12,7 @@ Build-Depends:
  libvulkan-dev,
  glslang-tools,
  libminiaudio-dev,
+ nlohmann-json3-dev,
  catch2 (>= 3),
  python3-all-dev,
  python3-nanobind,

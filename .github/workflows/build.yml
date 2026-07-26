@@ -57,7 +57,7 @@ jobs:
         # deliberately no loader, hence vulkan-loader too.
         run: |
           brew install ninja qtbase molten-vk vulkan-headers vulkan-loader \
-                       vulkan-tools glslang
+                       vulkan-tools glslang nlohmann-json
 
       - name: Install task runner + Python tools
         # numpy because python/tests/test_env.py imports it above its
@@ -193,6 +193,7 @@ jobs:
             mingw-w64-clang-x86_64-vulkan-headers
             mingw-w64-clang-x86_64-vulkan-loader
             mingw-w64-clang-x86_64-glslang
+            mingw-w64-clang-x86_64-nlohmann-json
             mingw-w64-clang-x86_64-nsis
             mingw-w64-clang-x86_64-python
             mingw-w64-clang-x86_64-python-pip

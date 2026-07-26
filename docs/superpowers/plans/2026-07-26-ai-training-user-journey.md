@@ -350,19 +350,19 @@ asserted across two proves the *file*, which is the thing being shipped.
 - Modify: `python/md/export_policy.py`
 - Create: `python/tests/test_export_policy.py`
 
-- [ ] **Step 1: Add a Python exporter fixture**
+- [x] **Step 1: Add a Python exporter fixture**
 
 Build a deterministic `PolicyValueNet`, save a checkpoint, export it, and write
 fixed observations, legal-action masks, logits, values, and chosen actions to a
 JSON parity fixture. Assert export refuses missing tensors and unsupported
 architectures.
 
-- [ ] **Step 2: Verify exporter tests fail**
+- [x] **Step 2: Verify exporter tests fail**
 
 Run: `pytest python/tests/test_export_policy.py -q`
 Expected: import fails because `md.export_policy` does not exist.
 
-- [ ] **Step 3: Implement checkpoint export**
+- [x] **Step 3: Implement checkpoint export**
 
 Load checkpoints only through the existing trusted training path, map state-dict
 names to `NativePolicy`, and expose:
@@ -379,7 +379,7 @@ def export_checkpoint(
 The exporter writes to a sibling temporary file and replaces the destination
 only after validation.
 
-- [ ] **Step 4: Add failing C++ parser and inference tests**
+- [x] **Step 4: Add failing C++ parser and inference tests**
 
 Test a checked-in small fixture for manifest parsing, tensor bounds, forward
 output, legal-action masking, tie-breaking, corrupt checksum, and incompatible
@@ -394,13 +394,13 @@ class Policy {
 };
 ```
 
-- [ ] **Step 5: Implement C++ inference**
+- [x] **Step 5: Implement C++ inference**
 
 Parse with bounds-checked offsets, reject non-finite values, perform the fixed
 MLP forward pass, apply the legal mask before deterministic argmax, and keep
 all policy state immutable after loading.
 
-- [ ] **Step 6: Verify Python/C++ parity**
+- [x] **Step 6: Verify Python/C++ parity**
 
 Run: `pytest python/tests/test_export_policy.py -q`
 Expected: pass.
@@ -408,7 +408,7 @@ Expected: pass.
 Run: `cmake --build --preset debug && ctest --preset debug -R policy --output-on-failure`
 Expected: parser, corruption, masking, and parity tests pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add agent python/md/export_policy.py python/tests/test_export_policy.py

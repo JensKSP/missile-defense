@@ -1,24 +1,35 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Jens Köhler
 // Assisted-by: Claude Code (Anthropic)
-// Runs the scripted baseline over the canonical seed set and prints the metrics
-// the learned agent will be measured against.
+// Runs a contestant over the canonical seed set and prints the metrics that
+// decide whether a learned agent has beaten the scripted baseline.
 //
 //   md_agent_eval [--seeds N] [--seed-offset N] [--max-ticks N]
 //                 [--frame-skip N] [--per-episode]
+//                 [--policy <file.mdp>] [--action-log <file>]
+//
+// With no `--policy` this is the M4 baseline, exactly as it always was. With one
+// it is that learned policy, through the *same* episode loop, the same event
+// tallying and the same `summarize` — which is the whole reason "beat the
+// baseline" is a claim rather than two numbers from two programs.
 #include "md/agent/eval.hpp"
 #include "md/agent/heuristic.hpp"
+#include "md/agent/policy.hpp"
 #include "md/config.hpp"
+#include "md/observation.hpp"
 #include "md/version.hpp"
 
 #include <charconv>
 #include <cstdint>
 #include <cstdio>
 #include <exception>
+#include <fstream>
 #include <limits>
+#include <memory>
 #include <numeric>
 #include <optional>
 #include <print>
+#include <string>
 #include <string_view>
 #include <system_error>
 #include <vector>
@@ -39,7 +50,7 @@ std::optional<std::uint64_t> parse_u64(std::string_view text, bool allow_zero = 
 void usage() {
     std::println(stderr,
                  "usage: md_agent_eval [--seeds N] [--seed-offset N] [--max-ticks N] "
-                 "[--frame-skip N] [--per-episode]");
+                 "[--frame-skip N] [--per-episode] [--policy FILE.mdp] [--action-log FILE]");
 }
 
 int run(int argc, char** argv) {
@@ -47,6 +58,8 @@ int run(int argc, char** argv) {
     std::size_t seed_offset = canonical_seed_offset;
     std::uint64_t max_ticks = 120000;
     bool per_episode = false;
+    std::string policy_path;
+    std::string action_log_path;
     md::Config config{}; // defaults, including the 15 Hz decision cadence and 3/s fire
 
     for (int i = 1; i < argc; ++i) {
@@ -84,6 +97,10 @@ int run(int argc, char** argv) {
                 return 2;
             }
             config.decision_interval = static_cast<std::uint32_t>(*value);
+        } else if (arg == "--policy" && (i + 1) < argc) {
+            policy_path = argv[++i];
+        } else if (arg == "--action-log" && (i + 1) < argc) {
+            action_log_path = argv[++i];
         } else {
             usage();
             return 2;
@@ -94,12 +111,24 @@ int run(int argc, char** argv) {
         std::println(stderr, "seed offset plus count is too large");
         return 2;
     }
-    const md::agent::Heuristic agent{};
+    // The contestant. Both go through `run_episode`, so the only thing that
+    // differs between a scripted and a learned evaluation is which `Driver` is
+    // asked for an action — not the loop, the tallying or the aggregation.
+    const md::ObsSpec spec{};
+    std::optional<md::agent::Policy> loaded;
+    std::unique_ptr<md::agent::Driver> driver;
+    if (policy_path.empty()) {
+        driver = std::make_unique<md::agent::ScriptedDriver>();
+    } else {
+        loaded = md::agent::Policy::load(policy_path);
+        driver = std::make_unique<md::agent::PolicyDriver>(*loaded, spec);
+    }
+
     const std::vector<std::uint64_t> stream = md::agent::default_seeds(seed_offset + seed_count);
     const std::vector<std::uint64_t> seeds(
         stream.begin() + static_cast<std::ptrdiff_t>(seed_offset), stream.end());
 
-    std::println("missile-defense {} — scripted baseline (M4)", md::version());
+    std::println("missile-defense {} — {}", md::version(), driver->name());
     std::println("{} episodes, cap {} ticks ({:.0f} s of play)", seeds.size(), max_ticks,
                  static_cast<double>(max_ticks) * static_cast<double>(config.dt));
     std::println("seed stream offset {}", seed_offset);
@@ -107,20 +136,42 @@ int run(int argc, char** argv) {
         "decisions every {} tick(s) (~{:.0f} Hz)\n", config.decision_interval,
         1.0 / (static_cast<double>(config.dt) * static_cast<double>(config.decision_interval)));
 
+    // One pass over the seeds, whether or not the per-episode table is printed.
+    // The action log — one index per sampled decision — is what the parity e2e
+    // holds against the Python evaluator's, so it is only collected when asked
+    // for: a canonical run is 30,000 decisions an episode.
+    std::vector<md::agent::EpisodeResult> episodes;
+    episodes.reserve(seeds.size());
+    std::vector<std::uint32_t> action_log;
     if (per_episode) {
         std::println("{:<20} {:>8} {:>5} {:>5} {:>8} {:>7} {:>7} {:>6} {:>6} {:>6}", "seed",
                      "score", "wave", "wvs", "ticks", "cit_ls", "bas_ls", "shots", "kills", "hits");
-        for (const std::uint64_t seed : seeds) {
-            const md::agent::EpisodeResult r =
-                md::agent::run_episode(config, seed, agent, max_ticks);
+    }
+    for (const std::uint64_t seed : seeds) {
+        const md::agent::EpisodeResult r = md::agent::run_episode(
+            config, seed, *driver, max_ticks, action_log_path.empty() ? nullptr : &action_log);
+        if (per_episode) {
             std::println("{:<20} {:>8} {:>5} {:>5} {:>8} {:>7} {:>7} {:>6} {:>6} {:>6}", r.seed,
                          r.score, r.wave_reached, r.waves_cleared, r.ticks, r.cities_lost,
                          r.bases_lost, r.shots, r.kills, r.hits());
         }
+        episodes.push_back(r);
+    }
+    if (per_episode) {
         std::println();
     }
+    if (!action_log_path.empty()) {
+        std::ofstream log{action_log_path, std::ios::trunc};
+        if (!log) {
+            std::println(stderr, "could not write the action log: {}", action_log_path);
+            return 1;
+        }
+        for (const std::uint32_t index : action_log) {
+            log << index << '\n';
+        }
+    }
 
-    const md::agent::Summary s = md::agent::evaluate(config, seeds, agent, max_ticks);
+    const md::agent::Summary s = md::agent::summarize(episodes);
     const auto& hist = s.kills_per_shot;
     const auto total_shots =
         std::max<std::uint64_t>(1, std::accumulate(hist.begin(), hist.end(), std::uint64_t{0}));

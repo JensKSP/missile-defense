@@ -348,6 +348,46 @@ Adding an architecture means one entry in `ARCHITECTURES` in
 `agent/src/policy.cpp`. Both sides then refuse what the other cannot run — which
 is the entire reason the architecture is named in the file.
 
+### Running one: `md::agent::Policy`
+
+```cpp
+const auto policy = md::agent::Policy::load("models/pretrained.mdp");
+md::agent::PolicyDriver driver{policy, md::ObsSpec{}};
+const auto result = md::agent::run_episode(config, seed, driver);
+```
+
+`PolicyDriver` and `ScriptedDriver` are both `md::agent::Driver`, so a learned
+policy and the M4 baseline go through **the same** `run_episode`, the same event
+tallying and the same `summarize`. A second loop for learned agents is how two
+contestants end up measured by two subtly different rulers.
+
+`md_agent_eval --policy <file.mdp>` is that path from the command line; without
+the flag it is the scripted baseline, exactly as before. `--action-log <file>`
+writes one action index per *sampled decision*.
+
+**The observation is per decision, not per tick.** `md::encode` writes the
+current tick's events into the observation's event suffix; a driver that only
+ever encodes on decision ticks is blind to the three ticks in between, where most
+events happen. `VecEnv` accumulates across the window and overwrites that suffix,
+and `PolicyDriver` does the identical thing. This is not a subtlety anyone
+reasoned their way to — the cross-process parity test caught the two diverging at
+decision 401, on the first event that fell in a skipped tick.
+
+### Proving the two agree
+
+| Test | What it proves | Where |
+|---|---|---|
+| `test_export_policy.py` | the NumPy forward pass matches torch | one process |
+| `test_policy.cpp` | the C++ forward pass matches a checked-in fixture, logit for logit | one process |
+| `test_parity.py` | **both languages play the same seed identically, decision for decision** | two processes, one file |
+
+Only the third makes the claim that matters, because only it exercises the
+*file*. The fixture (`agent/tests/fixtures/`) is checked in rather than generated
+at build time on purpose: one produced by both sides at build time would be two
+implementations of the same bug. Regenerate it with
+`python -m tools.make_policy_fixture` when the format or the reference forward
+pass changes, and expect the diff to be reviewed.
+
 ## 8. Status
 
 | Piece | State |
