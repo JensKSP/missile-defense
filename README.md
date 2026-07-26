@@ -9,12 +9,27 @@ reproducible environment — used to train a reinforcement-learning agent.
 
 *By Jens Köhler · [MIT License](LICENSE) · developed with [Claude Code](https://claude.com/claude-code) (Anthropic).*
 
+## Download
+
+Prebuilt for Debian trixie, Ubuntu 24.04, Windows and macOS (Apple silicon):
+
+| | |
+|---|---|
+| **[Latest release](https://github.com/JensKSP/missile-defense/releases/latest)** | versioned, and someone has looked at it |
+| [Nightly](https://github.com/JensKSP/missile-defense/releases/tag/nightly) | the newest `master` that passed CI; nobody has played it |
+
+Every build is checksummed in `SHA256SUMS`. The macOS bundle is ad-hoc signed
+rather than notarised, so macOS asks you to clear quarantine first —
+[docs/MACOS.md](docs/MACOS.md#signing-it-for-other-people) has the one command.
+How the versions are numbered, and what a nightly's `0.1.0~dev128` means to
+`apt`, is in [docs/RELEASING.md](docs/RELEASING.md#versioning).
+
 ## Quick start
 
-Clone to watching an AI defend six cities, in about ten minutes. On Debian /
-Ubuntu — for Windows see [docs/WINDOWS.md](docs/WINDOWS.md), for macOS
-[docs/MACOS.md](docs/MACOS.md), and for other distros adjust the package names
-using [Requirements](#requirements) below:
+Or build it — clone to watching an AI defend six cities, in about ten minutes.
+On Debian / Ubuntu — for Windows see [docs/WINDOWS.md](docs/WINDOWS.md), for
+macOS [docs/MACOS.md](docs/MACOS.md), and for other distros adjust the package
+names using [Requirements](#requirements) below:
 
 ```bash
 # 1 — dependencies (a few hundred MB: Qt 6, Vulkan, clang)

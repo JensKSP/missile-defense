@@ -1,12 +1,84 @@
-# Step 0: this file drives dev tooling + task running only.
-# The Python package build (scikit-build-core + nanobind) is added in Step 2,
-# when there is an actual compiled extension module to build.
+# This file is both the dev-tooling config (poe, ruff, mypy, pyright, pytest)
+# and the Python package definition.
+
+# The extension is compiled by the same CMake tree the game is, so the build
+# backend is scikit-build-core rather than setuptools: `pip install .` has to
+# produce an `md` that can actually `import _md_native`, and a pure-Python
+# backend would install a package that raises on its first line.
+#
+# Only the headless half is built — no Qt, no Vulkan, no tests. Someone doing
+# `pip install missile-defense` wants the deterministic environment to run an
+# agent against; the game is a `.deb`, an installer or a `.dmg`, and asking them
+# for a Vulkan SDK to get a NumPy array would be a poor trade.
+[build-system]
+requires = ["scikit-build-core>=0.10", "nanobind>=2.0"]
+build-backend = "scikit_build_core.build"
+
+[tool.scikit-build]
+minimum-version = "0.10"
+cmake.version = ">=3.25"
+# The wheel's `md` is the checkout's `python/md`; CMake adds `_md_native` to it
+# through the install rule in bindings/CMakeLists.txt.
+wheel.packages = ["python/md"]
+build-dir = "build/wheel"
+# `wheel.exclude` is applied *after* the CMake install, so a `*.pyd` pattern
+# here deletes the module this build just produced and the wheel installs an
+# `md` whose first import fails. It is not needed for its intended purpose
+# either: the in-place copies beside the sources (docs/WINDOWS.md keeps two ABIs
+# there at once) are gitignored, and the packages copy skips them.
+wheel.exclude = ["**/__pycache__"]
+sdist.exclude = ["**/*.pyd", "**/*.so", "**/__pycache__", "build/", "runs/"]
+
+[tool.scikit-build.cmake.define]
+MD_BUILD_APP = "OFF"
+MD_BUILD_BINDINGS = "ON"
+BUILD_TESTING = "OFF"
+# A wheel is built by whoever installs it, on whatever compiler they have. The
+# quality gate is where warnings are errors; a new compiler must not turn a
+# `pip install` into a failure.
+MD_WERROR = "OFF"
+MD_PEDANTIC = "OFF"
 
 [project]
 name = "missile-defense"
 version = "0.1.0"
 description = "Faithful Atari Missile Command clone — game + RL environment"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Jens Köhler", email = "jens@koehler-speyer.de" }]
 requires-python = ">=3.11"
+# md.env types its buffer contract with numpy.typing, so this is not optional
+# for anything that imports the environment at all.
+dependencies = ["numpy>=1.24"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: C++",
+  "Programming Language :: Python :: 3",
+  "Topic :: Games/Entertainment :: Arcade",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+[project.urls]
+Homepage = "https://github.com/JensKSP/missile-defense"
+Source = "https://github.com/JensKSP/missile-defense"
+
+# Never hard dependencies, for the reasons in docs/PACKAGING.md: torch is a
+# multi-gigabyte vendor wheel that Debian's own copy would duplicate, and PySide6
+# is LGPLv3 while this is MIT. Both are checked for at run time and explained
+# when absent, rather than being required by anyone who only wants the
+# environment.
+[project.optional-dependencies]
+train = ["torch"]
+console = ["PySide6", "psutil"]
+
+# Both go through a shim that checks for the optional half first: an entry point
+# that dies inside `import torch` reads as a broken install rather than as a
+# package someone has not added yet (md.cli, md.ui.__main__).
+[project.scripts]
+md-train = "md.cli:train"
+md-console = "md.ui.__main__:main"
 
 # ---- Task runner (poe) -------------------------------------------------------
 # Run with: poe <task>   (after `pip install poethepoet ruff pytest`)
@@ -47,7 +119,8 @@ tidy         = { cmd = "python -m tools.quality tidy", deps = ["build"], help = 
 coverage     = { cmd = "python -m tools.coverage 80", help = "Measure md::core line coverage; fail if below 80%" }
 deb          = { cmd = "cpack --config build/release/CPackConfig.cmake -B build/release -G DEB", deps = ["release"], help = "Build a .deb into build/release/ (needs dpkg-dev)" }
 dmg          = { cmd = "cpack --config build/release/CPackConfig.cmake -B build/release -G DragNDrop", deps = ["release"], help = "Build a .dmg into build/release/ (macOS; needs macdeployqt)" }
-version      = { cmd = "python -m tools.version", help = "Check CMakeLists/pyproject/changelog agree; pass a tag to check that too" }
+version      = { cmd = "python -m tools.version", help = "Check CMakeLists/pyproject/changelog agree; `--dev semver|pep440|debian|filename` prints the nightly version" }
+bump         = { cmd = "python -m tools.release", help = "Set the release version in all three files, then --commit / --tag / --push (docs/RELEASING.md)" }
 
 # --- Quality gates (Python) ---
 lint       = { cmd = "ruff check python tools", help = "Ruff lint the Python code" }

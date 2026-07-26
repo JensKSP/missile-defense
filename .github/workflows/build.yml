@@ -13,6 +13,24 @@ name: Build artifacts
 
 on:
   workflow_call:
+    inputs:
+      package-version:
+        description: >-
+          Stamped into package filenames. Empty means the version the tree
+          declares, which is what a release wants; a nightly passes its dev
+          version so a file called 0.1.0.dmg is never something that is not
+          0.1.0.
+        type: string
+        required: false
+        default: ""
+      deb-version:
+        description: >-
+          Upstream version for the .deb, spelled Debian's way (0.1.0~dev128+g…),
+          because apt has to sort it below the release it precedes. Empty leaves
+          debian/changelog alone.
+        type: string
+        required: false
+        default: ""
 
 jobs:
   macos:
@@ -87,9 +105,11 @@ jobs:
         # Set on the cache here rather than in the presets so the poe tasks below
         # inherit it: they re-run `cmake --preset ...`, and since the presets say
         # nothing about these two, the cached values survive the reconfigure.
+        env:
+          STAMP: ${{ inputs.package-version && format('-DMD_PACKAGE_VERSION={0}', inputs.package-version) || '' }}
         run: |
-          cmake --preset debug -DMD_WERROR=OFF -DMD_PEDANTIC=OFF
-          cmake --preset release -DMD_WERROR=OFF -DMD_PEDANTIC=OFF
+          cmake --preset debug -DMD_WERROR=OFF -DMD_PEDANTIC=OFF $STAMP
+          cmake --preset release -DMD_WERROR=OFF -DMD_PEDANTIC=OFF $STAMP
 
       - name: C++ tests (Debug + sanitizers)
         run: poe test
@@ -159,14 +179,18 @@ jobs:
         # MSYS2 rolls its clang forward continuously — a new warning arriving in
         # a pacman update must not be able to stop a release being built. The
         # Linux gate holds the zero-warning line on a pinned compiler.
+        env:
+          STAMP: ${{ inputs.package-version && format('-DMD_PACKAGE_VERSION={0}', inputs.package-version) || '' }}
         run: |
-          cmake --preset debug -DMD_WERROR=OFF -DMD_PEDANTIC=OFF
+          cmake --preset debug -DMD_WERROR=OFF -DMD_PEDANTIC=OFF $STAMP
           cmake --build --preset debug
           ctest --preset debug
 
       - name: C++ tests (Release)
+        env:
+          STAMP: ${{ inputs.package-version && format('-DMD_PACKAGE_VERSION={0}', inputs.package-version) || '' }}
         run: |
-          cmake --preset release -DMD_WERROR=OFF -DMD_PEDANTIC=OFF
+          cmake --preset release -DMD_WERROR=OFF -DMD_PEDANTIC=OFF $STAMP
           cmake --build --preset release
           ctest --preset release
 
@@ -231,6 +255,20 @@ jobs:
           apt-get install -y --no-install-recommends devscripts equivs lintian
           mk-build-deps --install --remove \
             --tool 'apt-get -y --no-install-recommends' debian/control
+
+      - name: Stamp the changelog for a nightly
+        # Only when a dev version was passed; a release build leaves the
+        # changelog exactly as the tag has it. --force-bad-version because the
+        # whole point of `0.1.0~dev128` is that it sorts *below* the `0.1.0-1`
+        # already at the top of the file, and dch refuses to go backwards
+        # without being told that is deliberate.
+        if: inputs.deb-version != ''
+        env:
+          DEBEMAIL: ci@github
+          DEBFULLNAME: Missile Defense CI
+        run: |
+          dch --newversion "${{ inputs.deb-version }}-1" --distribution unstable               --force-bad-version "Nightly build from ${GITHUB_SHA}."
+          head -1 debian/changelog
 
       - name: Build the package
         # Binary-only: the source format is 3.0 (quilt), which wants an orig

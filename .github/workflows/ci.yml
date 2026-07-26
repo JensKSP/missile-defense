@@ -41,7 +41,7 @@ jobs:
         # tools/make_icon.py is really type-checked rather than waved through.
         run: |
           pip install --break-system-packages poethepoet ruff pytest mypy pyright \
-                      "numpy<2.5" pillow
+                      "numpy<2.5" pillow packaging
 
       - name: Full quality gate
         # format, lint, types, clang-tidy, tests (Debug + Release), coverage >=80%

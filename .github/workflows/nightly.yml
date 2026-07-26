@@ -1,0 +1,147 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Jens Köhler
+# Assisted-by: Claude Code (Anthropic)
+#
+# The latest build of master, downloadable by anyone, at a URL that never
+# changes:
+#
+#     https://github.com/JensKSP/missile-defense/releases/tag/nightly
+#
+# Workflow artifacts cannot do this. They expire after 90 days, they are only
+# downloadable by someone signed in to GitHub, and their URLs are per-run — so
+# they cannot be linked from a README and handed to a stranger. A pre-release on
+# a rolling tag can be all three, and being marked pre-release keeps it from ever
+# displacing the real "Latest release".
+name: Nightly
+
+on:
+  schedule:
+    # 03:15 UTC. Not on the hour: GitHub's scheduler queues everything written
+    # at :00 together, and a nightly is in no hurry.
+    - cron: "15 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nightly
+  cancel-in-progress: true
+
+jobs:
+  decide:
+    # Skip the whole thing when master has not moved. Four platforms of runner
+    # time to rebuild a tree that already has a nightly is waste, and it churns
+    # the download URLs for no reason.
+    runs-on: ubuntu-24.04
+    outputs:
+      changed: ${{ steps.check.outputs.changed }}
+      package-version: ${{ steps.derive.outputs.package }}
+      deb-version: ${{ steps.derive.outputs.deb }}
+      semver: ${{ steps.derive.outputs.semver }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the dev version counts commits, so shallow will not do
+
+      - name: Derive the version
+        id: derive
+        # One source, four spellings — see tools/version.py. Nothing here
+        # hand-writes a version, so two nightlies of one tree cannot disagree.
+        run: |
+          set -euo pipefail
+          {
+            echo "package=$(python3 -m tools.version --dev filename)"
+            echo "deb=$(python3 -m tools.version --dev debian)"
+            echo "semver=$(python3 -m tools.version --dev semver)"
+          } >> "$GITHUB_OUTPUT"
+          python3 -m tools.version --dev semver
+
+      - name: Has master moved since the last nightly?
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          previous="$(gh release view nightly --json targetCommitish -q .targetCommitish 2>/dev/null || echo none)"
+          if [ "$previous" = "$GITHUB_SHA" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Already built $GITHUB_SHA; nothing to do."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Previous nightly was at ${previous}; building ${GITHUB_SHA}."
+          fi
+
+  build:
+    needs: decide
+    if: needs.decide.outputs.changed == 'true'
+    uses: ./.github/workflows/build.yml
+    with:
+      package-version: ${{ needs.decide.outputs.package-version }}
+      deb-version: ${{ needs.decide.outputs.deb-version }}
+
+  publish:
+    needs: [decide, build]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: incoming
+
+      - name: Lay them out
+        # Same shape as release.yml: flatten, put the distribution in each .deb's
+        # name because two cannot share one, and checksum the lot.
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for deb in incoming/missile-defense-deb-*/*.deb; do
+            [ -e "$deb" ] || continue
+            slug="$(basename "$(dirname "$deb")")"; slug="${slug#missile-defense-deb-}"
+            cp "$deb" "dist/$(basename "$deb" .deb)-${slug}.deb"
+          done
+          find incoming -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.exe' \) \
+            -exec cp {} dist/ \;
+          cd dist && sha256sum * > SHA256SUMS
+          ls -l
+
+      - name: Move the nightly
+        # Delete and recreate rather than edit: the tag has to move to the commit
+        # that was actually built, and a release whose tag points somewhere else
+        # is a bug report waiting to be filed. --cleanup-tag takes the old tag
+        # with it. The URL is unchanged throughout, which is the point.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SEMVER: ${{ needs.decide.outputs.semver }}
+        run: |
+          set -euo pipefail
+          # printf for the two dynamic values, a *quoted* heredoc for the rest.
+          # An unquoted heredoc would run every backtick in that markdown table
+          # as a command substitution.
+          {
+            printf 'Automatic build of `master` — **%s**, commit `%s`.\n\n' \
+              "$SEMVER" "$GITHUB_SHA"
+            cat <<'NOTES'
+          Not a release, and not reviewed. It has passed the same tests every push
+          does and nothing more — nobody has played it. Its version sorts *below*
+          the release it precedes, so apt and pip both consider it older.
+
+          | Platform | File |
+          |---|---|
+          | macOS (Apple silicon) | `*-macos-arm64.dmg` |
+          | Windows | `*-win64.exe` (installer) or `*-win64.zip` (portable) |
+          | Debian trixie | `*-debian-trixie.deb` |
+          | Ubuntu 24.04 | `*-ubuntu-24.04.deb` |
+
+          `SHA256SUMS` covers every file here. For a version someone has looked
+          at, use the
+          [latest release](https://github.com/JensKSP/missile-defense/releases/latest).
+          NOTES
+          } > notes.md
+          gh release delete nightly --yes --cleanup-tag 2>/dev/null || true
+          gh release create nightly dist/* \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "Nightly — ${SEMVER}" \
+            --notes-file notes.md

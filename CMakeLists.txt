@@ -256,6 +256,15 @@ if(MD_BUILD_APP AND PROJECT_IS_TOP_LEVEL)
   set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/JensKSP/missile-defense")
   set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/LICENSE")
 
+  # What the package filenames say. Separate from PROJECT_VERSION because
+  # project() only accepts a plain numeric triple, and a nightly needs to stamp
+  # something like 0.1.0-dev128-g83a3fe03 — which is the whole point of a
+  # nightly, since a file called missile-defense-0.1.0.dmg that is not 0.1.0 is
+  # worse than useless once it is sitting in someone's Downloads folder.
+  set(MD_PACKAGE_VERSION "${PROJECT_VERSION}" CACHE STRING
+      "Version stamped into package filenames; defaults to the project version")
+  set(CPACK_PACKAGE_VERSION "${MD_PACKAGE_VERSION}")
+
   if(WIN32)
     # Windows installer (NSIS) + portable archive (ZIP). The install tree already
     # carries the bundled Qt/runtime DLLs and licence texts (see app/CMakeLists).
@@ -279,10 +288,10 @@ if(MD_BUILD_APP AND PROJECT_IS_TOP_LEVEL)
     # oversight — docs/MACOS.md says what that means for anyone who downloads it.
     set(CPACK_GENERATOR "DragNDrop")
     set(CPACK_PACKAGING_INSTALL_PREFIX "/")
-    set(CPACK_DMG_VOLUME_NAME "Missile Defense ${PROJECT_VERSION}")
+    set(CPACK_DMG_VOLUME_NAME "Missile Defense ${MD_PACKAGE_VERSION}")
     set(CPACK_DMG_FORMAT "UDZO") # compressed read-only, the usual shape
     set(CPACK_PACKAGE_FILE_NAME
-        "missile-defense-${PROJECT_VERSION}-macos-${CMAKE_SYSTEM_PROCESSOR}")
+        "missile-defense-${MD_PACKAGE_VERSION}-macos-${CMAKE_SYSTEM_PROCESSOR}")
   else()
     # Debian package. Auto-derive shared-lib deps (Qt 6, Vulkan loader, libc, ...)
     # from the linked binary via dpkg-shlibdeps (needs dpkg-dev installed).

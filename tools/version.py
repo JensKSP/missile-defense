@@ -22,7 +22,9 @@ before tagging:
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 from . import _util
@@ -50,6 +52,72 @@ def read_versions(root: Path | None = None) -> dict[str, str]:
             raise SystemExit(f"error: no version found in {relative}")
         found[relative] = match.group(1)
     return found
+
+
+@dataclass(frozen=True)
+class DevVersion:
+    """One nightly version, spelled the way each ecosystem needs it.
+
+    The tree always declares the version being worked *toward*, so a build off
+    master is a pre-release of it and must sort *below* it. Each packaging system
+    spells "below" differently, and getting it wrong is not cosmetic: a nightly
+    that outranks the release it precedes is one `apt upgrade` from being pinned
+    on a user's machine.
+    """
+
+    base: str  #: what the tree declares, e.g. "0.1.0"
+    distance: int  #: commits since the last release tag
+    commit: str  #: abbreviated hash, "g"-prefixed as git describe writes it
+
+    @property
+    def semver(self) -> str:
+        """`0.1.0-dev.37+g1a2b3c4` — a hyphen makes it a pre-release (SemVer §9)."""
+        return f"{self.base}-dev.{self.distance}+{self.commit}"
+
+    @property
+    def pep440(self) -> str:
+        """`0.1.0.dev37+g1a2b3c4` — `.devN` sorts before the release (PEP 440)."""
+        return f"{self.base}.dev{self.distance}+{self.commit}"
+
+    @property
+    def debian(self) -> str:
+        """`0.1.0~dev37+g1a2b3c4` — `~` is the one character that sorts before nothing."""
+        return f"{self.base}~dev{self.distance}+{self.commit}"
+
+    @property
+    def filename(self) -> str:
+        """`0.1.0-dev37-g1a2b3c4` — no `+`, which URLs decode as a space."""
+        return f"{self.base}-dev{self.distance}-{self.commit}"
+
+
+def _git(root: Path, *args: str) -> str:
+    result = subprocess.run(
+        ["git", *args], cwd=str(root), capture_output=True, text=True, check=True
+    )
+    return result.stdout.strip()
+
+
+def dev_version(root: Path | None = None) -> DevVersion:
+    """Derive the nightly version for the checkout at ``root``.
+
+    Never hand-written: the distance and the hash come from git, so two nightlies
+    of the same tree cannot disagree and one of a different tree cannot collide.
+    """
+    base = root if root is not None else _util.PROJECT_ROOT
+    declared = set(read_versions(base).values())
+    if len(declared) != 1:
+        raise SystemExit("error: the tree disagrees with itself about its version")
+    try:
+        # --long so the format is stable even when HEAD *is* the tag.
+        described = _git(base, "describe", "--tags", "--match", "v[0-9]*", "--long", "--abbrev=8")
+        _, distance, commit = described.rsplit("-", 2)
+    except subprocess.CalledProcessError:
+        # No release tag yet — count from the root commit instead, which keeps
+        # nightlies ordered from the very first one rather than starting at zero
+        # once the first tag lands.
+        distance = _git(base, "rev-list", "--count", "HEAD")
+        commit = "g" + _git(base, "rev-parse", "--short=8", "HEAD")
+    return DevVersion(declared.pop(), int(distance), commit)
 
 
 def check(tag: str | None = None, *, root: Path | None = None) -> int:
@@ -84,8 +152,19 @@ def check(tag: str | None = None, *, root: Path | None = None) -> int:
     return 0
 
 
+#: `poe version --dev <flavour>` prints one rendering and nothing else, so CI can
+#: capture it. Names match the attributes on DevVersion.
+FLAVOURS = ("semver", "pep440", "debian", "filename")
+
+
 def main(argv: list[str] | None = None) -> int:
-    args = sys.argv[1:] if argv is None else argv
+    args = list(sys.argv[1:] if argv is None else argv)
+    if args and args[0] == "--dev":
+        flavour = args[1] if len(args) > 1 else "semver"
+        if flavour not in FLAVOURS:
+            raise SystemExit(f"error: unknown flavour {flavour!r}; pick one of {FLAVOURS}")
+        print(getattr(dev_version(), flavour))
+        return 0
     return check(args[0] if args else None)
 
 

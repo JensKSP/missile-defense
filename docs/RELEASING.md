@@ -3,17 +3,56 @@
 Push a tag; a draft release appears with a build for every platform attached.
 Everything below is what that sentence leaves out.
 
+## Versioning
+
+**Releases are SemVer, tagged `vX.Y.Z`.** Below 1.0 the *minor* is the breaking
+lever, so `0.2.0` may break what `0.1.0` promised and `0.1.1` may not.
+
+What counts as breaking here is worth stating, because the compatibility surface
+is not an ABI. Three things invalidate work someone else has done:
+
+| Surface | Why a change breaks it |
+|---|---|
+| Observation layout / action space | every trained policy becomes garbage |
+| `.mdr` replay format | existing recordings refuse to load |
+| Simulation behaviour | the scripted baseline's score stops being comparable |
+
+A change to any of those is a minor bump before 1.0 and a major one after.
+
+**The tree always carries the version it is working toward.** So a build off
+`master` is a *pre-release* of that version, not a successor to the last one, and
+`poe version` enforces that all three files agree at all times.
+
+**One dev version, spelled the way each ecosystem sorts.** Derived from `git
+describe` by [tools/version.py](../tools/version.py), never written by hand:
+
+| Target | Format | Example |
+|---|---|---|
+| Git tag | `vX.Y.Z` | `v0.1.0` |
+| SemVer / display | `X.Y.Z-dev.N+gSHA` | `0.1.0-dev.128+g83a3fe03` |
+| Python (PEP 440) | `X.Y.Z.devN+gSHA` | `0.1.0.dev128+g83a3fe03` |
+| Debian | `X.Y.Z~devN+gSHA` | `0.1.0~dev128+g83a3fe03` |
+| Filenames | `X.Y.Z-devN-gSHA` | `0.1.0-dev128-g83a3fe03` |
+
+The spellings are not decoration. Debian's `~` is the one character that sorts
+before the empty string, and PEP 440's `.devN` does the same for pip — so a
+nightly is *older* than the release it precedes. Get that backwards and an `apt
+upgrade` pins a user on a build nobody has played. `N` counts commits since the
+last tag, so nightlies also order among themselves. Print any of them with
+`poe version --dev debian`.
+
 ## Cutting one
 
 ```bash
-# 1 — bump the version in all three places that carry it
-#     CMakeLists.txt (project VERSION), pyproject.toml, debian/changelog
-poe version v0.2.0          # fails unless the three agree, and agree with the tag
-
-# 2 — tag and push
-git tag -a v0.2.0 -m "v0.2.0"
-git push origin v0.2.0
+poe bump 0.2.0           # edit the three files, show the diff, stop
+poe bump 0.2.0 --push    # ...commit, tag, and push — this starts the build
 ```
+
+`--commit` and `--tag` are the intermediate steps; each flag implies the ones
+before it, and the bare form is a dry run you can read first. It refuses to start
+on a dirty tree, because a bump commit that quietly carries unrelated work is how
+a release ends up shipping something nobody meant to include. Doing it by hand is
+the same three files plus `git tag -a v0.2.0`.
 
 [.github/workflows/release.yml](../.github/workflows/release.yml) then:
 
@@ -57,6 +96,30 @@ Qt ABIs — `qt6-base-private-abi (= 6.8.2)` on trixie against
 `qt6-base-abi (= 6.4.2)` on Ubuntu, with `libqt6gui6` renamed `libqt6gui6t64` in
 between. Hence the distribution in the filename: mixing them up is not a subtle
 degradation, it is an install that fails at the far end.
+
+## Nightlies
+
+[nightly.yml](../.github/workflows/nightly.yml) rebuilds `master` at 03:15 UTC
+and replaces a pre-release on the rolling `nightly` tag, so
+[one URL](https://github.com/JensKSP/missile-defense/releases/tag/nightly) always
+has the newest build and the README can link it.
+
+It calls the same [build.yml](../.github/workflows/build.yml) as everything else,
+passing the dev version so the filenames say what they are — a file called
+`missile-defense-0.1.0.dmg` that is not 0.1.0 is worse than useless once it is in
+someone's Downloads folder.
+
+Two details worth knowing:
+
+- **It skips when `master` has not moved.** The previous nightly's target commit
+  is compared against `HEAD` first. Rebuilding an identical tree costs four
+  platforms of runner time and churns the download URLs for nothing.
+- **Marked pre-release**, so it never becomes "Latest release" and
+  `/releases/latest` keeps pointing at a version someone has looked at.
+
+Workflow artifacts cannot do this job: they expire after 90 days, they can only
+be downloaded by someone signed in to GitHub, and their URLs are per-run. A
+release asset has none of those limits.
 
 ## Rehearsing it
 
