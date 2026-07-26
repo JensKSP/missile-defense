@@ -603,6 +603,17 @@ void Renderer::startNextFrame() {
             inst.push_back(rect(aim.x, aim.y + off, th, arm * 0.5f, 1.0f, 1.0f, 1.0f)); // up
             inst.push_back(circle(aim.x, aim.y, 0.35f, 1.0f, 1.0f, 1.0f)); // centre dot
         }
+        // The spectator key hints, shared by replay and watch mode. They had the
+        // menu footer's problem — a dim green sitting inside the skyline, darker
+        // than the buildings it crossed — but not its constraint: there is no menu
+        // above them during play, so they simply move up until they clear the
+        // 12-unit launch towers (a glyph hangs 5*px below this top_y). Left cool
+        // rather than the menu's red, which would read as an alert mid-game.
+        const float hint_y = world_h * 0.115f;
+        constexpr float hint_r = 0.62f;
+        constexpr float hint_g = 0.68f;
+        constexpr float hint_b = 0.76f;
+
         // Replay: say what is being watched, and how far through it is.
         if (playing && window_->replaying()) {
             // The pixel font has no lower case, so fold the label — otherwise a
@@ -625,15 +636,15 @@ void Renderer::startNextFrame() {
                                     world_w * filled * 0.5f, world_h * 0.002f, 0.55f, 0.80f,
                                     0.95f));
             }
-            draw_text(inst, "T TAKE OVER   ARROWS SEEK   R RESTART", cx, world_h * 0.055f,
-                      world_h * 0.008f, 0.35f, 0.45f, 0.40f, true);
+            draw_text(inst, "T TAKE OVER   ARROWS SEEK   R RESTART", cx, hint_y, world_h * 0.008f,
+                      hint_r, hint_g, hint_b, true);
         }
         // Watch mode: say plainly who is at the controls, and how to take over.
         if (playing && window_->ai_driving()) {
             draw_text(inst, "AI PLAYING", cx, world_h * 0.955f, world_h * 0.012f, 0.45f, 0.95f,
                       0.65f, true);
-            draw_text(inst, "T TAKE OVER    BRACKETS SPEED", cx, world_h * 0.055f, world_h * 0.008f,
-                      0.35f, 0.45f, 0.40f, true);
+            draw_text(inst, "T TAKE OVER    BRACKETS SPEED", cx, hint_y, world_h * 0.008f, hint_r,
+                      hint_g, hint_b, true);
         }
         // Shared by both spectator modes. Always shown, including 1X — otherwise
         // pressing the speed keys at normal speed looks like nothing happened.
@@ -668,10 +679,17 @@ void Renderer::startNextFrame() {
             draw_text(inst, window_->menu_label(i), cx, y, window_->menu_text_px(),
                       sel ? 0.95f : 0.45f, sel ? 0.75f : 0.45f, sel ? 0.25f : 0.50f, true);
         }
-        draw_text(inst, "ARROWS ENTER OR MOUSE", cx, world_h * 0.115f, world_h * 0.010f, 0.4f,
-                  0.45f, 0.5f, true);
-        draw_text(inst, "F FULLSCREEN   M MUSIC   A AUDIO", cx, world_h * 0.06f, world_h * 0.008f,
-                  0.35f, 0.4f, 0.45f, true);
+        // Both hint lines clear the skyline entirely rather than being coloured to
+        // survive crossing it. A glyph hangs 5*px *below* the top_y given here, so
+        // the usable band is from the launch towers' 12 units up to the menu
+        // band's 0.16h — 14.5 units for two lines and the gap between them, which
+        // only fits if they are set smaller. They are, and the deep red then works
+        // as a colour rather than as a contrast problem: it reads against the dark
+        // sky and stays quieter than the menu items it belongs to.
+        draw_text(inst, "ARROWS ENTER OR MOUSE", cx, world_h * 0.151f, world_h * 0.0070f, 0.62f,
+                  0.17f, 0.16f, true);
+        draw_text(inst, "F FULLSCREEN   M MUSIC   A AUDIO", cx, world_h * 0.105f, world_h * 0.0060f,
+                  0.62f, 0.17f, 0.16f, true);
     } else if (game_over) {
         draw_text(inst, "GAME OVER", cx, world_h * 0.70f, world_h * 0.042f, 0.95f, 0.30f, 0.25f,
                   true);
