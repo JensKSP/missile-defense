@@ -293,7 +293,62 @@ consequences the API leans on:
 - Replay, scrubbing and human takeover are re-simulation plus `memcpy`, because a
   `Sim` is a value.
 
-## 7. Status
+## 7. `.mdp` — a trained policy as data
+
+The format both the game and the evaluator load a learned policy from. Written by
+`md.policy_format`, read by `md.policy_format` and `agent/src/policy.cpp`.
+
+**Why it is not a `.pt`.** A PyTorch checkpoint is a pickle, and loading one runs
+whatever its author put in it. That is fine for a file you trained yourself and
+unacceptable for one the game finds in an install directory or one somebody
+downloaded. The second reason is harder: the game is C++ with no Python in it at
+all — that is the promise `debian/control` keeps — so the only format it *could*
+load is one that needs no torch to read. **`.pt` is never an import format here.**
+It is what training writes; `md.export_policy` converts it.
+
+```
+magic            8 bytes, "MDPOLICY"
+container        uint32 LE — how to parse the rest of this header
+manifest length  uint32 LE
+manifest         UTF-8 JSON, exactly that many bytes
+payload          the tensors, back to back, at the offsets the manifest gives
+```
+
+**Two version numbers, answering different questions.** `container` is how to
+parse the file. `schema` is what the numbers *mean* — the observation encoding
+and action space of §2 and §3 — and moves whenever `md::encode` does. So a reader
+that understands the container can always get far enough into the manifest to say
+*"this policy is for a different simulation"*, which is a far better failure than
+a parse error on a byte offset.
+
+The compatibility promise, in full:
+
+| Rule | Why |
+|---|---|
+| **Data only** — no code, no pickles, no Python type references | a reader never has to trust the file to avoid executing something |
+| **Little-endian float32**, explicitly, everywhere | these files travel between machines; "it worked on mine" is not a format |
+| **Every tensor's offset and length are in the manifest and bounds-checked against the payload before a byte is read** | the C++ reader has no other way to be safe, and the Python one checks identically so both agree on which files are valid |
+| **SHA-256 over the payload**, in the manifest | a flipped bit in a weight is otherwise a policy that plays slightly worse and nobody ever finds out |
+| **Tensor order and names are fixed by the architecture** | a file may not add, drop or rename one and still claim that architecture; readers look tensors up by name and check the set is exactly right |
+| **Dimensions are resolved against each other and against the manifest** | a manifest claiming a different observation size than its weights have is a rejection, not a policy that reads off the end of a row |
+| **Non-finite weights are refused on read *and* on write** | a NaN propagates to every logit, so the policy plays uniformly at random and merely looks bad |
+| **Unknown metadata keys are preserved and ignored** | that is the extension point — display name, run id, canonical score — and it never affects how the weights are read |
+
+`metadata` is where a model's **display name** lives, which is what lets the game
+put `SCRIPTED` or the model's own name on the HUD while it plays. A path is not a
+name: `policy-best.pt` says nothing about which run produced it.
+
+Writing is validated *before* the file exists and lands by atomic rename, so a
+promotion that would have shipped an unreadable model fails where someone can
+still do something about it, and a crash mid-write never replaces a good file
+with half of a bad one.
+
+Adding an architecture means one entry in `ARCHITECTURES` in
+`python/md/policy_format.py` and the matching forward pass in
+`agent/src/policy.cpp`. Both sides then refuse what the other cannot run — which
+is the entire reason the architecture is named in the file.
+
+## 8. Status
 
 | Piece | State |
 |---|---|

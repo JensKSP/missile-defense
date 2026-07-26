@@ -257,7 +257,7 @@ boundary, against a different language's implementation.
 - Modify: `python/md/__init__.py`
 - Modify: `docs/API.md`
 
-- [ ] **Step 1: Write failing round-trip and rejection tests**
+- [x] **Step 1: Write failing round-trip and rejection tests**
 
 Define tests that construct a two-layer fixture with NumPy arrays, round-trip it,
 verify the checksum, and reject an unknown schema, truncated tensor, non-finite
@@ -279,12 +279,12 @@ def test_policy_rejects_invalid_payload(tmp_path: Path, mutation: Mutation) -> N
         policy_format.read(path)
 ```
 
-- [ ] **Step 2: Verify the tests fail**
+- [x] **Step 2: Verify the tests fail**
 
 Run: `pytest python/tests/test_policy_format.py -q`
 Expected: collection fails because `md.policy_format` does not exist.
 
-- [ ] **Step 3: Implement the format**
+- [x] **Step 3: Implement the format**
 
 Use a fixed magic header, little-endian numeric payloads, UTF-8 JSON manifest,
 SHA-256 payload checksum, explicit tensor offsets, and `allow_pickle=False`.
@@ -312,7 +312,7 @@ def write(path: Path, policy: NativePolicy) -> Path: ...
 def read(path: Path) -> NativePolicy: ...
 ```
 
-- [ ] **Step 4: Run focused Python quality checks**
+- [x] **Step 4: Run focused Python quality checks**
 
 Run: `pytest python/tests/test_policy_format.py -q`
 Expected: all tests pass.
@@ -320,12 +320,12 @@ Expected: all tests pass.
 Run: `ruff check python/md/policy_format.py python/tests/test_policy_format.py`
 Expected: no findings.
 
-- [ ] **Step 5: Document the compatibility promise**
+- [x] **Step 5: Document the compatibility promise**
 
 Document magic, schema, dimensions, checksums, tensor ordering, and the rule that
 the format stores data only. State that `.pt` is never the import format.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add python/md/policy_format.py python/md/__init__.py \
