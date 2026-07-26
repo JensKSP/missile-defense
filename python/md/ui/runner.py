@@ -16,6 +16,11 @@ no way to take that away.
 Finding the game binary is the fiddly part, so it is deliberate rather than a
 fixed path: an explicit ``MD_APP``, then this checkout's build directories, then
 ``PATH`` for a system install from the ``.deb``.
+
+Finding the *interpreter* is the same kind of search and now has the same shape:
+``MD_PYTHON``, then the runtime the console installed itself (:mod:`md.runtime`),
+then this interpreter if torch happens to be importable from it. Only starting a
+run depends on the answer — attaching, browsing and replay never do.
 """
 
 from __future__ import annotations
@@ -29,8 +34,11 @@ import sys
 import threading
 import time
 from collections.abc import Callable, Iterator, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Protocol
+
+from .. import runtime
 
 #: <root>/python/md/ui/runner.py — the checkout, when the console runs from one.
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -218,26 +226,76 @@ def _spawn_piped(command: list[str], cwd: Path, env: Mapping[str, str]) -> Piped
     )
 
 
-def training_python(environ: Mapping[str, str] | None = None) -> str:
-    """Which interpreter a run is started with.
+@dataclass(frozen=True)
+class Interpreter:
+    """The Python a run would be started with, and where it was found."""
 
-    The console's own by default — on a training machine that is the one with
-    torch, since it is also the one that could import PySide6. ``MD_PYTHON``
-    overrides it for the split-interpreter case.
+    path: str
+    #: For the tooltip, so "why is Start off?" and "which torch is that?" are
+    #: answerable without reading this file.
+    source: str
+
+
+def find_interpreter(
+    environ: Mapping[str, str] | None = None,
+    *,
+    store: runtime.Runtime | None = None,
+) -> Interpreter | None:
+    """Something that could run a trainer, or ``None`` if this machine has none.
+
+    Three places, in order of how explicit each is:
+
+    1. ``MD_PYTHON`` — someone said which one, so it is not second-guessed. It is
+       the split-interpreter case on Windows (docs/WINDOWS.md), where the console
+       and the trainer are deliberately different builds.
+    2. the runtime the console installed and health-checked itself
+       (:mod:`md.runtime`) — the answer for anyone who installed a package.
+    3. this interpreter, if torch happens to be importable from it — the developer
+       case, and what this function used to be in its entirety.
+
+    ``find_spec`` locates torch without importing it, which still matters: the
+    console must never pull torch in, and a test asserts it.
     """
     env = os.environ if environ is None else environ
-    return env.get("MD_PYTHON") or sys.executable
+    explicit = env.get("MD_PYTHON")
+    if explicit:
+        return Interpreter(explicit, "MD_PYTHON")
+    managed = (runtime.Runtime() if store is None else store).python()
+    if managed is not None:
+        return Interpreter(str(managed), "the runtime this console installed")
+    if importlib.util.find_spec("torch") is not None:
+        return Interpreter(sys.executable, "this interpreter")
+    return None
 
 
-def can_train() -> bool:
-    """Whether *this* interpreter could run a trainer at all.
+def training_python(
+    environ: Mapping[str, str] | None = None,
+    *,
+    store: runtime.Runtime | None = None,
+) -> str:
+    """Which interpreter a run is started with.
 
-    ``find_spec`` locates torch without importing it, which matters twice: the
-    console must never pull torch in (a test asserts it), and a console watching
-    a remote run from a laptop with no torch should say Start is unavailable
-    rather than spawning something that dies with an ImportError.
+    Falls back to the console's own even when nothing can train, because the
+    caller that builds a command line should not have to handle ``None`` for a
+    case the UI has already disabled.
     """
-    return importlib.util.find_spec("torch") is not None
+    found = find_interpreter(environ, store=store)
+    return found.path if found is not None else sys.executable
+
+
+def can_train(
+    environ: Mapping[str, str] | None = None,
+    *,
+    store: runtime.Runtime | None = None,
+) -> bool:
+    """Whether a run could be started at all.
+
+    Only Start depends on this. Attaching to a run, browsing recordings and
+    replaying them stay available with no runtime installed and no torch
+    anywhere — watching a run synced from another machine is a supported way to
+    use the console, and always was.
+    """
+    return find_interpreter(environ, store=store) is not None
 
 
 def training_environ(environ: Mapping[str, str] | None = None) -> dict[str, str]:

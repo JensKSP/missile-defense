@@ -183,6 +183,10 @@ for the CPU and memory rows. Both are optional and neither is ever a dependency
 of the game. On Windows install them into the same native interpreter that has
 torch; see [WINDOWS.md](WINDOWS.md#training-on-windows).
 
+It does **not** need torch. Where there is none, the primary button offers to
+install one instead of being a dead control — see
+[Getting PyTorch](#from-the-console-without-a-terminal).
+
 ## Picking up where you left off
 
 ```bash
@@ -248,6 +252,39 @@ Honest list, so you do not chase these as bugs:
   environment is the wall. See [Getting PyTorch](#getting-pytorch).
 
 ## Getting PyTorch
+
+### From the console, without a terminal
+
+If you installed a package rather than cloning this repository, you do not need
+any of the sections below. Open the training console; where the primary button
+would say **Start** it says **Set up training…** instead, and that dialog
+installs a copy of PyTorch the console manages itself.
+
+It tells you what it is about to do before doing it: which build it recommends
+for your machine, which index it comes from, and roughly how large the download
+is. Change the build if you know better — a driver too old for the CUDA wheel is
+the usual reason — and press **Install**.
+
+What it does is worth knowing, because it is deliberately boring:
+
+* It creates a **virtual environment of its own** under your data directory
+  (`~/.local/share/MissileDefense/runtime`, and the equivalents elsewhere;
+  `MD_RUNTIME_DIR` moves it to a scratch disk). Your system Python is untouched.
+* It installs **only from PyPI or `download.pytorch.org`, over https**. That
+  allow-list is the whole trust decision, and it is not configurable: installing
+  a package is running its code.
+* It then **proves the result works** by importing torch *and* the simulation
+  binding in the new interpreter. Only if that succeeds does the runtime become
+  the current one — so a download that fails, a wheel with no kernel for your
+  card, or a cancelled install leaves nothing behind and cannot break a runtime
+  that was already working.
+
+The same dialog repairs and removes it again. Everything else in the console —
+attaching to a run, the curves, browsing and replaying recordings — has never
+needed torch and still does not.
+
+`MD_PYTHON` still wins over all of this, for the split-interpreter case on
+Windows.
 
 ### Linux
 

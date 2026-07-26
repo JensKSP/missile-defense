@@ -43,6 +43,7 @@ import md.ui.theme
 try:  # the widgets, where PySide6 is installed — the console is optional
     import md.ui.app
     import md.ui.charts
+    import md.ui.runtime_dialog
 except ModuleNotFoundError as error:
     if error.name is None or not error.name.startswith("PySide6"):
         raise

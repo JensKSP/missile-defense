@@ -10,11 +10,15 @@ neither needs a window to check.
 
 from __future__ import annotations
 
+import json
 import os
 import sys
+from collections.abc import Callable
 from pathlib import Path
+from unittest import mock
 
 import pytest
+from md import runtime
 from md.ui import runner
 from md.ui.runner import (
     PACKAGE_PATH,
@@ -23,12 +27,37 @@ from md.ui.runner import (
     TrainingRun,
     app_binary,
     can_train,
+    find_interpreter,
     launch_environ,
     training_environ,
     training_python,
 )
 
 EXE = ".exe" if os.name == "nt" else ""
+
+
+def _stub_ready_runtime(tmp_path: Path) -> runtime.Runtime:
+    """A store with a runtime installed, without installing one.
+
+    It goes through the real :meth:`Runtime.install`, because the state that
+    makes a runtime *ready* — the signed manifest and the current marker — is
+    exactly what this is testing the reading of. Only the three commands are
+    faked.
+    """
+    root = tmp_path / "runtime"
+
+    def fake(command: list[str], emit: Callable[[str], None]) -> int:
+        if "venv" in command:
+            interpreter = runtime.venv_python(Path(command[-1]), platform=sys.platform)
+            interpreter.parent.mkdir(parents=True, exist_ok=True)
+            interpreter.write_text("")
+        elif runtime.HEALTH_SCRIPT in command:
+            emit(json.dumps({"native": True, "torch": "2.13.0", "device": "cuda"}))
+        return 0
+
+    store = runtime.Runtime(root, runner=fake)
+    store.install(runtime.recommend(runtime.SystemInfo.here(), [], root=root))
+    return store
 
 
 class FakeProcess:
@@ -210,9 +239,61 @@ def test_windows_puts_the_msys2_qt_dlls_back_on_path(tmp_path: Path) -> None:
     assert env["PATH"].endswith("C:/Windows")
 
 
-def test_a_run_starts_in_this_interpreter_unless_told_otherwise() -> None:
-    assert training_python({}) == sys.executable
-    assert training_python({"MD_PYTHON": "C:/python312/python.exe"}) == "C:/python312/python.exe"
+def _empty_store(tmp_path: Path) -> runtime.Runtime:
+    """A runtime store with nothing installed, so these tests do not depend on
+    whether the machine running them has one."""
+    return runtime.Runtime(tmp_path / "runtime")
+
+
+def test_a_run_starts_in_this_interpreter_unless_told_otherwise(tmp_path: Path) -> None:
+    store = _empty_store(tmp_path)
+    assert training_python({}, store=store) == sys.executable
+    assert (
+        training_python({"MD_PYTHON": "C:/python312/python.exe"}, store=store)
+        == "C:/python312/python.exe"
+    )
+
+
+def test_an_explicit_interpreter_is_not_second_guessed(tmp_path: Path) -> None:
+    # MD_PYTHON is someone saying which build to train with — the Windows
+    # split-interpreter case. It wins over a managed runtime and is not probed.
+    found = find_interpreter({"MD_PYTHON": "/opt/py/bin/python"}, store=_empty_store(tmp_path))
+    assert found is not None
+    assert found.path == "/opt/py/bin/python"
+    assert found.source == "MD_PYTHON"
+
+
+def test_a_managed_runtime_is_what_a_packaged_user_trains_with(tmp_path: Path) -> None:
+    # The whole point of md.runtime: an installed copy with no torch anywhere
+    # can still start a run, and Start does not depend on how the console itself
+    # was installed.
+    store = _stub_ready_runtime(tmp_path)
+    found = find_interpreter({}, store=store)
+    assert found is not None
+    assert found.path == str(store.python())
+    assert "installed" in found.source
+    assert can_train({}, store=store)
+
+
+def test_a_machine_with_no_runtime_and_no_torch_cannot_train(tmp_path: Path) -> None:
+    # The packaged console before setup: no managed runtime, and torch is not
+    # importable from the interpreter it is running in either.
+    store = _empty_store(tmp_path)
+    with mock.patch.object(runner.importlib.util, "find_spec", return_value=None):
+        assert not can_train({}, store=store)
+        assert find_interpreter({}, store=store) is None
+
+
+def test_browsing_and_replay_do_not_depend_on_being_able_to_train(tmp_path: Path) -> None:
+    # A console attached to a directory synced from the training box must stay
+    # fully useful: only Start is gated on an interpreter.
+    root = tmp_path / "checkout"
+    binary = _build_app(root)
+    launcher = ReplayLauncher(root=root, environ={}, spawn=(spawn := FakeSpawn()))
+    with mock.patch.object(runner.importlib.util, "find_spec", return_value=None):
+        assert not can_train({}, store=_empty_store(tmp_path))
+        launcher.launch(tmp_path / "episode.mdr")
+    assert spawn.calls[0][0][0] == str(binary)
 
 
 def test_a_spawned_run_can_import_md_without_it_being_installed() -> None:
@@ -228,8 +309,13 @@ def test_a_spawned_run_can_import_md_without_it_being_installed() -> None:
 def test_whether_this_interpreter_could_train_at_all() -> None:
     # True where torch is installed, False in the MSYS2 one that runs the gate —
     # either way the answer must not *import* torch (see test_ui_boundary.py).
+    # Guarded against a torch already imported by an earlier test in the same
+    # process (e.g. test_ppo, which runs where torch is installed): the check is
+    # that can_train adds nothing, not that the whole session is torch-free.
+    had_torch = "torch" in sys.modules
     assert isinstance(can_train(), bool)
-    assert "torch" not in sys.modules
+    if not had_torch:
+        assert "torch" not in sys.modules
 
 
 def test_a_run_is_read_line_by_line_and_reports_how_it_ended(tmp_path: Path) -> None:

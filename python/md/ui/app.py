@@ -60,6 +60,7 @@ from .runner import (
     can_train,
     training_python,
 )
+from .runtime_dialog import RuntimeDialog
 from .sources import BASELINE_MEAN_SCORE, EvalRow, MetricRow, Recording
 
 #: Where the trainer's dataclasses live, for the parameter form's tooltips.
@@ -268,14 +269,6 @@ class Console(QMainWindow):
         self._log_toggle.toggled.connect(self._show_log)
         for button in (self._primary, self._stop, self._reset, self._log_toggle):
             row.addWidget(button)
-        if not can_train():
-            # Watching a run from a machine with no torch is a supported way to
-            # use this; pretending Start would work there is not.
-            self._primary.setEnabled(False)
-            self._primary.setToolTip(
-                "This interpreter has no torch, so it cannot start a run — "
-                "start one from a terminal and the console will attach to it."
-            )
         return row
 
     def _log_pane(self) -> QWidget:
@@ -629,8 +622,13 @@ class Console(QMainWindow):
 
         state = self._state(modified)
         self._set_status(*STATUS[state])
-        self._primary.setText({"paused": "Resume", "live": "Pause"}.get(state, "Start"))
-        self._primary.setEnabled(state != "stopping" and (state != "idle" or can_train()))
+        # Idle with nothing that could train is the fourth meaning of the primary
+        # button: it offers to fix that rather than being a dead control with an
+        # explanation on it. Watching a run from a machine with no torch stays a
+        # supported way to use this — only Start was ever gated.
+        idle_label = "Start" if can_train() else "Set up training…"
+        self._primary.setText({"paused": "Resume", "live": "Pause"}.get(state, idle_label))
+        self._primary.setEnabled(state != "stopping")
         self._stop.setEnabled(state in ("live", "paused"))
 
         if modified is None:
@@ -652,10 +650,14 @@ class Console(QMainWindow):
         """
         inside = sources.find_runs(self._run_dir)
         if not inside:
-            return (
-                f"no {sources.METRICS_NAME} in {self._run_dir} yet — "
+            # "Press Start" is the wrong next step on a machine that has nothing
+            # to start one *with*; the button says so too, and the two must agree.
+            next_step = (
                 "press Start, or run `poe train` in a terminal"
+                if can_train()
+                else "press Set up training to install PyTorch"
             )
+            return f"no {sources.METRICS_NAME} in {self._run_dir} yet — {next_step}"
         names = ", ".join(run.name for run in inside[:4])
         more = f" (+{len(inside) - 4} more)" if len(inside) > 4 else ""
         return (
@@ -697,7 +699,23 @@ class Console(QMainWindow):
             self.statusBar().showMessage(
                 f"pausing after the current update — {self._control.pause_file}"
             )
+        elif not can_train():
+            self._set_up_runtime()
         else:
+            self._start()
+
+    def _set_up_runtime(self) -> None:
+        """Install the runtime, then carry straight on into the new-run dialog.
+
+        Setup is a means, not a destination: someone who pressed the button
+        wanted to train, so a successful install continues to the thing they were
+        actually after rather than returning them to a window with a new button
+        on it.
+        """
+        dialog = RuntimeDialog(parent=self)
+        accepted = dialog.exec() == QDialog.DialogCode.Accepted
+        self._refresh_status()  # the button's meaning has probably just changed
+        if accepted and can_train():
             self._start()
 
     def _start(self) -> None:

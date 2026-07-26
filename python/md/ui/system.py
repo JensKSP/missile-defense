@@ -99,7 +99,13 @@ class SystemMonitor:
         probe: GpuProbe | None = None,
         discover: bool = True,
     ) -> None:
-        self._psutil = psutil_module if psutil_module is not None else _import_psutil()
+        # `discover` governs both halves. Without that, passing no psutil could
+        # not be *said* — it fell through to importing the real one — so the
+        # "psutil is missing" behaviour was only ever exercised on a machine that
+        # happened not to have it, and silently stopped being tested on one that did.
+        self._psutil = (
+            psutil_module if psutil_module is not None else (_import_psutil() if discover else None)
+        )
         self._probe = probe if probe is not None else (find_gpu_probe() if discover else None)
         self._gpu_note = "" if self._probe is not None else NO_PROBE
 

@@ -48,6 +48,12 @@ RUNS_NAME = "runs"
 #: One override for "put the runs somewhere else entirely".
 RUNS_ENV = "MD_RUNS_DIR"
 
+#: Where the console installs a training runtime it manages itself.
+RUNTIME_NAME = "runtime"
+
+#: One override, for a scratch disk — a torch install is several gigabytes.
+RUNTIME_ENV = "MD_RUNTIME_DIR"
+
 
 def data_home(environ: Mapping[str, str] | None = None, *, platform: str = sys.platform) -> Path:
     """The per-user data directory for this application.
@@ -85,3 +91,26 @@ def runs_dir(
     if local.is_dir():
         return local
     return data_home(env, platform=platform) / RUNS_NAME
+
+
+def runtime_dir(
+    *,
+    environ: Mapping[str, str] | None = None,
+    platform: str = sys.platform,
+) -> Path:
+    """Where a console-managed training runtime is installed. Creates nothing.
+
+    Deliberately *not* the checkout's rule-3 treatment that :func:`runs_dir` has.
+    A run directory belongs beside the source you started it from; a multi-gigabyte
+    torch install does not, and one per clone would be a surprise measured in tens
+    of gigabytes. So it always lands in the per-user data directory, where a
+    second checkout finds the same one already installed.
+
+    Data rather than cache for the same reason runs are: pip would have to
+    re-download it, and on a metered connection that is not a shrug.
+    """
+    env = os.environ if environ is None else environ
+    override = env.get(RUNTIME_ENV)
+    if override:
+        return Path(override)
+    return data_home(env, platform=platform) / RUNTIME_NAME
