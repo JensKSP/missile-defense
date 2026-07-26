@@ -26,6 +26,32 @@ const md::StepResult r = sim.step(action);   // r.reward = score delta, r.termin
 - **A `Sim` is a value** — trivially copyable, ~12 KB, no heap, no pointers. A
   snapshot is a `memcpy`; a fork is an assignment.
 
+`StepResult` carries the reward and the termination flag, plus three tallies of
+what happened *this tick* that cannot be recovered afterwards:
+
+```cpp
+std::int32_t wasted;         // blasts that expired having killed nothing
+std::int32_t multi_kills;    // kills beyond a blast's first
+std::array<std::int32_t, md::kills_per_shot_bins> kills_per_shot;  // 0,1,2,3,4+
+```
+
+`kills_per_shot` bins each blast that expired this tick by its lifetime kill
+count, so `kills_per_shot[0] == wasted` by construction and the top bin absorbs
+anything above three. It is filled at blast *expiry* — the one moment a blast's
+kill count is final — which is why it has to be instrumentation in the core and
+cannot be derived from the event stream by a caller counting `ThreatKilled`:
+those events say a threat died, not which interceptor's blast is responsible for
+how many. Aggregated over an episode and a seed set (`md::agent::EpisodeResult`,
+`Summary`) this is the distribution behind the kills-per-shot average, and the
+only thing that distinguishes an agent catching clusters from one whose mean is
+propped up by luck.
+
+The core counts and prices nothing: `wasted` and `multi_kills` are what the
+Python shaping puts a number on (`md.env.Shaping.waste_penalty` and
+`multikill_bonus`), while `kills_per_shot` is reporting only and no reward reads
+it. Keeping the two apart is deliberate — a statistic that fed the objective
+would stop being a measurement of it.
+
 ## 2. Observation — raw state, never analysis
 
 `md/observation.hpp` encodes the simulation into one flat `float` vector, written

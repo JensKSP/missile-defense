@@ -308,3 +308,52 @@ def test_evaluate_scores_a_policy_on_the_shared_protocol() -> None:
     assert summary.episodes == 4
     assert summary.min_score <= summary.mean_score <= summary.max_score
     assert 0 <= summary.survived <= 4
+
+
+def test_evaluate_reports_the_full_statistics() -> None:
+    # The complete per-run stat set the console will draw on: survival, damage,
+    # ammunition spend and the kills-per-shot distribution — all aggregated by the
+    # same C++ summarize() the scripted baseline goes through.
+    from md.eval import evaluate, format_summary
+
+    rng = np.random.default_rng(1)
+
+    def policy(obs: np.ndarray, mask: np.ndarray) -> np.ndarray:
+        return np.array([rng.choice(np.flatnonzero(r)) for r in mask], dtype=np.int32)
+
+    summary = evaluate(policy, seeds=[1, 2, 3, 4], max_ticks=1500)
+    hist = list(summary.kills_per_shot)
+    assert len(hist) == 5  # 0, 1, 2, 3, 4+
+    assert summary.mean_ticks > 0
+    assert 0.0 <= summary.mean_hit_rate <= 1.0
+    assert summary.mean_hits <= summary.mean_shots
+    assert summary.mean_cities_lost >= 0.0
+    assert summary.mean_bases_left <= 3.0
+    # Ammo held in reserve at the end — the "shots left" ledger entry.
+    assert summary.mean_ammo_left >= 0.0
+
+    text = format_summary(summary)
+    for label in ("survived", "last wave", "cities", "bases", "ammo unfired", "kills per shot"):
+        assert label in text
+
+
+def test_episode_result_histogram_reconciles_with_kills() -> None:
+    # bin 0 is the wasted shots, bins 1.. the hits, and — barring a blast in the
+    # capped top bin — the weighted histogram is the kill count exactly.
+    rng = np.random.default_rng(2)
+    env = VecEnv(num_envs=1, threads=1, frame_skip=4, max_ticks=2000, shaping=None, seed=5)
+    env.reset_seeds([5])
+    result = None
+    while result is None:
+        mask = env.action_masks()
+        actions = np.array([rng.choice(np.flatnonzero(mask[0]))], dtype=np.int32)
+        _, _, terminated, truncated, _ = env.step(actions)
+        if terminated[0] or truncated[0]:
+            result = env.take_episode_result(0)
+
+    hist = list(result.kills_per_shot)
+    assert result.wasted == hist[0]
+    assert result.hits == sum(hist[1:])
+    assert result.hits + result.wasted <= result.shots
+    if hist[-1] == 0:
+        assert sum(i * count for i, count in enumerate(hist)) == result.kills

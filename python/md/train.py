@@ -334,7 +334,10 @@ def _write_config(path: Path, config: TrainConfig, ppo: PPOConfig, out_dir: Path
     path.write_text(json.dumps(payload, indent=2, default=str) + "\n", encoding="utf-8")
 
 
-#: Columns of ``evals.csv`` — the fields of the shared C++ ``Summary``, in order.
+#: Columns of ``evals.csv`` — the fields of the shared C++ ``Summary``. The
+#: original nine come first and in their original order, so anything that read
+#: this file before the statistics were widened still finds them; the complete
+#: set (survival, damage, spend, kills-per-shot distribution) is appended after.
 EVAL_COLUMNS = (
     "update",
     "mean_score",
@@ -345,6 +348,23 @@ EVAL_COLUMNS = (
     "mean_accuracy",
     "survived",
     "episodes",
+    "mean_ticks",
+    "mean_waves_cleared",
+    "mean_cities_lost",
+    "mean_bases_left",
+    "mean_bases_lost",
+    "mean_ammo_left",
+    "mean_bonus_cities",
+    "mean_mirv_splits",
+    "mean_shots",
+    "mean_kills",
+    "mean_hits",
+    "mean_hit_rate",
+    "shots_0kill",
+    "shots_1kill",
+    "shots_2kill",
+    "shots_3kill",
+    "shots_4plus",
 )
 
 
@@ -366,6 +386,7 @@ def _log_eval(path: Path, iteration: int, summary: Any) -> None:
         writer = csv.writer(handle)
         if fresh:
             writer.writerow(EVAL_COLUMNS)
+        hist = list(summary.kills_per_shot)
         writer.writerow(
             [
                 iteration,
@@ -377,6 +398,19 @@ def _log_eval(path: Path, iteration: int, summary: Any) -> None:
                 f"{summary.mean_accuracy:.4f}",
                 summary.survived,
                 summary.episodes,
+                f"{summary.mean_ticks:.1f}",
+                f"{summary.mean_waves_cleared:.3f}",
+                f"{summary.mean_cities_lost:.3f}",
+                f"{summary.mean_bases_left:.3f}",
+                f"{summary.mean_bases_lost:.3f}",
+                f"{summary.mean_ammo_left:.2f}",
+                f"{summary.mean_bonus_cities:.3f}",
+                f"{summary.mean_mirv_splits:.3f}",
+                f"{summary.mean_shots:.2f}",
+                f"{summary.mean_kills:.2f}",
+                f"{summary.mean_hits:.2f}",
+                f"{summary.mean_hit_rate:.4f}",
+                *hist,
             ]
         )
 

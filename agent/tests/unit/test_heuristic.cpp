@@ -8,7 +8,9 @@
 #include "md/sim.hpp"
 #include "md/vec2.hpp"
 
+#include <array>
 #include <catch2/catch_test_macros.hpp>
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -142,6 +144,64 @@ TEST_CASE("evaluate aggregates over the seed set", "[unit][agent]") {
     REQUIRE(s.episodes == 4u);
     REQUIRE(s.mean_score > 0.0);
     REQUIRE(s.min_score <= s.max_score);
+}
+
+TEST_CASE("An episode's kills, shots and histogram reconcile", "[unit][agent]") {
+    const Config cfg;
+    const EpisodeResult r = md::agent::run_episode(cfg, 7, Heuristic{}, 4000);
+    REQUIRE(r.shots > 0u);
+    REQUIRE(r.kills > 0u);
+
+    // The histogram accounts for every interceptor that detonated: bin 0 is the
+    // wasted shots, bins 1.. the ones that destroyed something.
+    std::uint32_t detonated = 0;
+    for (const std::uint32_t count : r.kills_per_shot) {
+        detonated += count;
+    }
+    REQUIRE(r.wasted() == r.kills_per_shot[0]);
+    REQUIRE(r.hits() == detonated - r.kills_per_shot[0]);
+    // Interceptors still in flight at the end became no blast, so are counted in
+    // neither bin — the histogram can only be shorter than the shots fired.
+    REQUIRE(detonated <= r.shots);
+
+    // With nothing in the top ("4+") bin, the kill count is recoverable exactly
+    // from the histogram, which proves the two tallies agree rather than drift.
+    if (r.kills_per_shot.back() == 0u) {
+        std::uint32_t weighted = 0;
+        for (std::size_t bin = 0; bin < r.kills_per_shot.size(); ++bin) {
+            weighted += static_cast<std::uint32_t>(bin) * r.kills_per_shot[bin];
+        }
+        REQUIRE(weighted == r.kills);
+    }
+
+    REQUIRE(r.cities_left <= md::max_cities);
+    REQUIRE(r.bases_left <= md::base_count);
+}
+
+TEST_CASE("summarize sums the histogram and averages the statistics", "[unit][agent]") {
+    const Config cfg;
+    const Heuristic agent{};
+    const std::vector<std::uint64_t> seeds = md::agent::default_seeds(4);
+    std::vector<EpisodeResult> episodes;
+    episodes.reserve(seeds.size());
+    for (const std::uint64_t seed : seeds) {
+        episodes.push_back(md::agent::run_episode(cfg, seed, agent, 4000));
+    }
+    const md::agent::Summary sum = md::agent::summarize(episodes);
+
+    // The aggregate histogram is exactly the per-episode ones added together.
+    std::array<std::uint64_t, md::kills_per_shot_bins> expected{};
+    for (const EpisodeResult& episode : episodes) {
+        for (std::size_t bin = 0; bin < expected.size(); ++bin) {
+            expected[bin] += episode.kills_per_shot[bin];
+        }
+    }
+    REQUIRE(sum.kills_per_shot == expected);
+    REQUIRE(sum.mean_ticks > 0.0);
+    REQUIRE(sum.mean_shots > 0.0);
+    REQUIRE(sum.mean_kills > 0.0);
+    REQUIRE(sum.mean_hits <= sum.mean_shots);
+    REQUIRE(sum.mean_cities_left <= static_cast<double>(md::max_cities));
 }
 
 TEST_CASE("Throttling the agent's decisions really holds its action", "[unit][agent]") {

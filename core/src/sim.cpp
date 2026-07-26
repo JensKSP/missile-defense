@@ -86,6 +86,7 @@ StepResult Sim::step(const Action& action) noexcept {
     event_count_ = 0; // events are per-step
     tick_wasted_ = 0;
     tick_multi_kills_ = 0;
+    tick_kills_per_shot_.fill(0);
 
     if (terminated_) {
         ++tick_;
@@ -118,7 +119,8 @@ StepResult Sim::step(const Action& action) noexcept {
     return StepResult{.reward = score_ - score_before,
                       .terminated = terminated_,
                       .wasted = tick_wasted_,
-                      .multi_kills = tick_multi_kills_};
+                      .multi_kills = tick_multi_kills_,
+                      .kills_per_shot = tick_kills_per_shot_};
 }
 
 void Sim::update_cooldowns() noexcept {
@@ -226,6 +228,7 @@ void Sim::advance_blasts() noexcept {
             if (blast.kills == 0) {
                 ++tick_wasted_;
             }
+            ++tick_kills_per_shot_[std::min(blast.kills, kills_per_shot_bins - 1U)];
             blasts_[i] = blasts_[blast_count_ - 1];
             --blast_count_;
         } else {

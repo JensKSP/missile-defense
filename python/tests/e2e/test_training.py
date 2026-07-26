@@ -24,7 +24,7 @@ from pathlib import Path
 
 import pytest
 
-from .harness import needs_native, needs_torch, recordings
+from .harness import agent_eval, needs_agent_eval, needs_native, needs_torch, recordings
 
 pytestmark = [pytest.mark.e2e, needs_torch, needs_native]
 
@@ -54,6 +54,88 @@ def test_a_run_scores_itself_against_the_canonical_seeds(trained_run: Path) -> N
     # the compatibility the console's by-name column matching also provides.
     for column in ("update", "mean_score", "mean_wave", "mean_accuracy", "episodes"):
         assert column in rows[0], f"evals.csv has no {column} column"
+
+
+#: The five bins, in the order `md.train.EVAL_COLUMNS` writes them.
+EVAL_HISTOGRAM = ("shots_0kill", "shots_1kill", "shots_2kill", "shots_3kill", "shots_4plus")
+
+#: The per-episode means the statistics added, beside the nine original columns.
+EVAL_STATISTICS = (
+    "mean_ticks",
+    "mean_waves_cleared",
+    "mean_cities_lost",
+    "mean_bases_left",
+    "mean_bases_lost",
+    "mean_ammo_left",
+    "mean_bonus_cities",
+    "mean_mirv_splits",
+    "mean_shots",
+    "mean_kills",
+    "mean_hits",
+    "mean_hit_rate",
+)
+
+
+def _plausible(row: dict[str, str]) -> None:
+    """Assert an evaluation row could have come from a game that was played.
+
+    A column of zeroes is exactly the failure this catches: the wiring can be
+    complete from `Sim` through the bindings to the CSV and still deliver
+    nothing, and a test that only checked the header would pass on it.
+    """
+    ticks, shots = float(row["mean_ticks"]), float(row["mean_shots"])
+    hits, kills = float(row["mean_hits"]), float(row["mean_kills"])
+    histogram = [int(row[name]) for name in EVAL_HISTOGRAM]
+
+    assert ticks > 0, "episodes that lasted no time at all"
+    assert shots > 0, "an evaluation in which nothing was ever fired"
+    assert kills > 0, "shots were fired and nothing was ever hit"
+    # An interceptor cannot hit more often than it was launched, and the rate is
+    # a fraction. Both would survive a units mix-up that the presence check misses.
+    assert hits <= shots
+    assert 0.0 <= float(row["mean_hit_rate"]) <= 1.0
+    # Nothing may go backwards, and the counts are bounded by the board.
+    assert float(row["mean_waves_cleared"]) >= 0.0
+    assert float(row["mean_cities_lost"]) >= 0.0
+    assert float(row["mean_bonus_cities"]) >= 0.0
+    assert float(row["mean_mirv_splits"]) >= 0.0
+    assert float(row["mean_ammo_left"]) >= 0.0
+    assert 0.0 <= float(row["mean_bases_left"]) <= 3.0
+    # The distribution: every resolved interceptor is in exactly one bin, and bin
+    # 0 is the wasted ones. If the histogram were never filled this is what says so.
+    assert sum(histogram) > 0, "the kills-per-shot histogram is empty"
+    assert all(count >= 0 for count in histogram)
+
+
+def test_a_runs_evaluation_carries_the_full_statistics(trained_run: Path) -> None:
+    # Task 11's claim, from the file end: survival, damage, spend and the
+    # kills-per-shot distribution reach the CSV a person opens, with values that
+    # could have come from a game. Asserted by reading what a real run wrote,
+    # never by calling summarize() — the wiring from Sim through the bindings and
+    # the trainer is the part that can break without any unit test noticing.
+    evals = trained_run / "evals.csv"
+    rows = list(csv.DictReader(evals.read_text(encoding="utf-8").splitlines()))
+    assert rows, "evals.csv has no evaluation in it"
+    for column in (*EVAL_STATISTICS, *EVAL_HISTOGRAM):
+        assert column in rows[0], f"evals.csv has no {column} column"
+    _plausible(rows[-1])
+
+
+@needs_agent_eval
+def test_the_evaluator_prints_the_full_statistics_block() -> None:
+    # The other end of the same claim, and the one with no Python in it: the
+    # scripted baseline's own binary printing the same C++ Summary. Two seeds and
+    # a short cap, because this is checking the printout rather than the baseline
+    # — the canonical 32-seed number is what `poe eval` is for.
+    result = agent_eval("--seeds", "2", "--max-ticks", "2000")
+    assert result.returncode == 0, result.stderr
+    for line in ("mean score", "survived", "last wave", "cities", "bases", "ammo unfired"):
+        assert line in result.stdout, f"the eval printout has no {line!r} line"
+    # The distribution, spelled out — the one statistic that is a shape rather
+    # than a number, and the reason the block exists at all.
+    assert "kills per shot" in result.stdout
+    for label in ("0:", "1:", "2:", "3:", "4+:"):
+        assert label in result.stdout, f"the kills-per-shot line has no {label!r} bin"
 
 
 def test_a_run_records_what_it_was_started_with(trained_run: Path) -> None:

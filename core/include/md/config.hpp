@@ -28,6 +28,13 @@ inline constexpr std::uint32_t max_blasts = 64;
 inline constexpr std::uint32_t max_explosions = 64;
 inline constexpr std::uint32_t max_events = 128; // events emitted per step (capped)
 
+// Resolution of the kills-per-shot histogram: bins for 0, 1, 2, 3 and "4 or more"
+// threats destroyed by a single interceptor's blast. A blast can occasionally
+// catch a larger MIRV cluster; those fold into the top bin. This is how "is the
+// agent catching clusters or wasting shots?" reads as a distribution rather than
+// a single mean (the scripted baseline's is 1.10).
+inline constexpr std::uint32_t kills_per_shot_bins = 5;
+
 /// Tunable simulation constants (see DESIGN.md §2–4). Values here are the v0.1
 /// strawman defaults, finalized during playtest before the mechanics freeze.
 struct Config {
@@ -45,7 +52,13 @@ struct Config {
     // state: naming a distant point costs travel time instead of being free.
     // Strawman values; calibrate from recorded human play before the freeze.
     float aim_max_speed = 1200.0f; // crosshair top speed, world units/s (0 = instant)
-    float fire_interval = 0.15f;   // min seconds between ANY two launches (0 = none)
+    float fire_interval = 0.33f;   // min seconds between ANY two launches (~3/s; 0 = none)
+    // Reaction rate: the sim samples a *new* action once per this many ticks and
+    // holds it between, so no driver — human, scripted, or learned — can re-decide
+    // faster than a hand can. 4 ticks ≈ 15 Hz (the training frame-skip); 1 = every
+    // tick (60 Hz). Enforced in `Sim::step`, not in a driver, exactly as the aim
+    // and trigger limits are — otherwise a per-tick driver has a free reflex edge.
+    std::uint32_t decision_interval = 4;
 
     // Interceptors & blasts.
     float interceptor_speed = 220.0f; // world units / second

@@ -59,6 +59,15 @@ void VecEnv::finish_episode(std::size_t index, bool terminated) {
             ++result.cities_left;
         }
     }
+    result.bases_left = 0;
+    result.ammo_left = 0;
+    for (const Base& base : sim.bases()) {
+        if (base.alive) {
+            ++result.bases_left;
+            result.ammo_left += base.ammo;
+        }
+    }
+    agent::bin_active_blasts(result, sim.blasts()); // blasts still expanding at the end
     finished_result_[index] = result;
 }
 
@@ -181,13 +190,13 @@ void VecEnv::run_range(std::size_t begin, std::size_t end, const std::int32_t* a
             multi_kills_[i] += result.multi_kills;
             done = result.terminated;
             ++episode_ticks_[i];
-            // Same tallies, off the same event stream, as md::agent::run_episode.
-            for (const Event& event : sim.events()) {
-                if (event.type == EventType::Fire) {
-                    ++live_result_[i].shots;
-                } else if (event.type == EventType::ThreatKilled) {
-                    ++live_result_[i].kills;
-                }
+            // The full per-episode tallies, off the same event stream and the same
+            // StepResult as md::agent::run_episode — the counting is *shared* code,
+            // so the scripted baseline and a learned policy cannot drift apart.
+            agent::tally_events(live_result_[i], sim.events());
+            for (std::size_t b = 0; b < live_result_[i].kills_per_shot.size(); ++b) {
+                live_result_[i].kills_per_shot[b] +=
+                    static_cast<std::uint32_t>(result.kills_per_shot[b]);
             }
         }
 

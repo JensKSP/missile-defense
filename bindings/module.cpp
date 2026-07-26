@@ -19,6 +19,7 @@
 #include <filesystem>
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>
+#include <nanobind/stl/array.h>
 #include <nanobind/stl/optional.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/vector.h>
@@ -75,22 +76,46 @@ NB_MODULE(_md_native, m) {
         .def_ro("seed", &md::agent::EpisodeResult::seed)
         .def_ro("score", &md::agent::EpisodeResult::score)
         .def_ro("wave_reached", &md::agent::EpisodeResult::wave_reached)
-        .def_ro("cities_left", &md::agent::EpisodeResult::cities_left)
+        .def_ro("waves_cleared", &md::agent::EpisodeResult::waves_cleared)
         .def_ro("ticks", &md::agent::EpisodeResult::ticks)
+        .def_ro("cities_left", &md::agent::EpisodeResult::cities_left)
+        .def_ro("cities_lost", &md::agent::EpisodeResult::cities_lost)
+        .def_ro("bases_left", &md::agent::EpisodeResult::bases_left)
+        .def_ro("bases_lost", &md::agent::EpisodeResult::bases_lost)
+        .def_ro("ammo_left", &md::agent::EpisodeResult::ammo_left)
+        .def_ro("bonus_cities", &md::agent::EpisodeResult::bonus_cities)
+        .def_ro("mirv_splits", &md::agent::EpisodeResult::mirv_splits)
         .def_ro("shots", &md::agent::EpisodeResult::shots)
         .def_ro("kills", &md::agent::EpisodeResult::kills)
+        .def_ro("kills_per_shot", &md::agent::EpisodeResult::kills_per_shot)
         .def_ro("terminated", &md::agent::EpisodeResult::terminated)
-        .def_prop_ro("accuracy", &md::agent::EpisodeResult::accuracy);
+        .def_prop_ro("wasted", &md::agent::EpisodeResult::wasted)
+        .def_prop_ro("hits", &md::agent::EpisodeResult::hits)
+        .def_prop_ro("accuracy", &md::agent::EpisodeResult::accuracy)
+        .def_prop_ro("hit_rate", &md::agent::EpisodeResult::hit_rate);
 
     nb::class_<md::agent::Summary>(m, "Summary", "Aggregate over a seed set.")
         .def_ro("episodes", &md::agent::Summary::episodes)
         .def_ro("mean_score", &md::agent::Summary::mean_score)
         .def_ro("mean_wave", &md::agent::Summary::mean_wave)
+        .def_ro("mean_waves_cleared", &md::agent::Summary::mean_waves_cleared)
+        .def_ro("mean_ticks", &md::agent::Summary::mean_ticks)
         .def_ro("mean_cities_left", &md::agent::Summary::mean_cities_left)
+        .def_ro("mean_cities_lost", &md::agent::Summary::mean_cities_lost)
+        .def_ro("mean_bases_left", &md::agent::Summary::mean_bases_left)
+        .def_ro("mean_bases_lost", &md::agent::Summary::mean_bases_lost)
+        .def_ro("mean_ammo_left", &md::agent::Summary::mean_ammo_left)
+        .def_ro("mean_bonus_cities", &md::agent::Summary::mean_bonus_cities)
+        .def_ro("mean_mirv_splits", &md::agent::Summary::mean_mirv_splits)
+        .def_ro("mean_shots", &md::agent::Summary::mean_shots)
+        .def_ro("mean_kills", &md::agent::Summary::mean_kills)
+        .def_ro("mean_hits", &md::agent::Summary::mean_hits)
         .def_ro("mean_accuracy", &md::agent::Summary::mean_accuracy)
+        .def_ro("mean_hit_rate", &md::agent::Summary::mean_hit_rate)
         .def_ro("min_score", &md::agent::Summary::min_score)
         .def_ro("max_score", &md::agent::Summary::max_score)
-        .def_ro("survived", &md::agent::Summary::survived);
+        .def_ro("survived", &md::agent::Summary::survived)
+        .def_ro("kills_per_shot", &md::agent::Summary::kills_per_shot);
 
     m.def("default_seeds", &md::agent::default_seeds, nb::arg("count") = 32u,
           "The canonical evaluation seeds — the same set the M4 baseline is measured on.");

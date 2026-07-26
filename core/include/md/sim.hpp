@@ -28,6 +28,11 @@ struct StepResult {
     // — stays exactly what DESIGN §4.3 specifies.
     std::int32_t wasted = 0;      // blasts that expired this tick having killed nothing
     std::int32_t multi_kills = 0; // kills beyond a blast's first
+    // How many threats each blast that expired this tick had destroyed, binned
+    // 0,1,2,3,4+. `kills_per_shot[0]` is exactly `wasted`; the tail is what
+    // "catching clusters" looks like as a distribution instead of a mean. Filled
+    // at blast expiry, the one moment a blast's lifetime kill count is final.
+    std::array<std::int32_t, kills_per_shot_bins> kills_per_shot{};
 };
 
 /// The Missile Command simulation: a self-contained, deterministic POD value.
@@ -156,6 +161,7 @@ class Sim {
     // (a blast expiring, and a blast killing) and consumed in one.
     std::int32_t tick_wasted_ = 0;
     std::int32_t tick_multi_kills_ = 0;
+    std::array<std::int32_t, kills_per_shot_bins> tick_kills_per_shot_{};
 
     // Wave/spawn progression.
     std::int32_t next_bonus_score_ = 0;  // score at which the next bonus city is earned

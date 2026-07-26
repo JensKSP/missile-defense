@@ -86,15 +86,43 @@ def evaluate(
     return _native.summarize([r for r in results if r is not None])
 
 
+#: Simulation tick rate (`Config::dt` = 1/60 s), for reporting survival in seconds.
+TICKS_PER_SECOND = 60.0
+
+
 def format_summary(summary: Summary) -> str:
-    """The same shape `poe eval` prints, so the two can be read side by side."""
+    """The full per-run statistics, the same shape `poe eval` prints so the
+    scripted baseline and a learned policy can be read side by side.
+
+    Averages are per episode over the seed set; the kills-per-shot line is the
+    histogram summed over *every* interceptor in the evaluation, which is the one
+    that answers "is it catching clusters or wasting shots?" as a distribution.
+    """
+    hist = list(summary.kills_per_shot)
+    total_shots = sum(hist) or 1
+    dist = "  ".join(
+        f"{label}:{count} ({100 * count / total_shots:.0f}%)"
+        for label, count in zip(("0", "1", "2", "3", "4+"), hist, strict=False)
+    )
+    seconds = summary.mean_ticks / TICKS_PER_SECOND
     return "\n".join(
         [
-            f"mean score      {summary.mean_score:10.1f}   "
+            f"mean score       {summary.mean_score:10.1f}   "
             f"[{summary.min_score} .. {summary.max_score}]",
-            f"mean wave       {summary.mean_wave:10.2f}",
-            f"mean cities left{summary.mean_cities_left:10.2f}",
-            f"kills per shot  {summary.mean_accuracy:10.2f}",
-            f"survived cap    {summary.survived:10d} / {summary.episodes}",
+            f"survived         {summary.mean_ticks:10.0f} ticks ({seconds:.1f}s)   "
+            f"{summary.survived}/{summary.episodes} reached the cap",
+            f"last wave        {summary.mean_wave:10.2f}   "
+            f"({summary.mean_waves_cleared:.2f} cleared)",
+            f"cities           {summary.mean_cities_left:10.2f} left   "
+            f"{summary.mean_cities_lost:.2f} lost   {summary.mean_bonus_cities:.2f} rebuilt",
+            f"bases            {summary.mean_bases_left:10.2f} left   "
+            f"{summary.mean_bases_lost:.2f} lost",
+            f"ammo unfired     {summary.mean_ammo_left:10.2f}   "
+            f"(interceptors still loaded at the end)",
+            f"targets killed   {summary.mean_kills:10.2f}   "
+            f"({summary.mean_mirv_splits:.2f} MIRV splits)",
+            f"shots fired      {summary.mean_shots:10.2f}   {summary.mean_hits:.2f} hit "
+            f"({100 * summary.mean_hit_rate:.0f}%)   {summary.mean_accuracy:.2f} kills/shot",
+            f"kills per shot   {dist}",
         ]
     )

@@ -4,7 +4,7 @@
 // Runs the scripted baseline over the canonical seed set and prints the metrics
 // the learned agent will be measured against.
 //
-//   md_agent_eval [--seeds N] [--max-ticks N] [--frame-skip N] [--per-episode]
+//   md_agent_eval [--seeds N] [--max-ticks N] [--per-episode]
 #include "md/agent/eval.hpp"
 #include "md/agent/heuristic.hpp"
 #include "md/config.hpp"
@@ -14,6 +14,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <exception>
+#include <numeric>
 #include <print>
 #include <string_view>
 #include <vector>
@@ -62,23 +63,46 @@ int run(int argc, char** argv) {
                  1.0 / (static_cast<double>(config.dt) * static_cast<double>(frame_skip)));
 
     if (per_episode) {
-        std::println("{:<20} {:>8} {:>6} {:>7} {:>8} {:>7} {:>6}", "seed", "score", "wave",
-                     "cities", "shots", "kills", "k/s");
+        std::println("{:<20} {:>8} {:>5} {:>5} {:>8} {:>7} {:>7} {:>6} {:>6} {:>6}", "seed",
+                     "score", "wave", "wvs", "ticks", "cit_ls", "bas_ls", "shots", "kills", "hits");
         for (const std::uint64_t seed : seeds) {
             const md::agent::EpisodeResult r =
                 md::agent::run_episode(config, seed, agent, max_ticks, frame_skip);
-            std::println("{:<20} {:>8} {:>6} {:>7} {:>8} {:>7} {:>6.2f}", r.seed, r.score,
-                         r.wave_reached, r.cities_left, r.shots, r.kills, r.accuracy());
+            std::println("{:<20} {:>8} {:>5} {:>5} {:>8} {:>7} {:>7} {:>6} {:>6} {:>6}", r.seed,
+                         r.score, r.wave_reached, r.waves_cleared, r.ticks, r.cities_lost,
+                         r.bases_lost, r.shots, r.kills, r.hits());
         }
         std::println();
     }
 
     const md::agent::Summary s = md::agent::evaluate(config, seeds, agent, max_ticks, frame_skip);
-    std::println("mean score      {:>10.1f}   [{} .. {}]", s.mean_score, s.min_score, s.max_score);
-    std::println("mean wave       {:>10.2f}", s.mean_wave);
-    std::println("mean cities left{:>10.2f}  of {}", s.mean_cities_left, md::max_cities);
-    std::println("kills per shot  {:>10.2f}", s.mean_accuracy);
-    std::println("survived cap    {:>10} / {}", s.survived, s.episodes);
+    const auto& hist = s.kills_per_shot;
+    const auto total_shots =
+        std::max<std::uint64_t>(1, std::accumulate(hist.begin(), hist.end(), std::uint64_t{0}));
+    const auto pct = [total_shots](std::uint64_t n) {
+        return 100.0 * static_cast<double>(n) / static_cast<double>(total_shots);
+    };
+    std::println("mean score       {:>10.1f}   [{} .. {}]", s.mean_score, s.min_score, s.max_score);
+    std::println("survived         {:>10.0f} ticks ({:.1f} s)   {} / {} reached the cap",
+                 s.mean_ticks, s.mean_ticks * static_cast<double>(config.dt), s.survived,
+                 s.episodes);
+    std::println("last wave        {:>10.2f}   ({:.2f} cleared)", s.mean_wave,
+                 s.mean_waves_cleared);
+    std::println("cities           {:>10.2f} left   {:.2f} lost   {:.2f} rebuilt   (of {})",
+                 s.mean_cities_left, s.mean_cities_lost, s.mean_bonus_cities, md::max_cities);
+    std::println("bases            {:>10.2f} left   {:.2f} lost   (of {})", s.mean_bases_left,
+                 s.mean_bases_lost, md::base_count);
+    std::println("ammo unfired     {:>10.2f}   (interceptors still loaded at the end)",
+                 s.mean_ammo_left);
+    std::println("targets killed   {:>10.2f}   ({:.2f} MIRV splits)", s.mean_kills,
+                 s.mean_mirv_splits);
+    std::println("shots fired      {:>10.2f}   {:.2f} hit ({:.0f}%)   {:.2f} kills/shot",
+                 s.mean_shots, s.mean_hits, 100.0 * s.mean_hit_rate, s.mean_accuracy);
+    std::println("kills per shot   0:{} ({:.0f}%)  1:{} ({:.0f}%)  2:{} ({:.0f}%)  3:{} ({:.0f}%)  "
+                 "4+:{} ({:.0f}%)",
+                 hist[0], pct(hist[0]), hist[1], pct(hist[1]), hist[2], pct(hist[2]), hist[3],
+                 pct(hist[3]), hist[4], pct(hist[4]));
+    std::println("survived cap     {:>10} / {}", s.survived, s.episodes);
     return 0;
 }
 

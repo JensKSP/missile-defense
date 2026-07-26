@@ -385,6 +385,40 @@ def recordings(run_dir: Path) -> list[Path]:
     return sorted(run_dir.glob("update-*.mdr"))
 
 
+# ---- the scripted baseline ---------------------------------------------------
+
+
+def agent_eval_binary() -> Path | None:
+    """The scripted-baseline evaluator, from this checkout's builds.
+
+    The other half of Task 11's claim. A run's statistics are written to
+    `evals.csv` by the trainer and *printed* by this binary, from the same C++
+    `Summary` — so "the numbers reach the files people read" is only proven by
+    reading both, and this one has no Python in it at all.
+    """
+    suffix = ".exe" if sys.platform == "win32" else ""
+    for build in ("build/debug/agent", "build/release/agent"):
+        candidate = PROJECT_ROOT / build / f"md_agent_eval{suffix}"
+        if candidate.exists():
+            return candidate
+    return None
+
+
+needs_agent_eval = pytest.mark.skipif(
+    agent_eval_binary() is None,
+    reason="the evaluator is not built here — cmake --build --preset release",
+)
+
+
+def agent_eval(*args: str, timeout: float = 300.0) -> subprocess.CompletedProcess[str]:
+    """Run the scripted-baseline evaluator the way ``poe eval`` does."""
+    binary = agent_eval_binary()
+    assert binary is not None, "the evaluator is not built"
+    return subprocess.run(
+        [str(binary), *args], capture_output=True, text=True, timeout=timeout, check=False
+    )
+
+
 # ---- a local package index ---------------------------------------------------
 
 

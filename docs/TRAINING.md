@@ -111,6 +111,54 @@ return, which as above is *not* a score; `evals.csv` is the 32-seed summary that
 is, so it is the one a "beat 113,834" line can honestly be drawn across. Keeping
 them apart also keeps the sparse rows out of the dense file.
 
+## What a run reports about itself
+
+A score says a policy plateaued. It does not say *why*. The full per-episode
+statistics do, and every one of them is counted off the same deterministic event
+stream the agent itself observes — no privileged look inside the simulation:
+
+| Stat | Reads as |
+|---|---|
+| `ticks` (÷ 60 = seconds) | how long it survived |
+| `wave_reached`, `waves_cleared` | how far it got, and how much it finished |
+| `cities_left` / `cities_lost` / `bonus_cities` | what it was defending, and what it rebuilt |
+| `bases_left` / `bases_lost` / `ammo_left` | what it defended *with*, and what it never spent |
+| `shots`, `kills`, `hits`, `mirv_splits` | how the ammunition went |
+| **`kills_per_shot[]`** — bins 0, 1, 2, 3, 4+ | the distribution behind the average |
+
+The histogram is the one worth learning to read. "1.10 kills per interceptor" is
+a mean, and a mean cannot distinguish an agent that reliably takes one threat per
+shot from one that wastes half its ammunition and catches pairs with the rest.
+The distribution separates them at a glance: bin 0 is wasted shots, and weight in
+bins 2+ is the only evidence of *catching clusters*, which is where a score above
+the baseline has to come from. The scripted baseline sits at 2% wasted, 86% single
+kills and 12% multiples — a learned policy that beats it will not look like that.
+
+Two places show them. `poe eval` prints the block for the scripted baseline:
+
+```
+mean score          15592.5   [14895 .. 16470]
+survived               4000 ticks (66.7 s)   4 / 4 reached the cap
+last wave              7.00   (6.00 cleared)
+cities                 6.00 left   0.00 lost   0.00 rebuilt   (of 6)
+bases                  3.00 left   0.00 lost   (of 3)
+ammo unfired          19.75   (interceptors still loaded at the end)
+targets killed        88.00   (0.00 MIRV splits)
+shots fired           80.75   78.00 hit (98%)   1.09 kills/shot
+kills per shot   0:5 (2%)  1:274 (86%)  2:36 (11%)  3:2 (1%)  4+:0 (0%)
+```
+
+and a training run prints the same block at every `--eval-every`, having written
+it to `evals.csv` first. That file's original nine columns keep their names and
+their order, so anything that read it before still finds them; the rest are
+appended — the per-episode means, then the histogram as `shots_0kill` …
+`shots_4plus`. Both printouts come from one C++ `Summary` and one `summarize`,
+which is what makes the learned policy and the scripted baseline comparable at
+all: the numbers are not merely alike, they are produced by the same code.
+
+`poe eval --frame-skip 4` throttles the scripted agent to the neural policy's
+own decision rate, if what you want to compare is tactics rather than reflexes.
+
 ## Stopping a run without losing it
 
 A run is hours long, and `Ctrl-C` throws away everything since the last
