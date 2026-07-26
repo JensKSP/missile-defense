@@ -156,6 +156,12 @@ class Sim {
     std::uint32_t wave_ = 0;
     bool terminated_ = false;
 
+    // The action currently in force. Sampled once per `Config::decision_interval`
+    // ticks and held between (see `Sim::step`), so the reaction rate is a
+    // player-model limit like the aim and trigger caps — enforced here, not in a
+    // driver, so no per-tick caller gets a free reflex edge over a 15 Hz one.
+    Action latched_action_{};
+
     // Reset at the top of every step; reported in that step's StepResult. Members
     // rather than return values because they are produced in two different phases
     // (a blast expiring, and a blast killing) and consumed in one.

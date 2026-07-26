@@ -66,6 +66,7 @@ void Sim::reset(std::uint64_t seed) noexcept {
     fire_cooldown_remaining_ = 0.0f;
     score_ = 0;
     tick_ = 0;
+    latched_action_ = {};
     terminated_ = false;
     break_timer_ = 0.0f;
     spawn_timer_ = 0.0f;
@@ -100,9 +101,19 @@ StepResult Sim::step(const Action& action) noexcept {
 
     const std::int32_t score_before = score_;
 
+    // Reaction-rate limit (DESIGN §5): sample a new action once per
+    // decision_interval ticks and hold it between, so no driver — human,
+    // scripted, or learned — re-decides faster than a hand can. The crosshair
+    // still steers toward the latched aim every tick, so only the *decision* is
+    // paced, never the motion.
+    const std::uint64_t interval = std::max<std::uint64_t>(1, config_.decision_interval);
+    if (tick_ % interval == 0) {
+        latched_action_ = action;
+    }
+
     update_cooldowns();
-    move_crosshair(action);         // steer the shared cursor (speed-capped)
-    try_fire(action);               // launches detonate at the crosshair
+    move_crosshair(latched_action_); // steer the shared cursor (speed-capped)
+    try_fire(latched_action_);       // launches detonate at the crosshair
     advance_interceptors();         // may spawn blasts
     advance_blasts();               // age blasts, update radius, expire
     advance_explosions();           // age cosmetic ground-impact fireballs

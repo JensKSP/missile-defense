@@ -204,33 +204,36 @@ TEST_CASE("summarize sums the histogram and averages the statistics", "[unit][ag
     REQUIRE(sum.mean_cities_left <= static_cast<double>(md::max_cities));
 }
 
-TEST_CASE("Throttling the agent's decisions really holds its action", "[unit][agent]") {
-    // A scripted agent that re-aims every tick is being compared against a neural
-    // policy that decides every fourth, so part of any gap between them is
-    // reaction speed rather than tactics. `frame_skip` removes that part by
-    // holding the scripted agent's action the same way.
+TEST_CASE("The sim throttles decisions to its decision_interval", "[unit][agent]") {
+    // A scripted agent re-deciding every tick, compared against a neural policy
+    // deciding every fourth, is partly a race on reaction speed rather than
+    // tactics. `Config::decision_interval` removes that: the sim samples a new
+    // action once per that many ticks and holds it between — in the core, so
+    // every driver obeys it identically.
     //
-    // That the throttle *works* is only visible when it is turned up far enough
-    // to hurt: at one decision a second the agent is aiming at where the threats
-    // were, and the score collapses. That collapse is the evidence the action is
-    // genuinely held rather than quietly recomputed.
-    const Config cfg;
+    // That the throttle *works* is only visible turned up far enough to hurt: at
+    // one decision a second the agent aims at where the threats were and the score
+    // collapses — evidence the action is genuinely held, not quietly recomputed.
     const Heuristic agent{};
     const std::vector<std::uint64_t> seeds = md::agent::default_seeds(4);
-    const md::agent::Summary native = md::agent::evaluate(cfg, seeds, agent, 3000, 1);
-    const md::agent::Summary crippled = md::agent::evaluate(cfg, seeds, agent, 3000, 60);
+    const auto at = [&](std::uint32_t interval) {
+        Config cfg;
+        cfg.decision_interval = interval;
+        return md::agent::evaluate(cfg, seeds, agent, 3000);
+    };
+    const md::agent::Summary native = at(1);    // every tick — 60 Hz
+    const md::agent::Summary crippled = at(60); // one decision a second
     REQUIRE(crippled.mean_score < native.mean_score / 4.0);
 
-    // And the point of the flag: at the policy's own ~15 Hz the baseline is
-    // essentially undiminished, so a learned agent held to that rate is being
-    // compared against a fair opponent rather than a hobbled one.
-    const md::agent::Summary policy_rate = md::agent::evaluate(cfg, seeds, agent, 3000, 4);
+    // At the policy's own ~15 Hz the baseline is essentially undiminished, so a
+    // learned agent held to that rate faces a fair opponent, not a hobbled one.
+    const md::agent::Summary policy_rate = at(4);
     REQUIRE(policy_rate.mean_score > native.mean_score * 0.9);
 
     // Deterministic at every rate, or a comparison between two of them is noise.
-    REQUIRE(md::agent::evaluate(cfg, seeds, agent, 3000, 4).mean_score == policy_rate.mean_score);
-    // Zero would step nothing; it means "every tick", which is the default.
-    REQUIRE(md::agent::evaluate(cfg, seeds, agent, 3000, 0).mean_score == native.mean_score);
+    REQUIRE(at(4).mean_score == policy_rate.mean_score);
+    // Zero means "every tick", the same as one — the sim clamps it up.
+    REQUIRE(at(0).mean_score == native.mean_score);
 }
 
 TEST_CASE("The agent obeys the player model like any other driver", "[unit][agent]") {

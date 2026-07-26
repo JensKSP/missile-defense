@@ -3,7 +3,6 @@
 // Assisted-by: Claude Code (Anthropic)
 #include "md/agent/eval.hpp"
 
-#include "md/action.hpp"
 #include "md/agent/heuristic.hpp"
 #include "md/config.hpp"
 #include "md/event.hpp"
@@ -76,23 +75,18 @@ void bin_active_blasts(EpisodeResult& result, std::span<const Blast> blasts) noe
 }
 
 EpisodeResult run_episode(const Config& config, std::uint64_t seed, const Heuristic& agent,
-                          std::uint64_t max_ticks, unsigned frame_skip) {
+                          std::uint64_t max_ticks) {
     Sim sim{config};
     sim.reset(seed);
 
     EpisodeResult result{};
     result.seed = seed;
 
-    const std::uint64_t skip = frame_skip == 0 ? 1 : frame_skip;
-    Action action{};
     for (std::uint64_t tick = 0; tick < max_ticks; ++tick) {
-        // Decide every `skip` ticks and hold the action between. skip==1 is the
-        // native per-tick rate; skip==4 throttles the agent to the neural
-        // policy's ~15 Hz, so the two are scored at the same reaction rate.
-        if (tick % skip == 0) {
-            action = agent.act(sim);
-        }
-        const StepResult step = sim.step(action);
+        // The agent proposes an action every tick; the sim samples it once per
+        // Config::decision_interval and holds it between, so the reaction-rate
+        // limit is the simulation's — identical to the learned policy's.
+        const StepResult step = sim.step(agent.act(sim));
         tally_events(result, sim.events());
         for (std::size_t b = 0; b < result.kills_per_shot.size(); ++b) {
             result.kills_per_shot[b] += static_cast<std::uint32_t>(step.kills_per_shot[b]);
@@ -200,11 +194,11 @@ Summary summarize(std::span<const EpisodeResult> episodes) {
 }
 
 Summary evaluate(const Config& config, std::span<const std::uint64_t> seeds, const Heuristic& agent,
-                 std::uint64_t max_ticks, unsigned frame_skip) {
+                 std::uint64_t max_ticks) {
     std::vector<EpisodeResult> episodes;
     episodes.reserve(seeds.size());
     for (const std::uint64_t seed : seeds) {
-        episodes.push_back(run_episode(config, seed, agent, max_ticks, frame_skip));
+        episodes.push_back(run_episode(config, seed, agent, max_ticks));
     }
     return summarize(episodes);
 }

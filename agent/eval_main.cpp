@@ -31,7 +31,7 @@ int run(int argc, char** argv) {
     std::size_t seed_count = 32;
     std::uint64_t max_ticks = 120000;
     bool per_episode = false;
-    unsigned frame_skip = 1;
+    md::Config config{}; // defaults, including the 15 Hz decision cadence and 3/s fire
 
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg{argv[i]};
@@ -42,9 +42,11 @@ int run(int argc, char** argv) {
         } else if (arg == "--max-ticks" && (i + 1) < argc) {
             max_ticks = parse_u64(argv[++i], 120000);
         } else if (arg == "--frame-skip" && (i + 1) < argc) {
-            // Throttle the agent's decision rate: 1 = native 60 Hz, 4 = the
-            // neural policy's ~15 Hz, for a same-reaction-rate comparison.
-            frame_skip = static_cast<unsigned>(parse_u64(argv[++i], 1));
+            // The reaction rate, ticks per decision, straight into the sim's own
+            // limit: 1 = native 60 Hz, 4 = the neural policy's ~15 Hz. The honest
+            // same-reaction-rate knob for comparing the two — the sim enforces it.
+            config.decision_interval =
+                static_cast<std::uint32_t>(parse_u64(argv[++i], config.decision_interval));
         } else {
             std::println(stderr, "usage: md_agent_eval [--seeds N] [--max-ticks N] [--frame-skip "
                                  "N] [--per-episode]");
@@ -52,22 +54,22 @@ int run(int argc, char** argv) {
         }
     }
 
-    const md::Config config{};
     const md::agent::Heuristic agent{};
     const std::vector<std::uint64_t> seeds = md::agent::default_seeds(seed_count);
 
     std::println("missile-defense {} — scripted baseline (M4)", md::version());
     std::println("{} episodes, cap {} ticks ({:.0f} s of play)", seeds.size(), max_ticks,
                  static_cast<double>(max_ticks) * static_cast<double>(config.dt));
-    std::println("decisions every {} tick(s) (~{:.0f} Hz)\n", frame_skip,
-                 1.0 / (static_cast<double>(config.dt) * static_cast<double>(frame_skip)));
+    std::println("decisions every {} tick(s) (~{:.0f} Hz)\n", config.decision_interval,
+                 1.0 / (static_cast<double>(config.dt) *
+                        static_cast<double>(config.decision_interval)));
 
     if (per_episode) {
         std::println("{:<20} {:>8} {:>5} {:>5} {:>8} {:>7} {:>7} {:>6} {:>6} {:>6}", "seed",
                      "score", "wave", "wvs", "ticks", "cit_ls", "bas_ls", "shots", "kills", "hits");
         for (const std::uint64_t seed : seeds) {
             const md::agent::EpisodeResult r =
-                md::agent::run_episode(config, seed, agent, max_ticks, frame_skip);
+                md::agent::run_episode(config, seed, agent, max_ticks);
             std::println("{:<20} {:>8} {:>5} {:>5} {:>8} {:>7} {:>7} {:>6} {:>6} {:>6}", r.seed,
                          r.score, r.wave_reached, r.waves_cleared, r.ticks, r.cities_lost,
                          r.bases_lost, r.shots, r.kills, r.hits());
@@ -75,7 +77,7 @@ int run(int argc, char** argv) {
         std::println();
     }
 
-    const md::agent::Summary s = md::agent::evaluate(config, seeds, agent, max_ticks, frame_skip);
+    const md::agent::Summary s = md::agent::evaluate(config, seeds, agent, max_ticks);
     const auto& hist = s.kills_per_shot;
     const auto total_shots =
         std::max<std::uint64_t>(1, std::accumulate(hist.begin(), hist.end(), std::uint64_t{0}));
