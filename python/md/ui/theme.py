@@ -238,6 +238,26 @@ def stylesheet() -> str:
         border-top: 1px solid {EDGE};
         font-size: 11px;
     }}
+    /* The two views of one run (training curves, statistics). Flat and quiet:
+       the tab bar is navigation, not content, so it gets an underline on the
+       selected tab and nothing else — a raised, bordered tab would be the
+       loudest chrome in a window whose subject is a curve. */
+    QTabWidget::pane {{ border: none; }}
+    QTabBar::tab {{
+        background: transparent;
+        color: {MUTED};
+        border: none;
+        border-bottom: 2px solid transparent;
+        padding: 5px 14px 4px 0;
+        margin-right: 8px;
+        font-size: 11px;
+        letter-spacing: 1px;
+    }}
+    QTabBar::tab:selected {{
+        color: {TEXT};
+        border-bottom-color: {CITY};
+    }}
+    QTabBar::tab:hover:!selected {{ color: {TEXT}; }}
     QSplitter::handle {{ background: transparent; width: 10px; }}
     QToolTip {{
         background: {PANEL};

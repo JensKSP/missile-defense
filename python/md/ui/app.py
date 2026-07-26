@@ -12,9 +12,17 @@ started from a terminal and cannot start one, which is the whole point: training
 happens in its own process, so a UI crash costs you nothing and the console can
 be opened on a directory synced from another machine.
 
-One screen, because the run is the subject and a tab bar makes you hunt for the
-thing you came to look at. The score curve gets the space; the diagnostics and
+The run is the subject, so the score curve gets the space and the diagnostics and
 the episode list are strips around it.
+
+**Two tabs, and only two** (docs/ROADMAP.md, M8, amended 2026-07-26 at the
+human's request; the original rule was one screen and no tab bar). **TRAINING**
+is the screen above — what you watch while a run goes. **STATISTICS**
+(:mod:`md.ui.analysis`) is what you read when it stops improving: the full
+per-episode stat block, the kills-per-shot distribution, and the curves that say
+*why*. They are two activities rather than two views, and everything *around* the
+plots is shared, so switching a tab never changes which run is on screen — which
+is the hunting the original rule was written against.
 """
 
 from __future__ import annotations
@@ -40,6 +48,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QSplitter,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -47,6 +56,7 @@ from PySide6.QtWidgets import (
 from .. import modelcard, paths
 from ..control import Control
 from . import sources, theme
+from .analysis import AnalysisView
 from .charts import CurveView
 from .forms import ParameterDialog
 from .meters import SystemPanel
@@ -213,6 +223,11 @@ class Console(QMainWindow):
         #: The newest contiguous protocol segment, which is the only set a
         #: single curve and peak can compare without joining unlike scores.
         self._display_eval_rows: list[EvalRow] = []
+        #: The comparison run's evaluations, kept rather than only plotted. The
+        #: score curve consumes each row as it arrives; the statistics view needs
+        #: the *series* and the latest row together, and re-reading the file a
+        #: second time would be two tails on one path disagreeing about EOF.
+        self._compare_eval_rows: list[EvalRow] = []
         for curve in (self._score, self._return, self._entropy, self._value):
             curve.clear()
         self._score.set_baseline(None)
@@ -236,7 +251,7 @@ class Console(QMainWindow):
         layout.addLayout(self._tiles())
 
         split = QSplitter(Qt.Orientation.Horizontal)
-        split.addWidget(self._plots())
+        split.addWidget(self._main_tabs())
         split.addWidget(self._side())
         split.setStretchFactor(0, 1)
         split.setSizes([980, 320])
@@ -316,6 +331,28 @@ class Console(QMainWindow):
         for tile in (self._tile_update, self._tile_score, self._tile_return, self._tile_entropy):
             row.addWidget(tile)
         return row
+
+    def _main_tabs(self) -> QWidget:
+        """Two views of the same run, sharing everything around them.
+
+        The tiles, the picker, the episode list and the log stay put; only the
+        plot area changes, because the two views answer questions at different
+        moments. **Training** is what you watch while a run goes — is it
+        learning, is it stable. **Statistics** is what you open when it stops
+        improving and you want to know why, and it is the wrong shape for a
+        glance: fourteen numbers and a distribution reward being read, not
+        monitored.
+
+        A tab rather than a second window, so the comparison picked in the
+        header applies to both and there is only ever one answer to "which run
+        am I looking at".
+        """
+        tabs = QTabWidget()
+        tabs.setDocumentMode(True)
+        tabs.addTab(self._plots(), "TRAINING")
+        self._analysis = AnalysisView()
+        tabs.addTab(self._analysis, "STATISTICS")
+        return tabs
 
     def _plots(self) -> QWidget:
         panel = QWidget()
@@ -484,6 +521,7 @@ class Console(QMainWindow):
             self._peak_score.clear()
             self._tile_score.set_value("—")
             self._tile_score.set_peak("")
+            self._refresh_analysis()
         for row in batch.rows:
             if self._last_eval is not None and not sources.same_eval_series(self._last_eval, row):
                 # A line between unlike protocols is invented evidence. Show
@@ -527,6 +565,73 @@ class Console(QMainWindow):
         else:
             self._tile_score.set_value(f"{row.mean_score:,.0f}")
             self._tile_score.set_note(f"{sources.eval_protocol_note(row)} · update {row.update}")
+        self._refresh_analysis()
+
+    def _refresh_analysis(self) -> None:
+        """Hand the statistics view the rows both curves are already drawn from.
+
+        Only on a change, never on the timer: the view rebuilds fourteen tiles,
+        five bars and four curves, and a run evaluates every few minutes. Doing
+        it on every poll would be a second of work per second for a screen whose
+        numbers moved once an hour.
+        """
+        self._analysis.show_rows(self._display_eval_rows, self._compare_eval_rows)
+
+    def _read_tuning(self) -> None:
+        """Show what the run is on, without arguing with the hand on the slider.
+
+        The file is the shared state, not this widget: a value set from a
+        terminal, or by a run publishing what it was started with, has to land
+        here too, or the slider would describe the last thing *it* said rather
+        than the run.
+        """
+        published = self._control.tuning().get("eval_every")
+        for widget in (self._eval_every, self._eval_readout):
+            widget.setEnabled(published is not None)
+        if published is None:
+            self._eval_every.setToolTip(EVAL_EVERY_UNPUBLISHED)
+            return
+        self._eval_every.setToolTip(EVAL_EVERY_HELP)
+        # Anything below zero is the trainer's "no evaluation" too, and the
+        # slider has one stop for that rather than a negative one nobody asked
+        # for. Mid-drag the hand wins; the next poll is a second away.
+        if max(published, 0) == self._eval_shown() or self._eval_every.isSliderDown():
+            return
+        self._show_eval_interval(max(published, 0))
+
+    def _eval_shown(self) -> int:
+        """The interval the handle is currently sitting on."""
+        return self._eval_stops[self._eval_every.value()]
+
+    def _show_eval_interval(self, updates: int) -> None:
+        """Move the handle to an interval without calling it a decision."""
+        # A run may have been started with an interval between two stops.
+        # Snapping the handle to a neighbour would be describing it wrongly, so
+        # the scale gains a stop instead — and loses it again at the next value.
+        stops = sorted({*EVAL_EVERY_STOPS, updates})
+        if stops != self._eval_stops:
+            self._eval_stops = stops
+            self._eval_every.setMaximum(len(stops) - 1)
+        self._eval_every.blockSignals(True)  # or reading would write it back
+        try:
+            self._eval_every.setValue(self._eval_stops.index(updates))
+        finally:
+            self._eval_every.blockSignals(False)
+        self._eval_readout.setText(_eval_label(updates))
+
+    def _eval_every_moved(self, index: int) -> None:
+        """The handle is somewhere new — say so, and decide if that was a choice."""
+        self._eval_readout.setText(_eval_label(self._eval_stops[index]))
+        if not self._eval_every.isSliderDown():
+            self._eval_every_settled()  # a click or an arrow key: already final
+
+    def _eval_every_settled(self) -> None:
+        updates = self._eval_shown()
+        self._control.tune("eval_every", updates)
+        cadence = "no longer evaluating" if updates == 0 else f"evaluating every {updates} updates"
+        self.statusBar().showMessage(
+            f"{cadence} — from the run's next update ({self._control.tuning_file})"
+        )
 
     def _rewind_comparison_evals(self) -> None:
         """Reconsider the other run when this run's score protocol changes."""
@@ -651,6 +756,9 @@ class Console(QMainWindow):
                 curve.set_comparison(run_dir.name)
         for tile in (self._tile_update, self._tile_score, self._tile_return, self._tile_entropy):
             tile.set_compare("")
+        self._compare_eval_rows.clear()
+        self._analysis.set_comparison("" if run_dir is None else run_dir.name)
+        self._refresh_analysis()
 
     def _compare_picked(self, index: int) -> None:
         chosen = self._compare_picker.itemData(index)
@@ -683,10 +791,13 @@ class Console(QMainWindow):
         evals = self._compare_evals.poll()
         if evals.restarted:
             self._score.clear_comparison()
+            self._compare_eval_rows.clear()
         for row in evals.rows:
+            self._compare_eval_rows.append(row)
             if self._last_eval is not None and sources.matching_eval_protocol(self._last_eval, row):
                 self._score.append_comparison(row.update, row.mean_score)
         if evals.rows:
+            self._refresh_analysis()
             # Its *latest* score, not its best: the tile above shows this run's
             # latest, and two tiles reporting different statistics under the same
             # caption is a comparison you cannot make.

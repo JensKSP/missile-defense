@@ -2,7 +2,14 @@
 # Copyright (c) 2026 Jens Köhler
 # Assisted-by: Claude Code (Anthropic)
 # pyright: reportMissingImports=false
-"""One curve, drawn. The only module that knows the charting library exists.
+"""The plots, drawn. The only module that knows the charting library exists.
+
+Two shapes live here. :class:`CurveView` is a measurement against the update
+number — the run as it went. :class:`BarView` is a distribution over an ordered
+set of categories, which is a different question ("where does the mass sit?")
+and must not be drawn as a line: a line between the 1-kill and 2-kill bins would
+imply the run passed through values that do not exist.
+
 
 Qt Charts ships with PySide6 under the same LGPLv3, so this costs nothing to
 install and nothing to vet — and at one point every few seconds, the performance
@@ -35,7 +42,15 @@ import bisect
 import math
 from collections.abc import Iterable, Sequence
 
-from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
+from PySide6.QtCharts import (
+    QBarCategoryAxis,
+    QBarSeries,
+    QBarSet,
+    QChart,
+    QChartView,
+    QLineSeries,
+    QValueAxis,
+)
 from PySide6.QtCore import QEvent, QMargins, QPointF, Qt
 from PySide6.QtGui import QColor, QFont, QMouseEvent, QPainter, QPen, QResizeEvent
 from PySide6.QtWidgets import QLabel, QWidget
@@ -465,6 +480,190 @@ def _fit(
     axis.setTickType(QValueAxis.TickType.TicksDynamic)
     axis.setRange(low, high)
     return low, high
+
+
+class BarView(QChartView):
+    """A distribution over a handful of named, *ordered* categories.
+
+    The kills-per-shot histogram, and nothing else so far. A column chart rather
+    than the curves above because the x axis is not time: it is an ordered scale
+    (0, 1, 2, 3, 4+ threats killed by one interceptor), and the reader's question
+    is where the mass sits on it — a line between those bins would imply the run
+    passed through values that do not exist.
+
+    **One series, one hue, no legend.** The bins are told apart by position, so
+    colouring each one differently would spend the identity channel on something
+    the axis already says, and a legend would restate the title. A second run is
+    drawn beside each bar in the same hue at a third of the opacity, which is the
+    same grammar :class:`CurveView` uses for a comparison — *this measurement,
+    the other run*, rather than a second thing on the plot.
+
+    Percentages rather than counts, because the number of shots differs between
+    runs and between evaluations, and "6,394 shots killed one thing" is only
+    meaningful next to a total nobody has memorised.
+    """
+
+    #: Of the slot. Leaves the rest as air, which is what separates neighbouring
+    #: bars — a stroke around each one would add ink that is not data. Qt Charts
+    #: sizes bars as a fraction of their category rather than in pixels, so the
+    #: usual "cap it at 24px" cannot be said here; this is that cap at the width
+    #: this panel actually gets.
+    BAR_WIDTH = 0.46
+
+    #: Headroom above the tallest bar, as a fraction of the axis. The value
+    #: labels sit *outside* the bar end, and without this the tallest one has
+    #: nowhere to go — Qt then draws it inside the bar, where it is light text on
+    #: a light fill and the one number most worth reading is the least legible.
+    LABEL_HEADROOM = 0.18
+
+    def __init__(
+        self,
+        title: str,
+        colour: str,
+        *,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._colour = colour
+        self._set = QBarSet("")
+        self._set.setColor(QColor(colour))
+        self._set.setBorderColor(QColor(colour))
+        self._set.setLabelColor(QColor(theme.MUTED))
+        self._set.setLabelFont(_caption_font())
+
+        faded = QColor(colour)
+        faded.setAlpha(COMPARISON_ALPHA)
+        self._compare_set = QBarSet("")
+        self._compare_set.setColor(faded)
+        self._compare_set.setBorderColor(faded)
+        self._compare_set.setLabelColor(QColor(theme.MUTED))
+        self._compare_set.setLabelFont(_caption_font())
+
+        self._series = QBarSeries()
+        self._series.setBarWidth(self.BAR_WIDTH)
+        self._series.append(self._set)
+        # The value on the cap: with five bars this is not the flood the rule
+        # against labelling every point is about, and a share is exactly the
+        # thing a reader cannot recover from the axis by eye.
+        self._series.setLabelsVisible(True)
+        self._series.setLabelsFormat("@value%")
+        self._series.setLabelsPosition(QBarSeries.LabelsPosition.LabelsOutsideEnd)
+
+        self._chart = QChart()
+        self._chart.setBackgroundBrush(QColor(theme.PANEL))
+        self._chart.setBackgroundRoundness(6.0)
+        self._chart.setPlotAreaBackgroundVisible(False)
+        self._chart.setMargins(QMargins(6, 6, 10, 4))
+        self._chart.setTitle(title.upper())
+        self._chart.setTitleBrush(QColor(theme.MUTED))
+        self._chart.setTitleFont(_caption_font())
+        self._chart.legend().setVisible(False)  # one series; the title names it
+        self._chart.legend().setAlignment(Qt.AlignmentFlag.AlignTop)
+        self._chart.legend().setLabelColor(QColor(theme.MUTED))
+        self._chart.legend().setFont(_caption_font())
+        self._chart.addSeries(self._series)
+
+        self._x_axis = QBarCategoryAxis()
+        self._x_axis.setLabelsColor(QColor(theme.MUTED))
+        self._x_axis.setLabelsFont(_caption_font())
+        self._x_axis.setGridLineVisible(False)  # categories are not a scale
+        self._x_axis.setLinePen(QPen(QColor(theme.EDGE), 1.0))
+        self._y_axis = _axis("%d%%")
+        self._y_axis.setRange(0.0, 100.0)
+        self._chart.addAxis(self._x_axis, Qt.AlignmentFlag.AlignBottom)
+        self._chart.addAxis(self._y_axis, Qt.AlignmentFlag.AlignLeft)
+        self._series.attachAxis(self._x_axis)
+        self._series.attachAxis(self._y_axis)
+
+        self.setChart(self._chart)
+        self.setRenderHint(QPainter.RenderHint.Antialiasing)
+        self.setFrameShape(QChartView.Shape.NoFrame)
+
+        self._placeholder = QLabel("", self)
+        self._placeholder.setProperty("role", "placeholder")
+        self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._stats = _overlay("stat", self)
+
+    def show_shares(self, labels: Sequence[str], shares: Sequence[float | None]) -> None:
+        """Draw one bar per label, each a fraction of the whole (0…1)."""
+        self._x_axis.clear()
+        self._x_axis.append(list(labels))
+        self._set.remove(0, self._set.count())
+        for share in shares:
+            # A bin nobody has data for is drawn as no bar at all rather than as
+            # a zero-height one, which would read as a measured absence.
+            self._set.append(0.0 if share is None else round(share * 100.0, 1))
+        self._rescale()
+        self._placeholder.setVisible(False)
+        self._chart.setVisible(True)
+
+    def set_comparison(self, name: str, shares: Sequence[float | None] | None) -> None:
+        """Overlay another run's distribution, or take it away with ``None``."""
+        if shares is None:
+            if self._compare_set in self._series.barSets():
+                self._series.remove(self._compare_set)
+            self._chart.legend().setVisible(False)
+            self._series.setLabelsVisible(True)  # five bars again; they fit
+            self._rescale()
+            return
+        self._compare_set.setLabel(name)
+        self._compare_set.remove(0, self._compare_set.count())
+        for share in shares:
+            self._compare_set.append(0.0 if share is None else round(share * 100.0, 1))
+        if self._compare_set not in self._series.barSets():
+            self._series.append(self._compare_set)
+        # Two series now, so identity can no longer be position alone.
+        self._set.setLabel("this run")
+        self._chart.legend().setVisible(True)
+        # And ten labels in the width that held five is a flood: they collide,
+        # and a value written over its neighbour is worse than no value at all.
+        # The legend carries identity; the footnote carries the summary.
+        self._series.setLabelsVisible(False)
+        self._rescale()
+
+    def _rescale(self) -> None:
+        """Round the y axis up to a clean number above the tallest bar.
+
+        Never a fixed 0–100: a distribution whose largest bin is 38% would spend
+        two thirds of the panel on empty air, and the shape is the whole point.
+        """
+        values = [self._set.at(i) for i in range(self._set.count())] + (
+            [self._compare_set.at(i) for i in range(self._compare_set.count())]
+            if self._compare_set in self._series.barSets()
+            else []
+        )
+        tallest = max(values, default=0.0) * (1.0 + self.LABEL_HEADROOM)
+        step = _nice_step(max(tallest, 1.0))
+        self._y_axis.setRange(0.0, max(step * math.ceil(tallest / step), step))
+
+    def set_placeholder(self, text: str) -> None:
+        """Say what is missing and what would fill it, instead of an empty grid."""
+        self._placeholder.setText(text)
+        self._placeholder.setVisible(bool(text))
+        self._chart.setVisible(not text)
+        self._centre_placeholder()
+
+    def set_note(self, text: str) -> None:
+        """The footnote in the corner — the shape's summary in one line."""
+        self._stats.setText(text)
+        self._stats.setVisible(bool(text))
+        self._stats.adjustSize()
+        self._place_note()
+
+    def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802 — Qt's name
+        super().resizeEvent(event)
+        self._centre_placeholder()
+        self._place_note()
+
+    def _centre_placeholder(self) -> None:
+        self._placeholder.adjustSize()
+        size = self._placeholder.size()
+        self._placeholder.move(
+            (self.width() - size.width()) // 2, (self.height() - size.height()) // 2
+        )
+
+    def _place_note(self) -> None:
+        self._stats.move(10, max(2, self.height() - self._stats.height() - 4))
 
 
 def _nice_step(span: float) -> float:

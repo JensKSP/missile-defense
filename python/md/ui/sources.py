@@ -105,6 +105,30 @@ class EvalRow:
     frame_skip: int | None = None
     max_ticks: int | None = None
     inference_device: str | None = None
+    # The full per-episode statistics (the plan's Task 11). Every one is
+    # optional for the same reason the rest are: a run written by an older
+    # trainer simply has no such column, and the console has to keep reading it.
+    # They are what the analysis view draws — how long the policy survived, how
+    # much damage it took, and how the ammunition was spent.
+    mean_ticks: float | None = None
+    mean_waves_cleared: float | None = None
+    mean_cities_lost: float | None = None
+    mean_bases_left: float | None = None
+    mean_bases_lost: float | None = None
+    mean_ammo_left: float | None = None
+    mean_bonus_cities: float | None = None
+    mean_mirv_splits: float | None = None
+    mean_shots: float | None = None
+    mean_kills: float | None = None
+    mean_hits: float | None = None
+    mean_hit_rate: float | None = None
+    #: Shots binned by how many threats their blast killed, summed over the whole
+    #: seed set. `shots_0kill` is ammunition that hit nothing at all.
+    shots_0kill: int | None = None
+    shots_1kill: int | None = None
+    shots_2kill: int | None = None
+    shots_3kill: int | None = None
+    shots_4plus: int | None = None
 
 
 def is_canonical_benchmark(row: EvalRow) -> bool:
@@ -424,6 +448,23 @@ def _eval_row(row: Mapping[str, str]) -> EvalRow | None:
         frame_skip=_count(row, "frame_skip"),
         max_ticks=_count(row, "max_ticks"),
         inference_device=_text(row, "inference_device"),
+        mean_ticks=_number(row, "mean_ticks"),
+        mean_waves_cleared=_number(row, "mean_waves_cleared"),
+        mean_cities_lost=_number(row, "mean_cities_lost"),
+        mean_bases_left=_number(row, "mean_bases_left"),
+        mean_bases_lost=_number(row, "mean_bases_lost"),
+        mean_ammo_left=_number(row, "mean_ammo_left"),
+        mean_bonus_cities=_number(row, "mean_bonus_cities"),
+        mean_mirv_splits=_number(row, "mean_mirv_splits"),
+        mean_shots=_number(row, "mean_shots"),
+        mean_kills=_number(row, "mean_kills"),
+        mean_hits=_number(row, "mean_hits"),
+        mean_hit_rate=_number(row, "mean_hit_rate"),
+        shots_0kill=_count(row, "shots_0kill"),
+        shots_1kill=_count(row, "shots_1kill"),
+        shots_2kill=_count(row, "shots_2kill"),
+        shots_3kill=_count(row, "shots_3kill"),
+        shots_4plus=_count(row, "shots_4plus"),
     )
 
 

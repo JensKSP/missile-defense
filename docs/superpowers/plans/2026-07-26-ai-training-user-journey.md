@@ -1021,17 +1021,20 @@ becomes visible at a glance and comparable across runs.
 - Create: `python/tests/test_ui_stats.py`
 - Modify: `python/md/ui/app.py`, `python/md/ui/sources.py`, `python/md/ui/theme.py`
 
-- [ ] **Kills-per-shot distribution** — the histogram from Task 11 as a bar
+- [x] **Kills-per-shot distribution** — the histogram from Task 11 as a bar
       chart (0/1/2/3/4+), the single clearest read on "is it catching clusters".
-- [ ] **Survival & damage over the run** — mean ticks-survived, cities/bases lost,
+- [x] **Survival & damage over the run** — mean ticks-survived, cities/bases lost,
       waves cleared as curves alongside the score, so a plateau's *cause* shows.
-- [ ] **Per-run summary card** — the full latest-eval stat block in one panel.
-- [ ] **Compare across runs** — reuse the existing vs-run picker so a distribution
+- [x] **Per-run summary card** — the full latest-eval stat block in one panel.
+- [x] **Compare across runs** — reuse the existing vs-run picker so a distribution
       or curve overlays the run being beaten (same hue, lower opacity, as Phase 5).
-- [ ] Follows the M8 design intent: one screen, live, dark, empty-states handled;
-      `md.ui` still never imports `torch`. Charts via the existing `CurveView`
-      escape hatch / Qt Charts. Build charts with the `dataviz` guidance.
-- [ ] Steps: TDD `stats.py` under pytest (no display), then the view; `poe check`.
+- [x] Follows the M8 design intent: live, dark, empty-states handled; `md.ui`
+      still never imports `torch`. Charts via the existing `CurveView` escape
+      hatch / Qt Charts (`BarView` joins it there). Built with the `dataviz`
+      guidance. **"One screen" was amended on the day, at the human's request:**
+      TRAINING and STATISTICS, and nothing else — see docs/ROADMAP.md M8 for why
+      that rule does not hold for these two and still holds for everything else.
+- [x] Steps: TDD `stats.py` under pytest (no display), then the view; `poe check`.
       Commit: `Analyse a run's statistics in the console`.
 
 ## Program completion checklist
@@ -1053,6 +1056,6 @@ becomes visible at a glance and comparable across runs.
 - [ ] README and platform docs describe the installed UI flow as the default.
 - [x] A run reports the full per-episode statistics (survival, damage, spend,
       kills-per-shot distribution), aggregated and in `evals.csv`.
-- [ ] The console can analyse those statistics — distributions and cause-of-plateau
+- [x] The console can analyse those statistics — distributions and cause-of-plateau
       views — within a run and across runs.
 - [ ] `poe check` and all packaging/installed-user CI jobs pass.

@@ -301,6 +301,52 @@ It does **not** need torch. Where there is none, the primary button offers to
 install one instead of being a dead control — see
 [Getting PyTorch](#from-the-console-without-a-terminal).
 
+## Why a run stopped improving: the STATISTICS tab
+
+The score curve tells you a run has plateaued. It cannot tell you why, and that
+is the only question a plateau raises. **STATISTICS**, beside **TRAINING** above
+the plots, is the whole per-episode stat block from the latest evaluation —
+every column [`evals.csv`](#what-a-run-leaves-behind) carries, which until now
+nothing read.
+
+Fourteen tiles, in the order the questions get asked:
+
+| Group | What it answers |
+|---|---|
+| score · survived · wave reached · waves cleared | how well it did, and *how long it lasted* — `survived` is `mean_ticks` as minutes and seconds, because 11,633 is not a duration anyone can feel |
+| cities lost · cities left · bases lost · cities rebuilt | what it cost to get there |
+| shots fired · kills · hit rate · wasted · ammo left · MIRV splits | how the ammunition was spent |
+
+**Wasted** is the one to watch: shots that killed nothing at all. Two policies
+with the same score can be spending three times the ammunition on it, and it is
+the difference between one that survives wave 14 and one that runs dry in wave 9.
+
+Under the tiles, the **kills-per-shot distribution** — every shot the evaluation
+fired, binned by how many threats its blast destroyed (0, 1, 2, 3, 4+). This is
+the clearest single read on whether the policy has learned to *wait for a
+cluster*: a policy trading one interceptor for one warhead has almost everything
+in the `1` bin, and one that has learned the game has mass at `2` and beyond. The
+`0` bin is the wasted ammunition, and the footnote gives the totals and a floor
+on the mean (a floor because the last bin is open-ended).
+
+Beside it, four curves that are deliberately **not** the score: ticks survived,
+waves cleared, cities lost, bases lost. A run whose score has flattened while its
+survival time is still climbing is learning something; one where every line is
+flat has stopped, and one where survival is up while cities lost is up too is
+trading damage for time.
+
+The **vs** picker at the top applies here as well: every tile gains a delta
+against the other run — coloured by whether that direction is *better*, which is
+not the same as *larger* — and both the distribution and the four curves gain the
+other run's values faintly beside them.
+
+Every number comes from the run's own `evals.csv`, so a run started before those
+columns existed keeps its score curve and this tab says so rather than showing a
+grid of zeroes. The arithmetic is in `md.ui.stats`, which has no Qt in it and is
+tested against hand-written rows; `python/tests/e2e/test_analysis.py` then drives
+the real window against a real run, because the failure worth catching is a
+column renamed on one side of that join.
+
 ## Picking up where you left off
 
 ```bash

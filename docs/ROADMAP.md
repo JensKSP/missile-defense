@@ -183,6 +183,21 @@ Concretely:
 hunt for the thing you came to look at. The curve gets the space; everything else is
 a strip around it.
 
+> **Amended 2026-07-26, at the human's request: two tabs, and only two.**
+> **TRAINING** is the screen above — what you *watch*, live, from across the
+> room. **STATISTICS** is the full per-episode stat block, the kills-per-shot
+> distribution and the cause curves, which is what you *read* when a run has
+> plateaued and you want to know why.
+>
+> The original rule stands for everything else, and the reason it does not stand
+> here is that those are two different activities, not two views of one. Fourteen
+> numbers and a histogram reward being studied; putting them on the monitoring
+> screen would have made the thing you glance at fifty times an hour permanently
+> crowded by the thing you open twice a run. Everything *around* the plots — the
+> tiles, the run picker, the **vs** picker, the recordings, the model, the log —
+> is shared and does not move, so switching tabs never changes which run you are
+> looking at, which is the failure mode the rule was written against.
+
 **Control is small so monitoring can be large.** Three affordances, not a dashboard
 of them: one primary button that changes meaning (Start → Pause → Resume), Stop, and
 Reset tucked away because it is destructive. If control needs more than a slim bar,
