@@ -203,6 +203,9 @@ ignore_errors = true
 # ---- pyright (strict static typing) -----------------------------------------
 [tool.pyright]
 include = ["python/md", "tools"]
+# `md` lives under python/, which is a source root for the package itself but
+# not something pyright infers when checking a script in tools/ that imports it.
+extraPaths = ["python"]
 # See the mypy note above: without torch installed these degrade to Unknown, so
 # they are checked on a machine that has it rather than pretended to be clean.
 ignore = [

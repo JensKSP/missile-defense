@@ -51,7 +51,8 @@ def exported(trained_run: Path, tmp_path_factory: pytest.TempPathFactory) -> Pat
     from md import export_policy  # noqa: PLC0415 — optional dependency
 
     checkpoint = trained_run / "checkpoints" / "policy-final.pt"
-    assert checkpoint.exists(), f"the run wrote no final checkpoint: {sorted(trained_run.rglob('*.pt'))}"
+    saved = sorted(trained_run.rglob("*.pt"))
+    assert checkpoint.exists(), f"the run wrote no final checkpoint: {saved}"
     destination = tmp_path_factory.mktemp("exported") / "policy.mdp"
     return export_policy.export_checkpoint(
         checkpoint, destination, metadata={"display_name": "Parity"}

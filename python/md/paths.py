@@ -48,6 +48,15 @@ RUNS_NAME = "runs"
 #: One override for "put the runs somewhere else entirely".
 RUNS_ENV = "MD_RUNS_DIR"
 
+#: Where promoted models live: one directory per model, beside the runs rather
+#: than inside one. A promoted model has to *outlive* the run that produced it —
+#: that is the whole point of promoting rather than pointing at a checkpoint —
+#: and a run directory is the thing cleanup and archiving delete.
+MODELS_NAME = "models"
+
+#: One override, mirroring the runs one. A shared box wants a shared league.
+MODELS_ENV = "MD_MODELS_DIR"
+
 #: Where the console installs a training runtime it manages itself.
 RUNTIME_NAME = "runtime"
 
@@ -91,6 +100,30 @@ def runs_dir(
     if local.is_dir():
         return local
     return data_home(env, platform=platform) / RUNS_NAME
+
+
+def models_dir(
+    *,
+    environ: Mapping[str, str] | None = None,
+    cwd: Path | None = None,
+    platform: str = sys.platform,
+) -> Path:
+    """Where promoted models live. Creates nothing.
+
+    Beside :func:`runs_dir` and by the same rules, so a checkout keeps its
+    league next to its runs and an installed copy keeps both under the per-user
+    data directory. Deliberately *not* inside a run: promotion exists so a model
+    survives the run being cleaned up, archived or deleted, and storing it in
+    the thing it must outlive would defeat that on the first tidy-up.
+    """
+    env = os.environ if environ is None else environ
+    override = env.get(MODELS_ENV)
+    if override:
+        return Path(override)
+    runs = runs_dir(environ=env, cwd=cwd, platform=platform)
+    # Siblings: `runs/` and `models/`. A checkout that has one gets the other
+    # in the obvious place, with no second rule to remember.
+    return runs.parent / MODELS_NAME
 
 
 def runtime_dir(
