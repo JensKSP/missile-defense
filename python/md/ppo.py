@@ -29,7 +29,6 @@ from dataclasses import dataclass
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 # Actions that the mask forbids get this logit, so softmax gives them ~0
 # probability. Not -inf: that produces NaNs if an env ever masks *everything*.
@@ -65,9 +64,18 @@ class PPOConfig:
     minibatches: int = 8
     #: Weight on the value loss.
     value_coef: float = 0.5
+    #: Clips how far the critic may move per update, PPO-style: the value loss is
+    #: the larger of the plain and the clipped error, so a big target change (the
+    #: return grows several-fold as the policy improves) cannot yank the value head
+    #: — and, through the shared trunk, the *policy* features — in one step. This is
+    #: the mechanism behind a run that peaks then regresses. 0.2 matches `clip`,
+    #: and is well-sized here because the reward `scale` keeps returns O(1).
+    value_clip: float = 0.2
     #: Entropy bonus. Missile Command punishes early commitment, so keep some
-    #: exploration alive well into training.
-    entropy_coef: float = 0.01
+    #: exploration alive well into training. Raised from 0.01: a run was collapsing
+    #: to entropy ~0.4 (committing to one tactic) and regressing after its peak;
+    #: more pressure to keep exploring is the first defence against that.
+    entropy_coef: float = 0.02
     #: Gradient-norm clip.
     max_grad_norm: float = 0.5
     #: "mlp" flattens the observation into one vector; "entity" encodes each
@@ -390,6 +398,7 @@ def update(
     masks = rollout.masks.flatten(0, 1)
     actions = rollout.actions.flatten()
     old_log_probs = rollout.log_probs.flatten()
+    old_values = rollout.values.flatten()
     flat_advantages = advantages.flatten()
     flat_returns = returns.flatten()
 
@@ -418,7 +427,19 @@ def update(
             unclipped = ratio * sample_advantages
             clipped = torch.clamp(ratio, 1.0 - config.clip, 1.0 + config.clip) * sample_advantages
             policy_loss = -torch.min(unclipped, clipped).mean()
-            value_loss = F.mse_loss(values, flat_returns[index])
+
+            # Clipped value loss (the larger of plain and clipped error), so the
+            # critic cannot take a huge step when the target has grown — which,
+            # sharing a trunk with the policy, would otherwise corrupt the policy
+            # features too. Same epsilon as the policy clip; returns are O(1).
+            sample_returns = flat_returns[index]
+            sample_old_values = old_values[index]
+            values_clipped = sample_old_values + torch.clamp(
+                values - sample_old_values, -config.value_clip, config.value_clip
+            )
+            value_loss = torch.max(
+                (values - sample_returns).square(), (values_clipped - sample_returns).square()
+            ).mean()
 
             loss = policy_loss + (config.value_coef * value_loss) - (config.entropy_coef * entropy)
             optimizer.zero_grad(set_to_none=True)
