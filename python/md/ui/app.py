@@ -1002,6 +1002,11 @@ class Console(QMainWindow):
                 curve.set_comparison(run_dir.name)
         for tile in (self._tile_update, self._tile_score, self._tile_return, self._tile_entropy):
             tile.set_compare("")
+        if run_dir is not None:
+            # Said now, not when the first row arrives: picking a run and seeing
+            # every tile stay blank reads as a broken feature, and the wait is
+            # longest exactly when the other run has nothing evaluated yet.
+            self._tile_score.set_compare(f"{self._name()} · reading…")
         self._compare_eval_rows.clear()
         self._analysis.set_comparison("" if run_dir is None else run_dir.name)
         self._refresh_analysis()
@@ -1053,8 +1058,11 @@ class Console(QMainWindow):
             ):
                 self._tile_score.set_compare(f"{self._name()} {last.mean_score:,.0f}")
             else:
+                # Nothing overlaid, and the reason on the tile. The full
+                # sentence is on the STATISTICS tab, which has room for it; what
+                # matters here is that the blank is explained rather than bare.
                 self._score.clear_comparison()
-                self._tile_score.set_compare(f"{self._name()} · protocol mismatch")
+                self._tile_score.set_compare(f"{self._name()} · not comparable")
 
     def _name(self) -> str:
         return "—" if self._compare_dir is None else self._compare_dir.name

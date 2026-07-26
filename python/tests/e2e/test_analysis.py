@@ -17,6 +17,7 @@ every panel found something rather than falling back to an empty state.
 
 from __future__ import annotations
 
+import csv
 import shutil
 from pathlib import Path
 
@@ -127,5 +128,80 @@ def test_a_second_run_overlays_the_distribution_and_the_curves(
         # And the deltas, which are the point of comparing at all.
         assert not analysis._tiles["score"]._delta.isHidden()
         assert stats.UNCHANGED in analysis._tiles["score"]._delta.text()
+    finally:
+        window.close()
+
+
+def test_a_comparison_that_shows_nothing_says_why(
+    qt_app: object,  # noqa: ARG001 — the QApplication has to exist
+    trained_run: Path,
+    tmp_path: Path,
+) -> None:
+    """The bug a user actually hit: "I don't see anything — maybe I don't understand".
+
+    Two runs evaluated under different protocols are not two numbers, so nothing
+    is overlaid — correctly. What was missing is the sentence saying so. A panel
+    that silently stays blank leaves a person deciding between "broken" and "I
+    am holding it wrong", and both answers are wrong.
+    """
+    from md.ui import sources  # noqa: PLC0415 — optional dependency
+    from md.ui.app import Console  # noqa: PLC0415 — optional dependency
+
+    other = tmp_path / "other-protocol"
+    shutil.copytree(trained_run, other)
+    # Rewrite the comparison run's evaluations under a protocol nothing here
+    # uses. `matching_eval_protocol` compares the whole tuple, so one field is
+    # all it takes — and one field is exactly the realistic accident.
+    evals = other / sources.EVALS_NAME
+    with evals.open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+        fields = list(rows[0])
+    assert "seed_count" in fields, fields
+    for row in rows:
+        row["seed_count"] = "3"  # not the canonical count
+    with evals.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    window = Console(trained_run)
+    window.resize(1400, 900)
+    window._tick()
+    try:
+        window._compare_with(other)
+        window._tick()
+        analysis = window._analysis
+
+        assert not analysis._note.isHidden(), "an empty comparison explained nothing"
+        note = analysis._note.text()
+        assert other.name in note
+        assert "different protocol" in note
+        # And nothing is drawn, which is the *correct* half of the old behaviour.
+        assert len(analysis._distribution._series.barSets()) == 1
+        assert analysis._tiles["score"]._delta.isHidden()
+    finally:
+        window.close()
+
+
+def test_a_comparable_run_says_that_too(
+    qt_app: object,  # noqa: ARG001 — the QApplication has to exist
+    trained_run: Path,
+    tmp_path: Path,
+) -> None:
+    # The other half of the rule: the note is a statement of what the panel is
+    # doing, not an error channel that only appears when something is wrong.
+    from md.ui.app import Console  # noqa: PLC0415 — optional dependency
+
+    other = tmp_path / "same-protocol"
+    shutil.copytree(trained_run, other)
+
+    window = Console(trained_run)
+    window.resize(1400, 900)
+    window._tick()
+    try:
+        window._compare_with(other)
+        window._tick()
+        assert other.name in window._analysis._note.text()
+        assert "held against" in window._analysis._note.text()
     finally:
         window.close()

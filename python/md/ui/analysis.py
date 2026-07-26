@@ -38,7 +38,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import stats, theme
+from . import sources, stats, theme
 from .charts import BarView, CurveView
 from .sources import EvalRow
 
@@ -154,6 +154,15 @@ class AnalysisView(QWidget):
         column.addWidget(self._body, stretch=1)
         self._body.setVisible(False)
 
+        # Why the comparison is showing nothing, when it is showing nothing.
+        # A panel that silently stays blank leaves a person deciding between
+        # "broken" and "I misunderstand this" — and both answers are wrong.
+        self._note = QLabel("")
+        self._note.setProperty("role", "caption")
+        self._note.setWordWrap(True)
+        self._note.setVisible(False)
+        body.addWidget(self._note)
+
         self._tile_grid = QGridLayout()
         self._tile_grid.setSpacing(8)
         body.addLayout(self._tile_grid)
@@ -209,12 +218,43 @@ class AnalysisView(QWidget):
 
         self._show_tiles(summary)
         other = compare[-1] if compare else None
-        comparisons = {c.key: c for c in stats.compare(latest, other)}
+        comparable = (
+            latest is not None
+            and other is not None
+            and sources.matching_eval_protocol(latest, other)
+        )
+        self._note.setText(self._comparison_note(other, comparable=comparable))
+        self._note.setVisible(bool(self._note.text()))
+
+        # Nothing is overlaid across protocols, deliberately: two runs measured
+        # over different seed sets, cadences or caps are not two numbers, and a
+        # delta between them would be a claim the data does not support. The
+        # note above says so, which is the part that used to be missing.
+        held = other if comparable else None
+        comparisons = {c.key: c for c in stats.compare(latest, held)}
         for key, tile in self._tiles.items():
             tile.show_comparison(comparisons.get(key), self._compare_name)
 
-        self._show_distribution(latest, other)
-        self._show_curves(rows, compare)
+        self._show_distribution(latest, held)
+        self._show_curves(rows, compare if comparable else ())
+
+    def _comparison_note(self, other: EvalRow | None, *, comparable: bool) -> str:
+        """One sentence naming what the comparison is, or why there is none."""
+        if not self._compare_name:
+            return ""
+        if other is None:
+            return (
+                f"{self._compare_name} has no evaluated checkpoint yet, so there is "
+                "nothing to compare against. Evaluate it and this fills in."
+            )
+        if not comparable:
+            return (
+                f"{self._compare_name} was evaluated under a different protocol — "
+                "a different seed set, decision cadence or tick cap — so its numbers "
+                "are not comparable with these and nothing is overlaid. "
+                "Re-evaluate either run under the canonical protocol to compare them."
+            )
+        return f"held against {self._compare_name}"
 
     def set_comparison(self, name: str) -> None:
         """Name the run being held against this one; empty clears it."""
