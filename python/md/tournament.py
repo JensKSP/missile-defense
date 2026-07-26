@@ -363,3 +363,88 @@ def write_manifest(match: Match, destination: Path, recordings: dict[str, Path])
     temporary.write_text(json.dumps(payload, indent=1) + "\n", encoding="utf-8")
     temporary.replace(destination)
     return destination
+
+
+# ---- paired recordings -------------------------------------------------------
+
+
+def record_episode(
+    model: league.Model,
+    seed: int,
+    destination: Path,
+    *,
+    max_ticks: int = 120_000,
+    frame_skip: int = 4,
+) -> Path:
+    """Play one seed under one model and save the episode as a recording.
+
+    The other half of :func:`write_manifest`. A manifest names two recordings;
+    without this nothing produced them, and a "paired match" was a file format
+    with no way to fill it in.
+
+    The seed is set with ``reset_seeds`` rather than the constructor's, because
+    the constructor's is a *starting point* a `VecEnv` derives per-episode seeds
+    from — and a match is only a match if both sides played the seed the
+    manifest claims. The saved recording carries that seed in its header, which
+    is what `MatchPlayer` checks before it will pair two files.
+    """
+    from . import export_policy  # noqa: PLC0415
+    from .env import VecEnv  # noqa: PLC0415
+
+    try:
+        policy = policy_format.read(model.policy)
+    except policy_format.PolicyFormatError as error:
+        raise TournamentError(f"{model.name}: {error}") from error
+
+    env = VecEnv(num_envs=1, frame_skip=frame_skip, max_ticks=max_ticks, seed=seed)
+    env.reset_seeds([seed])
+    env.record(0)
+
+    import numpy as np  # noqa: PLC0415
+
+    while True:
+        observation = env.observations[0]
+        mask = env.action_masks()[0]
+        action = export_policy.evaluate(policy, observation, mask).action
+        _, _, terminated, truncated, _ = env.step(np.array([action], dtype=np.int32))
+        if bool(terminated[0]) or bool(truncated[0]):
+            break
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if not env.save_recording(0, destination, label=model.name):
+        raise TournamentError(f"{model.name}: the episode could not be saved to {destination}")
+    return destination
+
+
+def record_pair(
+    match: Match,
+    directory: Path,
+    *,
+    seed: int | None = None,
+    max_ticks: int = 120_000,
+    root: Path | None = None,
+) -> dict[str, Path]:
+    """Record both sides of ``match`` on one shared seed.
+
+    Returns what :func:`write_manifest` wants. The seed defaults to the first of
+    the match's own — the same list rule 1 handed to both contestants — so the
+    episode on screen is drawn from the set that produced the scores beside it.
+    """
+    chosen = match.seeds[0] if seed is None else seed
+    if chosen not in match.seeds:
+        raise TournamentError(
+            f"seed {chosen} is not one this match was played on; a recording of it "
+            "would not be an episode either score was measured over"
+        )
+    recordings: dict[str, Path] = {}
+    for side, result in (("left", match.left), ("right", match.right)):
+        model = league.find(result.model_id, root)
+        if model is None:
+            raise TournamentError(
+                f"the {side} model ({result.model_id}) is no longer in the league, "
+                "so its side of this match cannot be recorded"
+            )
+        recordings[side] = record_episode(
+            model, chosen, directory / f"{side}.mdr", max_ticks=max_ticks
+        )
+    return recordings

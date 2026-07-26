@@ -4,6 +4,7 @@
 #include "renderer.hpp"
 
 #include "game_window.hpp"
+#include "md/replay/match.hpp"
 #include "md/rng.hpp"
 #include "md/version.hpp"
 #include "projection.hpp"
@@ -30,23 +31,16 @@ namespace md {
 
 namespace {
 
-// Per-instance vertex data: an oriented box (world units), an RGBA colour, and a
-// shape flag (0 = rectangle, 1 = solid circle, 2 = radial-glow circle).
-struct InstanceData {
-    float cx, cy;
-    float hx, hy;
-    float angle;
-    float r, g, b, a;
-    float shape;
-};
-
 // Push constants: world -> clip transform, clip.xy = worldPos * a + b.
 struct PushConstants {
     float a[2];
     float b[2];
 };
 
-constexpr std::size_t max_instances = 2048;
+// Two worlds fit in one frame: the split screen draws both sides' entities into
+// this single buffer and issues one draw per half, so the budget is per frame
+// and not per viewport.
+constexpr std::size_t max_instances = 4096;
 
 InstanceData rect(float cx, float cy, float hx, float hy, float r, float g, float b,
                   float a = 1.0f) {
@@ -308,6 +302,124 @@ void alloc_buffer(QVulkanWindow* win, QVulkanDeviceFunctions* dev, VkDeviceSize 
     dev->vkBindBufferMemory(device, *buffer, *memory, 0);
 }
 
+/// A viewport covering a rectangle of the swapchain image, in pixels.
+VkViewport rect_viewport(float x, float width, float height) {
+    VkViewport viewport{};
+    viewport.x = x;
+    viewport.width = width;
+    viewport.height = height;
+    viewport.minDepth = 0.0f;
+    viewport.maxDepth = 1.0f;
+    return viewport;
+}
+
+/// The whole window — every frame that is not a match.
+VkViewport whole(QSize size) {
+    return rect_viewport(0.0f, static_cast<float>(size.width()), static_cast<float>(size.height()));
+}
+
+/// How many digits `draw_number` will draw — the pixel font is fixed-width, so
+/// this is all it takes to centre a number the way `draw_text` centres a word.
+int digit_count(std::uint32_t value) {
+    int digits = 1;
+    for (std::uint32_t v = value / 10; v > 0; v /= 10) {
+        ++digits;
+    }
+    return digits;
+}
+
+/// How wide `draw_stat` will be, so two of them can be laid out side by side.
+float stat_width(std::string_view label, std::uint32_t value, float px) {
+    const float advance = px * 4.0f;
+    return static_cast<float>(label.size() + 1 + static_cast<std::size_t>(digit_count(value))) *
+           advance; // one blank between caption and number
+}
+
+/// A caption and its number, centred together: `WAVE 7`.
+///
+/// One call rather than two placements, because the two halves of a match have
+/// to line up exactly — eyeballing an offset per label is how a scoreboard ends
+/// up a pixel out of step with the one beside it.
+void draw_stat(std::vector<InstanceData>& inst, std::string_view label, std::uint32_t value,
+               float centre, float top_y, float px, float r, float g, float b) {
+    const float half = stat_width(label, value, px) * 0.5f;
+    draw_text(inst, label, centre - half, top_y, px, r, g, b, false);
+    draw_number(inst, value, centre + half, top_y, px, r, g, b, true);
+}
+
+/// Fold to upper case for the pixel font, which has no lower case — otherwise a
+/// model name like "Amber Anvil" renders as two capitals and nine blanks.
+std::string shout(std::string_view text) {
+    std::string out{text};
+    std::ranges::transform(out, out.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+    return out;
+}
+
+/// The field a game is played on: ground, cities, launch bases.
+///
+/// Drawn in every state — the menus sit over a live skyline — and once per side
+/// in a match, which is why it is a function rather than a stretch of
+/// `startNextFrame`.
+void build_backdrop(const Sim& sim, std::vector<InstanceData>& inst) {
+    const float world_w = sim.config().world_width;
+    inst.push_back(rect(world_w * 0.5f, 1.0f, world_w * 0.5f, 1.0f, 0.10f, 0.11f, 0.18f)); // ground
+    for (const auto& city : sim.cities()) {
+        if (city.alive) {
+            add_building(inst, city.pos.x, 7.0f, 8.0f, 5, 0.25f, 0.62f, 0.95f, true); // skyscrapers
+        } else {
+            inst.push_back(rect(city.pos.x, 1.5f, 6.0f, 1.5f, 0.22f, 0.20f, 0.24f)); // rubble
+        }
+    }
+    for (const auto& base : sim.bases()) {
+        if (!base.alive) {
+            inst.push_back(rect(base.pos.x, 1.5f, 6.0f, 1.5f, 0.22f, 0.20f, 0.24f)); // rubble
+            continue;
+        }
+        const bool empty = base.ammo == 0;
+        add_building(inst, base.pos.x, 6.0f, 12.0f, 3, empty ? 0.42f : 0.85f, empty ? 0.38f : 0.58f,
+                     empty ? 0.32f : 0.24f, !empty); // launch towers
+    }
+}
+
+/// Everything currently in the air: threats, interceptors, blasts, explosions.
+///
+/// `tsec` is wall-clock animation time, not simulation time — it drives the
+/// smart bomb's spin and pulse, which are decoration. Both sides of a match get
+/// the same value, so the two screens animate together.
+void build_entities(const Sim& sim, std::vector<InstanceData>& inst, float tsec) {
+    for (const auto& threat : sim.threats()) {
+        if (threat.type == ThreatType::Mirv) { // splitter — purple, multi-warhead
+            inst.push_back(line(threat.origin, threat.pos, 0.4f, 0.6f, 0.3f, 0.85f, 0.5f));
+            inst.push_back(glow(threat.pos.x, threat.pos.y, 4.5f, 0.8f, 0.4f, 1.0f, 0.6f));
+            add_mirv(inst, threat.origin, threat.pos, 5.5f, 1.0f, 0.8f, 0.45f, 1.0f);
+        } else if (threat.type == ThreatType::SmartBomb) { // dodger — green, spinning pod
+            inst.push_back(line(threat.origin, threat.pos, 0.4f, 0.3f, 0.8f, 0.4f, 0.4f));
+            const float pulse = 1.7f + (0.25f * std::sin((tsec * 6.0f) + threat.pos.x));
+            add_smartbomb(inst, threat.pos, pulse, tsec * 3.0f, 0.35f, 0.95f, 0.5f);
+        } else if (threat.type == ThreatType::Warhead) { // MIRV child — purple warhead
+            inst.push_back(line(threat.origin, threat.pos, 0.3f, 0.6f, 0.35f, 0.85f, 0.4f));
+            add_warhead(inst, threat.origin, threat.pos, 2.8f, 1.0f, 0.82f, 0.45f, 1.0f);
+        } else { // ICBM — red rocket
+            inst.push_back(line(threat.origin, threat.pos, 0.35f, 0.85f, 0.25f, 0.20f, 0.45f));
+            inst.push_back(glow(threat.pos.x, threat.pos.y, 4.0f, 0.95f, 0.35f, 0.30f, 0.55f));
+            add_missile(inst, threat.origin, threat.pos, 5.0f, 0.8f, 0.95f, 0.4f, 0.35f);
+        }
+    }
+    for (const auto& it : sim.interceptors()) {
+        inst.push_back(line(it.origin, it.pos, 0.3f, 0.6f, 0.85f, 1.0f, 0.5f));
+        inst.push_back(circle(it.pos.x, it.pos.y, 0.9f, 0.9f, 0.97f, 1.0f));
+    }
+    for (const auto& blast : sim.blasts()) {
+        add_fireball(inst, blast.center.x, blast.center.y, blast.radius,
+                     blast.age / sim.config().blast_lifetime);
+    }
+    for (const auto& explosion : sim.explosions()) {
+        add_fireball(inst, explosion.center.x, explosion.center.y, explosion.radius,
+                     explosion.age / sim.config().explosion_lifetime);
+    }
+}
+
 } // namespace
 
 // Not noexcept: build_stars() fills a std::vector, so construction can throw on
@@ -495,6 +607,16 @@ void Renderer::startNextFrame() {
     window_->advance();
 
     const QSize sz = window_->swapChainImageSize();
+
+    // A match is its own screen: two recordings, two viewports, one clock. It
+    // shares the instance buffer with the single-sim path below and nothing else,
+    // so it returns rather than threading a "which sim?" question through 400
+    // lines of menu and HUD drawing.
+    if (const replay::MatchPlayer* match = window_->match(); match != nullptr) {
+        draw_match(*match, sz);
+        return;
+    }
+
     const Sim& sim = window_->sim();
     const float world_w = sim.config().world_width;
     const float world_h = sim.config().world_height;
@@ -520,55 +642,10 @@ void Renderer::startNextFrame() {
     }
 
     // Field backdrop (drawn in every state).
-    inst.push_back(rect(world_w * 0.5f, 1.0f, world_w * 0.5f, 1.0f, 0.10f, 0.11f, 0.18f)); // ground
-    for (const auto& city : sim.cities()) {
-        if (city.alive) {
-            add_building(inst, city.pos.x, 7.0f, 8.0f, 5, 0.25f, 0.62f, 0.95f, true); // skyscrapers
-        } else {
-            inst.push_back(rect(city.pos.x, 1.5f, 6.0f, 1.5f, 0.22f, 0.20f, 0.24f)); // rubble
-        }
-    }
-    for (const auto& base : sim.bases()) {
-        if (!base.alive) {
-            inst.push_back(rect(base.pos.x, 1.5f, 6.0f, 1.5f, 0.22f, 0.20f, 0.24f)); // rubble
-            continue;
-        }
-        const bool empty = base.ammo == 0;
-        add_building(inst, base.pos.x, 6.0f, 12.0f, 3, empty ? 0.42f : 0.85f, empty ? 0.38f : 0.58f,
-                     empty ? 0.32f : 0.24f, !empty); // launch towers
-    }
+    build_backdrop(sim, inst);
 
     if (show_game) {
-        for (const auto& threat : sim.threats()) {
-            if (threat.type == ThreatType::Mirv) { // splitter — purple, multi-warhead
-                inst.push_back(line(threat.origin, threat.pos, 0.4f, 0.6f, 0.3f, 0.85f, 0.5f));
-                inst.push_back(glow(threat.pos.x, threat.pos.y, 4.5f, 0.8f, 0.4f, 1.0f, 0.6f));
-                add_mirv(inst, threat.origin, threat.pos, 5.5f, 1.0f, 0.8f, 0.45f, 1.0f);
-            } else if (threat.type == ThreatType::SmartBomb) { // dodger — green, spinning pod
-                inst.push_back(line(threat.origin, threat.pos, 0.4f, 0.3f, 0.8f, 0.4f, 0.4f));
-                const float pulse = 1.7f + (0.25f * std::sin((tsec * 6.0f) + threat.pos.x));
-                add_smartbomb(inst, threat.pos, pulse, tsec * 3.0f, 0.35f, 0.95f, 0.5f);
-            } else if (threat.type == ThreatType::Warhead) { // MIRV child — purple warhead
-                inst.push_back(line(threat.origin, threat.pos, 0.3f, 0.6f, 0.35f, 0.85f, 0.4f));
-                add_warhead(inst, threat.origin, threat.pos, 2.8f, 1.0f, 0.82f, 0.45f, 1.0f);
-            } else { // ICBM — red rocket
-                inst.push_back(line(threat.origin, threat.pos, 0.35f, 0.85f, 0.25f, 0.20f, 0.45f));
-                inst.push_back(glow(threat.pos.x, threat.pos.y, 4.0f, 0.95f, 0.35f, 0.30f, 0.55f));
-                add_missile(inst, threat.origin, threat.pos, 5.0f, 0.8f, 0.95f, 0.4f, 0.35f);
-            }
-        }
-        for (const auto& it : sim.interceptors()) {
-            inst.push_back(line(it.origin, it.pos, 0.3f, 0.6f, 0.85f, 1.0f, 0.5f));
-            inst.push_back(circle(it.pos.x, it.pos.y, 0.9f, 0.9f, 0.97f, 1.0f));
-        }
-        for (const auto& blast : sim.blasts()) {
-            add_fireball(inst, blast.center.x, blast.center.y, blast.radius,
-                         blast.age / sim.config().blast_lifetime);
-        }
-        for (const auto& explosion : sim.explosions()) {
-            add_fireball(inst, explosion.center.x, explosion.center.y, explosion.radius,
-                         explosion.age / sim.config().explosion_lifetime);
-        }
+        build_entities(sim, inst, tsec);
         if (!game_over) { // HUD: score / wave / ammo — hidden on the game-over screen
             const float digit_px = world_h * 0.013f;
             const float hud_top = world_h * 0.97f;
@@ -858,23 +935,136 @@ void Renderer::startNextFrame() {
                   0.7f, true);
     }
 
+    // World -> clip transform (matches the mouse->world mapping in GameWindow).
+    submit(inst, {Pass{Projection::make(world_w, world_h, static_cast<float>(sz.width()),
+                                        static_cast<float>(sz.height())),
+                       whole(sz), 0, static_cast<std::uint32_t>(inst.size())}});
+}
+
+void Renderer::draw_match(const replay::MatchPlayer& match, QSize size) {
+    const Sim& left = match.left().player.sim();
+    const Sim& right = match.right().player.sim();
+    const float world_w = left.config().world_width;
+    const float world_h = left.config().world_height;
+    const float tsec =
+        std::chrono::duration<float>(std::chrono::steady_clock::now() - start_).count();
+    const auto w = static_cast<float>(size.width());
+    const auto h = static_cast<float>(size.height());
+    const float half = w * 0.5f;
+
+    std::vector<InstanceData> inst;
+    inst.reserve(max_instances);
+    std::vector<Pass> passes;
+
+    // Four passes, drawn in this order: sky, left world, right world, chrome.
+    // Depth testing is off, so pass order *is* the layering — the two worlds sit
+    // on the shared sky, and the scoreboard sits on both.
+    const Projection full = Projection::make(world_w, world_h, w, h);
+    const Projection side = Projection::make(world_w, world_h, half, h);
+
+    // The starfield spans the window rather than each half, so the divider cuts
+    // through one continuous sky instead of two visibly repeated ones.
+    const auto sky_first = static_cast<std::uint32_t>(inst.size());
+    for (const auto& star : stars_) {
+        const float tw = 0.55f + (0.45f * std::sin(star.phase + (star.speed * tsec)));
+        inst.push_back(glow(star.x, star.y, star.size, 0.85f, 0.9f, 1.0f, star.base * tw));
+    }
+    passes.push_back(
+        Pass{full, whole(size), sky_first, static_cast<std::uint32_t>(inst.size()) - sky_first});
+
+    for (int which = 0; which < 2; ++which) {
+        const Sim& sim = which == 0 ? left : right;
+        const auto first = static_cast<std::uint32_t>(inst.size());
+        build_backdrop(sim, inst);
+        build_entities(sim, inst, tsec);
+        passes.push_back(Pass{side, rect_viewport(which == 0 ? 0.0f : half, half, h), first,
+                              static_cast<std::uint32_t>(inst.size()) - first});
+    }
+
+    const auto chrome_first = static_cast<std::uint32_t>(inst.size());
+
+    // The divider. Deliberately plain and dim: it separates, it does not decorate.
+    inst.push_back(
+        rect(world_w * 0.5f, world_h * 0.5f, 0.12f, world_h * 0.5f, 0.30f, 0.34f, 0.42f, 0.9f));
+
+    // One scoreboard per side, above its own half. Both are drawn under the
+    // window-wide projection so the two read at the same size — text scaled per
+    // viewport would make the halves look like different screens.
+    // Stacked by glyph height, not by eye: `draw_text` hangs 5*px *below* its
+    // `top_y`, so rows placed on a pretty arithmetic series overlap.
+    const float name_px = world_h * 0.0080f;
+    const float score_px = world_h * 0.0140f;
+    const float small_px = world_h * 0.0060f;
+    for (int which = 0; which < 2; ++which) {
+        const auto& entry = which == 0 ? match.left() : match.right();
+        const Sim& sim = which == 0 ? left : right;
+        const Sim& other = which == 0 ? right : left;
+        const float centre = world_w * (which == 0 ? 0.25f : 0.75f);
+
+        draw_text(inst, shout(entry.name), centre, world_h * 0.995f, name_px, 0.72f, 0.82f, 0.94f,
+                  true);
+
+        // The leader is tinted, not badged: a label saying WINNING would have to
+        // be right, and mid-episode it is only ever "ahead so far".
+        const bool ahead = sim.score() > other.score();
+        const auto score = static_cast<std::uint32_t>(sim.score() < 0 ? 0 : sim.score());
+        const auto width = static_cast<float>(digit_count(score)) * score_px * 4.0f;
+        draw_number(inst, score, centre + (width * 0.5f), world_h * 0.948f, score_px,
+                    ahead ? 0.55f : 0.72f, ahead ? 1.00f : 0.76f, ahead ? 0.65f : 0.82f, true);
+
+        // What the tournament measured, when a manifest said — so a viewer can
+        // tell one episode's luck from the average it came from. Beside the wave
+        // rather than under it: a fourth row would reach into the playfield.
+        const auto mean = static_cast<std::uint32_t>(
+            entry.mean_score.value_or(0.0) < 0.0 ? 0.0 : entry.mean_score.value_or(0.0));
+        const float wave_w = stat_width("WAVE", sim.wave(), small_px);
+        const float mean_w =
+            entry.mean_score.has_value() ? stat_width("MEAN", mean, small_px) : 0.0f;
+        const float gap = entry.mean_score.has_value() ? small_px * 12.0f : 0.0f;
+        const float row = wave_w + gap + mean_w;
+        const float row_y = world_h * 0.868f;
+        draw_stat(inst, "WAVE", sim.wave(), centre - (row * 0.5f) + (wave_w * 0.5f), row_y,
+                  small_px, 0.48f, 0.54f, 0.62f);
+        if (entry.mean_score.has_value()) {
+            draw_stat(inst, "MEAN", mean, centre + (row * 0.5f) - (mean_w * 0.5f), row_y, small_px,
+                      0.42f, 0.47f, 0.55f);
+        }
+    }
+
+    // The shared transport, at the foot of the window and spanning both halves —
+    // one clock, stated once, because there is only one.
+    const float bar_y = world_h * 0.075f;
+    const float bar_w = world_w * 0.36f;
+    inst.push_back(rect(world_w * 0.5f, bar_y, bar_w, 0.22f, 0.22f, 0.26f, 0.34f));
+    const float done = std::clamp(match.progress(), 0.0f, 1.0f);
+    if (done > 0.0f) {
+        inst.push_back(rect((world_w * 0.5f) - bar_w + (bar_w * done), bar_y, bar_w * done, 0.22f,
+                            0.45f, 0.75f, 0.95f));
+    }
+    draw_text(inst,
+              match.finished() ? "MATCH COMPLETE   R RESTART   ESC BACK"
+                               : "SPACE PAUSE   ARROWS SEEK   R RESTART   ESC BACK",
+              world_w * 0.5f, world_h * 0.042f, world_h * 0.0060f, 0.46f, 0.53f, 0.62f, true);
+
+    passes.push_back(Pass{full, whole(size), chrome_first,
+                          static_cast<std::uint32_t>(inst.size()) - chrome_first});
+
+    submit(inst, passes);
+}
+
+void Renderer::submit(std::vector<InstanceData>& inst, const std::vector<Pass>& passes) {
+    // One hard budget for the whole frame, however many viewports share it.
+    // Dropping the tail is the right failure: instances are drawn back to
+    // front, so what is lost is the topmost decoration and not the field.
     if (inst.size() > max_instances) {
         inst.resize(max_instances);
     }
+    const auto total = static_cast<std::uint32_t>(inst.size());
 
     const auto frame = static_cast<std::size_t>(window_->currentFrame());
     std::memcpy(instance_mapped_[frame], inst.data(), inst.size() * sizeof(InstanceData));
-    const auto instance_count = static_cast<std::uint32_t>(inst.size());
 
-    // World -> clip transform (matches the mouse->world mapping in GameWindow).
-    const Projection proj = Projection::make(world_w, world_h, static_cast<float>(sz.width()),
-                                             static_cast<float>(sz.height()));
-    PushConstants pc{};
-    pc.a[0] = proj.ax;
-    pc.a[1] = proj.ay;
-    pc.b[0] = proj.bx;
-    pc.b[1] = proj.by;
-
+    const QSize sz = window_->swapChainImageSize();
     std::array<VkClearValue, 3> clear{};
     clear[0].color = {{0.05f, 0.06f, 0.12f, 1.0f}}; // night sky
     clear[1].depthStencil = {1.0f, 0};
@@ -892,28 +1082,43 @@ void Renderer::startNextFrame() {
 
     const VkCommandBuffer cb = window_->currentCommandBuffer();
     dev_->vkCmdBeginRenderPass(cb, &begin, VK_SUBPASS_CONTENTS_INLINE);
-
-    VkViewport viewport{};
-    viewport.width = static_cast<float>(sz.width());
-    viewport.height = static_cast<float>(sz.height());
-    viewport.minDepth = 0.0f;
-    viewport.maxDepth = 1.0f;
-    dev_->vkCmdSetViewport(cb, 0, 1, &viewport);
-
-    VkRect2D scissor{};
-    scissor.extent.width = static_cast<std::uint32_t>(sz.width());
-    scissor.extent.height = static_cast<std::uint32_t>(sz.height());
-    dev_->vkCmdSetScissor(cb, 0, 1, &scissor);
-
     dev_->vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
-    dev_->vkCmdPushConstants(cb, pipeline_layout_, VK_SHADER_STAGE_VERTEX_BIT, 0,
-                             static_cast<std::uint32_t>(sizeof(PushConstants)), &pc);
 
     std::array<VkBuffer, 2> vbufs{quad_buf_, instance_bufs_[frame]};
     std::array<VkDeviceSize, 2> offsets{0, 0};
     dev_->vkCmdBindVertexBuffers(cb, 0, static_cast<std::uint32_t>(vbufs.size()), vbufs.data(),
                                  offsets.data());
-    dev_->vkCmdDraw(cb, 6, instance_count, 0, 0);
+
+    for (const Pass& pass : passes) {
+        // Re-clamped against the budget above, not trusted: a caller computes
+        // its slice while building, and the truncation happens afterwards.
+        if (pass.first >= total) {
+            continue;
+        }
+        const std::uint32_t count = std::min(pass.count, total - pass.first);
+        if (count == 0) {
+            continue;
+        }
+
+        dev_->vkCmdSetViewport(cb, 0, 1, &pass.viewport);
+        // Scissored to the viewport, so a half-screen pass cannot bleed into
+        // its neighbour through the letterbox bars its projection leaves.
+        VkRect2D scissor{};
+        scissor.offset.x = static_cast<std::int32_t>(pass.viewport.x);
+        scissor.offset.y = static_cast<std::int32_t>(pass.viewport.y);
+        scissor.extent.width = static_cast<std::uint32_t>(pass.viewport.width);
+        scissor.extent.height = static_cast<std::uint32_t>(pass.viewport.height);
+        dev_->vkCmdSetScissor(cb, 0, 1, &scissor);
+
+        PushConstants pc{};
+        pc.a[0] = pass.proj.ax;
+        pc.a[1] = pass.proj.ay;
+        pc.b[0] = pass.proj.bx;
+        pc.b[1] = pass.proj.by;
+        dev_->vkCmdPushConstants(cb, pipeline_layout_, VK_SHADER_STAGE_VERTEX_BIT, 0,
+                                 static_cast<std::uint32_t>(sizeof(PushConstants)), &pc);
+        dev_->vkCmdDraw(cb, 6, count, 0, pass.first);
+    }
 
     dev_->vkCmdEndRenderPass(cb);
     window_->frameReady();

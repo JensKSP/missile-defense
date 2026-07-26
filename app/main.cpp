@@ -149,12 +149,17 @@ std::string_view state_name(md::GameWindow::State state) {
         return "replays";
     case State::Watch:
         return "watch-menu";
+    case State::Match:
+        return "match";
     }
     return "unknown";
 }
 
 /// Which driver was at the controls, for `--report`.
 std::string_view mode_name(const md::GameWindow& window) {
+    if (window.match() != nullptr) {
+        return "match";
+    }
     if (window.replaying()) {
         return "replay";
     }
@@ -229,6 +234,8 @@ int run(int argc, char** argv) {
     window.resize(1280, 720);
     window.setTitle("Missile Defense");
     bool report = false;
+    std::string match_left;
+    std::string match_right;
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg(argv[i]);
         if (arg == "--play") {
@@ -256,6 +263,18 @@ int run(int argc, char** argv) {
             if (!window.watch_replay(argv[++i])) {
                 qWarning("could not read the recording: %s", argv[i]);
             }
+        } else if (arg == "--match" && (i + 1) < argc) {
+            // Two agents on the same seed, side by side. A manifest, so the
+            // scores the tournament measured come with the recordings and the
+            // screen can say what it is showing rather than leaving a viewer
+            // to assume (docs/API.md, `md.tournament.write_manifest`).
+            if (!window.watch_match(std::string{argv[++i]})) {
+                return 2; // the reason is already on stderr; do not open a window
+            }
+        } else if (arg == "--match-left" && (i + 1) < argc) {
+            match_left = argv[++i];
+        } else if (arg == "--match-right" && (i + 1) < argc) {
+            match_right = argv[++i];
         } else if (arg == "--frames" && (i + 1) < argc) {
             window.set_frame_budget(std::strtoull(argv[++i], nullptr, 10));
         } else if (arg == "--until-done") {
@@ -266,6 +285,19 @@ int run(int argc, char** argv) {
             report = true;
         }
     }
+    // Resolved after the loop: the two halves are one option, and requiring
+    // them in a fixed order would be an arbitrary rule to remember.
+    if (!match_left.empty() || !match_right.empty()) {
+        if (match_left.empty() || match_right.empty()) {
+            std::println(stderr, "md_app: --match-left and --match-right go together; "
+                                 "a match needs both sides");
+            return 2;
+        }
+        if (!window.watch_match(match_left, match_right)) {
+            return 2; // the reason is already on stderr
+        }
+    }
+
     if (window.fullscreen()) { // restore the persisted window mode (see QSettings)
         window.showFullScreen();
     } else {

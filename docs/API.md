@@ -414,7 +414,50 @@ implementations of the same bug. Regenerate it with
 `python -m tools.make_policy_fixture` when the format or the reference forward
 pass changes, and expect the diff to be reviewed.
 
-## 8. Status
+## 8. `.json` — a match, as two recordings on one seed
+
+A **match** is two agents playing the *same* problem, shown side by side. It is
+a manifest naming two `.mdr` recordings, the seed they share, and the scores the
+tournament measured — nothing more, because the recordings already carry
+everything needed to replay them.
+
+```
+python -m md.tournament         write_manifest(match, path, recordings)
+                                record_pair(match, directory)    -> both sides
+                                record_episode(model, seed, path) -> one side
+
+md_app --match match.json                 # a manifest, with names and scores
+md_app --match-left a.mdr --match-right b.mdr   # ad hoc, no claimed scores
+```
+
+`record_episode` sets the seed with `VecEnv.reset_seeds`, not the constructor's
+`seed=` — the constructor's is a *starting point* the environment derives
+per-episode seeds from, and a match is only a match if both sides played the
+seed the manifest claims. The seed lands in the recording's header, which is
+what the game checks before it will pair two files.
+
+**Same seed, or it is refused.** `md::replay::MatchPlayer` compares the two
+headers and throws rather than opening a window. Two agents on two different
+problems, drawn side by side, is not a comparison — and it looks exactly like
+one, which is why the refusal is in the loader and not in a caller's discipline.
+
+**One transport, never two.** `tick`, `seek` and `restart` move both sides or
+neither, and neither `Player` is reachable in a way that lets a caller advance
+one alone. Two players on two timers drift within seconds, and tick 900 beside
+tick 913 is two videos.
+
+**Unequal endings are the interesting case.** One agent dying at wave 9 while
+the other reaches wave 14 is what the comparison is *for*. The shorter side
+freezes on its final state while the clock keeps running, so both stay on the
+same tick number even when only one is still doing anything.
+
+| Test | What it proves | Where |
+|---|---|---|
+| `test_match.cpp` | the transport keeps both sides on one tick, however it is driven | one process |
+| `test_tournament.py` | a pair is only recorded on a seed the match was played on | one process |
+| `tests/e2e/test_match.py` | **the real binary plays a real manifest as one screen, and refuses the rest** | two processes, three files |
+
+## 9. Status
 
 | Piece | State |
 |---|---|

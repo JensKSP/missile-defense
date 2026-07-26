@@ -10,6 +10,7 @@
 #include "md/agent/eval.hpp"
 #include "md/agent/heuristic.hpp"
 #include "md/agent/policy.hpp"
+#include "md/replay/match.hpp"
 #include "md/replay/recording.hpp"
 #include "md/sim.hpp"
 
@@ -49,7 +50,11 @@ class GameWindow : public QVulkanWindow {
         /// The WATCH AI submenu: SCRIPTED / PRETRAINED / BACK. A screen rather
         /// than a cycling toggle, because which agent you are about to watch is
         /// the whole question and a toggle answers it only after the fact.
-        Watch
+        Watch,
+        /// Two recordings of the same seed, side by side on one clock. Its own
+        /// state and not a flavour of Replays: there is no single `sim()` to
+        /// hand the renderer, and every transport key moves both sides at once.
+        Match
     };
 
     GameWindow();
@@ -129,6 +134,21 @@ class GameWindow : public QVulkanWindow {
 
     /// Is a recorded run being played back?
     [[nodiscard]] bool replaying() const noexcept { return replay_.has_value(); }
+
+    /// Play two recordings of the same seed side by side (`--match`).
+    ///
+    /// False, with the reason on stderr, if the manifest or either recording
+    /// could not be used — a match that silently falls back to one side would
+    /// be worse than no match at all.
+    bool watch_match(const std::string& manifest);
+
+    /// Pair two recordings directly, with no manifest (`--match-left/-right`).
+    bool watch_match(const std::string& left, const std::string& right);
+
+    /// The match on screen, or nullptr. The renderer asks; nothing else should.
+    [[nodiscard]] const replay::MatchPlayer* match() const noexcept {
+        return match_.has_value() ? &*match_ : nullptr;
+    }
 
     /// The recording's label and how far through it we are — for the HUD.
     [[nodiscard]] std::string_view replay_label() const noexcept;
@@ -263,11 +283,13 @@ class GameWindow : public QVulkanWindow {
     void save_settings() const; // persist audio/music/fullscreen after a toggle
     void open_menu();
     void open_options();
-    void open_replays();      // scan the runs directory and show what is there
-    void open_watch();        // the WATCH AI submenu: which agent is playing
-    void open_console();      // start the training console, if this install has one
-    void scrub(int seconds);  // seek the active replay, relative
-    void activate(int index); // activate the item at index in the active list
+    void open_replays();           // scan the runs directory and show what is there
+    void open_watch();             // the WATCH AI submenu: which agent is playing
+    void open_console();           // start the training console, if this install has one
+    void scrub(int seconds);       // seek the active replay, relative
+    void advance_match();          // drive both sides of a match on one clock
+    void scrub_match(int seconds); // seek the match's shared clock, relative
+    void activate(int index);      // activate the item at index in the active list
     [[nodiscard]] MenuAction action_at(int index) const;
     [[nodiscard]] int active_count() const noexcept; // active list length (menu/options)
     [[nodiscard]] std::string_view active_label(int index) const; // active list label
@@ -289,8 +311,13 @@ class GameWindow : public QVulkanWindow {
     std::optional<agent::Policy> watched_;
     std::optional<agent::PolicyDriver> watch_driver_;
     std::string driver_name_;
-    agent::Heuristic agent_{};              // the scripted agent, at whatever skill was chosen
-    std::optional<replay::Player> replay_;  // a recorded run being played back
+    agent::Heuristic agent_{};             // the scripted agent, at whatever skill was chosen
+    std::optional<replay::Player> replay_; // a recorded run being played back
+    // Two recordings on one clock. Separate from `replay_` and mutually
+    // exclusive with it: a match has no single sim, so nothing that reads
+    // `sim()` can be allowed to think it is watching one recording.
+    std::optional<replay::MatchPlayer> match_;
+    bool match_paused_ = false;             // SPACE, and where a finished match parks
     std::vector<std::string> replay_files_; // paths offered by the REPLAYS screen
     std::vector<std::string> replay_names_; // ...their display names, uppercased
     AudioEngine audio_;

@@ -3,6 +3,8 @@
 // Assisted-by: Claude Code (Anthropic)
 #pragma once
 
+#include "projection.hpp"
+
 #include <QVulkanWindow>
 #include <chrono>
 #include <cstdint>
@@ -11,6 +13,24 @@
 namespace md {
 
 class GameWindow;
+
+namespace replay {
+class MatchPlayer;
+} // namespace replay
+
+/// Per-instance vertex data: an oriented box (world units), an RGBA colour, and
+/// a shape flag (0 = rectangle, 1 = solid circle, 2 = radial-glow circle).
+///
+/// In the header only because the split screen needs it: two viewports are two
+/// draws over slices of one buffer, so building and submitting can no longer be
+/// the same function.
+struct InstanceData {
+    float cx, cy;
+    float hx, hy;
+    float angle;
+    float r, g, b, a;
+    float shape;
+};
 
 /// One background star: a fixed sky position with an independent twinkle.
 struct Star {
@@ -34,9 +54,26 @@ class Renderer : public QVulkanWindowRenderer {
     void startNextFrame() override;
 
   private:
+    /// One draw: a slice of the frame's instances, under its own projection,
+    /// into its own rectangle of the swapchain image. A normal frame has one; a
+    /// match has three (left world, right world, and the overlay that spans
+    /// both and owns the divider and the shared transport).
+    struct Pass {
+        Projection proj;
+        VkViewport viewport{};
+        std::uint32_t first = 0;
+        std::uint32_t count = 0;
+    };
+
     void createPipeline();
     void createBuffers();
     void build_stars();
+
+    /// Upload the frame's instances once and record one draw per pass.
+    void submit(std::vector<InstanceData>& inst, const std::vector<Pass>& passes);
+
+    /// The split-screen match view: two synchronized recordings, side by side.
+    void draw_match(const replay::MatchPlayer& match, QSize size);
 
     GameWindow* window_;
     QVulkanDeviceFunctions* dev_ = nullptr;

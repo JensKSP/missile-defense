@@ -325,3 +325,38 @@ def test_a_manifest_names_both_sides_and_the_scores_it_claims(tmp_path: Path) ->
 @pytest.fixture
 def _native() -> None:
     pytest.importorskip("md._md_native", reason="the native binding is not built")
+
+
+# ---- paired recordings -------------------------------------------------------
+
+
+def test_a_pair_can_only_be_recorded_on_a_seed_the_match_was_played_on(tmp_path: Path) -> None:
+    # A recording of some other seed would not be an episode either score was
+    # measured over, which is the one thing the manifest promises a viewer.
+    left = make_model(tmp_path, "aaaa", "Amber Anvil")
+    right = make_model(tmp_path, "bbbb", "Brisk Harbour")
+    protocol = tournament.canonical_protocol()
+    match = tournament.Match(
+        tournament.Result(left.model_id, left.name, protocol, 100.0, 1.0, 60.0, 1, True, None),
+        tournament.Result(right.model_id, right.name, protocol, 90.0, 1.0, 60.0, 1, True, None),
+        (7, 8, 9),
+    )
+    with pytest.raises(tournament.TournamentError, match="not one this match"):
+        tournament.record_pair(match, tmp_path / "out", seed=1234)
+
+
+def test_recording_a_pair_says_which_side_went_missing(tmp_path: Path) -> None:
+    # Models can be deleted between a match being played and a recording of it
+    # being asked for. Naming the side is the difference between a fixable
+    # message and a puzzle — and it is checked before anything is written, so a
+    # match with one live side does not leave half a pair on disk.
+    right = make_model(tmp_path, "bbbb", "Brisk Harbour")
+    protocol = tournament.canonical_protocol()
+    match = tournament.Match(
+        tournament.Result("gone", "Vanished", protocol, 100.0, 1.0, 60.0, 1, True, None),
+        tournament.Result(right.model_id, right.name, protocol, 90.0, 1.0, 60.0, 1, True, None),
+        (7,),
+    )
+    with pytest.raises(tournament.TournamentError, match="left model"):
+        tournament.record_pair(match, tmp_path / "out", root=tmp_path)
+    assert not (tmp_path / "out").exists()

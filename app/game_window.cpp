@@ -23,6 +23,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
+#include <iostream>
 #include <print>
 #include <system_error>
 
@@ -391,6 +392,11 @@ bool GameWindow::finished() const noexcept {
     }
     // GameOver *and* EnterScore: a qualifying score diverts to initials entry,
     // and a run driven to its end unattended has nobody to type them.
+    // A match never reaches GameOver — it has no single game to end — so its own
+    // completion is what an unattended run waits for.
+    if (exit_when_done_ && state_ == State::Match) {
+        return match_.has_value() && match_->finished();
+    }
     return exit_when_done_ && (state_ == State::GameOver || state_ == State::EnterScore);
 }
 
@@ -585,6 +591,45 @@ bool GameWindow::watch_replay(const std::string& path) {
     return true;
 }
 
+namespace {
+
+/// Report why a match could not be shown, once, on stderr.
+///
+/// A refusal and not a fallback: a "match" that quietly showed one side, or two
+/// unrelated episodes, would be a comparison the viewer had no way to distrust.
+bool refuse_match(const std::exception& why) {
+    std::cerr << "md_app: " << why.what() << '\n';
+    return false;
+}
+
+} // namespace
+
+bool GameWindow::watch_match(const std::string& manifest) {
+    try {
+        match_.emplace(replay::MatchPlayer::load(manifest));
+    } catch (const replay::MatchPlayer::Error& error) {
+        return refuse_match(error);
+    }
+    state_ = State::Match;
+    match_paused_ = false;
+    ai_assisted_ = true; // nothing here is the human's score
+    started_ = false;
+    return true;
+}
+
+bool GameWindow::watch_match(const std::string& left, const std::string& right) {
+    try {
+        match_.emplace(replay::MatchPlayer::pair(left, right));
+    } catch (const replay::MatchPlayer::Error& error) {
+        return refuse_match(error);
+    }
+    state_ = State::Match;
+    match_paused_ = false;
+    ai_assisted_ = true;
+    started_ = false;
+    return true;
+}
+
 std::string_view GameWindow::replay_label() const noexcept {
     return replay_.has_value() ? replay_->recording().label_text() : std::string_view{};
 }
@@ -692,6 +737,22 @@ void GameWindow::scrub(int seconds) {
     started_ = false; // restart the wall clock so the seek does not fast-forward
 }
 
+void GameWindow::scrub_match(int seconds) {
+    if (!match_.has_value()) {
+        return;
+    }
+    // Seeks the *shared* clock, never one side: `MatchPlayer::seek` moves both,
+    // and a side shorter than the target lands on its own final state.
+    const auto per_second = static_cast<double>(1.0F / sim_.config().dt);
+    const auto delta = static_cast<std::int64_t>(static_cast<double>(seconds) * per_second);
+    const auto now = static_cast<std::int64_t>(match_->tick_count());
+    match_->seek(static_cast<std::uint64_t>(std::max<std::int64_t>(0, now + delta)));
+    // A seek backwards out of a finished match makes it playable again.
+    match_paused_ = match_paused_ && match_->finished();
+    accumulator_ = 0.0;
+    started_ = false;
+}
+
 void GameWindow::activate(int index) {
     if (state_ == State::Options) {
         switch (index) {
@@ -767,6 +828,41 @@ void GameWindow::activate(int index) {
     }
 }
 
+/// Drive both sides of a match on the one clock they share.
+///
+/// Deliberately not `advance()`'s loop with a branch in it: a match has no
+/// `sim_`, no audio (two episodes playing at once is noise, not sound), no
+/// human input to sample, and no game to end — almost nothing that loop does
+/// applies, and threading four conditions through it would make the live path
+/// harder to read for the sake of sharing eight lines of accumulator.
+void GameWindow::advance_match() {
+    if (!match_.has_value() || match_paused_) {
+        started_ = false; // restart the wall clock when play resumes
+        return;
+    }
+    if (!started_) {
+        clock_.start();
+        started_ = true;
+        return;
+    }
+    accumulator_ += static_cast<double>(clock_.restart()) / 1000.0;
+    accumulator_ = std::min(accumulator_, 0.25); // clamp to avoid a spiral of death
+
+    const auto dt = static_cast<double>(sim_.config().dt);
+    while (accumulator_ >= dt) {
+        for (int repeat = 0; repeat < speed_; ++repeat) {
+            if (!match_->tick()) {
+                // Both sides are done. Park on the final frame rather than
+                // closing or looping: the result is the thing the viewer came
+                // for, and it should still be there when they look up.
+                match_paused_ = true;
+                break;
+            }
+        }
+        accumulator_ -= dt;
+    }
+}
+
 void GameWindow::advance() {
     // Counted before anything can return early, because what `--frames` bounds is
     // the *run*, not the part of it spent playing: a window stuck on the menu has
@@ -788,6 +884,10 @@ void GameWindow::advance() {
     if (hide != cursor_hidden_) {
         setCursor(hide ? Qt::BlankCursor : Qt::ArrowCursor);
         cursor_hidden_ = hide;
+    }
+    if (state_ == State::Match) {
+        advance_match();
+        return;
     }
     if (state_ != State::Playing) {
         started_ = false; // restart the wall clock when (re)entering play
@@ -887,6 +987,10 @@ void GameWindow::mousePressEvent(QMouseEvent* event) {
     update_aim(static_cast<float>(event->position().x()),
                static_cast<float>(event->position().y()));
     switch (state_) {
+    case State::Match:
+        // Nothing to click: a match is watched, and the mouse would have to
+        // mean something different on each half of the screen to mean anything.
+        break;
     case State::Menu:
     case State::Options:
     case State::Watch: {
@@ -965,6 +1069,34 @@ void GameWindow::keyPressEvent(QKeyEvent* event) {
                 state_ = State::Playing; // Escape resumes the paused game
                 started_ = false;
             }
+        }
+        break;
+    case State::Match:
+        // One transport for both sides — the same keys a single replay answers
+        // to, so watching two is not a second thing to learn.
+        if (!match_.has_value()) {
+            break; // the state and the match are set together; belt and braces
+        }
+        if (key == Qt::Key_Escape) {
+            match_.reset();
+            speed_ = 1;
+            open_menu();
+        } else if (key == Qt::Key_Space || key == Qt::Key_P) {
+            match_paused_ = !match_paused_;
+            started_ = false;
+        } else if (key == Qt::Key_R) {
+            match_->restart();
+            match_paused_ = false;
+            accumulator_ = 0.0;
+            started_ = false;
+        } else if (key == Qt::Key_Left) {
+            scrub_match(-5);
+        } else if (key == Qt::Key_Right) {
+            scrub_match(5);
+        } else if (key == Qt::Key_BracketRight || key == Qt::Key_Plus || key == Qt::Key_Equal) {
+            speed_ = std::min(speed_ * 2, 8);
+        } else if (key == Qt::Key_BracketLeft || key == Qt::Key_Minus) {
+            speed_ = std::max(speed_ / 2, 1);
         }
         break;
     case State::Playing:
