@@ -32,6 +32,28 @@ macOS. It is ad-hoc signed by default, which runs but is not distributable;
 [MACOS.md](MACOS.md#signing-it-for-other-people) covers the Developer ID and
 notarisation path.
 
+### Every artifact is built on every push
+
+[.github/workflows/ci.yml](../.github/workflows/ci.yml) builds all four on the
+platform each is meant for, and uploads them:
+
+| Job | Platform | Produces |
+|---|---|---|
+| `gate` | Ubuntu | the quality gate, plus the CPack `.deb` |
+| `debian` | Ubuntu | the **debhelper** `.deb` from `debian/`, lintian-checked |
+| `windows` | Windows / MSYS2 CLANG64 | NSIS installer + portable ZIP |
+| `macos` | macOS on Apple silicon | the `.dmg` |
+
+`gate` and `debian` both produce a Debian package on purpose. They are different
+code paths — CPack's DEB generator against `cmake --install`, versus debhelper's
+`dh_auto_*` with `hardening=+all` and no `-Werror` — and only the second is what
+Debian would build. One can break while the other still works.
+
+The packaging steps are in CI because their failure mode is invisible locally: a
+DLL that resolves only because MSYS2 is on the machine's PATH, a Qt framework
+that loads only because Homebrew installed it. Building on a runner that has
+none of a developer's incidental state is the check.
+
 ## Where a run's files go
 
 Everything a run writes — `metrics.csv`, `evals.csv`, `config.json`, the `.mdr`

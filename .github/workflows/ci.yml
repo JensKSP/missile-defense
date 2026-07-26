@@ -136,3 +136,116 @@ jobs:
         with:
           name: missile-defense-dmg
           path: build/release/*.dmg
+
+  windows:
+    # The MSYS2 CLANG64 toolchain from docs/WINDOWS.md — the one the Qt app is
+    # actually built with here. Not `poe`: the task runner would need pip inside
+    # the MSYS2 interpreter, and what it would be running is four cmake commands.
+    #
+    # Scoped like the macOS job, and for the same reason: the source-level checks
+    # live on Linux. What only Windows can show is that the tree still compiles
+    # against a third standard library, that the simulation agrees there, and that
+    # windeploy.sh can still assemble a bundle that runs without MSYS2 installed.
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: CLANG64
+          update: true
+          # No vulkan-validation-layers: they are a runtime debugging aid and CI
+          # never opens a window. miniaudio has no MSYS2 package, so CMake
+          # fetches it (MD_FETCH_MINIAUDIO) exactly as it does for a developer.
+          install: >-
+            mingw-w64-clang-x86_64-clang
+            mingw-w64-clang-x86_64-lld
+            mingw-w64-clang-x86_64-cmake
+            mingw-w64-clang-x86_64-ninja
+            mingw-w64-clang-x86_64-qt6-base
+            mingw-w64-clang-x86_64-vulkan-headers
+            mingw-w64-clang-x86_64-vulkan-loader
+            mingw-w64-clang-x86_64-glslang
+            mingw-w64-clang-x86_64-catch2
+            mingw-w64-clang-x86_64-nsis
+
+      - name: Report the toolchain
+        run: |
+          clang++ --version
+          cmake --version
+
+      - name: C++ tests (Debug)
+        # The debug preset asks for ASan/UBSan; CMakeLists degrades that to a
+        # plain Debug build here, because there is no LeakSanitizer runtime under
+        # MinGW. The tests are the point either way.
+        run: |
+          cmake --preset debug
+          cmake --build --preset debug
+          ctest --preset debug
+
+      - name: C++ tests (Release)
+        run: |
+          cmake --preset release
+          cmake --build --preset release
+          ctest --preset release
+
+      - name: Build the installer and the portable ZIP
+        # Runs tools/windeploy.sh through the install step, which is the part
+        # worth having in CI: it walks the dependency closure of md_app.exe and
+        # copies every CLANG64 DLL beside it. A missing DLL is invisible on the
+        # machine that built it and fatal on any other.
+        run: cpack --config build/release/CPackConfig.cmake -B build/release -G "NSIS;ZIP"
+
+      - name: Upload the installer and ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: missile-defense-windows
+          path: |
+            build/release/*.exe
+            build/release/*.zip
+
+  debian:
+    # The package Debian itself would build: debian/ via debhelper, which is the
+    # authority for Linux packaging (docs/PACKAGING.md). The gate's `poe deb` is
+    # CPack and a different code path entirely — no -Werror, hardening=+all,
+    # dh_auto_* rather than cmake --install — so one can break while the other
+    # still works. This job is the one that would catch it.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the declared build dependencies
+        # From debian/control itself, so the job cannot drift from what the
+        # package claims to need — which is half of what it exists to check.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y devscripts equivs lintian
+          sudo mk-build-deps --install --remove \
+            --tool 'apt-get -y --no-install-recommends' debian/control
+
+      - name: Build the package
+        # Binary-only: the source format is 3.0 (quilt), which wants an orig
+        # tarball a git checkout does not have. dh runs the test suite on the way
+        # through, so this covers the packaged build's own ctest run too.
+        run: dpkg-buildpackage -us -uc -b
+
+      - name: Lintian
+        # Errors fail the job; warnings and info are printed and do not, because
+        # a policy nit should not block a build that installs and runs.
+        run: lintian --fail-on error --display-info ../missile-defense_*.deb
+
+      - name: Collect the package
+        # dpkg-buildpackage writes to the parent directory, which is outside the
+        # workspace and so out of reach of upload-artifact.
+        run: |
+          mkdir -p dist
+          cp ../missile-defense_*.deb ../*.changes ../*.buildinfo dist/
+
+      - name: Upload the .deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: missile-defense-debian-package
+          path: dist/*
