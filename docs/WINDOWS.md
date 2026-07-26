@@ -123,7 +123,9 @@ own — so the MSYS2 tooling and the training environment coexist. The rest of
 training is platform-independent: see [TRAINING.md](TRAINING.md).
 
 The **training console** (`poe ui`) belongs to that same native interpreter —
-`pip install PySide6` there, because its wheels are MSVC-built like torch's.
+install the project with its console extra there (`pip install -e ".[console]"`),
+because PySide6's wheels are MSVC-built like torch's. That extra also includes
+the NVIDIA telemetry binding; AMD SMI is Linux-only.
 
 `poe` itself is usually the MSYS2 one, so `poe train` and `poe ui` would run the
 interpreter that has neither package. Both go through `tools/launch.py`, which

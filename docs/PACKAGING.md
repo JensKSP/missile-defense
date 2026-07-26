@@ -110,7 +110,7 @@ weight*, not by tidiness:
 |---|---|---|---|
 | `missile-defense` | any | the game, as today | Qt 6, Vulkan loader |
 | `python3-md` | any | `md.env`, `md.eval`, `md.control`, `md.paths`, `_md_native*.so` | `${python3:Depends}`, `python3-numpy` |
-| `missile-defense-training` | all | `md.train`, `md.ppo`, `md.ui`, the `md-train`/`md-console` entry points | `python3-md`; **Suggests** torch, PySide6, psutil |
+| `missile-defense-training` | all | `md.train`, `md.ppo`, `md.ui`, the `md-train`/`md-console` entry points | `python3-md`; **Suggests** torch, PySide6, psutil, pynvml |
 
 `python3-md` is the piece with reuse value on its own: a deterministic, vectorised
 RL environment that imports without a game installed. Splitting it also makes two
@@ -174,7 +174,7 @@ machine.
 | the package | `wheel.packages = ["python/md"]` |
 | the extension | `install(TARGETS _md_native …)` in `bindings/CMakeLists.txt`, into `${MD_PYTHON_INSTALL_DIR}` — `md` by default, an absolute `dist-packages` path for a distribution build |
 | commands | `md-train` → `md.cli:train`, `md-console` → `md.ui.__main__:main` |
-| extras | `[train]` = torch, `[console]` = PySide6 + psutil; neither is ever required |
+| extras | `[train]` = torch, `[console]` = PySide6 + psutil + nvidia-ml-py + amdsmi (Linux); neither is ever required |
 
 `STABLE_ABI` is what makes the installed object worth keeping: it is `abi3`, so
 it survives the distribution's Python moving a minor version instead of having

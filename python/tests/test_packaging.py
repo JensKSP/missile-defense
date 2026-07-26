@@ -62,6 +62,8 @@ def test_neither_heavy_half_is_a_hard_dependency() -> None:
     extras = PYPROJECT["project"]["optional-dependencies"]
     assert any("torch" in item for item in extras["train"])
     assert any("PySide6" in item for item in extras["console"])
+    assert any("nvidia-ml-py" in item for item in extras["console"])
+    assert any(item.startswith("amdsmi;") for item in extras["console"])
 
 
 def test_the_wheel_builds_only_the_headless_half() -> None:

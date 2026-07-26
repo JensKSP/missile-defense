@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Jens Köhler
 # Assisted-by: Claude Code (Anthropic)
-"""NVIDIA, through NVML (``pip install pynvml``).
+"""NVIDIA, through NVML (``pip install nvidia-ml-py``).
 
 The first card only. A second one would need a picker in the panel, and the
 question this answers — "is the accelerator doing anything?" — is asked about
@@ -19,17 +19,31 @@ from . import maybe
 
 def probe() -> _Nvml | None:
     """A probe for the first NVIDIA card, or ``None`` if there is not one."""
+    found, _ = probe_with_note()
+    return found
+
+
+def probe_with_note() -> tuple[_Nvml | None, str]:
+    """A probe and, when NVML is installed but unusable, the reason why.
+
+    A missing binding is ordinary discovery: another vendor may work, so it
+    contributes no diagnosis. Once the binding imports, however, hiding an NVML
+    error behind "not installed" sends the reader toward the one thing they
+    already did. Keep that distinction for the system panel.
+    """
     try:
         nvml = importlib.import_module("pynvml")
     except ImportError:
-        return None
+        return None, ""
+    except Exception as error:  # noqa: BLE001 — wrapper present, native library absent
+        return None, f"NVIDIA telemetry unavailable ({error})"
     try:
         nvml.nvmlInit()
         handle = nvml.nvmlDeviceGetHandleByIndex(0)
         name = nvml.nvmlDeviceGetName(handle)
-    except Exception:  # noqa: BLE001 — installed package, no driver or no card
-        return None
-    return _Nvml(nvml, handle, _text(name))
+    except Exception as error:  # noqa: BLE001 — installed package, no driver or no card
+        return None, f"NVIDIA telemetry unavailable ({error})"
+    return _Nvml(nvml, handle, _text(name)), ""
 
 
 class _Nvml:

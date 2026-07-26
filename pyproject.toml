@@ -75,7 +75,12 @@ Source = "https://github.com/JensKSP/missile-defense"
 # environment.
 [project.optional-dependencies]
 train = ["torch"]
-console = ["PySide6", "psutil"]
+console = [
+  "PySide6",
+  "psutil",
+  "nvidia-ml-py",
+  "amdsmi; platform_system == 'Linux'",
+]
 
 # Both go through a shim that checks for the optional half first: an entry point
 # that dies inside `import torch` reads as a broken install rather than as a
@@ -85,7 +90,7 @@ md-train = "md.cli:train"
 md-console = "md.ui.__main__:main"
 
 # ---- Task runner (poe) -------------------------------------------------------
-# Run with: poe <task>   (after `pip install poethepoet ruff pytest`)
+# Run with: poe <task>   (after `python3 -m tools.bootstrap`)
 [tool.poe.tasks]
 # Dev-workflow tasks are plain, cross-platform Python (see tools/) — no shell.
 # --- Build (build auto-configures; tests/tidy auto-build — one-command TDD) ---

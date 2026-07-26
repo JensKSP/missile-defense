@@ -29,42 +29,59 @@ MB = 1024 * 1024
 
 def probe() -> _AmdSmi | _Rsmi | None:
     """A probe for the first AMD card, or ``None`` if there is not one."""
-    return _amdsmi() or _pyrsmi()
+    found, _ = probe_with_note()
+    return found
 
 
-def _amdsmi() -> _AmdSmi | None:
+def probe_with_note() -> tuple[_AmdSmi | _Rsmi | None, str]:
+    """A working AMD probe, or why an installed ROCm binding could not work."""
+    amdsmi, amdsmi_note = _amdsmi()
+    if amdsmi is not None:
+        return amdsmi, ""
+    pyrsmi, pyrsmi_note = _pyrsmi()
+    if pyrsmi is not None:
+        return pyrsmi, ""
+    notes = [note for note in (amdsmi_note, pyrsmi_note) if note]
+    return None, " · ".join(notes)
+
+
+def _amdsmi() -> tuple[_AmdSmi | None, str]:
     try:
         amdsmi = importlib.import_module("amdsmi")
     except ImportError:
-        return None
+        return None, ""
+    except Exception as error:  # noqa: BLE001 — wrapper present, native library absent
+        return None, f"AMD telemetry unavailable ({error})"
     try:
         amdsmi.amdsmi_init()
         handles = amdsmi.amdsmi_get_processor_handles()
         if not handles:
-            return None
+            return None, "AMD telemetry unavailable (no AMD GPU found)"
         board = maybe(lambda: amdsmi.amdsmi_get_gpu_board_info(handles[0]))
-    except Exception:  # noqa: BLE001 — installed package, no driver or no card
-        return None
+    except Exception as error:  # noqa: BLE001 — installed package, no driver or no card
+        return None, f"AMD telemetry unavailable ({error})"
     name = "AMD GPU"
     if isinstance(board, dict):
         info = cast(dict[str, Any], board)
         name = str(info.get("product_name") or info.get("marketing_name") or name)
-    return _AmdSmi(amdsmi, handles[0], name)
+    return _AmdSmi(amdsmi, handles[0], name), ""
 
 
-def _pyrsmi() -> _Rsmi | None:
+def _pyrsmi() -> tuple[_Rsmi | None, str]:
     try:
         rocml = importlib.import_module("pyrsmi.rocml")
     except ImportError:
-        return None
+        return None, ""
+    except Exception as error:  # noqa: BLE001 — wrapper present, native library absent
+        return None, f"ROCm telemetry unavailable ({error})"
     try:
         rocml.smi_initialize()
         if rocml.smi_get_device_count() < 1:
-            return None
-    except Exception:  # noqa: BLE001
-        return None
+            return None, "ROCm telemetry unavailable (no AMD GPU found)"
+    except Exception as error:  # noqa: BLE001
+        return None, f"ROCm telemetry unavailable ({error})"
     name = maybe(lambda: str(rocml.smi_get_device_name(0))) or "AMD GPU"
-    return _Rsmi(rocml, name)
+    return _Rsmi(rocml, name), ""
 
 
 class _AmdSmi:

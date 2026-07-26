@@ -136,7 +136,7 @@ The `apt install` line for exactly these is in the
 
 | Purpose | Packages / tools |
 |---|---|
-| Task runner + Python tooling | `python3 python3-pip python3-venv` then `pip install poethepoet ruff pytest mypy pyright` |
+| Task runner + Python tooling | `python3 python3-pip python3-venv` then `python3 -m tools.bootstrap` from the checkout |
 | Vulkan validation (debugging) | `vulkan-validationlayers`, `vulkan-tools` (for `vulkaninfo`) |
 | Editor tooling | `clangd-21 clang-format-21 clang-tidy-21` |
 | Coverage | `llvm-21` (provides `llvm-cov-21`, `llvm-profdata-21`) |
@@ -173,11 +173,16 @@ coverage gate behind one-word tasks — worth setting up as soon as you start
 changing code:
 
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install poethepoet ruff pytest mypy pyright
+python3 -m tools.bootstrap
+source .venv/bin/activate
 
 poe app        # build (Release) and launch the game
 ```
+
+The bootstrap installs the development tools, training console, CPU/RAM
+monitor, and its NVIDIA and Linux Radeon telemetry bindings into that same
+environment. PyTorch stays separate because its correct wheel depends on the
+GPU and driver; follow [TRAINING.md](docs/TRAINING.md) when you want to train.
 
 ### Headless only
 

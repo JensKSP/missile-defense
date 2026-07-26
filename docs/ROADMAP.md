@@ -297,7 +297,7 @@ surface.
 
    | Backend | Package | Covers |
    |---|---|---|
-   | NVIDIA | `pynvml` | CUDA cards |
+   | NVIDIA | `nvidia-ml-py` (imports as `pynvml`) | CUDA cards |
    | AMD | `amdsmi` (ROCm's own Python bindings; `pyrsmi` as fallback) | ROCm cards |
    | none | — | panel hides the GPU row |
 

@@ -249,14 +249,19 @@ started in a terminal has one too.
 
 Down the right-hand side, under the recordings, is what the machine is doing:
 CPU, memory, and the GPU. That last row appears only when a vendor backend
-imports — `pynvml` for CUDA cards, `amdsmi` (or `pyrsmi`) for ROCm — and says
-which one would fill it in when neither is there. Adding a vendor is one file in
+works — `nvidia-ml-py` (imported as `pynvml`) for CUDA cards, `amdsmi` (or
+`pyrsmi`) for ROCm — and says which one would fill it in when neither is there.
+If a binding imports but its driver does not answer, the row shows that error
+instead of claiming the binding is missing. Adding a vendor is one file in
 `md/ui/probes/`.
 
 It needs **PySide6** (`pip install PySide6`, Qt Charts included), and **psutil**
-for the CPU and memory rows. Both are optional and neither is ever a dependency
-of the game. On Windows install them into the same native interpreter that has
-torch; see [WINDOWS.md](WINDOWS.md#training-on-windows).
+for the CPU and memory rows. The `console` extra also installs NVIDIA's small
+`nvidia-ml-py` telemetry binding and, on Linux, AMD's `amdsmi` binding. Running
+`python3 -m tools.bootstrap` from a checkout installs all of them into `.venv`.
+These are optional and none is ever a dependency of the game. On Windows install
+them into the same native interpreter that has torch; see
+[WINDOWS.md](WINDOWS.md#training-on-windows).
 
 It does **not** need torch. Where there is none, the primary button offers to
 install one instead of being a dead control — see

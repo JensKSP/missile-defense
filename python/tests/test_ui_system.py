@@ -18,7 +18,7 @@ from typing import Any
 
 import pytest
 from md.ui.probes import amd, maybe, nvidia
-from md.ui.system import NO_PROBE, GpuSample, SystemMonitor, find_gpu_probe
+from md.ui.system import NO_PROBE, GpuSample, SystemMonitor, discover_gpu_probe, find_gpu_probe
 
 
 class FakeMemory:
@@ -84,7 +84,8 @@ def test_cpu_and_memory_come_back_as_bytes_and_per_cent() -> None:
 def test_no_probe_says_what_to_install() -> None:
     monitor = SystemMonitor(psutil_module=FakePsutil(), discover=False)
     assert monitor.gpu_name is None
-    assert "pynvml" in monitor.gpu_note and "amdsmi" in monitor.gpu_note
+    assert "nvidia-ml-py" in monitor.gpu_note and "amdsmi" in monitor.gpu_note
+    assert sys.executable in monitor.gpu_note
     assert monitor.gpu_note == NO_PROBE
 
 
@@ -150,6 +151,20 @@ def test_nvidia_with_the_package_but_no_card_is_no_probe(monkeypatch: pytest.Mon
 
     monkeypatch.setitem(sys.modules, "pynvml", _module("pynvml", nvmlInit=explode))
     assert nvidia.probe() is None
+
+
+def test_nvidia_with_the_package_but_no_driver_says_why(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def explode() -> None:
+        raise RuntimeError("NVML Shared Library Not Found")
+
+    monkeypatch.setitem(sys.modules, "pynvml", _module("pynvml", nvmlInit=explode))
+    probe, note = discover_gpu_probe(("md.ui.probes.nvidia",))
+
+    assert probe is None
+    assert note == "NVIDIA telemetry unavailable (NVML Shared Library Not Found)"
+    assert "install" not in note
 
 
 def test_a_field_the_driver_refuses_costs_only_that_field(
@@ -221,6 +236,22 @@ def test_amd_falls_back_to_pyrsmi(monkeypatch: pytest.MonkeyPatch) -> None:
     sample = probe.sample()
     assert (sample.name, sample.utilisation) == ("AMD MI210", 37.0)
     assert sample.temperature is None  # this wrapper does not report one
+
+
+def test_amd_with_the_package_but_no_driver_says_why(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def explode() -> None:
+        raise RuntimeError("libamd_smi.so not found")
+
+    monkeypatch.setitem(sys.modules, "amdsmi", _module("amdsmi", amdsmi_init=explode))
+    # Prevent a real fallback package on the test machine from hiding the error.
+    monkeypatch.setitem(sys.modules, "pyrsmi", _module("pyrsmi"))
+    probe, note = discover_gpu_probe(("md.ui.probes.amd",))
+
+    assert probe is None
+    assert note == "AMD telemetry unavailable (libamd_smi.so not found)"
+    assert "install" not in note
 
 
 def test_a_vendor_returning_an_unexpected_shape_is_survivable(

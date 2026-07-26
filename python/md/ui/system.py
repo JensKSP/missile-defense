@@ -17,6 +17,7 @@ is a window onto a run; it must not be the thing that breaks.
 from __future__ import annotations
 
 import importlib
+import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol, cast
@@ -24,9 +25,13 @@ from typing import Any, Protocol, cast
 #: One module per vendor, tried in order; each exposes ``probe() -> GpuProbe | None``.
 BACKENDS = ("md.ui.probes.nvidia", "md.ui.probes.amd")
 
-#: What to say when none of them import. Naming the packages is the difference
-#: between an empty meter and something the reader can act on.
-NO_PROBE = "no GPU probe installed — pip install pynvml (NVIDIA) or amdsmi (ROCm)"
+#: What to say when none of them import. Name the exact interpreter because the
+#: console and the trainer can deliberately run in a different Python from the
+#: shell that launched them (tools.launch).
+NO_PROBE = (
+    f"no GPU probe in {sys.executable} — "
+    f"{sys.executable} -m pip install nvidia-ml-py (NVIDIA) or amdsmi (ROCm)"
+)
 NO_PSUTIL = "psutil is not installed — pip install psutil"
 
 
@@ -66,15 +71,30 @@ class Sample:
 
 def find_gpu_probe(backends: Sequence[str] = BACKENDS) -> GpuProbe | None:
     """The first vendor backend that both imports and finds a card."""
+    return discover_gpu_probe(backends)[0]
+
+
+def discover_gpu_probe(backends: Sequence[str] = BACKENDS) -> tuple[GpuProbe | None, str]:
+    """The first working backend, or the most useful reason none worked."""
+    notes: list[str] = []
     for name in backends:
         try:
             module = importlib.import_module(name)
         except ImportError:  # pragma: no cover — the probe modules are in-tree
             continue
-        probe = cast(GpuProbe | None, module.probe())
+        # Backends may explain the important middle state where their Python
+        # package imports but its driver or hardware does not. Older/new vendor
+        # modules need only expose probe(); adding diagnostics is optional.
+        probe_with_note = getattr(module, "probe_with_note", None)
+        if callable(probe_with_note):
+            probe, note = cast(tuple[GpuProbe | None, str], probe_with_note())
+        else:
+            probe, note = cast(GpuProbe | None, module.probe()), ""
         if probe is not None:
-            return probe
-    return None
+            return probe, ""
+        if note:
+            notes.append(note)
+    return None, " · ".join(notes) if notes else NO_PROBE
 
 
 def _import_psutil() -> Any | None:
@@ -106,8 +126,13 @@ class SystemMonitor:
         self._psutil = (
             psutil_module if psutil_module is not None else (_import_psutil() if discover else None)
         )
-        self._probe = probe if probe is not None else (find_gpu_probe() if discover else None)
-        self._gpu_note = "" if self._probe is not None else NO_PROBE
+        self._probe: GpuProbe | None
+        if probe is not None:
+            self._probe, self._gpu_note = probe, ""
+        elif discover:
+            self._probe, self._gpu_note = discover_gpu_probe()
+        else:
+            self._probe, self._gpu_note = None, NO_PROBE
 
     @property
     def available(self) -> bool:

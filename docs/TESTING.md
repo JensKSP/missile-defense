@@ -2,6 +2,7 @@
 
 This project is developed **test-first**. Everything below runs locally via `poe`
 (after `. .venv/bin/activate`), and the same tasks form the quality gate.
+Create or update that environment with `python3 -m tools.bootstrap`.
 
 ## Test layers
 

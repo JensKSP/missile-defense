@@ -3,10 +3,11 @@
 # Assisted-by: Claude Code (Anthropic)
 """GPU backends, one file per vendor.
 
-Each module exposes a single ``probe() -> GpuProbe | None`` which returns
-``None`` when its package is absent *or* when the package is there but the
-hardware is not — an NVIDIA driver can be installed on a machine with an AMD
-card, and a soft import alone would not notice.
+Each module exposes ``probe() -> GpuProbe | None`` and may also expose
+``probe_with_note() -> tuple[GpuProbe | None, str]``. The latter distinguishes
+an absent package from one whose native driver or hardware is unavailable — an
+NVIDIA binding can be installed on a machine whose driver is not loaded, and a
+soft import alone would report the wrong fix.
 
 Nothing here is imported eagerly: :func:`md.ui.system.find_gpu_probe` walks the
 list, and a vendor whose package is missing costs an ImportError that is caught.

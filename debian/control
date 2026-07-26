@@ -74,7 +74,8 @@ Depends:
 Recommends:
  missile-defense
 Suggests:
- python3-torch
+ python3-torch,
+ python3-pynvml
 Description: training console for the Missile Defense learned agent
  A desktop console for training, watching and comparing learned Missile Defense
  policies: it starts and stops runs, plots the score against the scripted
