@@ -170,9 +170,43 @@ def _device(name: str | None) -> torch.device:
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def train(config: TrainConfig, ppo: PPOConfig | None = None) -> nn.Module:
+#: What the reward-weight flags are called, so `Shaping.gamma` and
+#: `PPOConfig.gamma` — two different discounts — do not collide.
+REWARD_PREFIX = "reward-"
+
+
+def _flag_type(default: object) -> Callable[[str], object]:
+    """How to parse a config field given on the command line.
+
+    `type=bool` would be a trap: `bool("False")` is `True`, so
+    `--reward-enabled False` would *enable* shaping. argparse has no built-in
+    for this and every project that forgets writes the same bug.
+    """
+    if isinstance(default, bool):
+        return _boolean
+    return type(default)  # type: ignore[return-value]
+
+
+def _boolean(text: str) -> bool:
+    lowered = text.strip().lower()
+    if lowered in ("1", "true", "yes", "on"):
+        return True
+    if lowered in ("0", "false", "no", "off"):
+        return False
+    raise argparse.ArgumentTypeError(f"expected true or false, got {text!r}")
+
+
+def train(
+    config: TrainConfig, ppo: PPOConfig | None = None, shaping: Shaping | None = None
+) -> nn.Module:
     """Run the training loop and return the trained policy."""
     ppo = ppo or PPOConfig()
+    # The reward weights are a *third* group of knobs, and the one with the
+    # sharpest teeth: `waste_penalty` and `multikill_bonus` are not
+    # potential-based, so unlike everything in `phi` they genuinely change what
+    # the policy converges to (see `Shaping`). Passing them in rather than
+    # constructing them here is what lets the console offer them at all.
+    shaping = shaping or Shaping()
     device = _device(config.device)
     torch.manual_seed(config.seed)
 
@@ -180,7 +214,7 @@ def train(config: TrainConfig, ppo: PPOConfig | None = None) -> nn.Module:
         num_envs=config.envs,
         frame_skip=config.frame_skip,
         max_ticks=config.max_ticks,
-        shaping=Shaping(),
+        shaping=shaping,
         seed=config.seed,
     )
     layout = _layout(env)
@@ -277,7 +311,7 @@ def train(config: TrainConfig, ppo: PPOConfig | None = None) -> nn.Module:
     # last one must not kill this one before its first update.
     control = Control(out_dir)
     control.clear()
-    _write_config(out_dir / "config.json", config, ppo, schedule, out_dir)
+    _write_config(out_dir / "config.json", config, ppo, schedule, out_dir, shaping)
     # Beside it, what the run is *training* — the console reads this rather than
     # a checkpoint, because opening one needs torch and it must never import it
     # (docs/ROADMAP.md, M8, risk 3). Written once: within a run the shapes never
@@ -504,6 +538,7 @@ def _write_config(
     ppo: PPOConfig,
     schedule: LinearSchedule,
     out_dir: Path,
+    shaping: Shaping | None = None,
 ) -> None:
     """Record what produced this run, beside what it produced.
 
@@ -518,6 +553,11 @@ def _write_config(
     payload = {
         "train": settings,
         "ppo": dataclasses.asdict(ppo),
+        # What the agent was *paid for*. Now that these are settable, a run whose
+        # config.json omitted them would be one nobody could reproduce — and the
+        # two non-potential terms genuinely change what the policy converges to,
+        # so they are the last thing to leave out of the record.
+        "shaping": dataclasses.asdict(shaping or Shaping()),
         "schedule": dataclasses.asdict(schedule),
     }
     path.write_text(json.dumps(payload, indent=2, default=str) + "\n", encoding="utf-8")
@@ -1283,9 +1323,26 @@ def main(argv: list[str] | None = None) -> int:
     for field in dataclasses.fields(PPOConfig):
         parser.add_argument(
             f"--{field.name.replace('_', '-')}",
-            type=type(field.default),
+            type=_flag_type(field.default),
             default=None,
             help=f"PPOConfig.{field.name} (default {field.default})",
+        )
+    # And every reward weight, the same way and for the same reason. These were
+    # the one group with no flag at all: changing what the agent is *paid for*
+    # meant editing `Shaping` and rebuilding, which put the most consequential
+    # knobs in the project out of reach of anyone not editing the source.
+    #
+    # Prefixed, because `Shaping.gamma` and `PPOConfig.gamma` are two different
+    # discounts and a flat namespace makes them collide — and because `--reward-`
+    # groups them for a reader, which a flat `--city-weight` beside `--envs`
+    # would not.
+    for field in dataclasses.fields(Shaping):
+        parser.add_argument(
+            f"--{REWARD_PREFIX}{field.name.replace('_', '-')}",
+            dest=f"reward_{field.name}",
+            type=_flag_type(field.default),
+            default=None,
+            help=f"Shaping.{field.name} (default {field.default})",
         )
     args = parser.parse_args(argv)
 
@@ -1296,6 +1353,11 @@ def main(argv: list[str] | None = None) -> int:
         field.name: getattr(args, field.name)
         for field in dataclasses.fields(PPOConfig)
         if getattr(args, field.name) is not None
+    }
+    weights = {
+        field.name: getattr(args, f"reward_{field.name}")
+        for field in dataclasses.fields(Shaping)
+        if getattr(args, f"reward_{field.name}") is not None
     }
     config = TrainConfig(
         envs=args.envs,
@@ -1318,7 +1380,7 @@ def main(argv: list[str] | None = None) -> int:
     # That is what lets the console show a log pane for a run it did not start
     # — the case the whole out-of-process design exists for (md.runlog).
     with runlog.teed(paths.runs_dir(config.out_dir)):
-        train(config, PPOConfig(**given))
+        train(config, PPOConfig(**given), Shaping(**weights))
     return 0
 
 

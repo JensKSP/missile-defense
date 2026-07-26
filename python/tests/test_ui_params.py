@@ -138,3 +138,94 @@ def test_resume_is_not_offered_as_a_text_field() -> None:
     # It is a file that exists, so the form gives it a picker; a box you can
     # mistype a path into is the thing being avoided (md.ui.forms).
     assert "resume" not in {field.name for field in read_params(TRAINER)}
+
+
+# ---- the third group, and the guards on it -----------------------------------
+
+
+def test_the_reward_weights_are_offered_too() -> None:
+    """`Shaping` was the one group with no flag at all.
+
+    Changing what the agent is *paid for* meant editing the source and
+    rebuilding, which put the most consequential knobs in the project out of
+    reach of anyone not editing it.
+    """
+    from md.ui.params import read_params as read  # noqa: PLC0415
+
+    fields = {field.name: field for field in read(Path("python/md"))}
+    for name in ("city_weight", "base_weight", "waste_penalty", "multikill_bonus"):
+        assert name in fields, name
+        assert fields[name].owner == "Shaping"
+
+
+def test_the_reward_flags_are_prefixed_so_the_two_gammas_do_not_collide() -> None:
+    """`Shaping.gamma` and `PPOConfig.gamma` are different discounts."""
+    from md.ui.params import read_params as read  # noqa: PLC0415
+
+    fields = [field for field in read(Path("python/md")) if field.name == "gamma"]
+    assert {field.flag for field in fields} == {"--gamma", "--reward-gamma"}
+
+
+def test_every_offered_choice_is_one_the_trainer_accepts() -> None:
+    """A dropdown cannot be misspelled — but it can be *wrong*.
+
+    The values here and the ones `md.ppo.build_policy` implements are two lists
+    that would drift silently, and the symptom would be a run that dies on its
+    first update after the parameter dialog offered the option.
+    """
+    from md.policy_format import ARCHITECTURES  # noqa: PLC0415
+    from md.ui.params import CHOICES  # noqa: PLC0415
+
+    # Every architecture the console offers must be one the trainer can build.
+    # `md.ppo` is not importable without torch, so the format's own table — which
+    # is generated from the same set and *is* importable — stands in for it.
+    assert set(CHOICES["architecture"]) == set(ARCHITECTURES)
+
+
+def test_every_bound_belongs_to_a_field_that_exists() -> None:
+    """A bound on a renamed field is a bound that silently stops applying."""
+    from md.ui.params import BOUNDS  # noqa: PLC0415
+    from md.ui.params import read_params as read  # noqa: PLC0415
+
+    names = {field.name for field in read(Path("python/md"))}
+    assert set(BOUNDS) <= names, sorted(set(BOUNDS) - names)
+
+
+def test_no_bound_excludes_its_own_default() -> None:
+    """The range has to admit the value the trainer would have used anyway.
+
+    Otherwise the dialog opens on a field it immediately considers invalid,
+    which is the most confusing possible first impression.
+    """
+    from md.ui.params import read_params as read  # noqa: PLC0415
+
+    for field in read(Path("python/md")):
+        if field.bounds is None or not field.default:
+            continue
+        try:
+            value = float(field.default)
+        except ValueError:
+            continue
+        low, high = field.bounds
+        assert low <= value <= high, f"{field.name}={value} outside {field.bounds}"
+
+
+def test_the_prefixed_field_list_matches_the_real_dataclass() -> None:
+    """`REWARD_FIELDS` is stated, so it can drift — and a drifted name means a
+    Start button that emits a flag the trainer rejects."""
+    from md.ui.params import REWARD_FIELDS  # noqa: PLC0415
+    from md.ui.params import read_params as read  # noqa: PLC0415
+
+    shaping = {f.name for f in read(Path("python/md")) if f.owner == "Shaping"}
+    assert shaping == set(REWARD_FIELDS)
+
+
+def test_a_reward_weight_reaches_the_command_line_under_its_real_flag() -> None:
+    """The bug this guards: `command_line` rebuilt flags from the field name and
+    so emitted `--city-weight`, which `md.train` does not accept."""
+    from md.ui.params import command_line  # noqa: PLC0415
+
+    command = command_line("python3", {"city_weight": "250", "envs": "512"}, out_dir=Path("/tmp/x"))
+    assert "--reward-city-weight" in command
+    assert "--city-weight" not in command
+    assert "--envs" in command  # unprefixed groups are untouched

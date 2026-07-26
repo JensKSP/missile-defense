@@ -31,6 +31,7 @@ from pathlib import Path
 from PySide6.QtCore import QLocale, Qt
 from PySide6.QtGui import QDoubleValidator
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -70,6 +71,24 @@ RESUME_HELP = (
 )
 
 
+def _read(editor: QWidget) -> str:
+    """One string out of whichever editor a field was given.
+
+    One place, so adding an editor type cannot leave `values()` silently
+    returning "" for it — which would look like "unchanged" and quietly drop the
+    setting.
+    """
+    if isinstance(editor, QSpinBox):
+        return str(editor.value())
+    if isinstance(editor, QCheckBox):
+        return "True" if editor.isChecked() else "False"
+    if isinstance(editor, QComboBox):
+        return editor.currentText().strip()
+    if isinstance(editor, QLineEdit):
+        return editor.text().strip()
+    return ""
+
+
 class ParameterDialog(QDialog):
     """Configure a run, then start it."""
 
@@ -87,6 +106,10 @@ class ParameterDialog(QDialog):
         self._python = python
         self._out_dir = out_dir
         self._editors: dict[str, QWidget] = {}
+        #: What each editor showed when it was built. `values()` compares
+        #: against this rather than the dataclass's source text, because the two
+        #: differ for optional fields — see the note there.
+        self._initial: dict[str, str] = {}
         self._resume: QComboBox | None = None
 
         self.setWindowTitle("Start a training run")
@@ -182,6 +205,7 @@ class ParameterDialog(QDialog):
             for widget in (label, editor):
                 widget.setToolTip(field.help or f"{field.owner}.{field.name}")
             self._editors[field.name] = editor
+            self._initial[field.name] = _read(editor)
             form.addRow(label, editor)
         return frame
 
@@ -215,9 +239,32 @@ class ParameterDialog(QDialog):
         return container
 
     def _editor(self, field: Param) -> QWidget:
+        """The narrowest control the field's type allows.
+
+        Narrow on purpose. A run is hours, and a value that cannot be entered
+        costs nothing where a value that can be mistyped costs the run: a
+        dropdown cannot be misspelled `entty`, and a spin box that stops at 1
+        cannot be given `--envs 0`. The bounds in `md.ui.params.BOUNDS` are the
+        range in which a number is a *decision* rather than a typo, and they are
+        deliberately generous at the top — the job is to catch a slipped decimal
+        place, not to have an opinion about someone's experiment.
+        """
+        if field.choices:
+            choose = QComboBox()
+            choose.addItems(list(field.choices))
+            if field.default.strip("'\"") in field.choices:
+                choose.setCurrentText(field.default.strip("'\""))
+            choose.currentTextChanged.connect(self._refresh_preview)
+            return choose
+        if field.kind == "bool":
+            check = QCheckBox()
+            check.setChecked(field.default.strip() == "True")
+            check.toggled.connect(self._refresh_preview)
+            return check
         if field.kind == "int":
             spin = QSpinBox()
-            spin.setRange(0, SPIN_MAX)
+            low, high = field.bounds or (0, SPIN_MAX)
+            spin.setRange(int(low), min(int(high), SPIN_MAX))
             # Grouped, but in the console's own convention rather than the
             # machine's: under a German locale Qt renders 1024 as "1.024", which
             # next to a command line reading `--envs 1024` is a puzzle.
@@ -229,8 +276,14 @@ class ParameterDialog(QDialog):
         edit = QLineEdit(field.default)
         if field.kind == "float":
             # Scientific notation on purpose: 3e-4 is how a learning rate is
-            # written and read; 0.000300 in a spin box is neither.
-            edit.setValidator(QDoubleValidator())
+            # written and read; 0.000300 in a spin box is neither. So a
+            # validator rather than a spin box — and it carries the bounds, so
+            # the range is enforced without giving up the notation.
+            validator = QDoubleValidator()
+            validator.setNotation(QDoubleValidator.Notation.ScientificNotation)
+            if field.bounds is not None:
+                validator.setRange(field.bounds[0], field.bounds[1], 12)
+            edit.setValidator(validator)
         edit.setPlaceholderText("auto" if not field.default else field.default)
         edit.textChanged.connect(self._refresh_preview)
         return edit
@@ -243,14 +296,13 @@ class ParameterDialog(QDialog):
             editor = self._editors.get(field.name)
             if editor is None:
                 continue
-            value = (
-                str(editor.value())
-                if isinstance(editor, QSpinBox)
-                else editor.text().strip()
-                if isinstance(editor, QLineEdit)
-                else ""
-            )
-            if value and value != field.default:
+            value = _read(editor)
+            # Against what the editor was *built* showing, not against the
+            # dataclass's source text. They differ for an optional field: a
+            # `int | None = None` gets a spin box sitting on 0, and comparing
+            # "0" with "" made the dialog emit `--schedule-updates 0` for a
+            # field nobody had touched.
+            if value and value != self._initial.get(field.name, ""):
                 changed[field.name] = value
         return changed
 

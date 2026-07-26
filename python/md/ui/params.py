@@ -38,7 +38,86 @@ HEADLINE = ("envs", "steps", "updates", "learning_rate")
 HIDDEN = ("out_dir", "resume")
 
 #: Where each group of knobs lives, in the order the form shows them.
-SOURCES = (("train.py", "TrainConfig"), ("ppo.py", "PPOConfig"))
+#:
+#: `Shaping` is the third group and the one with the sharpest teeth: its two
+#: non-potential terms genuinely change what the policy converges to, where
+#: everything in `phi` provably does not. Its flags are prefixed (`--reward-…`)
+#: because `Shaping.gamma` and `PPOConfig.gamma` are two different discounts.
+SOURCES = (
+    ("train.py", "TrainConfig"),
+    ("ppo.py", "PPOConfig"),
+    ("env.py", "Shaping"),
+)
+
+#: Config classes whose flags the trainer prefixes, and with what.
+PREFIXES = {"Shaping": "reward-"}
+
+#: The prefixed fields, by name, so `flag_for` can answer without re-reading the
+#: trainer's source at every call. Stated rather than derived, and held to the
+#: real dataclass by `test_ui_params.py` — a name that drifts out of this list
+#: would produce a Start button emitting a flag the trainer rejects.
+REWARD_FIELDS = frozenset(
+    {
+        "city_weight",
+        "ammo_weight",
+        "base_weight",
+        "gamma",
+        "enabled",
+        "waste_penalty",
+        "multikill_bonus",
+    }
+)
+
+#: Fields that are a *choice* rather than a number or free text, and what the
+#: choices are. Typing `--architecture entty` into a text box costs a run; a
+#: dropdown cannot be misspelled. The values are the ones `md.ppo.build_policy`
+#: accepts, and a test holds the two lists together.
+#: `device` is deliberately *not* here: it is `str | None`, `cuda:1` is a
+#: legitimate value, and a dropdown would take that away to prevent a mistake
+#: nobody makes.
+CHOICES: dict[str, tuple[str, ...]] = {
+    "architecture": ("mlp", "entity"),
+}
+
+#: Sane bounds, as (minimum, maximum). Not the *possible* range — the range in
+#: which a value is a training decision rather than a typo. `--envs 0` cannot
+#: run, a negative learning rate maximises loss, and `--entropy-coef 500` is a
+#: uniform policy with extra steps. A spin box that refuses them turns three
+#: wasted hours into a value that will not enter.
+#:
+#: Deliberately generous at the top: the point is to catch a slipped decimal
+#: place, not to have an opinion about what someone is experimenting with.
+BOUNDS: dict[str, tuple[float, float]] = {
+    "envs": (1, 65_536),
+    "steps": (1, 8_192),
+    "updates": (1, 1_000_000),
+    "frame_skip": (1, 60),
+    "max_ticks": (60, 10_000_000),
+    "eval_every": (0, 100_000),
+    "record_every": (0, 100_000),
+    "checkpoint_every": (1, 100_000),
+    "hidden": (8, 8_192),
+    "epochs": (1, 64),
+    "minibatches": (1, 512),
+    "learning_rate": (1e-8, 1.0),
+    "learning_rate_final": (0.0, 1.0),
+    "entropy_coef": (0.0, 1.0),
+    "entropy_coef_final": (0.0, 1.0),
+    "value_coef": (0.0, 10.0),
+    "clip": (1e-4, 1.0),
+    "value_clip": (1e-4, 10.0),
+    "max_grad_norm": (1e-4, 100.0),
+    "gamma": (0.0, 1.0),
+    "gae_lambda": (0.0, 1.0),
+    # Reward weights. Wide, because what a city is worth relative to a shot is
+    # exactly the thing worth experimenting with — but not negative, which would
+    # pay the agent to lose one.
+    "city_weight": (0.0, 10_000.0),
+    "ammo_weight": (0.0, 10_000.0),
+    "base_weight": (0.0, 10_000.0),
+    "waste_penalty": (0.0, 1_000.0),
+    "multikill_bonus": (0.0, 1_000.0),
+}
 
 
 @dataclass(frozen=True)
@@ -46,15 +125,30 @@ class Param:
     """One field of a config dataclass, with the reasoning written beside it."""
 
     name: str
-    kind: str  #: "int", "float" or "text" — which editor the form gives it
+    kind: str  #: "int", "float", "bool", "choice" or "text"
     default: str  #: as source, e.g. "1024"; empty when the default is None
     help: str
     owner: str  #: the dataclass it came from, for grouping
 
     @property
     def flag(self) -> str:
-        """``entropy_coef`` → ``--entropy-coef``."""
-        return "--" + self.name.replace("_", "-")
+        """``entropy_coef`` → ``--entropy-coef``, with the owner's prefix."""
+        prefix = PREFIXES.get(self.owner, "")
+        return f"--{prefix}{self.name.replace('_', '-')}"
+
+    @property
+    def prefixed(self) -> bool:
+        return self.owner in PREFIXES
+
+    @property
+    def choices(self) -> tuple[str, ...]:
+        """The values this field may take, or empty when it is a free number."""
+        return CHOICES.get(self.name, ())
+
+    @property
+    def bounds(self) -> tuple[float, float] | None:
+        """The range in which this value is a decision rather than a typo."""
+        return BOUNDS.get(self.name)
 
     @property
     def headline(self) -> bool:
@@ -92,7 +186,7 @@ def _fields_of(source: str, class_name: str) -> list[Param]:
             fields.append(
                 Param(
                     name=name,
-                    kind=_kind(ast.unparse(statement.annotation)),
+                    kind=_kind(ast.unparse(statement.annotation), name),
                     default="" if default == "None" else default,
                     help=_help_above(comments, statement.lineno),
                     owner=class_name,
@@ -101,8 +195,12 @@ def _fields_of(source: str, class_name: str) -> list[Param]:
     return fields
 
 
-def _kind(annotation: str) -> str:
+def _kind(annotation: str, name: str = "") -> str:
     """Which editor a field gets. Anything unrecognised is free text."""
+    if name in CHOICES:
+        return "choice"
+    if annotation.startswith("bool"):
+        return "bool"
     if annotation.startswith("int"):
         return "int"
     if annotation.startswith("float"):
@@ -129,6 +227,16 @@ def _help_above(comments: dict[int, str], line: int) -> str:
     return " ".join(reversed(lines))
 
 
+def flag_for(name: str) -> str:
+    """The command-line flag for a config field, prefix and all.
+
+    Derived from `SOURCES` rather than from the field name alone, so the one
+    place that knows a group is prefixed is the same place that declares it.
+    """
+    prefix = PREFIXES["Shaping"] if name in REWARD_FIELDS else ""
+    return f"--{prefix}{name.replace('_', '-')}"
+
+
 def command_line(
     python: str,
     values: dict[str, str],
@@ -150,7 +258,11 @@ def command_line(
     """
     command = [python, "-u", "-m", module]
     for name, value in values.items():
-        command += [f"--{name.replace('_', '-')}", value]
+        # `flag_for`, not a local `--` + name: `Shaping`'s flags are prefixed
+        # (`--reward-city-weight`), and rebuilding them here would emit
+        # `--city-weight`, which the trainer rejects — a Start button that
+        # produces an unparseable command line.
+        command += [flag_for(name), value]
     command += ["--out-dir", str(out_dir)]
     if resume is not None:
         command += ["--resume", str(resume)]
