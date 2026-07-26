@@ -270,11 +270,22 @@ the seed alone reproduces it.
 
 ### Run the pre-trained, packed model
 
-There is not one to run yet. The repository currently ships the scripted agent,
-but no portable packed-policy format, bundled learned checkpoint or native C++
-inference path. **WATCH AI** therefore always means the scripted baseline. The
-honest route for a learned policy today is the checkpoint → recording → replay
-path below; native in-game inference is still on the roadmap.
+**WATCH AI → RELATIONAL 620** runs the bundled learned policy, natively. There
+is no Python and no torch anywhere in that path: `models/pretrained.mdp` is a
+data-only file ([docs/API.md](docs/API.md) §7) and `md::agent::Policy` reads and
+evaluates it in C++, which is the entire reason the format exists.
+
+It is the `policy-best.pt` of a 1,000-update relational run, selected on the
+validation split and scored **once** on the held-out canonical block:
+**90,866** against the scripted agent's 98,542.
+
+The two implementations are held to agreeing exactly. `tools/make_policy_fixture.py`
+writes a fixture whose logits, value and chosen action come from the Python
+forward pass, and `agent/tests/unit/test_policy.cpp` asserts the C++ reader
+reproduces them — including the case where the field is empty, which is where
+the attention path can silently differ. End to end, the native evaluator
+reproduces PyTorch's canonical run bin-for-bin, down to the kills-per-shot
+histogram.
 
 ### Train your own model
 
@@ -286,7 +297,7 @@ poe train
 ```
 
 The default is 1,024 parallel environments and 1,000 PPO updates. Evaluation
-every 50 updates scores the policy on the fixed validation block and selects
+every 10 updates scores the policy on the fixed validation block and selects
 `policy-best.pt`; it does not inspect the held-out **98,542** benchmark.
 Recordings and checkpoints accumulate under `runs/`, while `policy-final.pt` is
 the state to resume. After selection, `--load` runs the final canonical block
@@ -311,18 +322,22 @@ with `T` at any point.
 
 ### Watch replays
 
-Pick one from the **REPLAYS** menu entry, which lists what is in `runs/` (newest
-first), or name it directly:
+Pick one from the **REPLAYS** menu entry, which lists what is in `runs/`, newest
+first:
+
+![The REPLAYS browser listing recorded episodes from a training run, newest first](docs/images/replays.png)
+
+Or name one directly:
 
 ```bash
-./build/release/app/md_app --replay runs/update-1200.mdr
+./build/release/app/md_app --replay runs/update-01000.mdr
 ```
 
 A *learned* policy is not reproducible from a seed the way the scripted agent is, so
 training runs record episodes instead — from Python, `env.record(0)` then
 `env.save_recording(0, path, update=n, label=f"update-{n}")`. What is stored is the
-action index per agent step, four bytes each, so an episode is ~80 kB and can be
-dropped every few updates to watch the policy improve.
+action index per agent step, four bytes each, so the episodes a run leaves behind
+weigh 4–40 kB and can be dropped every few updates to watch the policy improve.
 
 | Input | Action |
 |---|---|
@@ -330,6 +345,80 @@ dropped every few updates to watch the policy improve.
 | Left / Right | Seek back / forward 5 s |
 | `R` | Restart the recording |
 | `T` | Take over from where it has reached |
+
+### What it taught: if you can write the algorithm, write it
+
+The scripted agent is a few hundred lines of geometry. The learned one is PPO
+with a relational attention network over threats, interceptors and blasts — a
+1,959-float observation, 385 actions, an hour on an RTX 5090. On the same
+held-out block the scripted agent scores **98,542** and the learned policy
+scores **90,866**. The interesting part is not the gap but its *shape*:
+
+| | Scripted | Learned |
+|---|---|---|
+| Mean wave reached | 15.75 | 15.38 |
+| Kills per interceptor | **1.09** | **0.86** |
+| Wasted shots | **4%** | **23%** |
+
+**It matched the depth and lost on marksmanship.** That is not bad luck. Putting
+a blast where a warhead is going to be is a closed-form intercept problem: a
+human writes it once, exactly, and it is right in every wave from the first to
+the sixteenth. A network has to recover the same geometry from a scalar reward —
+a spectacularly indirect way to learn ballistics — and it never quite does.
+
+The skill ladder above sharpens the point rather than softening it. The scripted
+agent's entire advantage turned out to be *one* idea — remember which warheads
+you have already fired at — worth 78,000 of its 98,542 points. The learned
+policy, given no hint that such an idea exists, rediscovered enough of it to
+reach wave 15 and not enough to stop wasting a quarter of its ammunition. It
+landed between MEDIUM and HIGH: better than an agent with a third of a second of
+memory, worse than one with a perfect one.
+
+So the conclusion this project arrived at is the unfashionable one: **where a
+good algorithmic solution exists, write it.** Learning should earn its keep on
+the part with no closed form — allocation under a fixed ammunition budget — and
+on this evidence it has not won there either.
+
+Two things stop that from being the whole story. The learned policy got within a
+few percent with **no game-specific knowledge at all** — nobody told it what a
+MIRV is, or that ammunition is scarce — and it would retrain unchanged against a
+game whose wave table or weapons you altered, where the scripted agent would
+have to be rewritten by hand. And the strongest version of this system is
+probably neither one alone: a scripted aimer under a learned allocator, each
+owning the half it is actually good at. That is the experiment this repository
+is now set up to run and has not run yet.
+
+### Pick how well the scripted agent plays
+
+**OPTIONS → AI SKILL** cycles the scripted agent between three settings, and
+`--skill` does the same from the command line:
+
+```bash
+./build/release/agent/md_agent_eval --skill medium
+```
+
+The three are defined by *behaviours switched off*, not by tuned magic numbers,
+so what each one costs is attributable. Measured on the canonical block:
+
+| Skill | Mean score | Wave | Kills/shot | Wasted shots |
+|---|---|---|---|---|
+| LOW | 19,586 | 8.4 | 0.50 | 56% |
+| MEDIUM | 63,296 | 13.2 | 0.75 | 33% |
+| **HIGH** (the baseline) | **98,542** | 15.8 | 1.09 | 4% |
+
+`Params::coverage_horizon` is the dial: **how many seconds ahead the agent
+remembers the shots it has already fired**. At HIGH it tracks every interceptor
+in flight and never fires twice at a warhead that is already dead; at LOW it
+tracks none and wastes over half its ammunition.
+
+Two things fell out of measuring this that are worth knowing before you tune it.
+The response is a **cliff, not a slope** — 0.30 s scores ~34k and 0.40 s ~85k,
+because that is where the dial crosses a typical interceptor's flight time and
+the agent either remembers a shot before it lands or does not. And the
+sophisticated-looking part of the agent is worth almost nothing: switching off
+`cluster_bonus`, which deliberately waits for MIRV spreads to converge, costs
+about **1,500 points**, while ammunition memory is worth about **78,000**. The
+whole scripted baseline is one idea — *do not shoot what is already dead*.
 
 ## Development
 

@@ -13,6 +13,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <md/observation.hpp>
 #include <nlohmann/json.hpp>
 #include <span>
 #include <string>
@@ -250,9 +251,9 @@ Policy Policy::load(const std::filesystem::path& path) {
                        ". The observation encoding or action space has changed; re-export the "
                        "checkpoint against this build.");
     }
-    if (policy.architecture_ != "mlp") {
-        fail(path,
-             "architecture '" + policy.architecture_ + "' is not one this build can run (mlp)");
+    if (policy.architecture_ != "mlp" && policy.architecture_ != "entity") {
+        fail(path, "architecture '" + policy.architecture_ +
+                       "' is not one this build can run (mlp, entity)");
     }
     if (policy.observation_size_ == 0 || policy.action_count_ == 0) {
         fail(path, "observation size and action count must both be positive");
@@ -314,7 +315,7 @@ Policy Policy::load(const std::filesystem::path& path) {
                 return found;
             }
         }
-        fail(path, "no tensor named '" + name + "', which mlp needs");
+        fail(path, "no tensor named '" + name + "', which " + policy.architecture_ + " needs");
     };
 
     const auto layer = [&](const std::string& prefix) -> Layer {
@@ -345,25 +346,121 @@ Policy Policy::load(const std::filesystem::path& path) {
         return built;
     };
 
-    policy.trunk0_ = layer("trunk.0");
-    policy.trunk1_ = layer("trunk.2");
-    policy.policy_head_ = layer("policy_head");
-    policy.value_head_ = layer("value_head");
-    policy.hidden_ = policy.trunk0_.outputs;
+    // A projection with no bias — the three inside a cross-attention block.
+    const auto projection = [&](const std::string& name, std::size_t width) -> std::vector<float> {
+        const Located found = take(name, 2);
+        if (found.shape[0] != width || found.shape[1] != width) {
+            fail(path, name + " is not " + std::to_string(width) + "x" + std::to_string(width));
+        }
+        std::vector<float> values(width * width);
+        for (std::size_t i = 0; i < values.size(); ++i) {
+            values[i] = read_f32(payload, found.offset + (i * itemsize));
+            if (!std::isfinite(values[i])) {
+                fail(path, name + " contains a non-finite value");
+            }
+        }
+        return values;
+    };
 
-    // The dimensions have to chain, and they have to chain into the sizes the
-    // manifest claims. Otherwise a file whose weights are internally consistent
-    // but describe a different observation would be accepted and then read a
-    // shorter observation than it expects, one row at a time.
-    const bool consistent =
-        policy.trunk0_.inputs == policy.observation_size_ &&
-        policy.trunk1_.inputs == policy.hidden_ && policy.trunk1_.outputs == policy.hidden_ &&
-        policy.policy_head_.inputs == policy.hidden_ &&
-        policy.policy_head_.outputs == policy.action_count_ &&
-        policy.value_head_.inputs == policy.hidden_ && policy.value_head_.outputs == 1;
-    if (!consistent) {
-        fail(path, "the layer dimensions do not chain into the declared observation size and "
-                   "action count");
+    if (policy.architecture_ == "mlp") {
+        policy.trunk0_ = layer("trunk.0");
+        policy.trunk1_ = layer("trunk.2");
+        policy.policy_head_ = layer("policy_head");
+        policy.value_head_ = layer("value_head");
+        policy.hidden_ = policy.trunk0_.outputs;
+
+        // The dimensions have to chain, and they have to chain into the sizes the
+        // manifest claims. Otherwise a file whose weights are internally consistent
+        // but describe a different observation would be accepted and then read a
+        // shorter observation than it expects, one row at a time.
+        const bool consistent =
+            policy.trunk0_.inputs == policy.observation_size_ &&
+            policy.trunk1_.inputs == policy.hidden_ && policy.trunk1_.outputs == policy.hidden_ &&
+            policy.policy_head_.inputs == policy.hidden_ &&
+            policy.policy_head_.outputs == policy.action_count_ &&
+            policy.value_head_.inputs == policy.hidden_ && policy.value_head_.outputs == 1;
+        if (!consistent) {
+            fail(path, "the layer dimensions do not chain into the declared observation size and "
+                       "action count");
+        }
+    } else {
+        policy.threat_encoder0_ = layer("threat_encoder.0");
+        policy.threat_encoder1_ = layer("threat_encoder.2");
+        policy.interceptor_encoder0_ = layer("interceptor_encoder.0");
+        policy.interceptor_encoder1_ = layer("interceptor_encoder.2");
+        policy.blast_encoder0_ = layer("blast_encoder.0");
+        policy.blast_encoder1_ = layer("blast_encoder.2");
+        policy.actor_context0_ = layer("actor_context.0");
+        policy.actor_context1_ = layer("actor_context.2");
+        policy.context_to_threat_ = layer("context_to_threat");
+        policy.relation0_ = layer("relation.0");
+        policy.relation1_ = layer("relation.2");
+        policy.fire_head_ = layer("fire_head");
+        policy.noop_head_ = layer("noop_head");
+        policy.critic_trunk0_ = layer("critic_trunk.0");
+        policy.critic_trunk1_ = layer("critic_trunk.2");
+        policy.value_head_ = layer("value_head");
+
+        policy.width_ = policy.threat_encoder0_.outputs;
+        policy.hidden_ = policy.actor_context0_.outputs;
+        policy.batteries_ = policy.fire_head_.outputs;
+        for (Attention* block : {&policy.interceptor_attention_, &policy.blast_attention_}) {
+            const std::string prefix = block == &policy.interceptor_attention_
+                                           ? "interceptor_attention"
+                                           : "blast_attention";
+            block->query = projection(prefix + ".query.weight", policy.width_);
+            block->key = projection(prefix + ".key.weight", policy.width_);
+            block->value = projection(prefix + ".value.weight", policy.width_);
+            block->output = layer(prefix + ".output");
+        }
+
+        // Which slots the observation holds is a fact about `md::encode`, not about
+        // the file, so it comes from the simulation this binary was compiled with.
+        // A policy trained against a different spec has a different observation size
+        // and is refused here rather than silently sliced at the wrong offsets.
+        const ObsSpec spec{};
+        policy.threats_ = spec.threats;
+        policy.interceptors_ = spec.interceptors;
+        policy.blasts_ = spec.blasts;
+        const std::size_t entity_floats = (policy.threats_ * ObsSpec::threat_features) +
+                                          (policy.interceptors_ * ObsSpec::interceptor_features) +
+                                          (policy.blasts_ * ObsSpec::blast_features);
+        if (spec.size() != policy.observation_size_ || entity_floats >= policy.observation_size_) {
+            fail(path, "this policy expects an observation of " +
+                           std::to_string(policy.observation_size_) +
+                           " floats and this build encodes " + std::to_string(spec.size()) +
+                           ". It was trained against a different simulation; re-export it.");
+        }
+        policy.globals_width_ = policy.observation_size_ - entity_floats;
+
+        const std::size_t w = policy.width_;
+        const bool consistent =
+            policy.batteries_ > 0 &&
+            policy.action_count_ == 1 + (policy.batteries_ * policy.threats_) &&
+            policy.threat_encoder0_.inputs == ObsSpec::threat_features &&
+            policy.interceptor_encoder0_.inputs == ObsSpec::interceptor_features &&
+            policy.blast_encoder0_.inputs == ObsSpec::blast_features &&
+            policy.threat_encoder1_.inputs == w && policy.threat_encoder1_.outputs == w &&
+            policy.interceptor_encoder0_.outputs == w && policy.interceptor_encoder1_.inputs == w &&
+            policy.interceptor_encoder1_.outputs == w && policy.blast_encoder0_.outputs == w &&
+            policy.blast_encoder1_.inputs == w && policy.blast_encoder1_.outputs == w &&
+            policy.actor_context0_.inputs == policy.globals_width_ + (2 * w) &&
+            policy.actor_context1_.inputs == policy.hidden_ &&
+            policy.actor_context1_.outputs == policy.hidden_ &&
+            policy.context_to_threat_.inputs == policy.hidden_ &&
+            policy.context_to_threat_.outputs == w && policy.relation0_.inputs == 4 * w &&
+            policy.relation0_.outputs == w && policy.relation1_.inputs == w &&
+            policy.relation1_.outputs == w && policy.fire_head_.inputs == w &&
+            policy.noop_head_.inputs == policy.hidden_ && policy.noop_head_.outputs == 1 &&
+            policy.critic_trunk0_.inputs == policy.observation_size_ &&
+            policy.critic_trunk0_.outputs == policy.hidden_ &&
+            policy.critic_trunk1_.inputs == policy.hidden_ &&
+            policy.critic_trunk1_.outputs == policy.hidden_ &&
+            policy.value_head_.inputs == policy.hidden_ && policy.value_head_.outputs == 1;
+        if (!consistent) {
+            fail(path, "the layer dimensions do not chain into the declared observation size and "
+                       "action count");
+        }
     }
 
     if (const auto metadata = manifest.find("metadata");
@@ -384,6 +481,21 @@ struct Scratch {
     std::vector<float> hidden;
     std::vector<float> features;
     std::vector<float> logits;
+    // The relational path. Every one of these is `resize`d to the same extent on
+    // every call, so only the first on a thread allocates.
+    std::vector<float> encoded_threats;
+    std::vector<float> encoded_interceptors;
+    std::vector<float> encoded_blasts;
+    std::vector<float> slot;
+    std::vector<float> context_input;
+    std::vector<float> summary;
+    std::vector<float> episode;
+    std::vector<float> query;
+    std::vector<float> scores;
+    std::vector<float> attended;
+    std::vector<float> relation_input;
+    std::vector<float> per_threat;
+    std::vector<float> fire;
 };
 
 Scratch& scratch() {
@@ -410,7 +522,207 @@ void forward(const std::vector<float>& weight, const std::vector<float>& bias,
     }
 }
 
+/// `out = W x` for a projection carrying no bias.
+void project(const std::vector<float>& weight, std::span<const float> in, std::span<float> out) {
+    const std::size_t inputs = in.size();
+    for (std::size_t row = 0; row < out.size(); ++row) {
+        float sum = 0.0F;
+        const std::size_t base = row * inputs;
+        for (std::size_t column = 0; column < inputs; ++column) {
+            sum += weight[base + column] * in[column];
+        }
+        out[row] = sum;
+    }
+}
+
+/// Softmax in place, maximum subtracted first. Torch does the same, and on
+/// scores this small the difference would not show — but "the same arithmetic in
+/// the same order" is the only claim parity can rest on.
+void softmax(std::span<float> values) {
+    float largest = values[0];
+    for (const float value : values) {
+        largest = std::max(largest, value);
+    }
+    float total = 0.0F;
+    for (float& value : values) {
+        value = std::exp(value - largest);
+        total += value;
+    }
+    for (float& value : values) {
+        value /= total;
+    }
+}
+
 } // namespace
+
+void Policy::entity_logits(std::span<const float> observation, std::span<float> logits_out,
+                           float& value_out) const {
+    Scratch& work = scratch();
+    const std::size_t w = width_;
+    const std::size_t tf = ObsSpec::threat_features;
+    const std::size_t inf = ObsSpec::interceptor_features;
+    const std::size_t bf = ObsSpec::blast_features;
+
+    work.encoded_threats.resize(threats_ * w);
+    work.encoded_interceptors.resize(interceptors_ * w);
+    work.encoded_blasts.resize(blasts_ * w);
+    work.slot.resize(w);
+    work.context_input.resize(globals_width_ + (2 * w));
+    work.summary.resize(hidden_);
+    work.hidden.resize(hidden_);
+    work.episode.resize(w);
+    work.query.resize(w);
+    work.scores.resize(std::max(interceptors_, blasts_));
+    work.attended.resize(w);
+    work.relation_input.resize(4 * w);
+    work.per_threat.resize(w);
+    work.fire.resize(batteries_);
+
+    // Encode every slot through its own two-layer tanh encoder. Padding slots are
+    // encoded too, exactly as the batched training pass does; what excludes them
+    // is the presence mask at each place they could contribute.
+    const auto encode_all = [&](const Layer& first, const Layer& second, std::size_t slots,
+                                std::size_t features, std::size_t offset,
+                                std::vector<float>& into) {
+        for (std::size_t i = 0; i < slots; ++i) {
+            const std::span<const float> raw =
+                observation.subspan(offset + (i * features), features);
+            forward(first.weight, first.bias, raw, work.slot, true);
+            forward(second.weight, second.bias, work.slot, std::span<float>{into}.subspan(i * w, w),
+                    true);
+        }
+    };
+    const std::size_t interceptors_at = threats_ * tf;
+    const std::size_t blasts_at = interceptors_at + (interceptors_ * inf);
+    const std::size_t globals_at = blasts_at + (blasts_ * bf);
+    encode_all(threat_encoder0_, threat_encoder1_, threats_, tf, 0, work.encoded_threats);
+    encode_all(interceptor_encoder0_, interceptor_encoder1_, interceptors_, inf, interceptors_at,
+               work.encoded_interceptors);
+    encode_all(blast_encoder0_, blast_encoder1_, blasts_, bf, blasts_at, work.encoded_blasts);
+
+    // The leading feature of every slot is its presence flag.
+    const auto present = [&](std::size_t offset, std::size_t features, std::size_t i) {
+        return observation[offset + (i * features)] != 0.0F;
+    };
+
+    // Permutation-invariant mean over the live entities; exactly zero when none.
+    const auto pooled = [&](const std::vector<float>& encoded, std::size_t slots,
+                            std::size_t offset, std::size_t features, std::span<float> out) {
+        std::ranges::fill(out, 0.0F);
+        std::size_t live = 0;
+        for (std::size_t i = 0; i < slots; ++i) {
+            if (!present(offset, features, i)) {
+                continue;
+            }
+            ++live;
+            for (std::size_t j = 0; j < w; ++j) {
+                out[j] += encoded[(i * w) + j];
+            }
+        }
+        const float count = static_cast<float>(std::max<std::size_t>(live, 1));
+        for (float& value : out) {
+            value /= count;
+        }
+    };
+
+    std::ranges::copy(observation.subspan(globals_at, globals_width_), work.context_input.begin());
+    pooled(work.encoded_interceptors, interceptors_, interceptors_at, inf,
+           std::span<float>{work.context_input}.subspan(globals_width_, w));
+    pooled(work.encoded_blasts, blasts_, blasts_at, bf,
+           std::span<float>{work.context_input}.subspan(globals_width_ + w, w));
+
+    forward(actor_context0_.weight, actor_context0_.bias, work.context_input, work.hidden, true);
+    forward(actor_context1_.weight, actor_context1_.bias, work.hidden, work.summary, true);
+    forward(context_to_threat_.weight, context_to_threat_.bias, work.summary, work.episode, false);
+
+    /// One attention block for one threat. An empty entity set yields exactly
+    /// zero *including the output bias* — `md.ppo._CrossAttention` multiplies by
+    /// `has_entity`, which suppresses the bias too, and returning `output.bias`
+    /// here would disagree with training on every observation with no live blast.
+    const auto attend = [&](const Attention& block, std::span<const float> queried,
+                            const std::vector<float>& encoded, std::size_t slots,
+                            std::size_t offset, std::size_t features, std::span<float> out) {
+        std::size_t live = 0;
+        for (std::size_t i = 0; i < slots; ++i) {
+            live += present(offset, features, i) ? 1u : 0u;
+        }
+        if (live == 0) {
+            std::ranges::fill(out, 0.0F);
+            return;
+        }
+        project(block.query, queried, work.query);
+        const float scale = 1.0F / std::sqrt(static_cast<float>(w));
+        std::size_t written = 0;
+        for (std::size_t i = 0; i < slots; ++i) {
+            if (!present(offset, features, i)) {
+                continue;
+            }
+            float score = 0.0F;
+            for (std::size_t row = 0; row < w; ++row) {
+                float key = 0.0F;
+                const std::size_t base = row * w;
+                for (std::size_t column = 0; column < w; ++column) {
+                    key += block.key[base + column] * encoded[(i * w) + column];
+                }
+                score += work.query[row] * key;
+            }
+            work.scores[written++] = score * scale;
+        }
+        softmax(std::span<float>{work.scores}.first(live));
+
+        std::ranges::fill(work.attended, 0.0F);
+        written = 0;
+        for (std::size_t i = 0; i < slots; ++i) {
+            if (!present(offset, features, i)) {
+                continue;
+            }
+            const float weight = work.scores[written++];
+            for (std::size_t row = 0; row < w; ++row) {
+                float value = 0.0F;
+                const std::size_t base = row * w;
+                for (std::size_t column = 0; column < w; ++column) {
+                    value += block.value[base + column] * encoded[(i * w) + column];
+                }
+                work.attended[row] += weight * value;
+            }
+        }
+        forward(block.output.weight, block.output.bias, work.attended, out, false);
+    };
+
+    forward(noop_head_.weight, noop_head_.bias, work.summary, logits_out.first(1), false);
+
+    for (std::size_t slot = 0; slot < threats_; ++slot) {
+        if (present(0, tf, slot)) {
+            const std::span<const float> encoded_threat =
+                std::span<const float>{work.encoded_threats}.subspan(slot * w, w);
+            std::ranges::copy(encoded_threat, work.relation_input.begin());
+            attend(interceptor_attention_, encoded_threat, work.encoded_interceptors, interceptors_,
+                   interceptors_at, inf, std::span<float>{work.relation_input}.subspan(w, w));
+            attend(blast_attention_, encoded_threat, work.encoded_blasts, blasts_, blasts_at, bf,
+                   std::span<float>{work.relation_input}.subspan(2 * w, w));
+            std::ranges::copy(work.episode,
+                              work.relation_input.begin() + static_cast<std::ptrdiff_t>(3 * w));
+            forward(relation0_.weight, relation0_.bias, work.relation_input, work.slot, true);
+            forward(relation1_.weight, relation1_.bias, work.slot, work.per_threat, true);
+        } else {
+            // `per_threat` is multiplied by the presence flag in training, so an
+            // absent slot contributes an exact zero and its fire logits are the
+            // head's bias alone. Those actions are masked anyway; matching them
+            // is what keeps the parity fixture comparing whole logit vectors.
+            std::ranges::fill(work.per_threat, 0.0F);
+        }
+        forward(fire_head_.weight, fire_head_.bias, work.per_threat, work.fire, false);
+        for (std::size_t battery = 0; battery < batteries_; ++battery) {
+            logits_out[1 + (battery * threats_) + slot] = work.fire[battery];
+        }
+    }
+
+    forward(critic_trunk0_.weight, critic_trunk0_.bias, observation, work.hidden, true);
+    forward(critic_trunk1_.weight, critic_trunk1_.bias, work.hidden, work.summary, true);
+    std::array<float, 1> value{};
+    forward(value_head_.weight, value_head_.bias, work.summary, value, false);
+    value_out = value[0];
+}
 
 Policy::Decision Policy::act(std::span<const float> observation,
                              std::span<const std::uint8_t> legal) const {
@@ -433,20 +745,30 @@ Policy::Decision Policy::act(std::span<const float> observation,
                     " entries, this policy expects " + std::to_string(action_count_)};
     }
 
+    float value = 0.0F;
+    if (architecture_ == "entity") {
+        // `entity_logits` owns the scratch it needs, including `logits`, so the
+        // buffer is sized before the call rather than inside it.
+        scratch().logits.resize(action_count_);
+        entity_logits(observation, scratch().logits, value);
+    } else {
+        Scratch& flat = scratch();
+        flat.hidden.resize(hidden_);
+        flat.features.resize(hidden_);
+        flat.logits.resize(action_count_);
+
+        forward(trunk0_.weight, trunk0_.bias, observation, flat.hidden, true);
+        forward(trunk1_.weight, trunk1_.bias, flat.hidden, flat.features, true);
+        forward(policy_head_.weight, policy_head_.bias, flat.features, flat.logits, false);
+
+        std::array<float, 1> estimate{};
+        forward(value_head_.weight, value_head_.bias, flat.features, estimate, false);
+        value = estimate[0];
+    }
     Scratch& work = scratch();
-    work.hidden.resize(hidden_);
-    work.features.resize(hidden_);
-    work.logits.resize(action_count_);
-
-    forward(trunk0_.weight, trunk0_.bias, observation, work.hidden, true);
-    forward(trunk1_.weight, trunk1_.bias, work.hidden, work.features, true);
-    forward(policy_head_.weight, policy_head_.bias, work.features, work.logits, false);
-
-    std::array<float, 1> value{};
-    forward(value_head_.weight, value_head_.bias, work.features, value, false);
 
     Decision decision;
-    decision.value = value[0];
+    decision.value = value;
     // Masking, then the *first* maximum. Both halves are promises rather than
     // conveniences: `md.export_policy` does exactly this, and the parity fixture
     // would be a coin flip on ties if either side chose differently.

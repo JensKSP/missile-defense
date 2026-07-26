@@ -57,11 +57,12 @@ from .policy_format import NativePolicy, PolicyFormatError, Tensor
 MASKED_LOGIT = -1.0e8
 
 #: Architectures with a native forward pass. Training can produce others; the
-#: game cannot run them, and saying so at export time is the honest place.
-#: `entity` is the notable absence — it trains and has no `agent/src/policy.cpp`
-#: implementation, so exporting one would produce a file the game accepts and
-#: then evaluates as noise.
-EXPORTABLE = ("mlp",)
+#: game cannot run them, and saying so at export time is the honest place — a
+#: file the game accepts and then evaluates as noise is the failure this list
+#: exists to prevent. Both entries here are implemented in
+#: `agent/src/policy.cpp` and pinned by the parity fixture, which is what makes
+#: adding a name to this tuple a claim rather than a hope.
+EXPORTABLE = ("mlp", "entity")
 
 #: How many decimal digits the parity fixture carries. float32 has about seven,
 #: so this round-trips exactly while keeping the file diffable.
@@ -165,7 +166,7 @@ def evaluate(policy: NativePolicy, observation: Weights, legal: Legal) -> Decisi
     therefore no checkpoint — see this module's docstring for why that makes it
     the definition rather than a recording.
     """
-    if policy.architecture != "mlp":
+    if policy.architecture not in ("mlp", "entity"):
         raise ExportError(f"no reference forward pass for {policy.architecture!r}")
     if observation.shape != (policy.observation_size,):
         raise ExportError(
@@ -174,10 +175,13 @@ def evaluate(policy: NativePolicy, observation: Weights, legal: Legal) -> Decisi
     if legal.shape != (policy.action_count,):
         raise ExportError(f"legal mask is {legal.shape}, expected ({policy.action_count},)")
 
-    features = np.tanh(_affine(observation, policy, "trunk.0"))
-    features = np.tanh(_affine(features, policy, "trunk.2"))
-    logits = _affine(features, policy, "policy_head")
-    value = float(_affine(features, policy, "value_head")[0])
+    if policy.architecture == "entity":
+        logits, value = _entity_forward(policy, observation)
+    else:
+        features = np.tanh(_affine(observation, policy, "trunk.0"))
+        features = np.tanh(_affine(features, policy, "trunk.2"))
+        logits = _affine(features, policy, "policy_head")
+        value = float(_affine(features, policy, "value_head")[0])
 
     # numpy's stubs type `where`/`argmax` with Unknown parameters, so strict
     # mode cannot see through either; the arrays themselves are typed.
@@ -189,6 +193,124 @@ def evaluate(policy: NativePolicy, observation: Weights, legal: Legal) -> Decisi
     # has to reproduce it deliberately.
     chosen = int(np.argmax(masked))  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
     return Decision(masked, value, chosen)
+
+
+def _entity_forward(policy: NativePolicy, observation: Weights) -> tuple[Weights, float]:
+    """`md.ppo.EntityPolicy`'s forward pass, from the `.mdp` and numpy alone.
+
+    **The slot counts come from the simulation, not from the file.** How many
+    threat, interceptor and blast slots an observation holds is a fact about
+    ``md::encode``; the same policy against a different spec is a policy for a
+    different game. ``agent/src/policy.cpp`` reads them from its compiled-in
+    ``ObsSpec`` for exactly this reason, and this reads them from the same place
+    so the two cannot drift.
+    """
+    from ._md_native import ObsSpec  # noqa: PLC0415 — the native layout, not a policy concern
+
+    spec = ObsSpec()
+    threats, interceptors, blasts = int(spec.threats), int(spec.interceptors), int(spec.blasts)
+    threat_features, interceptor_features, blast_features = 9, 7, 5
+    if int(spec.size) != policy.observation_size:
+        raise ExportError(
+            f"this policy expects an observation of {policy.observation_size} floats and this "
+            f"build encodes {int(spec.size)}; it was trained against a different simulation"
+        )
+
+    def tensor(name: str) -> Weights:
+        return policy.tensor(name).values.astype(np.float32)
+
+    def encode(block: Weights, prefix: str) -> Weights:
+        """Two tanh layers over every slot at once — rows are slots."""
+        hidden = np.tanh(block @ tensor(f"{prefix}.0.weight").T + tensor(f"{prefix}.0.bias"))
+        return np.tanh(hidden @ tensor(f"{prefix}.2.weight").T + tensor(f"{prefix}.2.bias")).astype(
+            np.float32
+        )
+
+    at_interceptors = threats * threat_features
+    at_blasts = at_interceptors + (interceptors * interceptor_features)
+    at_globals = at_blasts + (blasts * blast_features)
+    threat_block = observation[:at_interceptors].reshape(threats, threat_features)
+    interceptor_block = observation[at_interceptors:at_blasts].reshape(
+        interceptors, interceptor_features
+    )
+    blast_block = observation[at_blasts:at_globals].reshape(blasts, blast_features)
+    globals_block = observation[at_globals:].astype(np.float32)
+
+    # The leading feature of every slot is its presence flag.
+    threat_present = threat_block[:, 0] != 0.0
+    interceptor_present = interceptor_block[:, 0] != 0.0
+    blast_present = blast_block[:, 0] != 0.0
+
+    encoded_t = encode(threat_block.astype(np.float32), "threat_encoder")
+    encoded_i = encode(interceptor_block.astype(np.float32), "interceptor_encoder")
+    encoded_b = encode(blast_block.astype(np.float32), "blast_encoder")
+    width = encoded_t.shape[1]
+
+    def pooled(encoded: Weights, present: npt.NDArray[np.bool_]) -> Weights:
+        """Permutation-invariant mean over live slots; exactly zero when none."""
+        total = encoded[present].sum(axis=0) if present.any() else np.zeros(width, np.float32)
+        return (total / max(int(present.sum()), 1)).astype(np.float32)
+
+    # numpy's stubs type `concatenate` and `broadcast_to` with Unknown
+    # parameters, so strict mode cannot see through either; the arrays
+    # themselves are typed. Scoped, as elsewhere in this file.
+    context_input = np.concatenate(  # pyright: ignore[reportUnknownMemberType]
+        [globals_block, pooled(encoded_i, interceptor_present), pooled(encoded_b, blast_present)]
+    ).astype(np.float32)
+    summary = np.tanh(_affine(context_input, policy, "actor_context.0"))
+    summary = np.tanh(_affine(summary, policy, "actor_context.2")).astype(np.float32)
+    episode = _affine(summary, policy, "context_to_threat")
+
+    def attend(prefix: str, encoded: Weights, present: npt.NDArray[np.bool_]) -> Weights:
+        """Cross-attention from every threat to one entity set.
+
+        An empty set is an exact zero **including the output bias**:
+        `md.ppo._CrossAttention` scales its output by `has_entity`, which
+        suppresses the bias too. Returning the bias here would disagree with
+        training on every observation with no live blast.
+        """
+        if not present.any():
+            return np.zeros((encoded_t.shape[0], width), np.float32)
+        live = encoded[present]
+        query = encoded_t @ tensor(f"{prefix}.query.weight").T
+        key = live @ tensor(f"{prefix}.key.weight").T
+        value = live @ tensor(f"{prefix}.value.weight").T
+        scores = (query @ key.T) / np.float32(np.sqrt(width))
+        scores = scores - scores.max(axis=1, keepdims=True)
+        weights = np.exp(scores)
+        weights = weights / weights.sum(axis=1, keepdims=True)
+        attended = (weights @ value).astype(np.float32)
+        return (
+            attended @ tensor(f"{prefix}.output.weight").T + tensor(f"{prefix}.output.bias")
+        ).astype(np.float32)
+
+    related_i = attend("interceptor_attention", encoded_i, interceptor_present)
+    related_b = attend("blast_attention", encoded_b, blast_present)
+    relation_input = np.concatenate(  # pyright: ignore[reportUnknownMemberType]
+        [
+            encoded_t,
+            related_i,
+            related_b,
+            np.broadcast_to(episode, (threats, width)),  # pyright: ignore[reportUnknownMemberType]
+        ],
+        axis=1,
+    ).astype(np.float32)
+    per_threat = np.tanh(relation_input @ tensor("relation.0.weight").T + tensor("relation.0.bias"))
+    per_threat = np.tanh(
+        per_threat @ tensor("relation.2.weight").T + tensor("relation.2.bias")
+    ).astype(np.float32)
+    per_threat = per_threat * threat_present[:, None]
+
+    # (threats, batteries) -> battery-major, matching decode_action's
+    # index = 1 + battery * threats + slot.
+    fire = (per_threat @ tensor("fire_head.weight").T + tensor("fire_head.bias")).astype(np.float32)
+    logits = np.concatenate(  # pyright: ignore[reportUnknownMemberType]
+        [_affine(summary, policy, "noop_head"), fire.T.reshape(-1)]
+    ).astype(np.float32)
+
+    critic = np.tanh(_affine(observation.astype(np.float32), policy, "critic_trunk.0"))
+    critic = np.tanh(_affine(critic, policy, "critic_trunk.2")).astype(np.float32)
+    return logits, float(_affine(critic, policy, "value_head")[0])
 
 
 def _affine(x: Weights, policy: NativePolicy, layer: str) -> Weights:
@@ -221,12 +343,21 @@ def write_parity_fixture(
     slots are empty early on), so a fixture built from one would exercise a
     fraction of the weights and pass with a transposed matrix. Random normals
     touch every input.
+
+    **A relational policy needs its presence flags set deliberately**, because a
+    normal draw is never exactly zero and would mark every slot live — leaving
+    the masked-mean, the attention mask and the empty-set path untested, which is
+    most of what distinguishes `entity` from a pile of matrix multiplies. Sample
+    zero is therefore an empty field, which is the case where an implementation
+    returning the attention's output bias instead of an exact zero disagrees.
     """
     policy = policy_format.read(policy_path)
     rng = np.random.default_rng(seed)
     written: list[dict[str, object]] = []
     for index in range(samples):
         observation = rng.standard_normal(policy.observation_size).astype(np.float32)
+        if policy.architecture == "entity":
+            _set_presence(observation, rng, live=0.0 if index == 0 else 0.35)
         legal = rng.random(policy.action_count) > 0.35
         # A state with nothing legal cannot arise — the no-op always is — and a
         # fixture containing one would pin behaviour nothing has to define.
@@ -261,6 +392,28 @@ def write_parity_fixture(
         encoding="utf-8",
     )
     return destination
+
+
+def _set_presence(observation: Weights, rng: np.random.Generator, *, live: float) -> None:
+    """Overwrite each entity slot's leading presence flag with 1.0 or 0.0.
+
+    ``live`` is the probability a slot is occupied; zero empties the field
+    entirely. Everything else in the slot is left as drawn, so an absent slot
+    still carries non-zero junk — which is the honest case, since the encoders
+    run over padding rows in training too and only the mask keeps them out.
+    """
+    from ._md_native import ObsSpec  # noqa: PLC0415 — the native layout, not a policy concern
+
+    spec = ObsSpec()
+    offset = 0
+    for slots, features in (
+        (int(spec.threats), 9),
+        (int(spec.interceptors), 7),
+        (int(spec.blasts), 5),
+    ):
+        for index in range(slots):
+            observation[offset + (index * features)] = 1.0 if rng.random() < live else 0.0
+        offset += slots * features
 
 
 def _round(values: Sequence[float] | Weights) -> list[float]:

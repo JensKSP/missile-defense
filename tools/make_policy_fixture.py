@@ -25,7 +25,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-
 from md import export_policy, policy_format
 
 #: Small enough to read in a diff, wide enough that a transposed matrix cannot
@@ -41,6 +40,25 @@ SEED = 20260726
 FIXTURES = Path(__file__).resolve().parents[1] / "agent" / "tests" / "fixtures"
 POLICY = "tiny-policy.mdp"
 PARITY = "tiny-policy-parity.json"
+ENTITY_POLICY = "tiny-entity.mdp"
+ENTITY_PARITY = "tiny-entity-parity.json"
+
+#: The relational fixture's trunk widths. Tiny, and every one of them different
+#: from every other, so a transposed or swapped weight changes a shape.
+#:
+#: Its *slot* counts are not tiny and cannot be: `agent/src/policy.cpp` takes
+#: them from the `ObsSpec` it was compiled with, precisely so that a policy for a
+#: different simulation is refused rather than sliced at the wrong offsets. A
+#: fixture with three threat slots would therefore be rejected by the reader it
+#: exists to test. That is what makes this file ~100 kB rather than ~2 kB, and it
+#: is the right trade: the check it preserves is the one that matters.
+ENTITY_WIDTH = 4
+ENTITY_HIDDEN = 8
+ENTITY_BATTERIES = 3
+
+#: Enough to cover an empty field, a busy one, and several in between, without
+#: the JSON growing past what a reviewer can reasonably regenerate and diff.
+ENTITY_SAMPLES = 5
 
 
 def build() -> policy_format.NativePolicy:
@@ -61,9 +79,7 @@ def build() -> policy_format.NativePolicy:
             policy_format.Tensor("trunk.0.bias", (HIDDEN,), normal(HIDDEN)),
             policy_format.Tensor("trunk.2.weight", (HIDDEN, HIDDEN), normal(HIDDEN, HIDDEN)),
             policy_format.Tensor("trunk.2.bias", (HIDDEN,), normal(HIDDEN)),
-            policy_format.Tensor(
-                "policy_head.weight", (ACTIONS, HIDDEN), normal(ACTIONS, HIDDEN)
-            ),
+            policy_format.Tensor("policy_head.weight", (ACTIONS, HIDDEN), normal(ACTIONS, HIDDEN)),
             policy_format.Tensor("policy_head.bias", (ACTIONS,), normal(ACTIONS)),
             policy_format.Tensor("value_head.weight", (1, HIDDEN), normal(1, HIDDEN)),
             policy_format.Tensor("value_head.bias", (1,), normal(1)),
@@ -79,11 +95,96 @@ def build() -> policy_format.NativePolicy:
     )
 
 
+def build_entity() -> policy_format.NativePolicy:
+    """A relational policy at the simulation's real slot counts, tiny elsewhere.
+
+    Built tensor by tensor rather than from `md.ppo.EntityPolicy`, so this needs
+    no torch and produces the same bytes anywhere — the same reason `build` does.
+    `md.export_policy` pins the numpy reference against torch separately; this
+    file's job is only to make the C++ side agree with that reference.
+    """
+    from md._md_native import ObsSpec  # noqa: PLC0415 — the layout, not a policy concern
+
+    spec = ObsSpec()
+    threats, interceptors, blasts = int(spec.threats), int(spec.interceptors), int(spec.blasts)
+    observation = int(spec.size)
+    globals_width = observation - (threats * 9) - (interceptors * 7) - (blasts * 5)
+    rng = np.random.default_rng(SEED + 1)
+
+    def normal(*shape: int) -> np.ndarray:
+        return (rng.standard_normal(shape) * 0.5).astype(np.float32)
+
+    def tensor(name: str, *shape: int) -> policy_format.Tensor:
+        return policy_format.Tensor(name, shape, normal(*shape))
+
+    width, hidden = ENTITY_WIDTH, ENTITY_HIDDEN
+    tensors: list[policy_format.Tensor] = []
+    for prefix, features in (
+        ("threat_encoder", 9),
+        ("interceptor_encoder", 7),
+        ("blast_encoder", 5),
+    ):
+        tensors += [
+            tensor(f"{prefix}.0.weight", width, features),
+            tensor(f"{prefix}.0.bias", width),
+            tensor(f"{prefix}.2.weight", width, width),
+            tensor(f"{prefix}.2.bias", width),
+        ]
+    for prefix in ("interceptor_attention", "blast_attention"):
+        tensors += [
+            tensor(f"{prefix}.query.weight", width, width),
+            tensor(f"{prefix}.key.weight", width, width),
+            tensor(f"{prefix}.value.weight", width, width),
+            tensor(f"{prefix}.output.weight", width, width),
+            tensor(f"{prefix}.output.bias", width),
+        ]
+    tensors += [
+        tensor("actor_context.0.weight", hidden, globals_width + (2 * width)),
+        tensor("actor_context.0.bias", hidden),
+        tensor("actor_context.2.weight", hidden, hidden),
+        tensor("actor_context.2.bias", hidden),
+        tensor("context_to_threat.weight", width, hidden),
+        tensor("context_to_threat.bias", width),
+        tensor("relation.0.weight", width, 4 * width),
+        tensor("relation.0.bias", width),
+        tensor("relation.2.weight", width, width),
+        tensor("relation.2.bias", width),
+        tensor("fire_head.weight", ENTITY_BATTERIES, width),
+        tensor("fire_head.bias", ENTITY_BATTERIES),
+        tensor("noop_head.weight", 1, hidden),
+        tensor("noop_head.bias", 1),
+        tensor("critic_trunk.0.weight", hidden, observation),
+        tensor("critic_trunk.0.bias", hidden),
+        tensor("critic_trunk.2.weight", hidden, hidden),
+        tensor("critic_trunk.2.bias", hidden),
+        tensor("value_head.weight", 1, hidden),
+        tensor("value_head.bias", 1),
+    ]
+    return policy_format.NativePolicy(
+        schema=policy_format.SCHEMA,
+        observation_size=observation,
+        action_count=1 + (ENTITY_BATTERIES * threats),
+        architecture="entity",
+        tensors=tuple(tensors),
+        metadata={
+            "display_name": "Tiny Relational",
+            "note": "generated by tools/make_policy_fixture.py; do not hand-edit",
+            "trained_updates": 0,
+        },
+    )
+
+
 def main() -> int:
     FIXTURES.mkdir(parents=True, exist_ok=True)
     written = policy_format.write(FIXTURES / POLICY, build())
     export_policy.write_parity_fixture(written, FIXTURES / PARITY, samples=12, seed=SEED)
     print(f"wrote {written} and {FIXTURES / PARITY}")
+
+    entity = policy_format.write(FIXTURES / ENTITY_POLICY, build_entity())
+    export_policy.write_parity_fixture(
+        entity, FIXTURES / ENTITY_PARITY, samples=ENTITY_SAMPLES, seed=SEED
+    )
+    print(f"wrote {entity} and {FIXTURES / ENTITY_PARITY}")
     return 0
 
 

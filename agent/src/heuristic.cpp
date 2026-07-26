@@ -53,21 +53,27 @@ bool passes_through(const Threat& threat, Vec2 centre, float radius, float t0, f
 /// Is this threat already dealt with — by a blast burning now, or by an
 /// interceptor already on its way to a point it will fall into? Skipping these is
 /// what stops the agent from emptying three batteries into one warhead.
-bool already_covered(const Sim& sim, const Threat& threat) noexcept {
+bool already_covered(const Sim& sim, const Threat& threat, const Params& params) noexcept {
     const Config& cfg = sim.config();
     const float radius = cfg.blast_max_radius;
 
-    for (const Blast& blast : sim.blasts()) {
-        const float remaining = std::max(0.0f, cfg.blast_lifetime - blast.age);
-        if (passes_through(threat, blast.center, radius, 0.0f, remaining)) {
-            return true;
+    if (params.avoid_blast_double_spend) {
+        for (const Blast& blast : sim.blasts()) {
+            const float remaining = std::max(0.0f, cfg.blast_lifetime - blast.age);
+            if (passes_through(threat, blast.center, radius, 0.0f, remaining)) {
+                return true;
+            }
         }
     }
-    if (cfg.interceptor_speed <= 0.0f) {
+    if (params.coverage_horizon <= 0.0f || cfg.interceptor_speed <= 0.0f) {
         return false;
     }
     return std::ranges::any_of(sim.interceptors(), [&](const Interceptor& shot) {
         const float arrive = distance(shot.pos, shot.target) / cfg.interceptor_speed;
+        // Past the horizon this shot is one the agent no longer remembers making.
+        if (arrive > params.coverage_horizon) {
+            return false;
+        }
         return passes_through(threat, shot.target, radius, arrive, arrive + cfg.blast_lifetime);
     });
 }
@@ -132,7 +138,7 @@ Action Heuristic::act(const Sim& sim) const noexcept {
             continue; // not descending, or already too low to be worth a blast
         }
         const float value = ground_value(sim, threat, params_);
-        if (value <= 0.0f || already_covered(sim, threat)) {
+        if (value <= 0.0f || already_covered(sim, threat, params_)) {
             continue;
         }
 

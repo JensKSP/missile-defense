@@ -65,6 +65,124 @@ def fixture_policy() -> policy_format.NativePolicy:
     )
 
 
+#: A deliberately tiny `entity`, whose dimensions are all different from each
+#: other. Equal extents are how a transposed weight or a swapped encoder slips
+#: through a shape check, so nothing here shares a size with anything else it
+#: could be confused for.
+E_WIDTH = 3
+E_HIDDEN = 4
+E_THREAT_FEATURES = 2
+E_INTERCEPTOR_FEATURES = 5
+E_BLAST_FEATURES = 6
+E_BATTERIES = 2
+E_THREATS = 3
+E_GLOBALS = 7
+E_CONTEXT_INPUT = E_GLOBALS + (2 * E_WIDTH)
+E_RELATION_INPUT = 4 * E_WIDTH
+E_OBS = 40
+E_ACTIONS = 1 + (E_BATTERIES * E_THREATS)
+
+
+def entity_tensors() -> list[policy_format.Tensor]:
+    """Every tensor `entity` names, shaped as `ARCHITECTURES` says it must be."""
+    rng = np.random.default_rng(20260727)
+
+    def make(name: str, *shape: int) -> policy_format.Tensor:
+        values = (rng.standard_normal(shape) * 0.1).astype(np.float32)
+        return policy_format.Tensor(name, shape, values)
+
+    def encoder(prefix: str, features: int) -> list[policy_format.Tensor]:
+        return [
+            make(f"{prefix}.0.weight", E_WIDTH, features),
+            make(f"{prefix}.0.bias", E_WIDTH),
+            make(f"{prefix}.2.weight", E_WIDTH, E_WIDTH),
+            make(f"{prefix}.2.bias", E_WIDTH),
+        ]
+
+    def attention(prefix: str) -> list[policy_format.Tensor]:
+        return [
+            make(f"{prefix}.query.weight", E_WIDTH, E_WIDTH),
+            make(f"{prefix}.key.weight", E_WIDTH, E_WIDTH),
+            make(f"{prefix}.value.weight", E_WIDTH, E_WIDTH),
+            make(f"{prefix}.output.weight", E_WIDTH, E_WIDTH),
+            make(f"{prefix}.output.bias", E_WIDTH),
+        ]
+
+    return [
+        *encoder("threat_encoder", E_THREAT_FEATURES),
+        *encoder("interceptor_encoder", E_INTERCEPTOR_FEATURES),
+        *encoder("blast_encoder", E_BLAST_FEATURES),
+        *attention("interceptor_attention"),
+        *attention("blast_attention"),
+        make("actor_context.0.weight", E_HIDDEN, E_CONTEXT_INPUT),
+        make("actor_context.0.bias", E_HIDDEN),
+        make("actor_context.2.weight", E_HIDDEN, E_HIDDEN),
+        make("actor_context.2.bias", E_HIDDEN),
+        make("context_to_threat.weight", E_WIDTH, E_HIDDEN),
+        make("context_to_threat.bias", E_WIDTH),
+        make("relation.0.weight", E_WIDTH, E_RELATION_INPUT),
+        make("relation.0.bias", E_WIDTH),
+        make("relation.2.weight", E_WIDTH, E_WIDTH),
+        make("relation.2.bias", E_WIDTH),
+        make("fire_head.weight", E_BATTERIES, E_WIDTH),
+        make("fire_head.bias", E_BATTERIES),
+        make("noop_head.weight", 1, E_HIDDEN),
+        make("noop_head.bias", 1),
+        make("critic_trunk.0.weight", E_HIDDEN, E_OBS),
+        make("critic_trunk.0.bias", E_HIDDEN),
+        make("critic_trunk.2.weight", E_HIDDEN, E_HIDDEN),
+        make("critic_trunk.2.bias", E_HIDDEN),
+        make("value_head.weight", 1, E_HIDDEN),
+        make("value_head.bias", 1),
+    ]
+
+
+def entity_policy(
+    tensors: list[policy_format.Tensor] | None = None,
+) -> policy_format.NativePolicy:
+    return policy_format.NativePolicy(
+        schema=policy_format.SCHEMA,
+        observation_size=E_OBS,
+        action_count=E_ACTIONS,
+        architecture="entity",
+        tensors=tuple(entity_tensors() if tensors is None else tensors),
+        metadata={"display_name": "Entity Fixture"},
+    )
+
+
+def test_an_entity_policy_round_trips(tmp_path: Path) -> None:
+    """The relational architecture survives the container unchanged."""
+    policy = entity_policy()
+    assert policy_format.read(policy_format.write(tmp_path / "e.mdp", policy)) == policy
+
+
+def test_entity_does_not_carry_the_training_only_auxiliary_head() -> None:
+    """It is never evaluated on a player's machine, so it is not in the file."""
+    named = [name for name, _ in policy_format.ARCHITECTURES["entity"]]
+    assert not [name for name in named if name.startswith("auxiliary_head")]
+
+
+def test_entity_rejects_widths_that_chain_but_do_not_add_up() -> None:
+    """`relation.0` takes four width-sized blocks; three would read the wrong ones.
+
+    Every individual shape here is still self-consistent, which is exactly why
+    name-equality alone cannot catch it and `_DERIVED` has to.
+    """
+    tensors = entity_tensors()
+    swapped = [
+        policy_format.Tensor(
+            t.name,
+            (E_WIDTH, 3 * E_WIDTH),
+            np.zeros((E_WIDTH, 3 * E_WIDTH), dtype=np.float32),
+        )
+        if t.name == "relation.0.weight"
+        else t
+        for t in tensors
+    ]
+    with pytest.raises(policy_format.PolicyFormatError, match="do not add up"):
+        policy_format.validate(entity_policy(swapped))
+
+
 # ---- the round trip ----------------------------------------------------------
 
 

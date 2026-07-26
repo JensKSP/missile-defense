@@ -61,7 +61,7 @@ import hashlib
 import json
 import math
 import struct
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -95,9 +95,17 @@ ITEMSIZE = 4
 #: shapes are the ones this observation size and action count imply".
 #:
 #: `mlp` is `md.ppo.Policy`: two tanh layers, then a policy head and a value
-#: head off the shared trunk. `agent/src/policy.cpp` implements exactly this and
-#: nothing else, which is deliberate — an interpreter for arbitrary graphs is a
-#: much larger thing to get right than the network this project actually trains.
+#: head off the shared trunk. `agent/src/policy.cpp` implements exactly this,
+#: and `entity` beside it — deliberately those two and no more, because an
+#: interpreter for arbitrary graphs is a much larger thing to get right than the
+#: networks this project actually trains.
+#:
+#: `entity` is `md.ppo.EntityPolicy`: every threat through one narrow encoder,
+#: cross-attention from each threat to the live interceptor and blast sets, a
+#: pooled episode context, and a fire logit per battery — plus a critic that
+#: shares nothing with any of it. `auxiliary_head` is deliberately absent: it is
+#: a training-time signal that no forward pass on a player's machine evaluates,
+#: so shipping it would be weight nobody reads.
 ARCHITECTURES: Mapping[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
     "mlp": (
         ("trunk.0.weight", ("hidden", "observation")),
@@ -109,10 +117,77 @@ ARCHITECTURES: Mapping[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
         ("value_head.weight", ("one", "hidden")),
         ("value_head.bias", ("one",)),
     ),
+    "entity": (
+        ("threat_encoder.0.weight", ("width", "threat_features")),
+        ("threat_encoder.0.bias", ("width",)),
+        ("threat_encoder.2.weight", ("width", "width")),
+        ("threat_encoder.2.bias", ("width",)),
+        ("interceptor_encoder.0.weight", ("width", "interceptor_features")),
+        ("interceptor_encoder.0.bias", ("width",)),
+        ("interceptor_encoder.2.weight", ("width", "width")),
+        ("interceptor_encoder.2.bias", ("width",)),
+        ("blast_encoder.0.weight", ("width", "blast_features")),
+        ("blast_encoder.0.bias", ("width",)),
+        ("blast_encoder.2.weight", ("width", "width")),
+        ("blast_encoder.2.bias", ("width",)),
+        ("interceptor_attention.query.weight", ("width", "width")),
+        ("interceptor_attention.key.weight", ("width", "width")),
+        ("interceptor_attention.value.weight", ("width", "width")),
+        ("interceptor_attention.output.weight", ("width", "width")),
+        ("interceptor_attention.output.bias", ("width",)),
+        ("blast_attention.query.weight", ("width", "width")),
+        ("blast_attention.key.weight", ("width", "width")),
+        ("blast_attention.value.weight", ("width", "width")),
+        ("blast_attention.output.weight", ("width", "width")),
+        ("blast_attention.output.bias", ("width",)),
+        ("actor_context.0.weight", ("hidden", "context_input")),
+        ("actor_context.0.bias", ("hidden",)),
+        ("actor_context.2.weight", ("hidden", "hidden")),
+        ("actor_context.2.bias", ("hidden",)),
+        ("context_to_threat.weight", ("width", "hidden")),
+        ("context_to_threat.bias", ("width",)),
+        ("relation.0.weight", ("width", "relation_input")),
+        ("relation.0.bias", ("width",)),
+        ("relation.2.weight", ("width", "width")),
+        ("relation.2.bias", ("width",)),
+        ("fire_head.weight", ("batteries", "width")),
+        ("fire_head.bias", ("batteries",)),
+        ("noop_head.weight", ("one", "hidden")),
+        ("noop_head.bias", ("one",)),
+        ("critic_trunk.0.weight", ("hidden", "observation")),
+        ("critic_trunk.0.bias", ("hidden",)),
+        ("critic_trunk.2.weight", ("hidden", "hidden")),
+        ("critic_trunk.2.bias", ("hidden",)),
+        ("value_head.weight", ("one", "hidden")),
+        ("value_head.bias", ("one",)),
+    ),
 }
 
 #: Dimensions whose size is fixed by the manifest rather than inferred.
 _FIXED_DIMENSIONS = {"one": 1}
+
+#: Relations between resolved dimensions that name-equality alone cannot state,
+#: as (architecture, description, predicate). Two concatenations feed `entity`,
+#: and a file whose widths chain individually but do not add up would otherwise
+#: read a plausible network that slices its own inputs in the wrong places.
+#:
+#: What is *not* here is anything needing the observation layout — how many
+#: threat slots there are, how wide the globals block is. Those are facts about
+#: `md::encode`, so the reader that owns them checks them: `agent/src/policy.cpp`
+#: against the simulation it is compiled with, which is the only place the
+#: question "does this file match *this* game?" can honestly be answered.
+_DERIVED: tuple[tuple[str, str, Callable[[Mapping[str, int]], bool]], ...] = (
+    (
+        "entity",
+        "relation.0 takes the threat, both attention outputs and the episode context",
+        lambda size: size["relation_input"] == 4 * size["width"],
+    ),
+    (
+        "entity",
+        "actor_context.0 takes the globals block and both pooled entity sets",
+        lambda size: size["context_input"] > 2 * size["width"],
+    ),
+)
 
 
 #: The one array type in this module. Named, because `np.ndarray` alone leaves
@@ -253,6 +328,12 @@ def validate(policy: NativePolicy, *, what: str = "policy") -> None:
             # A NaN in a weight propagates to every logit, so the policy plays
             # uniformly at random and looks merely bad rather than broken.
             raise PolicyFormatError(f"{what}: {tensor.name} contains a non-finite value")
+
+    for architecture, description, holds in _DERIVED:
+        if architecture == policy.architecture and not holds(sizes):
+            raise PolicyFormatError(
+                f"{what}: {policy.architecture} dimensions do not add up — {description}"
+            )
 
 
 # ---- writing -----------------------------------------------------------------

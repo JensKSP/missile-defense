@@ -152,13 +152,31 @@ class ScriptedDriver final : public Driver {
 
     explicit ScriptedDriver(Params params) noexcept : agent_{params} {}
 
+    /// Named skills carry their name into the printout, because a run at a
+    /// reduced skill is *not* the published baseline and a result labelled
+    /// "SCRIPTED" would be indistinguishable from one that is.
+    explicit ScriptedDriver(Skill skill) noexcept
+        : agent_{params_for(skill)}, name_{skill_name(skill)} {}
+
     [[nodiscard]] Action act(const Sim& sim) override { return agent_.act(sim); }
 
-    // NOLINTNEXTLINE(readability-convert-member-functions-to-static) — an override
-    [[nodiscard]] std::string_view name() const noexcept override { return "SCRIPTED"; }
+    [[nodiscard]] std::string_view name() const noexcept override { return name_; }
+
+    [[nodiscard]] static constexpr std::string_view skill_name(Skill skill) noexcept {
+        switch (skill) {
+        case Skill::low:
+            return "SCRIPTED (LOW)";
+        case Skill::medium:
+            return "SCRIPTED (MEDIUM)";
+        case Skill::high:
+            break;
+        }
+        return "SCRIPTED";
+    }
 
   private:
     Heuristic agent_;
+    std::string_view name_ = "SCRIPTED";
 };
 
 /// A learned `.mdp` policy as a `Driver`, through the same `Action` primitive.

@@ -89,6 +89,16 @@ void GameWindow::load_settings() {
     audio_on_ = settings.value("audio/sfx", audio_on_).toBool();
     music_on_ = settings.value("audio/music", music_on_).toBool();
     fullscreen_ = settings.value("video/fullscreen", fullscreen_).toBool();
+    // Clamped rather than trusted: this is a number in a file a person can edit,
+    // and an out-of-range one would index a switch that has three arms.
+    const int skill = settings.value("ai/skill", static_cast<int>(ai_skill_)).toInt();
+    ai_skill_ = agent::Skill::high;
+    if (skill == static_cast<int>(agent::Skill::low)) {
+        ai_skill_ = agent::Skill::low;
+    } else if (skill == static_cast<int>(agent::Skill::medium)) {
+        ai_skill_ = agent::Skill::medium;
+    }
+    agent_ = agent::Heuristic{agent::params_for(ai_skill_)};
     audio_.set_enabled(audio_on_);
     audio_.set_music_enabled(music_on_);
     // Fullscreen is applied by main() at startup (before the window is shown).
@@ -112,6 +122,7 @@ void GameWindow::save_settings() const {
     settings.setValue("audio/sfx", audio_on_);
     settings.setValue("audio/music", music_on_);
     settings.setValue("video/fullscreen", fullscreen_);
+    settings.setValue("ai/skill", static_cast<int>(ai_skill_));
 }
 
 QVulkanWindowRenderer* GameWindow::createRenderer() {
@@ -120,24 +131,28 @@ QVulkanWindowRenderer* GameWindow::createRenderer() {
 }
 
 int GameWindow::menu_count() const noexcept {
-    if (in_progress_) {
-        return 6; // WATCH AI, TRAIN AI, REPLAYS and ABOUT are main-menu only
-    }
     // Nine on a full install, eight on a game-only one. TRAIN AI is *absent*
     // rather than disabled: on the game-only package there is no console to
     // enable, so an item explaining that would be advertising a product the
     // person did not install. The layout follows — menu_item_top_y() derives
     // its row step from active_count(), so a ninth item shrinks the list
     // instead of pushing START into the byline.
-    return can_train() ? 9 : 8;
+    //
+    // Starting a game *adds* RESUME and removes nothing. WATCH AI, TRAIN AI,
+    // REPLAYS and ABOUT used to disappear here, which made the pause menu a
+    // different menu wearing the same frame: every item below the first moved,
+    // so the muscle memory built in the main menu was wrong exactly when a
+    // player was mid-game and least willing to re-read it.
+    return (in_progress_ ? 1 : 0) + (can_train() ? 9 : 8);
 }
 
 GameWindow::MenuAction GameWindow::action_at(int index) const {
+    auto slot = static_cast<std::size_t>(index);
     if (in_progress_) {
-        const std::array<MenuAction, 6> acts{MenuAction::Resume,     MenuAction::NewGame,
-                                             MenuAction::Help,       MenuAction::Options,
-                                             MenuAction::Highscores, MenuAction::Exit};
-        return acts[static_cast<std::size_t>(index)];
+        if (slot == 0) {
+            return MenuAction::Resume;
+        }
+        --slot; // the rest of the list is the main menu's, unchanged
     }
     // TRAIN AI sits next to WATCH AI, which is the other thing in this menu
     // about the agent rather than about playing.
@@ -145,7 +160,6 @@ GameWindow::MenuAction GameWindow::action_at(int index) const {
         MenuAction::NewGame,    MenuAction::WatchAi, MenuAction::TrainAi,
         MenuAction::Replays,    MenuAction::Help,    MenuAction::Options,
         MenuAction::Highscores, MenuAction::About,   MenuAction::Exit};
-    const auto slot = static_cast<std::size_t>(index);
     return acts[can_train() || slot < 2 ? slot : slot + 1];
 }
 
@@ -180,7 +194,7 @@ std::string_view GameWindow::menu_label(int index) const {
 }
 
 int GameWindow::options_count() noexcept {
-    return 4; // AUDIO, MUSIC, FULLSCREEN, BACK
+    return 5; // AUDIO, MUSIC, FULLSCREEN, AI SKILL, BACK
 }
 
 /// The WATCH AI submenu. Two agents and a way back — or, until a model ships,
@@ -211,6 +225,14 @@ std::string_view GameWindow::options_label(int index) const {
         return music_on_ ? "MUSIC ON" : "MUSIC OFF";
     case 2:
         return fullscreen_ ? "FULLSCREEN ON" : "FULLSCREEN OFF";
+    case 3:
+        // Which scripted agent WATCH AI runs. Named rather than numbered
+        // because each step is a behaviour switched off, not a difficulty
+        // multiplier — see `md::agent::Skill`.
+        if (ai_skill_ == md::agent::Skill::low) {
+            return "AI SKILL LOW";
+        }
+        return ai_skill_ == md::agent::Skill::medium ? "AI SKILL MEDIUM" : "AI SKILL HIGH";
     default:
         return "BACK";
     }
@@ -408,6 +430,24 @@ void GameWindow::toggle_audio() {
 void GameWindow::toggle_music() {
     music_on_ = !music_on_;
     audio_.set_music_enabled(music_on_);
+    save_settings();
+}
+
+void GameWindow::cycle_ai_skill() {
+    // LOW -> MEDIUM -> HIGH -> LOW. A three-way setting on a menu with no
+    // left/right affordance has to cycle; wrapping at the top is what makes one
+    // key enough to reach all three.
+    if (ai_skill_ == agent::Skill::low) {
+        ai_skill_ = agent::Skill::medium;
+    } else if (ai_skill_ == agent::Skill::medium) {
+        ai_skill_ = agent::Skill::high;
+    } else {
+        ai_skill_ = agent::Skill::low;
+    }
+    // Rebuilt rather than mutated: `Heuristic` holds its parameters by value and
+    // a game already under way should pick the new skill up on its next
+    // decision, not at the next round.
+    agent_ = agent::Heuristic{agent::params_for(ai_skill_)};
     save_settings();
 }
 
@@ -631,6 +671,9 @@ void GameWindow::activate(int index) {
             break;
         case 2:
             toggle_fullscreen();
+            break;
+        case 3:
+            cycle_ai_skill();
             break;
         default:
             open_menu(); // BACK

@@ -249,6 +249,8 @@ class GameWindow : public QVulkanWindow {
     void toggle_fullscreen();
     void toggle_audio();
     void toggle_music();
+    /// LOW -> MEDIUM -> HIGH -> LOW, rebuilding the scripted agent as it goes.
+    void cycle_ai_skill();
     void load_settings();       // restore persisted audio/music/fullscreen on startup
     void save_settings() const; // persist audio/music/fullscreen after a toggle
     void open_menu();
@@ -307,7 +309,10 @@ class GameWindow : public QVulkanWindow {
     bool audio_on_ = true;
     bool music_on_ = true;    // looping FM-synth background music
     bool fullscreen_ = false; // windowed by default
-    int final_score_ = 0;     // score captured at game over (for the entry screen)
+    /// Which scripted agent WATCH AI runs. Defaults to the published baseline,
+    /// so what a player watches out of the box is the agent the README quotes.
+    agent::Skill ai_skill_ = agent::Skill::high;
+    int final_score_ = 0; // score captured at game over (for the entry screen)
     std::array<char, 3> entry_initials_{{'A', 'A', 'A'}};
     int entry_slot_ = 0;
 };

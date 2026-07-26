@@ -19,6 +19,7 @@
 #include "md/agent/policy.hpp"
 #include "md/observation.hpp"
 
+#include <array>
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <cstdint>
@@ -27,6 +28,7 @@
 #include <nlohmann/json.hpp>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -63,8 +65,8 @@ struct Sample {
     std::uint32_t action = 0;
 };
 
-std::vector<Sample> parity_samples() {
-    std::ifstream file{fixture("tiny-policy-parity.json")};
+std::vector<Sample> parity_samples(const std::string& name = "tiny-policy-parity.json") {
+    std::ifstream file{fixture(name)};
     REQUIRE(file.good());
     const nlohmann::json payload = nlohmann::json::parse(file);
 
@@ -124,6 +126,59 @@ TEST_CASE("The native forward pass agrees with the Python one, sample for sample
         }
         CHECK(decision.value == Catch::Approx(sample.value).margin(2e-4));
         CHECK(decision.action == sample.action);
+    }
+}
+
+TEST_CASE("A relational policy file loads and describes itself", "[unit][agent][policy]") {
+    const md::agent::Policy policy = md::agent::Policy::load(fixture("tiny-entity.mdp"));
+    CHECK(policy.schema() == 1u);
+    CHECK(policy.architecture() == "entity");
+    CHECK(policy.display_name() == "Tiny Relational");
+    // Not tiny, and deliberately so: the reader takes its slot counts from the
+    // ObsSpec it was compiled with, so the fixture has to be a policy for *this*
+    // simulation or it would be refused by the very check being relied on.
+    CHECK(policy.observation_size() == md::ObsSpec{}.size());
+}
+
+TEST_CASE("The relational forward pass agrees with the Python one, sample for sample",
+          "[unit][agent][policy][parity]") {
+    const md::agent::Policy policy = md::agent::Policy::load(fixture("tiny-entity.mdp"));
+    const std::vector<Sample> samples = parity_samples("tiny-entity-parity.json");
+    REQUIRE(samples.size() == 5u);
+
+    std::vector<float> logits(policy.action_count());
+    for (std::size_t i = 0; i < samples.size(); ++i) {
+        INFO("sample " << i);
+        const Sample& sample = samples[i];
+        REQUIRE(sample.observation.size() == policy.observation_size());
+        const md::agent::Policy::Decision decision =
+            policy.act(sample.observation, sample.legal, logits);
+
+        for (std::size_t a = 0; a < logits.size(); ++a) {
+            INFO("action " << a);
+            CHECK(logits[a] == Catch::Approx(sample.logits[a]).margin(2e-4));
+        }
+        CHECK(decision.value == Catch::Approx(sample.value).margin(2e-4));
+        CHECK(decision.action == sample.action);
+    }
+}
+
+TEST_CASE("An empty field drives the attention's zero path", "[unit][agent][policy][parity]") {
+    // Sample zero has no live threat, interceptor or blast. `_CrossAttention`
+    // scales its output by `has_entity`, so both attention blocks must produce
+    // an exact zero *including their output bias*; an implementation returning
+    // the bias there passes every busy sample and disagrees on every quiet one.
+    const std::vector<Sample> samples = parity_samples("tiny-entity-parity.json");
+    const md::ObsSpec spec{};
+    std::size_t offset = 0;
+    for (const auto [slots, features] : std::array<std::pair<std::size_t, std::size_t>, 3>{
+             {{spec.threats, md::ObsSpec::threat_features},
+              {spec.interceptors, md::ObsSpec::interceptor_features},
+              {spec.blasts, md::ObsSpec::blast_features}}}) {
+        for (std::size_t i = 0; i < slots; ++i) {
+            REQUIRE(samples.front().observation[offset + (i * features)] == 0.0F);
+        }
+        offset += slots * features;
     }
 }
 

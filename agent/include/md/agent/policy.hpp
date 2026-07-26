@@ -102,16 +102,62 @@ class Policy {
         std::size_t outputs = 0;
     };
 
+    /// One cross-attention block. Single-headed, so the head dimension *is*
+    /// `width_` and the score scale is `1/sqrt(width_)` — the default
+    /// `torch.nn.functional.scaled_dot_product_attention` applies, which is the
+    /// number parity depends on. The three projections carry no bias, matching
+    /// `md.ppo._CrossAttention`; only `output` has one.
+    struct Attention {
+        std::vector<float> query; // width * width, row-major
+        std::vector<float> key;
+        std::vector<float> value;
+        Layer output;
+    };
+
+    /// The relational forward pass, writing masked-but-not-yet-argmaxed logits.
+    /// Split out because it is an order of magnitude more code than the flat one
+    /// and shares only the masking tail with it.
+    void entity_logits(std::span<const float> observation, std::span<float> logits_out,
+                       float& value_out) const;
+
     std::uint32_t schema_ = 0;
     std::size_t observation_size_ = 0;
     std::size_t action_count_ = 0;
     std::size_t hidden_ = 0;
     std::string architecture_;
     std::string display_name_;
+
+    // --- mlp ---
     Layer trunk0_;
     Layer trunk1_;
     Layer policy_head_;
     Layer value_head_;
+
+    // --- entity. Unused by `mlp`, and vice versa; which set is live is decided
+    // once at load time by `architecture_` and never re-examined per decision.
+    Layer threat_encoder0_;
+    Layer threat_encoder1_;
+    Layer interceptor_encoder0_;
+    Layer interceptor_encoder1_;
+    Layer blast_encoder0_;
+    Layer blast_encoder1_;
+    Attention interceptor_attention_;
+    Attention blast_attention_;
+    Layer actor_context0_;
+    Layer actor_context1_;
+    Layer context_to_threat_;
+    Layer relation0_;
+    Layer relation1_;
+    Layer fire_head_;
+    Layer noop_head_;
+    Layer critic_trunk0_;
+    Layer critic_trunk1_;
+    std::size_t width_ = 0;
+    std::size_t batteries_ = 0;
+    std::size_t threats_ = 0;
+    std::size_t interceptors_ = 0;
+    std::size_t blasts_ = 0;
+    std::size_t globals_width_ = 0;
 };
 
 } // namespace md::agent

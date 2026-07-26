@@ -48,9 +48,9 @@ std::optional<std::uint64_t> parse_u64(std::string_view text, bool allow_zero = 
 }
 
 void usage() {
-    std::println(stderr,
-                 "usage: md_agent_eval [--seeds N] [--seed-offset N] [--max-ticks N] "
-                 "[--frame-skip N] [--per-episode] [--policy FILE.mdp] [--action-log FILE]");
+    std::println(stderr, "usage: md_agent_eval [--seeds N] [--seed-offset N] [--max-ticks N] "
+                         "[--frame-skip N] [--per-episode] [--skill low|medium|high] "
+                         "[--policy FILE.mdp] [--action-log FILE]");
 }
 
 int run(int argc, char** argv) {
@@ -59,6 +59,9 @@ int run(int argc, char** argv) {
     std::uint64_t max_ticks = 120000;
     bool per_episode = false;
     std::string policy_path;
+    // The published baseline unless asked otherwise, so an unqualified run is
+    // always the number docs/TRAINING.md quotes.
+    md::agent::Skill skill = md::agent::Skill::high;
     std::string action_log_path;
     md::Config config{}; // defaults, including the 15 Hz decision cadence and 3/s fire
 
@@ -97,6 +100,18 @@ int run(int argc, char** argv) {
                 return 2;
             }
             config.decision_interval = static_cast<std::uint32_t>(*value);
+        } else if (arg == "--skill" && (i + 1) < argc) {
+            const std::string_view value{argv[++i]};
+            if (value == "low") {
+                skill = md::agent::Skill::low;
+            } else if (value == "medium") {
+                skill = md::agent::Skill::medium;
+            } else if (value == "high") {
+                skill = md::agent::Skill::high;
+            } else {
+                std::println(stderr, "unknown --skill '{}' (low, medium, high)", value);
+                return 2;
+            }
         } else if (arg == "--policy" && (i + 1) < argc) {
             policy_path = argv[++i];
         } else if (arg == "--action-log" && (i + 1) < argc) {
@@ -118,7 +133,7 @@ int run(int argc, char** argv) {
     std::optional<md::agent::Policy> loaded;
     std::unique_ptr<md::agent::Driver> driver;
     if (policy_path.empty()) {
-        driver = std::make_unique<md::agent::ScriptedDriver>();
+        driver = std::make_unique<md::agent::ScriptedDriver>(skill);
     } else {
         loaded = md::agent::Policy::load(policy_path);
         driver = std::make_unique<md::agent::PolicyDriver>(*loaded, spec);

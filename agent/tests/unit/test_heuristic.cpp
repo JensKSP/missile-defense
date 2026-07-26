@@ -115,6 +115,80 @@ TEST_CASE("The agent does not empty every battery into one warhead", "[unit][age
     REQUIRE(r.shots <= r.kills * 3u); // generous, but rules out dumping the magazine
 }
 
+TEST_CASE("Skill::high is the published baseline's parameters exactly", "[unit][agent]") {
+    // The yardstick in docs/TRAINING.md is this agent and no other, so the top
+    // skill must be the struct's defaults rather than a tuned variant of them.
+    const Params defaults{};
+    const Params high = md::agent::params_for(md::agent::Skill::high);
+    CHECK(high.cluster_bonus == defaults.cluster_bonus);
+    CHECK(high.avoid_blast_double_spend == defaults.avoid_blast_double_spend);
+    CHECK(high.coverage_horizon == defaults.coverage_horizon);
+    CHECK(high.city_value == defaults.city_value);
+    CHECK(high.urgency_weight == defaults.urgency_weight);
+}
+
+TEST_CASE("Each skill step down removes another behaviour", "[unit][agent]") {
+    const Params medium = md::agent::params_for(md::agent::Skill::medium);
+    const Params low = md::agent::params_for(md::agent::Skill::low);
+    // Medium still reacts to what is on screen and remembers its own shots only
+    // for a moment...
+    CHECK(medium.cluster_bonus == 0.0f);
+    CHECK(medium.avoid_blast_double_spend);
+    CHECK(medium.coverage_horizon > 0.0f);
+    CHECK(medium.coverage_horizon < md::agent::Params{}.coverage_horizon);
+    // ...low keeps no discipline at all, and changes nothing else.
+    CHECK_FALSE(low.avoid_blast_double_spend);
+    CHECK(low.coverage_horizon == 0.0f);
+    CHECK(low.city_value == medium.city_value);
+    CHECK(low.urgency_weight == medium.urgency_weight);
+}
+
+TEST_CASE("Without ammunition discipline the agent double-spends", "[unit][agent]") {
+    // The mirror of "does not empty every battery into one warhead": with a zero
+    // `coverage_horizon` a threat already covered is engaged again, so shots
+    // rise against the same kills. This is what makes the knob worth having —
+    // the behaviour it guards is measurable, not decorative.
+    Config cfg;
+    cfg.wave_base_threats = 1;
+    const EpisodeResult careful = md::agent::run_episode(cfg, 42, Heuristic{}, 3000);
+    const EpisodeResult wasteful = md::agent::run_episode(
+        cfg, 42, Heuristic{md::agent::params_for(md::agent::Skill::low)}, 3000);
+    REQUIRE(careful.shots > 0u);
+    REQUIRE(wasteful.shots > 0u);
+    const double careful_ratio =
+        static_cast<double>(careful.kills) / static_cast<double>(careful.shots);
+    const double wasteful_ratio =
+        static_cast<double>(wasteful.kills) / static_cast<double>(wasteful.shots);
+    CHECK(wasteful_ratio < careful_ratio);
+}
+
+TEST_CASE("The skills form a ladder, not just a pair", "[unit][agent]") {
+    // Not "strictly worse on every seed" — one seed is noise, and a difficulty
+    // ladder only has to hold on average. Averaged over the fixed seed set it
+    // must, in order, or the presets are mislabelled. This is the assertion that
+    // caught a `medium` sitting 1.5% below `high`: monotone, and useless.
+    const Config cfg;
+    const auto seeds = md::agent::default_seeds(8);
+    // Long enough to reach the waves where ammunition actually runs out. At a
+    // 4,000-tick cap every skill dies to the clock rather than to the budget,
+    // which compresses the three together and makes the spread assertion below
+    // a coin toss.
+    const auto score = [&](md::agent::Skill skill) {
+        return md::agent::evaluate(cfg, seeds, Heuristic{md::agent::params_for(skill)}, 20000)
+            .mean_score;
+    };
+    const double low = score(md::agent::Skill::low);
+    const double medium = score(md::agent::Skill::medium);
+    const double high = score(md::agent::Skill::high);
+    CHECK(low < medium);
+    CHECK(medium < high);
+    // And `medium` has to be somewhere in the middle rather than nominally
+    // below the top: a preset a player cannot tell from the baseline is not a
+    // difficulty setting, it is a mislabelled one.
+    CHECK(medium < high - ((high - low) * 0.15));
+    CHECK(medium > low + ((high - low) * 0.15));
+}
+
 TEST_CASE("Episode results are reproducible", "[unit][agent]") {
     const Config cfg;
     const Heuristic agent{};

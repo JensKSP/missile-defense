@@ -9,7 +9,7 @@ headless, deterministic `md::core` simulation.
 
 ## M1 — Human can play ✅ *(passed — accepted by Jens, 2026-07-24)*
 
-A person plays a fresh game of Missile Command in the Vulkan UI: waves of descending
+A person plays a fresh game of Missile Defense in the Vulkan UI: waves of descending
 threats, three batteries with limited ammo, interceptors with travel time + expanding
 blast, six cities to defend, score, and win/lose.
 
@@ -95,7 +95,7 @@ see it learn, and a scalar reward curve does not show you *why* a run went badly
 
 ## M4 — Algorithmic reference AI ✅ *(implemented — ready for sign-off)*
 
-A hand-coded Missile Command agent — no learning — playing headless through the shared
+A hand-coded Missile Defense agent — no learning — playing headless through the shared
 `Action` interface, as the apples-to-apples yardstick for the ML agent. Lives in
 `agent/` (`md::agent`), a sibling of the core: the simulation never depends on an agent.
 Deterministic, allocation-free, unit-tested. Run it with `poe eval`.
@@ -129,6 +129,47 @@ rivals.
 | Mean cities surviving | **0.00** of 6 |
 | Kills per interceptor | **1.0853** |
 | Episodes surviving the cap | 0 / 32 |
+
+#### The skill ladder, and what each behaviour is worth
+
+`md_agent_eval --skill low|medium|high`, same protocol. Only `high` is the
+published baseline; the other two exist to price the agent's behaviours and to
+give a player something watchable.
+
+| Skill | Mean score | Wave | Kills/shot | Wasted |
+|---|---|---|---|---|
+| `low` | 19,585.5 | 8.38 | 0.50 | 56% |
+| `medium` | 63,295.6 | 13.16 | 0.75 | 33% |
+| `high` | **98,542.3** | 15.75 | 1.09 | 4% |
+
+The dial is `Params::coverage_horizon` — how many seconds ahead the agent
+remembers the shots it has already fired — calibrated by sweeping it against
+this block (`medium` = 0.36 s). Two results worth keeping:
+
+* **Ammunition memory is worth ~78,000 points; MIRV-cluster planning is worth
+  ~1,500.** Switching off `cluster_bonus`, which deliberately waits for spreads
+  to converge, barely moves the score. The whole baseline is one idea: *do not
+  shoot what is already dead.*
+* **The response is a cliff, not a slope.** 0.30 s scores ~34k and 0.40 s ~85k,
+  because that is where the dial crosses a typical interceptor's flight time.
+  Re-sweep it if `interceptor_speed` or the world box changes.
+
+#### The learned policy, on the same block
+
+One relational run (`--architecture entity`, 1,024 envs × 256 steps, 1,000
+updates), checkpoint selected on the validation split and scored **once** here:
+
+| Metric | Scripted | Learned |
+|---|---|---|
+| Mean score | **98,542.3** | **90,865.9** (range 76,550–101,945) |
+| Mean wave reached | 15.75 | 15.38 |
+| Kills per interceptor | 1.09 | 0.86 |
+| Wasted shots | 4% | 23% |
+
+It matches the depth and loses the 7,676 entirely on marksmanship — it sits
+between `medium` and `high`, i.e. it rediscovered much of the ammunition
+discipline nobody told it about, but not all of it. `models/pretrained.mdp` is
+this checkpoint, and the game runs it natively.
 
 **This settles the question the design turned on.** A perfect-marksmanship agent — one
 that solves the lead-intercept exactly and never misses — still loses *every* game, with
@@ -285,8 +326,10 @@ convenience over the mechanism, never the only way to reach it.
 > one wrong data point. Existence needs no protocol, and `touch` produces it. Each is a
 > *state* rather than an event, so `ls runs/` explains why nothing is happening, and both
 > are cleared when a run starts and when one ends — a stale `STOP` must not kill
-> tomorrow's run. If a later phase needs to pass a value rather than a signal, that is
-> the moment for a parsed file, written to a temporary name and renamed into place. It
+> tomorrow's run. Passing a *value* rather than a signal is the one thing this cannot
+> do, so `runs/TUNING.json` sits beside them for the eval cadence: parsed, written to a
+> temporary name and renamed into place, and unreadable-is-absent so a typo cannot kill
+> a run that is hours old. The console's **eval every** box writes it. It
 > lives in `md.control`, which the trainer and the console both import and which pulls in
 > neither of them.
 

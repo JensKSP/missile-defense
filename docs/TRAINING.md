@@ -49,6 +49,19 @@ Ammunition — not aim — is what runs out. **A perfect-marksmanship agent stil
 loses every game around wave 16**, which is exactly why this is worth learning
 on: the problem is allocation under a budget, not reflexes.
 
+The budget is worth stating precisely, because it is the whole game. Wave *N*
+sends `2N + 6` threats at three batteries holding ten interceptors each,
+refilled every wave and never bankable. Those cross at **wave 12**: past it,
+clearing a wave needs more than one kill per interceptor, which is why 1.09
+kills/shot and "dies around wave 16" are the same fact stated twice.
+
+`--skill low|medium|high` runs a deliberately weakened baseline; only `high` is
+the published yardstick. The ladder is built by removing behaviours, so what
+each is worth is measurable — and the answer is lopsided. Ammunition memory
+(`Params::coverage_horizon`, how many seconds ahead the agent remembers its own
+shots) is worth **~78,000 points**; the `cluster_bonus` that waits for MIRV
+spreads to converge is worth **~1,500**. See the README's skill table.
+
 There are two fixed, disjoint 32-seed blocks from the same deterministic stream:
 
 * **Validation, offset 0:** the historical first 32 seeds. Routine evaluations
@@ -216,6 +229,25 @@ Both files are cleared when a run starts and when one finishes, so a stale `STOP
 cannot kill tomorrow's run. This is the whole mechanism; the console's buttons
 write these same files, which is why they also work on a run you started in a
 terminal.
+
+## Changing how often a run scores itself, while it runs
+
+How often you want the yardstick is not a decision you can make once. Early on
+the policy is a different animal every few updates and you want a score
+constantly; later an evaluation plays 32 full-length episodes to repeat what the
+last one said. So the eval cadence is the one setting a run re-reads:
+
+```bash
+cat runs/TUNING.json                          # what the run is using now
+echo '{"eval_every": 50}' > runs/TUNING.json  # back off, from the next update
+```
+
+A starting run writes this file from its own command line, which is what makes it
+the answer to *"what is this run on?"* rather than a pile of overrides. The loop
+reads it once per update and logs the change (`eval interval 10 -> 50 updates`);
+an unreadable or missing file simply leaves the run on what it was started with,
+because a typo must not kill something that is hours old. The console's **eval
+every** box writes exactly this file, so it drives a terminal-started run too.
 
 ## Watching and driving a run from a window
 
@@ -432,7 +464,7 @@ to it. The ones actually worth touching first:
 | `--schedule-updates` | same as `--updates` | decay should finish earlier or later than the run |
 | `--architecture` | `mlp` | use `entity` for relational attention and a separate critic |
 | `--auxiliary-coef` | 0.1 | ablate or tune the relational tactical prediction loss |
-| `--eval-every` | 50 | you want the yardstick more or less often |
+| `--eval-every` | 10 | you want the yardstick more or less often — also changeable mid-run, above |
 | `--record-every` | 25 | you want more episodes to watch |
 | `--max-ticks` | 120000 | you are smoke-testing and want episodes to end fast |
 
