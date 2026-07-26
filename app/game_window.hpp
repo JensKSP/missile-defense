@@ -132,6 +132,13 @@ class GameWindow : public QVulkanWindow {
     /// starts the scripted agent directly rather than offering a choice of one.
     [[nodiscard]] bool has_pretrained() const noexcept { return pretrained_.has_value(); }
 
+    /// How many models this install can actually run, bundled and promoted.
+    ///
+    /// Public and static so `--report` can state it without a window: a model
+    /// the console promoted and the game silently will not offer is exactly the
+    /// failure a packaging test has to be able to see.
+    [[nodiscard]] static int installed_model_count();
+
     /// Is a recorded run being played back?
     [[nodiscard]] bool replaying() const noexcept { return replay_.has_value(); }
 
@@ -223,13 +230,22 @@ class GameWindow : public QVulkanWindow {
     // them, and the highlight would chase itself down the list.
     static constexpr int replay_rows_visible = 8;
 
+    /// Which list the browser screen is showing.
+    ///
+    /// One screen, two contents: recordings and installed models scroll, hover,
+    /// select and page identically, and a second copy of that layout would
+    /// drift from this one the moment either moved.
+    enum class Browse : std::uint8_t { Replays, Models };
+
+    [[nodiscard]] Browse browsing() const noexcept { return browse_; }
+
     [[nodiscard]] int replay_scroll() const noexcept { return replay_scroll_; }
 
     [[nodiscard]] float replay_row_px() const noexcept;
     [[nodiscard]] float replay_row_top_y(int index) const noexcept;
     [[nodiscard]] int replay_hit(Vec2 world) const noexcept;
     void scroll_replays_into_view() noexcept;
-    void play_selected_replay();
+    void open_selected();
 
     // Highscores + arcade initials entry (for the Highscores / EnterScore screens).
     [[nodiscard]] const HighscoreTable& highscores() const noexcept { return highscores_; }
@@ -284,6 +300,7 @@ class GameWindow : public QVulkanWindow {
     void open_menu();
     void open_options();
     void open_replays();           // scan the runs directory and show what is there
+    void open_models();            // scan for installed models and show what is there
     void open_watch();             // the WATCH AI submenu: which agent is playing
     void open_console();           // start the training console, if this install has one
     void scrub(int seconds);       // seek the active replay, relative
@@ -318,8 +335,10 @@ class GameWindow : public QVulkanWindow {
     // `sim()` can be allowed to think it is watching one recording.
     std::optional<replay::MatchPlayer> match_;
     bool match_paused_ = false;             // SPACE, and where a finished match parks
-    std::vector<std::string> replay_files_; // paths offered by the REPLAYS screen
+    std::vector<std::string> replay_files_; // paths offered by the browser screen
     std::vector<std::string> replay_names_; // ...their display names, uppercased
+    Browse browse_ = Browse::Replays;       // which of the two that screen is showing
+    int installed_models_ = 0;              // refreshed when the WATCH AI submenu opens
     AudioEngine audio_;
     HighscoreTable highscores_;
     QElapsedTimer clock_;

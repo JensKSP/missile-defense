@@ -220,8 +220,8 @@ int GameWindow::options_count() noexcept {
 /// (see `activate`). A chooser with one choice on it is a screen that wastes a
 /// keypress and implies a second option exists.
 int GameWindow::watch_count() const noexcept {
-    // Three scripted rungs, the bundled model when there is one, and BACK.
-    return static_cast<int>(watch_skills.size()) + (pretrained_.has_value() ? 2 : 1);
+    // Three scripted rungs, MODELS when this install has any, and BACK.
+    return static_cast<int>(watch_skills.size()) + (installed_models_ > 0 ? 2 : 1);
 }
 
 std::string_view GameWindow::watch_label(int index) const {
@@ -229,10 +229,10 @@ std::string_view GameWindow::watch_label(int index) const {
     if (index >= 0 && index < rungs) {
         return watch_skills[static_cast<std::size_t>(index)].label;
     }
-    if (pretrained_.has_value() && index == rungs) {
-        // The model's own display name, never the filename: a path is not a
-        // name. Upper-cased at load, because this font has no lower case.
-        return pretrained_label_;
+    if (installed_models_ > 0 && index == rungs) {
+        // A list and not the one model's name: an install can now have several,
+        // and a row that names one of them hides the rest.
+        return "MODELS";
     }
     return "BACK";
 }
@@ -376,12 +376,13 @@ void GameWindow::scroll_replays_into_view() noexcept {
     replay_scroll_ = std::clamp(replay_scroll_, 0, most);
 }
 
-void GameWindow::play_selected_replay() {
+void GameWindow::open_selected() {
     if (menu_index_ < 0 || menu_index_ >= replay_count()) {
         return;
     }
     const std::string path = replay_files_[static_cast<std::size_t>(menu_index_)];
-    if (!watch_replay(path)) {
+    const bool started = browse_ == Browse::Models ? watch_model(path) : watch_replay(path);
+    if (!started) {
         open_menu(); // unreadable (wrong build, truncated): do not pretend
     }
 }
@@ -573,6 +574,10 @@ bool GameWindow::watch_model(const std::string& path) {
 
 /// The WATCH AI submenu, when there is more than one agent to choose between.
 void GameWindow::open_watch() {
+    // Counted on every visit, not at startup: the console can promote a model
+    // while the game sits on its menu, and a MODELS row that only appears after
+    // a restart is a feature the person has no reason to look for again.
+    installed_models_ = installed_model_count();
     state_ = State::Watch;
     menu_index_ = 0;
 }
@@ -658,9 +663,100 @@ static std::filesystem::path runs_directory() {
     return std::filesystem::path{data.toStdString()} / "runs";
 }
 
+/// Where the console installs models, by the rule in `md/paths.py`:
+/// `$MD_MODELS_DIR`, else a `models/` sibling of the runs directory.
+///
+/// Sibling and not a subdirectory of a run: a model is promoted precisely so it
+/// survives the run being cleaned up, archived or deleted, and storing it
+/// inside the thing it must outlive would defeat that on the first tidy-up.
+static std::filesystem::path models_directory() {
+    if (const char* override_dir = std::getenv("MD_MODELS_DIR"); override_dir != nullptr) {
+        return std::filesystem::path{override_dir};
+    }
+    return runs_directory().parent_path() / "models";
+}
+
+/// Every model this install can play: the bundled one, then whatever the
+/// console has promoted into the league.
+///
+/// `Policy::describe` and not `Policy::load`: naming eight models on a screen
+/// should not read eight multi-megabyte tensor blocks and verify eight
+/// checksums. A file that cannot be described is skipped rather than listed —
+/// offering something that will fail on Enter is worse than not offering it.
+static std::vector<std::pair<std::string, std::string>> installed_models() {
+    std::vector<std::pair<std::string, std::string>> found;
+
+    // What this build's observation looks like. A model trained against an older
+    // one parses fine and then cannot be run — listing it would offer something
+    // that fails on Enter, which is worse than not offering it.
+    const std::size_t expected = ObsSpec{}.size();
+
+    const auto add = [&found, expected](const std::filesystem::path& path) {
+        try {
+            const auto described = agent::Policy::describe(path);
+            if (described.observation_size != expected) {
+                std::println(stderr,
+                             "skipping {}: it expects a {}-feature observation, this "
+                             "build has {} — retrain or re-export it",
+                             path.string(), described.observation_size, expected);
+                return;
+            }
+            std::string name = described.display_name.empty()
+                                   ? path.parent_path().filename().string()
+                                   : described.display_name;
+            // The pixel font has no lower case, and no punctuation but the period.
+            std::ranges::transform(name, name.begin(), [](unsigned char c) {
+                return static_cast<char>(c == '_' || c == '-' ? ' ' : std::toupper(c));
+            });
+            found.emplace_back(path.string(), std::move(name));
+        } catch (const agent::Policy::Error& error) {
+            // Not this build's, or not a policy. Absent from the list rather
+            // than offered and then failing on Enter — but said out loud, since
+            // a model the console installed and the game will not show is
+            // exactly the situation a person needs a reason for.
+            std::println(stderr, "skipping {}: {}", path.string(), error.what());
+        }
+    };
+
+    if (const std::filesystem::path bundled = GameWindow::pretrained_path(); !bundled.empty()) {
+        add(bundled);
+    }
+    std::error_code ec; // the directory simply may not exist yet; that is not an error
+    for (const auto& entry : std::filesystem::directory_iterator{models_directory(), ec}) {
+        if (!entry.is_directory(ec)) {
+            continue;
+        }
+        const std::filesystem::path policy = entry.path() / "policy.mdp";
+        if (std::filesystem::is_regular_file(policy, ec)) {
+            add(policy);
+        }
+    }
+    return found;
+}
+
+int GameWindow::installed_model_count() {
+    return static_cast<int>(installed_models().size());
+}
+
+/// Rescanned on every visit, so a model promoted while the game was open shows
+/// up without restarting it.
+void GameWindow::open_models() {
+    replay_files_.clear();
+    replay_names_.clear();
+    for (auto& [path, name] : installed_models()) {
+        replay_files_.push_back(std::move(path));
+        replay_names_.push_back(std::move(name));
+    }
+    browse_ = Browse::Models;
+    menu_index_ = 0;
+    replay_scroll_ = 0;
+    state_ = State::Replays;
+}
+
 /// Rescanned on every visit, so a run that is still training shows its newest
 /// episodes without restarting the app.
 void GameWindow::open_replays() {
+    browse_ = Browse::Replays;
     replay_files_.clear();
     replay_names_.clear();
     std::error_code ec; // the directory simply may not exist yet; that is not an error
@@ -677,8 +773,25 @@ void GameWindow::open_replays() {
         replay_names_.push_back(std::move(name));
     }
     // Newest first: while training, the interesting episode is the latest one.
-    std::ranges::sort(replay_files_, std::greater{});
-    std::ranges::sort(replay_names_, std::greater{});
+    // Sorted as *pairs*: the two vectors were sorted independently, and since a
+    // name is the path uppercased with separators turned into spaces, the two
+    // orders are not the same one — which silently put a row's label next to
+    // another row's file.
+    std::vector<std::size_t> order(replay_files_.size());
+    std::ranges::iota(order, std::size_t{0});
+    std::ranges::sort(order, [this](std::size_t a, std::size_t b) {
+        return replay_files_[a] > replay_files_[b];
+    });
+    std::vector<std::string> files;
+    std::vector<std::string> names;
+    files.reserve(order.size());
+    names.reserve(order.size());
+    for (const std::size_t index : order) {
+        files.push_back(std::move(replay_files_[index]));
+        names.push_back(std::move(replay_names_[index]));
+    }
+    replay_files_ = std::move(files);
+    replay_names_ = std::move(names);
     menu_index_ = 0;
     replay_scroll_ = 0; // a fresh visit starts at the top, however it was left
     state_ = State::Replays;
@@ -778,8 +891,8 @@ void GameWindow::activate(int index) {
         const auto rungs = static_cast<int>(watch_skills.size());
         if (index >= 0 && index < rungs) {
             start_ai_game(watch_skills[static_cast<std::size_t>(index)].skill);
-        } else if (pretrained_.has_value() && index == rungs) {
-            start_model_game();
+        } else if (installed_models_ > 0 && index == rungs) {
+            open_models();
         } else {
             open_menu(); // BACK
         }
@@ -1015,7 +1128,7 @@ void GameWindow::mousePressEvent(QMouseEvent* event) {
         const int hit = replay_hit(aim_);
         if (hit >= 0) {
             menu_index_ = hit;
-            play_selected_replay();
+            open_selected();
         } else {
             open_menu();
         }
@@ -1147,7 +1260,7 @@ void GameWindow::keyPressEvent(QKeyEvent* event) {
                 menu_index_ = (menu_index_ + 1) % replay_count();
                 scroll_replays_into_view();
             } else if (confirm) {
-                play_selected_replay();
+                open_selected();
             }
         }
         break;

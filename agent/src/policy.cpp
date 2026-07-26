@@ -182,6 +182,67 @@ std::size_t elements(const std::vector<std::size_t>& shape) {
 
 } // namespace
 
+Policy::Description Policy::describe(const std::filesystem::path& path) {
+    std::ifstream file{path, std::ios::binary};
+    if (!file) {
+        fail(path, "could not be opened");
+    }
+    // Only the front of the file, unlike `load`: this exists so that listing
+    // models costs a few hundred bytes each instead of every tensor in them.
+    const std::size_t header = magic.size() + 8;
+    std::string front(header, '\0');
+    if (!file.read(front.data(), static_cast<std::streamsize>(header))) {
+        fail(path, "truncated — shorter than the header");
+    }
+    if (std::memcmp(front.data(), magic.data(), magic.size()) != 0) {
+        fail(path, "not a policy file (bad magic)");
+    }
+    const std::span<const std::byte> bytes = std::as_bytes(std::span{front});
+    const std::uint32_t container = read_u32(bytes, magic.size());
+    if (container != container_version) {
+        fail(path, "container version " + std::to_string(container) + ", this build reads " +
+                       std::to_string(container_version));
+    }
+    const std::uint32_t manifest_length = read_u32(bytes, magic.size() + 4);
+
+    std::string text(manifest_length, '\0');
+    if (manifest_length > 0 &&
+        !file.read(text.data(), static_cast<std::streamsize>(manifest_length))) {
+        fail(path, "truncated — the manifest runs past the end of the file");
+    }
+
+    json manifest;
+    try {
+        manifest = json::parse(text);
+    } catch (const json::exception& error) {
+        fail(path, std::string{"the manifest is not readable JSON ("} + error.what() + ")");
+    }
+    if (!manifest.is_object()) {
+        fail(path, "the manifest is not an object");
+    }
+
+    Description described;
+    try {
+        described.schema = manifest.at("schema").get<std::uint32_t>();
+        described.observation_size = manifest.at("observation_size").get<std::size_t>();
+        described.action_count = manifest.at("action_count").get<std::size_t>();
+        described.architecture = manifest.at("architecture").get<std::string>();
+        // Under `metadata`, exactly where `load` looks for it — a second rule
+        // here would show one name in the browser and another in the HUD.
+        if (const auto metadata = manifest.find("metadata");
+            metadata != manifest.end() && metadata->is_object()) {
+            if (const auto name = metadata->find("display_name");
+                name != metadata->end() && name->is_string()) {
+                described.display_name = name->get<std::string>();
+            }
+        }
+    } catch (const json::exception& error) {
+        fail(path,
+             std::string{"the manifest is missing or misdescribes a field ("} + error.what() + ")");
+    }
+    return described;
+}
+
 Policy Policy::load(const std::filesystem::path& path) {
     std::ifstream file{path, std::ios::binary};
     if (!file) {

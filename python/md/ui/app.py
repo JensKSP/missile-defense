@@ -624,7 +624,7 @@ class Console(QMainWindow):
         self._promote = QPushButton("Enter Model League…")
         self._promote.setToolTip(
             "Copy this run's best checkpoint into the league as a .mdp, where it "
-            "outlives the run and the game can play it"
+            "outlives the run — and where the game finds it, under WATCH AI → MODELS"
         )
         self._promote.clicked.connect(self._promote_run)
         layout.addWidget(split, stretch=1)
@@ -652,8 +652,13 @@ class Console(QMainWindow):
         dialog = PromoteDialog(run, self)
         if dialog.exec() == QDialog.DialogCode.Accepted and dialog.promoted is not None:
             self._league.refresh()
+            # Says where it went *and* that the game can now play it. Promotion
+            # is also the install step — the game scans this directory and
+            # offers everything in it under WATCH AI -> MODELS — and a person
+            # who is not told that has no reason to go and look.
             self.statusBar().showMessage(
-                f"promoted {dialog.promoted.name} -> {dialog.promoted.policy}"
+                f"promoted {dialog.promoted.name} — the game can now play it "
+                f"from WATCH AI → MODELS ({dialog.promoted.policy})"
             )
 
     def _recordings(self) -> QWidget:

@@ -49,6 +49,23 @@ class Policy {
     /// wrong, so it has to explain itself.
     [[nodiscard]] static Policy load(const std::filesystem::path& path);
 
+    /// What a policy file says about itself, without its weights.
+    struct Description {
+        std::string display_name;
+        std::uint32_t schema = 0;
+        std::size_t observation_size = 0;
+        std::size_t action_count = 0;
+        std::string architecture;
+    };
+
+    /// Read only the manifest of `path`.
+    ///
+    /// For *listing* models: a browser with eight entries would otherwise read
+    /// eight multi-megabyte tensor blocks and verify eight checksums to put
+    /// eight names on a screen. Throws `Policy::Error` the same way `load` does
+    /// — a file this cannot describe is one `load` would refuse anyway.
+    [[nodiscard]] static Description describe(const std::filesystem::path& path);
+
     /// The action this policy would take. `legal` is `md::action_mask`'s output.
     ///
     /// The masking rule, which `md.export_policy` states identically because the

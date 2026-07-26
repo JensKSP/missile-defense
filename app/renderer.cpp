@@ -800,13 +800,20 @@ void Renderer::startNextFrame() {
         draw_text(inst, "PRESS ENTER", cx, world_h * 0.12f, world_h * 0.013f, 0.6f, 0.65f, 0.7f,
                   true);
     } else if (state == GameWindow::State::Replays) {
-        draw_text(inst, "REPLAYS", cx, world_h * 0.90f, world_h * 0.026f, 0.85f, 0.92f, 1.0f, true);
+        // One screen, two contents. The heading and the empty-state copy are the
+        // only difference: scrolling, hover, selection and paging are identical,
+        // and a second implementation of them would drift from this one.
+        const bool models = window_->browsing() == GameWindow::Browse::Models;
+        draw_text(inst, models ? "MODELS" : "REPLAYS", cx, world_h * 0.90f, world_h * 0.026f, 0.85f,
+                  0.92f, 1.0f, true);
         const int count = window_->replay_count();
         if (count == 0) {
-            draw_text(inst, "NO RECORDINGS IN RUNS", cx, world_h * 0.55f, world_h * 0.012f, 0.6f,
-                      0.65f, 0.7f, true);
-            draw_text(inst, "TRAINING WRITES THEM THERE", cx, world_h * 0.46f, world_h * 0.009f,
-                      0.4f, 0.45f, 0.5f, true);
+            // Never a bare empty panel: say what is missing and what puts it
+            // there, or a person is left deciding whether the feature is broken.
+            draw_text(inst, models ? "NO MODELS INSTALLED" : "NO RECORDINGS IN RUNS", cx,
+                      world_h * 0.55f, world_h * 0.012f, 0.6f, 0.65f, 0.7f, true);
+            draw_text(inst, models ? "PROMOTE ONE IN THE CONSOLE" : "TRAINING WRITES THEM THERE",
+                      cx, world_h * 0.46f, world_h * 0.009f, 0.4f, 0.45f, 0.5f, true);
         } else {
             // A window of at most `replay_rows_visible` rows, scrolled by the
             // window rather than computed here: the mouse hit test reads the same

@@ -207,3 +207,45 @@ def test_a_missing_side_says_which_one(paired: Path, tmp_path: Path) -> None:
     # with no idea which one is bad.
     assert "right" in run.stderr
     assert "gone.mdr" in run.stderr
+
+
+def test_a_promoted_model_becomes_playable_in_the_game(tmp_path: Path) -> None:
+    """Promotion is the install step, and this is the only proof of it.
+
+    The console writes a `.mdp` into the league; the game scans that same
+    directory and offers everything in it under WATCH AI → MODELS. Both halves
+    have their own tests and neither of them covers the *rule* they share — that
+    the two agree on where a model lives — which is precisely the thing that
+    breaks when either side's path logic is touched.
+    """
+    before = run_app(frames=60, sandbox=tmp_path)
+    assert before.models == 0, "an empty sandbox offered a model from somewhere"
+
+    observation_size, action_count = _shapes()
+    installed = tmp_path / "models" / "dddd"
+    installed.mkdir(parents=True, exist_ok=True)
+    policy_format.write(
+        installed / league.POLICY_NAME,
+        _policy(11, observation_size, action_count),
+    )
+
+    after = run_app(frames=60, sandbox=tmp_path)
+    assert after.models == 1, after.report
+
+
+def test_a_model_this_build_cannot_run_is_not_offered(tmp_path: Path) -> None:
+    # Offering something that fails the moment it is chosen is worse than not
+    # offering it. An observation the build no longer produces is the real case:
+    # `blast_features` 4 -> 5 moved every existing model out of range at once.
+    _, action_count = _shapes()
+    installed = tmp_path / "models" / "eeee"
+    installed.mkdir(parents=True, exist_ok=True)
+    policy_format.write(
+        installed / league.POLICY_NAME,
+        _policy(12, 64, action_count),  # a width no build of this game has
+    )
+
+    run = run_app(frames=60, sandbox=tmp_path)
+    assert run.models == 0, run.report
+    # ...and said so, rather than leaving a promoted model silently missing.
+    assert "retrain or re-export" in run.stderr

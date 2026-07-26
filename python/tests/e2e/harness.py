@@ -174,6 +174,11 @@ class AppRun:
     stderr: str
 
     @property
+    def models(self) -> int:
+        """How many installed models the game says it can actually run."""
+        return int(self.report.get("models", 0))
+
+    @property
     def mode(self) -> str:
         return str(self.report.get("mode", ""))
 
@@ -229,6 +234,10 @@ def app_environ(sandbox: Path) -> dict[str, str]:
         directory.mkdir(parents=True, exist_ok=True)
         env[name] = str(directory)
     env["MD_RUNS_DIR"] = str(sandbox / "runs")
+    # And the league beside it, so a test that promotes a model can see the game
+    # pick it up — and so a test that promotes nothing does not find the
+    # developer's own models in the browser.
+    env["MD_MODELS_DIR"] = str(sandbox / "models")
     # The debug build is preferred for its Vulkan validation layer, and it also
     # carries LeakSanitizer — which at exit reports the graphics driver's and
     # dbus's allocations, none of which this project owns or can free. Keep every

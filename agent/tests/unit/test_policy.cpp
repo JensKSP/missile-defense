@@ -104,6 +104,30 @@ TEST_CASE("A policy file loads and describes itself", "[unit][agent][policy]") {
     CHECK(policy.display_name() == "Tiny Fixture");
 }
 
+TEST_CASE("A policy can be described without reading its weights", "[unit][agent][policy]") {
+    // What a model browser needs. Eight entries on a screen must not cost eight
+    // multi-megabyte tensor reads and eight checksum verifications.
+    const auto described = md::agent::Policy::describe(fixture("tiny-policy.mdp"));
+    CHECK(described.schema == 1u);
+    CHECK(described.observation_size == 12u);
+    CHECK(described.action_count == 7u);
+    CHECK(described.architecture == "mlp");
+    // The same name `load` reports, out of the same place in the manifest — two
+    // rules would show one name in the browser and another in the HUD.
+    CHECK(described.display_name == "Tiny Fixture");
+    CHECK(described.display_name ==
+          md::agent::Policy::load(fixture("tiny-policy.mdp")).display_name());
+}
+
+TEST_CASE("Describing something that is not a policy is refused", "[unit][agent][policy]") {
+    // The browser lists what it can describe, so a file that would fail on
+    // Enter has to fail here instead — silently absent beats offered and broken.
+    const std::string text{"this is not a policy file at all"};
+    const auto junk = scratch("not-a-policy", std::vector<char>{text.begin(), text.end()});
+    CHECK_THROWS_AS(md::agent::Policy::describe(junk), md::agent::Policy::Error);
+    CHECK_THROWS_AS(md::agent::Policy::describe("no-such-file.mdp"), md::agent::Policy::Error);
+}
+
 TEST_CASE("The native forward pass agrees with the Python one, sample for sample",
           "[unit][agent][policy][parity]") {
     const md::agent::Policy policy = md::agent::Policy::load(fixture("tiny-policy.mdp"));

@@ -205,10 +205,15 @@ void write_report(const md::GameWindow& window) {
     const auto cities = std::ranges::count_if(sim.cities(), &md::City::alive);
     std::println(R"({{"mode":"{}","state":"{}","frames":{},"ticks":{},)"
                  R"("score":{},"wave":{},"cities_left":{},"terminated":{},)"
-                 R"("can_train":{},"driver":"{}","pretrained":{},"menu":{}}})",
+                 R"("can_train":{},"driver":"{}","pretrained":{},"models":{},"menu":{}}})",
                  mode_name(window), state_name(window.state()), window.frames(), sim.tick(),
                  sim.score(), sim.wave(), cities, sim.terminated(), window.can_train(),
-                 driver_name(window), window.has_pretrained(), menu_json(window));
+                 driver_name(window), window.has_pretrained(),
+                 // How many models this install can actually *run*, which is the
+                 // only version of the question worth reporting: a promoted
+                 // model that the game silently will not offer is the failure a
+                 // packaging test has to be able to see.
+                 md::GameWindow::installed_model_count(), menu_json(window));
 }
 
 int run(int argc, char** argv) {
