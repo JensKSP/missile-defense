@@ -7,6 +7,7 @@ if(NOT TARGET Catch2::Catch2WithMain)
 endif()
 
 add_executable(md_replay_tests
+  unit/test_match.cpp
   unit/test_recording.cpp)
 target_link_libraries(md_replay_tests
   PRIVATE md::replay md::warnings md_test_warnings Catch2::Catch2WithMain)

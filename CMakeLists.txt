@@ -28,7 +28,7 @@ endif()
 
 project(missile_defense
   VERSION 0.1.0
-  DESCRIPTION "Faithful Atari Missile Command clone — game + RL environment"
+  DESCRIPTION "Retro arcade missile-defense game + RL environment"
   LANGUAGES CXX)
 
 # ---- Language standard -------------------------------------------------------
@@ -240,6 +240,40 @@ if(BUILD_TESTING)
   endif()
 endif()
 
+# nlohmann/json — for the `.mdp` manifest and the match manifest.
+#
+# A library rather than a hand-rolled parser because these files can arrive from
+# outside: a policy someone downloaded is untrusted input, and a parser for
+# untrusted input is the one place in this program where a bug is a security bug
+# rather than a wrong number. Header-only and MIT, so it costs nothing to vet.
+#
+# Acquired here rather than in `agent/` because two libraries need it —
+# `md::agent` for `.mdp` and `md::replay` for a paired-match manifest — and a
+# find_package buried in one subdirectory that another silently depends on is
+# a build that works by accident of subdirectory ordering.
+#
+# Prefer the system copy (Debian `nlohmann-json3-dev`, MSYS2
+# `mingw-w64-clang-x86_64-nlohmann-json`, Homebrew `nlohmann-json`), otherwise
+# fetch — the same shape as Catch2 and miniaudio, so a distribution build never
+# reaches the network and an offline developer build says why it cannot.
+find_package(nlohmann_json 3.10 QUIET)
+if(nlohmann_json_FOUND)
+  message(STATUS "nlohmann_json: using the system package")
+elseif(NOT FETCHCONTENT_FULLY_DISCONNECTED)
+  message(STATUS "nlohmann_json: not found — fetching")
+  include(FetchContent)
+  FetchContent_Declare(nlohmann_json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG        v3.11.3
+    GIT_SHALLOW    TRUE
+    SYSTEM)
+  FetchContent_MakeAvailable(nlohmann_json)
+else()
+  message(FATAL_ERROR
+    "nlohmann/json not found. Install nlohmann-json3-dev, or enable fetching "
+    "with network access.")
+endif()
+
 # ---- Components ---------------------------------------------------------------
 add_subdirectory(core)
 add_subdirectory(agent)   # scripted reference AI (M4) + the evaluation protocol
@@ -395,7 +429,7 @@ if(MD_BUILD_APP AND PROJECT_IS_TOP_LEVEL)
   set(CPACK_PACKAGE_NAME "missile-defense")
   set(CPACK_PACKAGE_VENDOR "Jens Köhler")
   set(CPACK_PACKAGE_CONTACT "Jens Köhler <jens@koehler-speyer.de>")
-  set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Faithful Atari Missile Command clone (Qt 6 + Vulkan)")
+  set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Retro arcade missile-defense game (Qt 6 + Vulkan)")
   set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/JensKSP/missile-defense")
   set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/LICENSE")
 
