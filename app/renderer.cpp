@@ -670,8 +670,11 @@ void Renderer::startNextFrame() {
     if (state == GameWindow::State::Menu) {
         draw_text(inst, "MISSILE DEFENSE", cx, world_h * 0.90f, world_h * 0.022f, 0.85f, 0.92f,
                   1.0f, true);
-        draw_text(inst, "BY JENS KOEHLER", cx, world_h * 0.78f, world_h * 0.010f, 0.55f, 0.60f,
-                  0.68f, true);
+        // Deeper and bluer than the title above it, so the byline recedes instead
+        // of competing — near enough the city blue (0.25, 0.62, 0.95) to belong to
+        // the same palette, dark enough to sit a step behind the name.
+        draw_text(inst, "BY JENS KOEHLER", cx, world_h * 0.78f, world_h * 0.010f, 0.34f, 0.45f,
+                  0.70f, true);
         const int count = window_->menu_count();
         for (int i = 0; i < count; ++i) {
             const bool sel = window_->menu_index() == i;
