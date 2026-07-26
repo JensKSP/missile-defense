@@ -512,36 +512,36 @@ game stays Python-free.
 - Modify: `.github/workflows/ci.yml`
 - Modify: `python/tests/test_packaging.py`
 
-- [ ] **Step 1: Write failing packaging-contract tests**
+- [x] **Step 1: Write failing packaging-contract tests**
 
 Assert the game-only staging tree contains no Python, console, or **TRAIN AI**
 launcher; the full staging tree contains `md-console`, its desktop entry, native
 binding, and a discoverable console launcher.
 
-- [ ] **Step 2: Split Debian binaries**
+- [x] **Step 2: Split Debian binaries**
 
 Keep one source package and produce `missile-defense`, `python3-md`, and
 `missile-defense-training` exactly as specified. Ensure installing only
 `missile-defense` succeeds with dependency checks.
 
-- [ ] **Step 3: Add Windows/macOS console payloads**
+- [x] **Step 3: Add Windows/macOS console payloads**
 
 Bundle an isolated console application and native binding. Add installer
 component metadata so game-only selection omits them. On macOS, ship the console
 as its own `.app` in the disk image.
 
-- [ ] **Step 4: Make console discovery authoritative**
+- [x] **Step 4: Make console discovery authoritative**
 
 Implement one lookup shared in behavior by installer tests and the game.
 **TRAIN AI** is added to the main menu only when that lookup resolves an
 executable; activating it starts the existing console and returns to the menu.
 
-- [ ] **Step 5: Verify package matrices in CI**
+- [x] **Step 5: Verify package matrices in CI**
 
 Build/stage game-only and full variants on Windows/macOS; build all Debian
 binaries and run `lintian`. Smoke-launch both applications from staged paths.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add debian packaging CMakeLists.txt app python/md/ui/runner.py \
@@ -1039,9 +1039,9 @@ becomes visible at a glance and comparable across runs.
 - [ ] Game-only packages contain both bundled agents and no Python/training UI.
 - [ ] While an agent plays, the screen says which one — `SCRIPTED` or the model's
       display name — and runs and models are named by their owner, not by path.
-- [ ] Full Windows/macOS packages launch the existing console directly and from
+- [x] Full Windows/macOS packages launch the existing console directly and from
       the game.
-- [ ] Debian produces three binary packages from one source.
+- [x] Debian produces three binary packages from one source.
 - [ ] One-click runtime setup, repair, and removal work without a terminal.
 - [ ] Promotion exports a parity-checked native policy atomically.
 - [ ] The local league ranks only complete compatible canonical evaluations.

@@ -84,6 +84,25 @@ std::string_view mode_name(const md::GameWindow& window) {
     return window.ai_driving() ? "watch" : "play";
 }
 
+/// The main menu's labels, as a JSON array.
+///
+/// The menu is the one part of the game whose *contents* depend on what else is
+/// installed beside it — TRAIN AI appears only where a training console was
+/// found — so it is the only way an automated check can tell the game-only
+/// package from the full one without a screenshot and a pair of eyes.
+std::string menu_json(const md::GameWindow& window) {
+    std::string items = "[";
+    for (int i = 0; i < window.menu_count(); ++i) {
+        if (i != 0) {
+            items += ',';
+        }
+        items += '"';
+        items += window.menu_label(i);
+        items += '"';
+    }
+    return items + "]";
+}
+
 /// One JSON line on stdout describing how the run ended.
 ///
 /// An exit code alone cannot tell "played a game" from "showed a menu for four
@@ -96,9 +115,11 @@ void write_report(const md::GameWindow& window) {
     const md::Sim& sim = window.sim();
     const auto cities = std::ranges::count_if(sim.cities(), &md::City::alive);
     std::println(R"({{"mode":"{}","state":"{}","frames":{},"ticks":{},)"
-                 R"("score":{},"wave":{},"cities_left":{},"terminated":{}}})",
+                 R"("score":{},"wave":{},"cities_left":{},"terminated":{},)"
+                 R"("can_train":{},"menu":{}}})",
                  mode_name(window), state_name(window.state()), window.frames(), sim.tick(),
-                 sim.score(), sim.wave(), cities, sim.terminated());
+                 sim.score(), sim.wave(), cities, sim.terminated(), window.can_train(),
+                 menu_json(window));
 }
 
 int run(int argc, char** argv) {

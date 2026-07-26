@@ -6,11 +6,14 @@
 #include "projection.hpp"
 #include "renderer.hpp"
 
+#include <QCoreApplication>
 #include <QCursor>
 #include <QKeyEvent>
 #include <QMouseEvent>
+#include <QProcess>
 #include <QSettings>
 #include <QStandardPaths>
+#include <QStringList>
 #include <QTimer>
 #include <algorithm>
 #include <array>
@@ -27,6 +30,10 @@ GameWindow::GameWindow() {
     aim_ = Vec2{sim_.config().world_width * 0.5f, sim_.config().world_height * 0.5f};
     highscores_.load();
     load_settings(); // restore audio/music/fullscreen from the previous session
+    // Once, here, rather than whenever the menu is drawn: the answer cannot
+    // change while the game is running, and it costs a handful of stat() calls.
+    console_ = console::command(
+        console::machine_lookup(QCoreApplication::applicationFilePath().toStdString()));
 }
 
 // Persisted via QSettings — QGuiApplication's organization/application name (set
@@ -67,7 +74,16 @@ QVulkanWindowRenderer* GameWindow::createRenderer() {
 }
 
 int GameWindow::menu_count() const noexcept {
-    return in_progress_ ? 6 : 8; // WATCH AI, REPLAYS and ABOUT are main-menu only
+    if (in_progress_) {
+        return 6; // WATCH AI, TRAIN AI, REPLAYS and ABOUT are main-menu only
+    }
+    // Nine on a full install, eight on a game-only one. TRAIN AI is *absent*
+    // rather than disabled: on the game-only package there is no console to
+    // enable, so an item explaining that would be advertising a product the
+    // person did not install. The layout follows — menu_item_top_y() derives
+    // its row step from active_count(), so a ninth item shrinks the list
+    // instead of pushing START into the byline.
+    return can_train() ? 9 : 8;
 }
 
 GameWindow::MenuAction GameWindow::action_at(int index) const {
@@ -77,10 +93,14 @@ GameWindow::MenuAction GameWindow::action_at(int index) const {
                                              MenuAction::Highscores, MenuAction::Exit};
         return acts[static_cast<std::size_t>(index)];
     }
-    const std::array<MenuAction, 8> acts{
-        MenuAction::NewGame, MenuAction::WatchAi,    MenuAction::Replays, MenuAction::Help,
-        MenuAction::Options, MenuAction::Highscores, MenuAction::About,   MenuAction::Exit};
-    return acts[static_cast<std::size_t>(index)];
+    // TRAIN AI sits next to WATCH AI, which is the other thing in this menu
+    // about the agent rather than about playing.
+    const std::array<MenuAction, 9> acts{
+        MenuAction::NewGame,    MenuAction::WatchAi, MenuAction::TrainAi,
+        MenuAction::Replays,    MenuAction::Help,    MenuAction::Options,
+        MenuAction::Highscores, MenuAction::About,   MenuAction::Exit};
+    const auto slot = static_cast<std::size_t>(index);
+    return acts[can_train() || slot < 2 ? slot : slot + 1];
 }
 
 std::string_view GameWindow::menu_label(int index) const {
@@ -91,6 +111,8 @@ std::string_view GameWindow::menu_label(int index) const {
         return in_progress_ ? "NEW GAME" : "START";
     case MenuAction::WatchAi:
         return "WATCH AI";
+    case MenuAction::TrainAi:
+        return "TRAIN AI";
     case MenuAction::Replays:
         return "REPLAYS";
     case MenuAction::Help:
@@ -407,6 +429,39 @@ void GameWindow::open_replays() {
     state_ = State::Replays;
 }
 
+/// Start the training console and stay where we are.
+///
+/// Detached, and that is the architecture rather than a shortcut: the console
+/// outlives the game, a run outlives the console, and neither should be able to
+/// take the other down (docs/ROADMAP.md, M8). So the game does not keep the
+/// handle, does not wait, and does not report an exit code — from here it is a
+/// separate application that happens to have been started from this menu.
+///
+/// Nothing visible happens in the game itself, which is deliberate: the console
+/// is a window of its own and will raise itself. Returning to the menu rather
+/// than to a "launching..." screen means a second press simply opens a second
+/// console, the same as double-clicking its desktop entry twice.
+void GameWindow::open_console() {
+    if (!console_.has_value()) {
+        return; // no entry is drawn in this case, so this is belt and braces
+    }
+    QStringList arguments;
+    for (std::size_t i = 1; i < console_->argv.size(); ++i) {
+        arguments << QString::fromStdString(console_->argv[i]);
+    }
+    QProcess process;
+    process.setProgram(QString::fromStdString(console_->argv.front()));
+    process.setArguments(arguments);
+    if (!console_->python_path.empty()) {
+        // The checkout case: `md` is not installed anywhere this interpreter
+        // would find on its own, so the import path has to be handed over.
+        QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
+        environment.insert("PYTHONPATH", QString::fromStdString(console_->python_path.string()));
+        process.setProcessEnvironment(environment);
+    }
+    process.startDetached();
+}
+
 std::string_view GameWindow::replay_name(int index) const {
     if (index < 0 || index >= replay_count()) {
         return {};
@@ -455,6 +510,9 @@ void GameWindow::activate(int index) {
         break;
     case MenuAction::WatchAi:
         start_ai_game();
+        break;
+    case MenuAction::TrainAi:
+        open_console();
         break;
     case MenuAction::Replays:
         open_replays();

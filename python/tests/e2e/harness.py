@@ -197,6 +197,17 @@ class AppRun:
     def cities_left(self) -> int:
         return int(self.report.get("cities_left", 0))
 
+    @property
+    def menu(self) -> list[str]:
+        """The main menu's labels.
+
+        The one part of the game whose *contents* depend on what else is
+        installed beside it — TRAIN AI is there only where a training console
+        was found — so it is how a packaging test tells the game-only product
+        from the full one without a screenshot and a pair of eyes.
+        """
+        return [str(label) for label in self.report.get("menu", [])]
+
 
 def app_environ(sandbox: Path) -> dict[str, str]:
     """The environment the game is started in for a test.
@@ -234,6 +245,8 @@ def run_app(
     until_done: bool = False,
     timeout: float = APP_TIMEOUT_S,
     expect_report: bool = True,
+    binary: Path | None = None,
+    environ: Mapping[str, str] | None = None,
 ) -> AppRun:
     """Run the game to a bounded end and return what it reported.
 
@@ -245,13 +258,19 @@ def run_app(
     ``frames`` is always passed, including alongside ``until_done``: the frame
     budget is the backstop that turns a recording which never ends — or a window
     that never gets there — into a failed assertion rather than a hung job.
+
+    ``binary`` and ``environ`` are for the packaging tests, which run the game
+    out of a *staged install tree* rather than the build tree, on a `PATH` with
+    no interpreter on it. Everything else uses the defaults, and should: those
+    two arguments are the difference between "the game works" and "this
+    particular install of the game works".
     """
-    binary = app_binary()
-    assert binary is not None, "the game is not built"
+    chosen = app_binary() if binary is None else binary
+    assert chosen is not None, "the game is not built"
     wrapper = _display_wrapper()
     assert wrapper is not None, "no way to render this invisibly"
 
-    command = [*wrapper, str(binary), *args, "--frames", str(frames), "--silent"]
+    command = [*wrapper, str(chosen), *args, "--frames", str(frames), "--silent"]
     if until_done:
         command.append("--until-done")
     if expect_report:
@@ -262,7 +281,7 @@ def run_app(
         capture_output=True,
         text=True,
         timeout=timeout,
-        env=app_environ(sandbox),
+        env=app_environ(sandbox) if environ is None else dict(environ),
         check=False,
     )
     report: dict[str, object] = {}

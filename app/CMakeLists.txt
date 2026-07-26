@@ -76,6 +76,7 @@ endif()
 # what ships; the locators in tools/_util.py and md/ui/runner.py know the layout.
 add_executable(md_app MACOSX_BUNDLE
   main.cpp
+  console.cpp
   game_window.cpp
   renderer.cpp
   audio.cpp
@@ -135,11 +136,20 @@ if(MD_VULKAN_VALIDATION)
 endif()
 
 # ---- Install / packaging -----------------------------------------------------
+# Everything the game installs is tagged `COMPONENT game`, and everything the
+# training half installs is tagged `python` (bindings/CMakeLists.txt and the
+# MD_INSTALL_PYTHON_PACKAGE block in the top-level file). That split is not
+# cosmetic: it is what lets `cmake --install --component game` stage the exact
+# game-only product from a build tree that also built the console, which is both
+# what the Windows/macOS installers offer as a choice and what
+# python/tests/e2e/test_packages.py asserts is genuinely Python-free. Leaving
+# these untagged put them in "Unspecified", where a component install of the
+# game would silently have carried the native binding along with it.
 if(WIN32)
   # Self-contained layout for the CPack NSIS installer / ZIP: the exe plus its
   # bundled Qt + runtime DLLs (gathered by tools/windeploy.sh at install time)
   # and the licence notices, all under the install root.
-  install(TARGETS md_app RUNTIME DESTINATION .)
+  install(TARGETS md_app RUNTIME DESTINATION . COMPONENT game)
   find_program(BASH_PROGRAM bash REQUIRED)
   install(CODE "
     message(STATUS \"windeploy: bundling Qt + runtime DLLs ...\")
@@ -150,17 +160,17 @@ if(WIN32)
     if(NOT _md_deploy_rc EQUAL 0)
       message(FATAL_ERROR \"tools/windeploy.sh failed (code \${_md_deploy_rc})\")
     endif()
-  ")
+  " COMPONENT game)
   install(FILES "${CMAKE_SOURCE_DIR}/LICENSE"
                 "${CMAKE_SOURCE_DIR}/THIRD_PARTY_LICENSES.md"
-    DESTINATION .)
-  install(DIRECTORY "${CMAKE_SOURCE_DIR}/licenses" DESTINATION .)
+    DESTINATION . COMPONENT game)
+  install(DIRECTORY "${CMAKE_SOURCE_DIR}/licenses" DESTINATION . COMPONENT game)
 elseif(APPLE)
   # macOS: a self-contained .app for the DMG, the same shape as the Windows
   # layout — the bundle carries its own Qt *and* its own Metal driver, and the
   # licence texts sit beside it. The work itself is in deploy_macos.cmake.in,
   # which runs at install time; everything here is finding what it needs.
-  install(TARGETS md_app BUNDLE DESTINATION .)
+  install(TARGETS md_app BUNDLE DESTINATION . COMPONENT game)
 
   # macdeployqt is qtbase's equivalent of tools/windeploy.sh: it copies the Qt
   # frameworks and the cocoa platform plugin into Contents/, then rewrites the
@@ -200,26 +210,27 @@ elseif(APPLE)
 
   configure_file(deploy_macos.cmake.in
     "${CMAKE_CURRENT_BINARY_DIR}/deploy_macos.cmake" @ONLY)
-  install(SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/deploy_macos.cmake")
+  install(SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/deploy_macos.cmake" COMPONENT game)
 
   install(FILES "${CMAKE_SOURCE_DIR}/LICENSE"
                 "${CMAKE_SOURCE_DIR}/THIRD_PARTY_LICENSES.md"
-    DESTINATION .)
-  install(DIRECTORY "${CMAKE_SOURCE_DIR}/licenses" DESTINATION .)
+    DESTINATION . COMPONENT game)
+  install(DIRECTORY "${CMAKE_SOURCE_DIR}/licenses" DESTINATION . COMPONENT game)
 else()
   # Debian: install to the games dir as `missile-defense`, with a desktop entry.
   include(GNUInstallDirs)
   install(PROGRAMS "$<TARGET_FILE:md_app>"
     DESTINATION games
-    RENAME missile-defense)
+    RENAME missile-defense
+    COMPONENT game)
   install(FILES "${CMAKE_SOURCE_DIR}/packaging/missile-defense.desktop"
-    DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/applications")
+    DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/applications" COMPONENT game)
   # Icons for GNOME/KDE menus (hicolor theme; the .desktop's Icon= resolves here).
   install(DIRECTORY "${CMAKE_SOURCE_DIR}/packaging/icons/hicolor"
-    DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/icons")
+    DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/icons" COMPONENT game)
   install(FILES "${CMAKE_SOURCE_DIR}/LICENSE"
                 "${CMAKE_SOURCE_DIR}/THIRD_PARTY_LICENSES.md"
-    DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/doc/missile-defense")
+    DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/doc/missile-defense" COMPONENT game)
   install(DIRECTORY "${CMAKE_SOURCE_DIR}/licenses"
-    DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/doc/missile-defense")
+    DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/doc/missile-defense" COMPONENT game)
 endif()

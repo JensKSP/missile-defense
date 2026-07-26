@@ -20,6 +20,7 @@ the episode list are strips around it.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import time
 from pathlib import Path
@@ -974,12 +975,28 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="the run's --out-dir (default: ./runs in a checkout, else the user data dir)",
     )
+    parser.add_argument(
+        "--self-test",
+        action="store_true",
+        help="build the window, read the run once, print one JSON line and exit",
+    )
     args = parser.parse_args(argv)
 
     app = QApplication(sys.argv[:1])
     app.setApplicationName("Missile Command training console")
     app.setStyleSheet(theme.stylesheet())
     window = Console(paths.runs_dir(args.run_dir))
+    if args.self_test:
+        # The console's answer to the game's `--report`, and it exists for the
+        # same reason: an exit code cannot tell "started, read the run, drew it"
+        # from "printed a usage message". A packaging test needs to know that the
+        # *staged* launcher found its interpreter, its import path, PySide6 and
+        # the run directory — and that is four separate ways to fail that all
+        # look alike from outside (python/tests/e2e/test_packages.py).
+        window.resize(1280, 800)
+        window._tick()
+        print(json.dumps({"ok": True, "run_dir": str(window._run_dir), "updates": window._updates}))
+        return 0
     # Roomy, but never bigger than the desktop it opens on — a window whose
     # status line is off-screen is a window with a bug in it.
     available = app.primaryScreen().availableSize()

@@ -6,7 +6,9 @@ if(NOT TARGET Catch2::Catch2WithMain)
 endif()
 
 add_executable(md_app_unit_tests
-  unit/test_human_input.cpp)
+  unit/test_console.cpp
+  unit/test_human_input.cpp
+  ../console.cpp)
 target_include_directories(md_app_unit_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/..")
 target_link_libraries(md_app_unit_tests
   PRIVATE md::core md::warnings md_test_warnings Catch2::Catch2WithMain)

@@ -1,0 +1,21 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Jens Köhler
+# Assisted-by: Claude Code (Anthropic)
+#
+# Generated from packaging/console-bundle-launcher.in — do not edit the
+# installed copy. This is `Contents/MacOS/md-console` inside the console's .app.
+#
+# Why a script and not a binary: the console *is* Python, and a macOS bundle
+# needs a CFBundleExecutable to launch. A tiny exec wrapper is the standard
+# shape for that, and it is also the only place that can set the import path —
+# nothing inside a bundle is ever on PATH or on `sys.path`, so an installed
+# console would otherwise be a directory full of modules no interpreter can find.
+#
+# `python3` unqualified, and that is the honest behaviour: the console follows
+# whichever Python3 the user has, which is the same one `pip install PySide6`
+# installed into. docs/MACOS.md says what to do when there is more than one.
+here=$(cd -- "$(dirname -- "$0")" && pwd)
+PYTHONPATH="$here/../Resources${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH
+exec python3 -m @MD_LAUNCHER_MODULE@ "$@"

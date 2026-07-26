@@ -62,7 +62,9 @@ jobs:
       - name: Install task runner + Python tools
         # numpy because python/tests/test_env.py imports it above its
         # importorskip guard, so without it that file errors instead of skipping.
-        run: pip3 install --break-system-packages poethepoet pytest numpy
+        # nanobind because the disk image now carries the training console, and
+        # a console without the native binding is one that cannot train.
+        run: pip3 install --break-system-packages poethepoet pytest numpy nanobind
 
       - name: Point CMake and the Vulkan loader at Homebrew
         # Homebrew's prefix is not a place CMake or the Vulkan loader look by
@@ -109,7 +111,8 @@ jobs:
           STAMP: ${{ inputs.package-version && format('-DMD_PACKAGE_VERSION={0}', inputs.package-version) || '' }}
         run: |
           cmake --preset debug -DMD_WERROR=OFF -DMD_PEDANTIC=OFF $STAMP
-          cmake --preset release -DMD_WERROR=OFF -DMD_PEDANTIC=OFF $STAMP
+          cmake --preset release -DMD_WERROR=OFF -DMD_PEDANTIC=OFF $STAMP \
+            -DMD_BUILD_BINDINGS=ON -DMD_INSTALL_PYTHON_PACKAGE=ON
 
       - name: C++ tests (Debug + sanitizers)
         run: poe test
@@ -122,6 +125,33 @@ jobs:
 
       - name: Build the disk image
         run: poe dmg
+
+      - name: The image carries two applications, not one
+        # macOS has no installer with checkboxes: the disk image is a window
+        # with icons in it, and a person drags what they want. So "the console
+        # is optional" is expressed as a *second .app* — which means the claim
+        # to check is that there are two, that they are distinguishable, and
+        # that the console's one is self-contained (nothing inside a bundle is
+        # ever on sys.path, so a payload outside Contents/Resources is a
+        # console that starts and cannot import itself).
+        shell: bash
+        run: |
+          set -euo pipefail
+          staged=$(find build/release/_CPack_Packages -maxdepth 3 -name "*.app" -type d | sort)
+          echo "$staged"
+          test "$(echo "$staged" | wc -l)" -eq 2
+          console=$(echo "$staged" | grep "Training")
+          test -x "$console/Contents/MacOS/md-console"
+          test -f "$console/Contents/Info.plist"
+          test -f "$console/Contents/Resources/md/ui/app.py"
+          ls "$console/Contents/Resources/md/"_md_native*.so
+          # And the game's bundle stays free of it, which is the same promise
+          # the Debian split keeps: one product must not contain the other.
+          game=$(echo "$staged" | grep -v "Training")
+          if find "$game" -name "*.py" | grep .; then
+            echo "::error::the game bundle ships Python sources" >&2
+            exit 1
+          fi
 
       - name: Upload the .dmg
         uses: actions/upload-artifact@v4
@@ -164,11 +194,21 @@ jobs:
             mingw-w64-clang-x86_64-vulkan-loader
             mingw-w64-clang-x86_64-glslang
             mingw-w64-clang-x86_64-nsis
+            mingw-w64-clang-x86_64-python
+            mingw-w64-clang-x86_64-python-pip
+
+      - name: Install nanobind
+        # The installer now offers the training console as a component, and a
+        # console without the native binding is one that cannot start a run.
+        # The CLANG64 interpreter is the one CMake will find, so nanobind has to
+        # go into that one and not into the runner's system Python.
+        run: pip install --break-system-packages nanobind
 
       - name: Report the toolchain
         run: |
           clang++ --version
           cmake --version
+          python --version
 
       - name: C++ tests (Debug)
         # The debug preset asks for ASan/UBSan; CMakeLists degrades that to a
@@ -190,7 +230,8 @@ jobs:
         env:
           STAMP: ${{ inputs.package-version && format('-DMD_PACKAGE_VERSION={0}', inputs.package-version) || '' }}
         run: |
-          cmake --preset release -DMD_WERROR=OFF -DMD_PEDANTIC=OFF $STAMP
+          cmake --preset release -DMD_WERROR=OFF -DMD_PEDANTIC=OFF $STAMP \
+            -DMD_BUILD_BINDINGS=ON -DMD_INSTALL_PYTHON_PACKAGE=ON
           cmake --build --preset release
           ctest --preset release
 
@@ -200,6 +241,28 @@ jobs:
         # copies every CLANG64 DLL beside it. A missing DLL is invisible on the
         # machine that built it and fatal on any other.
         run: cpack --config build/release/CPackConfig.cmake -B build/release -G "NSIS;ZIP"
+
+      - name: The game-only selection is a real selection
+        # NSIS component installs are declared in CMake and only *exist* once
+        # CPack has staged them, so this is the first point where the claim can
+        # be checked at all: stage each component on its own and look at what
+        # landed. If the game component ever grew a `.py` file, someone who
+        # unticked "Training console" would still be getting one.
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          rm -rf stage-game stage-full
+          cmake --install build/release --prefix stage-game --component game
+          cmake --install build/release --prefix stage-full --component game
+          cmake --install build/release --prefix stage-full --component python
+          test -f stage-game/md_app.exe
+          if find stage-game -name "*.py" -o -name "md-console.cmd" | grep .; then
+            echo "::error::the game component ships part of the training half" >&2
+            exit 1
+          fi
+          test -f stage-full/md-console.cmd
+          test -f stage-full/md/ui/app.py
+          ls stage-full/md/_md_native*.pyd
 
       - name: Upload the installer and ZIP
         uses: actions/upload-artifact@v4
@@ -294,14 +357,101 @@ jobs:
       - name: Lintian
         # Errors fail the job; warnings and info are printed and do not, because
         # a policy nit should not block a build that installs and runs.
-        run: lintian --fail-on error --display-info ../missile-defense_*.deb
+        #
+        # All three, not just the game. Two of the three were going unchecked,
+        # and `python3-md` is the one most likely to trip a policy check the
+        # other two cannot — it is the only package that installs into a
+        # `dist-packages` tree the interpreter shares with the distribution.
+        run: lintian --fail-on error --display-info ../*.deb
+
+      - name: The three binaries are three different products
+        # `test_packaging.py` reads `debian/control` and the `.install` manifests
+        # and would catch this promise broken on paper. It cannot catch one
+        # broken in the *build*: a stray install() rule, a glob in an `.install`
+        # file that matched more than it meant to, or a dependency dpkg-shlibdeps
+        # worked out for itself. Only the built archives say what actually ships,
+        # and until now nothing looked inside them.
+        #
+        # The negative half is the one that matters. Someone who wants the game
+        # must not be made to install an interpreter, and that promise dies
+        # quietly: nobody notices a `.py` file inside a 40 MB package.
+        shell: bash
+        run: |
+          set -euo pipefail
+          game=$(echo ../missile-defense_*.deb)
+          bindings=$(echo ../python3-md_*.deb)
+          console=$(echo ../missile-defense-training_*.deb)
+          for deb in "$game" "$bindings" "$console"; do
+            test -f "$deb" || { echo "missing: $deb" >&2; exit 1; }
+          done
+
+          contents() { dpkg-deb -c "$1" | awk '$NF !~ /\/$/ {print $NF}' | sed 's|^\./|/|'; }
+          contents "$game"     | sort > /tmp/game.list
+          contents "$bindings" | sort > /tmp/bindings.list
+          contents "$console"  | sort > /tmp/console.list
+          for list in game bindings console; do
+            echo "--- $list ---"; cat "/tmp/$list.list"
+          done
+
+          # Nothing Python-shaped in the game. Not the sources, not the
+          # launchers, not the console's menu entry.
+          if grep -Eq '\.(py|pyi|so)$|dist-packages|/md-console$|/md-train$' /tmp/game.list; then
+            echo "::error::the game package ships part of the training half" >&2
+            exit 1
+          fi
+          # ... and no Python in its dependency graph either, which is the same
+          # promise one level up: a game that Depends: python3 has brought an
+          # interpreter along whatever its file list says.
+          relations=$(dpkg-deb -f "$game" Depends Recommends Pre-Depends | tr 'A-Z' 'a-z')
+          echo "game relations: $relations"
+          for forbidden in python3-md pyside torch 'python3 ' 'python3:any'; do
+            if [[ "$relations" == *"$forbidden"* ]]; then
+              echo "::error::the game package relates to $forbidden" >&2
+              exit 1
+            fi
+          done
+
+          # The positive half: each of the other two carries what it is for.
+          grep -q '/usr/bin/md-console$' /tmp/console.list
+          grep -q 'missile-defense-training.desktop$' /tmp/console.list
+          grep -q 'dist-packages/md/ui/app.py$' /tmp/bindings.list
+          grep -q 'dist-packages/md/_md_native' /tmp/bindings.list
+
+          # And no file is owned twice — dpkg refuses to install two packages
+          # that both claim a path, so this is a broken install, not a nit.
+          if comm -12 /tmp/game.list /tmp/bindings.list | grep . ||
+             comm -12 /tmp/game.list /tmp/console.list | grep . ||
+             comm -12 /tmp/bindings.list /tmp/console.list | grep .; then
+            echo "::error::two packages own the same path" >&2
+            exit 1
+          fi
+
+      - name: A game-only install stays a game-only install
+        # Installing the game alone must succeed with dependency checks on — the
+        # thing `apt install missile-defense` does — and must leave the machine
+        # with no console on it. Then adding the console must actually put one
+        # there. The pair is the claim; either half alone proves nothing.
+        shell: bash
+        run: |
+          set -euo pipefail
+          apt-get install -y --no-install-recommends ../missile-defense_*.deb
+          test -x /usr/games/missile-defense
+          if command -v md-console >/dev/null; then
+            echo "::error::a game-only install left an md-console on the machine" >&2
+            exit 1
+          fi
+          # The other direction, from the same starting point.
+          apt-get install -y --no-install-recommends \
+            ../python3-md_*.deb ../missile-defense-training_*.deb
+          command -v md-console
+          python3 -c "import md, md.ui; print('md', md.__version__, 'from', md.__file__)"
 
       - name: Collect the package
         # dpkg-buildpackage writes to the parent directory, which is outside the
         # workspace and so out of reach of upload-artifact.
         run: |
           mkdir -p dist
-          cp ../missile-defense_*.deb ../*.changes ../*.buildinfo dist/
+          cp ../*.deb ../*.changes ../*.buildinfo dist/
 
       - name: Upload the .deb
         uses: actions/upload-artifact@v4

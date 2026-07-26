@@ -4,6 +4,7 @@
 #pragma once
 
 #include "audio.hpp"
+#include "console.hpp"
 #include "highscores.hpp"
 #include "human_input.hpp"
 #include "md/agent/heuristic.hpp"
@@ -127,6 +128,13 @@ class GameWindow : public QVulkanWindow {
     [[nodiscard]] int menu_count() const noexcept;
     [[nodiscard]] std::string_view menu_label(int index) const;
 
+    /// Does this install have a training console to offer? The game-only
+    /// package is the promise (docs/PACKAGING.md), so on one of those this is
+    /// false and TRAIN AI is simply not in the menu — the entry is never shown
+    /// disabled, because "installed but greyed out" is a different product
+    /// claim than "not part of this product".
+    [[nodiscard]] bool can_train() const noexcept { return console_.has_value(); }
+
     // Options screen (a second centered list): AUDIO / MUSIC / FULLSCREEN + BACK.
     [[nodiscard]] static int options_count() noexcept;
     [[nodiscard]] std::string_view options_label(int index) const;
@@ -177,6 +185,7 @@ class GameWindow : public QVulkanWindow {
         Resume,
         NewGame,
         WatchAi,
+        TrainAi,
         Replays,
         Help,
         Options,
@@ -201,6 +210,7 @@ class GameWindow : public QVulkanWindow {
     void open_menu();
     void open_options();
     void open_replays();      // scan the runs directory and show what is there
+    void open_console();      // start the training console, if this install has one
     void scrub(int seconds);  // seek the active replay, relative
     void activate(int index); // activate the item at index in the active list
     [[nodiscard]] MenuAction action_at(int index) const;
@@ -209,6 +219,10 @@ class GameWindow : public QVulkanWindow {
     [[nodiscard]] BaseId nearest_base_with_ammo(Vec2 target) const;
 
     Sim sim_;
+    /// How to start the training console, resolved once at startup because it
+    /// is a filesystem search and the menu asks on every frame. Empty on a
+    /// game-only install, which is what removes the TRAIN AI entry.
+    std::optional<console::Command> console_;
     agent::Heuristic agent_{};              // the M4 baseline, used in watch mode
     std::optional<replay::Player> replay_;  // a recorded run being played back
     std::vector<std::string> replay_files_; // paths offered by the REPLAYS screen

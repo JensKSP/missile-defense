@@ -264,8 +264,53 @@ endif()
 option(MD_INSTALL_PYTHON_PACKAGE
        "Install the md Python sources, launcher scripts and console desktop entry" OFF)
 
+# Where the console lands differs on every platform, and the reason is the same
+# each time: **nothing may assume the interpreter knows where `md` is.**
+#
+#   Linux    a distribution owns the interpreter, so the package goes where that
+#            interpreter already looks (debian/rules asks it, and passes the
+#            answer as MD_PYTHON_INSTALL_DIR) and the launchers are plain
+#            wrappers in bin/.
+#   Windows  the *user* owns the interpreter and may not have installed one yet,
+#            so the payload ships beside the game and the .cmd launcher puts its
+#            own directory on PYTHONPATH.
+#   macOS    nothing inside an .app is on any search path at all, so the console
+#            becomes its own bundle carrying the package in Contents/Resources —
+#            which is also what makes it a separate icon a person can drag, i.e.
+#            a separate product rather than a hidden feature of the game.
 if(MD_INSTALL_PYTHON_PACKAGE)
   include(GNUInstallDirs)
+
+  # A console without the native binding starts, browses and replays — and
+  # cannot train, which is the one thing it is for. On Debian that cannot happen
+  # (python3-md Depends on the binding), but an installer payload is just files
+  # and would ship the hole silently. bindings/ skips itself when Python or
+  # nanobind is missing, so this is exactly the case a packaging job hits.
+  if(NOT TARGET _md_native)
+    message(WARNING
+      "MD_INSTALL_PYTHON_PACKAGE is ON but the native binding was not built: "
+      "the installed console will not be able to start a training run. "
+      "Enable MD_BUILD_BINDINGS and install Python development files + nanobind.")
+  endif()
+
+  # `python3` unqualified, so the package follows the distribution's Python
+  # rather than pinning the absolute path of whichever one configured the build.
+  set(MD_LAUNCHER_PYTHON "python3" CACHE STRING
+      "The interpreter the installed md-console / md-train launchers exec")
+
+  if(APPLE)
+    set(md_console_bundle "Missile Defense Training.app")
+    # Overriding the cache default from bindings/CMakeLists.txt: the extension
+    # has to land inside the same bundle as the sources or the console imports
+    # a package with a hole in it.
+    set(MD_PYTHON_INSTALL_DIR "${md_console_bundle}/Contents/Resources/md")
+    set(md_console_bindir "${md_console_bundle}/Contents/MacOS")
+  elseif(WIN32)
+    set(MD_PYTHON_INSTALL_DIR "md")
+    set(md_console_bindir ".") # flat, beside md_app.exe — see app/CMakeLists.txt
+  else()
+    set(md_console_bindir "${CMAKE_INSTALL_BINDIR}")
+  endif()
 
   # The sources. _md_native and its stub are excluded because bindings/ installs
   # those — it is the one that knows whether the extension was built at all.
@@ -278,28 +323,59 @@ if(MD_INSTALL_PYTHON_PACKAGE)
       PATTERN "_md_native.pyi" EXCLUDE
       PATTERN "__pycache__" EXCLUDE)
 
-  # `python3` unqualified, so the package follows the distribution's Python
-  # rather than pinning the absolute path of whichever one configured the build.
-  set(MD_LAUNCHER_PYTHON "python3" CACHE STRING
-      "The interpreter the installed md-console / md-train launchers exec")
-
   foreach(md_launcher md-console md-train)
     if(md_launcher STREQUAL "md-console")
       set(MD_LAUNCHER_MODULE "md.ui")
     else()
       set(MD_LAUNCHER_MODULE "md.cli")
     endif()
-    configure_file(packaging/launcher.in "${CMAKE_CURRENT_BINARY_DIR}/${md_launcher}" @ONLY)
-    install(PROGRAMS "${CMAKE_CURRENT_BINARY_DIR}/${md_launcher}"
-      DESTINATION "${CMAKE_INSTALL_BINDIR}"
-      COMPONENT python)
+    if(WIN32)
+      configure_file(packaging/launcher.cmd.in
+                     "${CMAKE_CURRENT_BINARY_DIR}/${md_launcher}.cmd" @ONLY)
+      install(PROGRAMS "${CMAKE_CURRENT_BINARY_DIR}/${md_launcher}.cmd"
+        DESTINATION "${md_console_bindir}"
+        COMPONENT python)
+    elseif(APPLE)
+      configure_file(packaging/console-bundle-launcher.in
+                     "${CMAKE_CURRENT_BINARY_DIR}/${md_launcher}" @ONLY)
+      install(PROGRAMS "${CMAKE_CURRENT_BINARY_DIR}/${md_launcher}"
+        DESTINATION "${md_console_bindir}"
+        COMPONENT python)
+    else()
+      configure_file(packaging/launcher.in "${CMAKE_CURRENT_BINARY_DIR}/${md_launcher}" @ONLY)
+      install(PROGRAMS "${CMAKE_CURRENT_BINARY_DIR}/${md_launcher}"
+        DESTINATION "${md_console_bindir}"
+        COMPONENT python)
+    endif()
   endforeach()
 
-  # Its own menu entry, in Development/Science rather than Games — someone
-  # looking for the arcade cabinet must not find two of them.
-  install(FILES "${CMAKE_SOURCE_DIR}/packaging/missile-defense-training.desktop"
-    DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/applications"
-    COMPONENT python)
+  if(APPLE)
+    # The manifest is what makes the directory an application rather than a
+    # folder with a script in it: without CFBundleExecutable the Finder will not
+    # launch it, and without NSPrincipalClass it never becomes a GUI process.
+    configure_file(packaging/console.Info.plist.in
+                   "${CMAKE_CURRENT_BINARY_DIR}/console.Info.plist" @ONLY)
+    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/console.Info.plist"
+      DESTINATION "${md_console_bundle}/Contents"
+      RENAME "Info.plist"
+      COMPONENT python)
+    install(FILES "${CMAKE_SOURCE_DIR}/LICENSE"
+                  "${CMAKE_SOURCE_DIR}/THIRD_PARTY_LICENSES.md"
+      DESTINATION "${md_console_bundle}/Contents/Resources"
+      COMPONENT python)
+  elseif(WIN32)
+    # No .desktop equivalent; the Start-menu shortcut comes from CPack (below).
+    install(FILES "${CMAKE_SOURCE_DIR}/LICENSE"
+                  "${CMAKE_SOURCE_DIR}/THIRD_PARTY_LICENSES.md"
+      DESTINATION "${MD_PYTHON_INSTALL_DIR}"
+      COMPONENT python)
+  else()
+    # Its own menu entry, in Development/Science rather than Games — someone
+    # looking for the arcade cabinet must not find two of them.
+    install(FILES "${CMAKE_SOURCE_DIR}/packaging/missile-defense-training.desktop"
+      DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/applications"
+      COMPONENT python)
+  endif()
 endif()
 
 # ---- Packaging (CPack) -------------------------------------------------------
@@ -361,6 +437,44 @@ if(MD_BUILD_APP AND PROJECT_IS_TOP_LEVEL)
     set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
     set(CPACK_DEBIAN_PACKAGE_MAINTAINER "${CPACK_PACKAGE_CONTACT}")
     set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+  endif()
+
+  # ---- Installer components: the two products, as a choice ---------------
+  # `game` is everything app/CMakeLists.txt installs; `python` is the console,
+  # its package and the native binding. Declaring them is what lets the Windows
+  # installer offer the console as an *unticked* option — someone who came for a
+  # game must be able to decline an interpreter without reading a manual, which
+  # is the same promise `debian/control` keeps by splitting the binaries.
+  set(CPACK_COMPONENT_GAME_DISPLAY_NAME "Missile Defense")
+  set(CPACK_COMPONENT_GAME_DESCRIPTION
+      "The game. Self-contained: no Python, no training tools.")
+  set(CPACK_COMPONENT_GAME_REQUIRED ON)
+  set(CPACK_COMPONENT_PYTHON_DISPLAY_NAME "Training console")
+  set(CPACK_COMPONENT_PYTHON_DESCRIPTION
+      "Train your own agent and watch it play. Needs Python 3.11+ with PySide6.")
+  set(CPACK_COMPONENT_PYTHON_DISABLED ON) # offered, not preselected
+
+  if(MD_INSTALL_PYTHON_PACKAGE)
+    set(CPACK_COMPONENTS_ALL game python)
+  else()
+    set(CPACK_COMPONENTS_ALL game)
+  endif()
+
+  if(APPLE)
+    # A disk image is not an installer with checkboxes — it is a window with
+    # icons in it, and the choice is made by dragging one or both. Splitting it
+    # into two DMGs would be the wrong shape for the platform, so the components
+    # exist for the layout's sake and the image itself stays monolithic.
+    set(CPACK_MONOLITHIC_INSTALL ON)
+  elseif(WIN32)
+    # The ZIP is the portable copy of the whole thing; only the installer asks.
+    set(CPACK_ARCHIVE_COMPONENT_INSTALL OFF)
+    set(CPACK_NSIS_COMPONENT_INSTALL ON)
+  else()
+    # `poe deb` builds one .deb from CPack; the *real* three-binary split is
+    # debian/control's, built by dpkg-buildpackage. Two different mechanisms for
+    # two different jobs, and the CPack one must not start emitting three files.
+    set(CPACK_DEB_COMPONENT_INSTALL OFF)
   endif()
 
   include(CPack)

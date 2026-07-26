@@ -160,6 +160,69 @@ def test_each_package_installs_a_disjoint_set_of_paths() -> None:
     assert "missile-defense-training.desktop" in console
 
 
+def test_every_platform_has_a_way_to_launch_the_installed_console() -> None:
+    """Three launchers, because three platforms answer "where is `md`?" differently.
+
+    Linux hands the package to an interpreter the distribution owns, so a bare
+    `exec python3 -m md.ui` is enough. Windows and macOS do not have that: the
+    interpreter belongs to the user there and cannot be told at packaging time
+    where the payload went, so both launchers have to set the import path
+    themselves — from their own location, which is the only thing they know.
+
+    A launcher that forgets is a console that starts and cannot import itself,
+    and that is invisible until someone installs it.
+    """
+    templates = {
+        "launcher.in": "@MD_LAUNCHER_PYTHON@ -m @MD_LAUNCHER_MODULE@",
+        "launcher.cmd.in": "%~dp0",
+        "console-bundle-launcher.in": "$here/../Resources",
+    }
+    for name, marker in templates.items():
+        text = (ROOT / "packaging" / name).read_text(encoding="utf-8")
+        assert marker in text, f"{name} lost the part that makes it work"
+        assert "@MD_LAUNCHER_MODULE@" in text, f"{name} does not name a module to run"
+    # The two that ship outside a distribution's control must not assume the
+    # interpreter can already find `md`.
+    for name in ("launcher.cmd.in", "console-bundle-launcher.in"):
+        assert "PYTHONPATH" in (ROOT / "packaging" / name).read_text(encoding="utf-8")
+
+
+def test_the_macos_console_is_a_separate_application() -> None:
+    """A second `.app` in the disk image, and distinguishable from the game.
+
+    The DMG has no checkboxes — the choice is which icon you drag — so "the
+    console is optional on macOS" is only true if it is genuinely a second
+    application. Sharing the game's bundle identifier would make macOS treat
+    them as one, which is the failure this guards against.
+    """
+    console = (ROOT / "packaging" / "console.Info.plist.in").read_text(encoding="utf-8")
+    game = (ROOT / "app" / "Info.plist.in").read_text(encoding="utf-8")
+    assert "de.koehler-speyer.missile-defense-training" in console
+    assert "@MACOSX_BUNDLE_GUI_IDENTIFIER@" in game  # the game's is set from CMake
+    assert "developer-tools" in console, "the console is filed as a game"
+    assert "arcade-games" in game
+    # Without these two the bundle is a folder with a script in it: the Finder
+    # will not launch it, and it never becomes a foreground GUI process.
+    assert "CFBundleExecutable" in console
+    assert "NSPrincipalClass" in console
+
+
+def test_the_installer_offers_the_console_without_preselecting_it() -> None:
+    """The Windows half of the same promise, read off the CPack declaration.
+
+    `game` is required and `python` is offered unticked, so someone who came for
+    a game can decline an interpreter without reading a manual — the same split
+    `debian/control` keeps by producing separate binaries.
+    """
+    cmake = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
+    assert "set(CPACK_COMPONENT_GAME_REQUIRED ON)" in cmake
+    assert "set(CPACK_COMPONENT_PYTHON_DISABLED ON)" in cmake
+    # And the game's own install rules are tagged, or `--component game` would
+    # stage nothing and every claim made about that tree would be vacuous.
+    app_cmake = (ROOT / "app" / "CMakeLists.txt").read_text(encoding="utf-8")
+    assert app_cmake.count("COMPONENT game") >= 8
+
+
 def test_the_console_has_a_desktop_entry_of_its_own() -> None:
     """A separate product gets a separate launcher, or it is not discoverable."""
     entry = (ROOT / "packaging" / "missile-defense-training.desktop").read_text(encoding="utf-8")

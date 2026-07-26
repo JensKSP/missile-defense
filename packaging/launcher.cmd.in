@@ -1,0 +1,20 @@
+@echo off
+rem SPDX-License-Identifier: MIT
+rem Copyright (c) 2026 Jens Köhler
+rem Assisted-by: Claude Code (Anthropic)
+rem
+rem Generated from packaging/launcher.cmd.in — do not edit the installed copy.
+rem
+rem The Windows counterpart of packaging/launcher.in, and it has one extra job.
+rem A Debian package installs `md` where the distribution's interpreter already
+rem looks; a Windows installer cannot, because the interpreter belongs to the
+rem user and may not exist yet. So the payload sits beside this script and the
+rem import path is set here, from `%~dp0` — the directory this file is in —
+rem rather than assumed. `%~dp0` keeps its trailing backslash, hence `%~dp0.`.
+rem
+rem `python` unqualified, and that is the honest behaviour: the console follows
+rem whichever Python is on PATH, the same one `pip install PySide6` would have
+rem installed into. docs/WINDOWS.md says what to do when there is more than one.
+setlocal
+set "PYTHONPATH=%~dp0.;%PYTHONPATH%"
+python -m @MD_LAUNCHER_MODULE@ %*

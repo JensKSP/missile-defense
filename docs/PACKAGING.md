@@ -103,8 +103,11 @@ recordings ship in the package, where they would break on the next upload.
 
 ## The split, when the Python side is packaged
 
-Not built yet; this is the shape it should take. The division is by *dependency
-weight*, not by tidiness:
+**Built.** `debian/control` produces the three binaries below from one source,
+and `python/tests/e2e/test_packages.py` asserts from a staged install tree that
+they really are two products: the game-only tree has no `.py` file in it and its
+menu has no **TRAIN AI** entry, and the full tree resolves the launcher and
+grows one. The division is by *dependency weight*, not by tidiness:
 
 | Package | Arch | Contents | Depends |
 |---|---|---|---|
@@ -131,6 +134,40 @@ than the game's section 6.
 The extension is built with nanobind's `STABLE_ABI`, so it is an `abi3` object
 that survives a Python minor-version bump. That is not only tidiness; it is what
 makes the torch story below work.
+
+## The same split on Windows and macOS
+
+Debian expresses "two products" as two packages. The other two platforms have no
+package manager to express it with, so each says it in its own idiom — and every
+difference below comes from one fact: **only Debian owns the interpreter.**
+
+| | How the choice is offered | Where the payload goes | How `md` is found |
+|---|---|---|---|
+| Debian | separate binary packages | `/usr/lib/python3/dist-packages/md` | the distribution's interpreter already looks there |
+| Windows | an unticked **Training console** component in the NSIS installer | `md\` beside `md_app.exe` | `md-console.cmd` puts `%~dp0` on `PYTHONPATH` |
+| macOS | a second `.app` in the disk image, dragged or not | `Missile Defense Training.app/Contents/Resources/md` | `Contents/MacOS/md-console` puts `../Resources` on `PYTHONPATH` |
+
+The components are `game` and `python`, declared in the top-level `CMakeLists.txt`
+and tagged on every `install()` rule. `game` is `CPACK_COMPONENT_GAME_REQUIRED`;
+`python` is `CPACK_COMPONENT_PYTHON_DISABLED`, i.e. offered but not preselected.
+That tagging is load-bearing beyond the installer: `cmake --install --component
+game` is how the packaging tests stage the exact game-only product out of a build
+tree that also built the bindings. Before the tags existed, every such rule went
+into `Unspecified` and a "game-only" staging quietly carried `_md_native` with it.
+
+macOS gets `CPACK_MONOLITHIC_INSTALL` even so. A disk image is a window with
+icons in it, not an installer with checkboxes, so splitting it into two images
+would be the wrong shape for the platform; the components exist there to build
+the *layout*, and the user's choice is which icon they drag.
+
+**The console needs the native binding.** The managed runtime (`md.runtime`)
+installs torch and nothing else — `md` and `_md_native` come from the payload —
+so a Windows or macOS build that packages the console without
+`MD_BUILD_BINDINGS=ON` produces a console that starts, browses and replays, and
+cannot train. `bindings/CMakeLists.txt` skips itself silently when Python or
+nanobind is missing, so the top-level file raises a CMake warning when the
+payload is being installed without it, and both CI jobs assert the extension is
+inside the staged tree.
 
 ## PyTorch
 
