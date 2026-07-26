@@ -59,6 +59,32 @@ class GameWindow : public QVulkanWindow {
     /// Play a recorded run (the `--replay` flag). False if it could not be read.
     bool watch_replay(const std::string& path);
 
+    /// Quit after this many rendered frames; 0 (the default) means never.
+    ///
+    /// Without an upper bound the game can only be *driven* by a human closing
+    /// the window, which makes every automated check of it a job that hangs
+    /// rather than a test that fails (docs/TESTING.md). It is not only a test
+    /// affordance: a fixed frame count is also how a renderer change is timed.
+    void set_frame_budget(std::uint64_t frames) noexcept { frame_budget_ = frames; }
+
+    /// Quit as soon as a game or a recording ends, instead of showing game over.
+    ///
+    /// This is what makes a replay assertion deterministic: a recording has a
+    /// fixed length, so "play it to the end and say what happened" has exactly
+    /// one answer, where a frame budget would stop somewhere arbitrary in it.
+    void set_exit_when_done(bool on) noexcept { exit_when_done_ = on; }
+
+    /// Frames rendered since start — what `--frames` counts and `--report` says.
+    [[nodiscard]] std::uint64_t frames() const noexcept { return frames_; }
+
+    /// Run with no sound at all, and without remembering that.
+    ///
+    /// An automated run must not come out of the speakers of whoever is at the
+    /// machine — and must not leave their sound switched off afterwards either,
+    /// which is why this suppresses persistence rather than just toggling the
+    /// two flags the Options screen writes.
+    void set_silent() noexcept;
+
     /// Is the scripted agent driving rather than the mouse?
     [[nodiscard]] bool ai_driving() const noexcept { return ai_driving_; }
 
@@ -158,6 +184,9 @@ class GameWindow : public QVulkanWindow {
         Exit
     };
 
+    /// Whether this run has reached whichever end it was given.
+    [[nodiscard]] bool finished() const noexcept;
+
     void update_aim(float px, float py);
     void start_game();
     void start_ai_game(); // same, but the scripted agent supplies the actions
@@ -189,6 +218,11 @@ class GameWindow : public QVulkanWindow {
     double accumulator_ = 0.0;
     bool started_ = false;
     bool in_progress_ = false; // a game is running or paused-in-menu
+    std::uint64_t frames_ = 0;
+    std::uint64_t frame_budget_ = 0; // 0 = run until the window is closed
+    bool exit_when_done_ = false;
+    bool closing_ = false; // a close is already queued; do not queue a second
+    bool silent_ = false;  // --silent: no sound, and no writing that preference
     std::uint64_t seed_ = 1;
     bool fire_pending_ = false; // a click arrived; fire on the next sim tick
     bool ai_driving_ = false;   // the scripted agent is at the controls

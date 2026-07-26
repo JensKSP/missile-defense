@@ -5,8 +5,11 @@
 
 #include <QGuiApplication>
 #include <QVulkanInstance>
+#include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <exception>
+#include <print>
 #include <string_view>
 
 #ifdef Q_OS_MACOS
@@ -47,6 +50,57 @@ void use_bundled_vulkan_driver() {
 }
 #endif
 
+/// The window's state as one word, for `--report`.
+std::string_view state_name(md::GameWindow::State state) {
+    using State = md::GameWindow::State;
+    switch (state) {
+    case State::Menu:
+        return "menu";
+    case State::Playing:
+        return "playing";
+    case State::GameOver:
+        return "game-over";
+    case State::Highscores:
+        return "highscores";
+    case State::Help:
+        return "help";
+    case State::About:
+        return "about";
+    case State::Options:
+        return "options";
+    case State::EnterScore:
+        return "enter-score";
+    case State::Replays:
+        return "replays";
+    }
+    return "unknown";
+}
+
+/// Which driver was at the controls, for `--report`.
+std::string_view mode_name(const md::GameWindow& window) {
+    if (window.replaying()) {
+        return "replay";
+    }
+    return window.ai_driving() ? "watch" : "play";
+}
+
+/// One JSON line on stdout describing how the run ended.
+///
+/// An exit code alone cannot tell "played a game" from "showed a menu for four
+/// seconds", so an automated check of the game needs *something* observable
+/// besides not crashing (docs/TESTING.md). This is that surface, and it is
+/// deliberately the end state rather than a stream: the questions worth asking
+/// of a headless run — did it advance, what did it score, how did it end — are
+/// all answered by the last frame.
+void write_report(const md::GameWindow& window) {
+    const md::Sim& sim = window.sim();
+    const auto cities = std::ranges::count_if(sim.cities(), &md::City::alive);
+    std::println(R"({{"mode":"{}","state":"{}","frames":{},"ticks":{},)"
+                 R"("score":{},"wave":{},"cities_left":{},"terminated":{}}})",
+                 mode_name(window), state_name(window.state()), window.frames(), sim.tick(),
+                 sim.score(), sim.wave(), cities, sim.terminated());
+}
+
 int run(int argc, char** argv) {
     QGuiApplication app(argc, argv);
     QGuiApplication::setOrganizationName("MissileDefense");
@@ -69,6 +123,7 @@ int run(int argc, char** argv) {
     window.setVulkanInstance(&instance);
     window.resize(1280, 720);
     window.setTitle("Missile Defense");
+    bool report = false;
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg(argv[i]);
         if (arg == "--play") {
@@ -80,6 +135,14 @@ int run(int argc, char** argv) {
             if (!window.watch_replay(argv[++i])) {
                 qWarning("could not read the recording: %s", argv[i]);
             }
+        } else if (arg == "--frames" && (i + 1) < argc) {
+            window.set_frame_budget(std::strtoull(argv[++i], nullptr, 10));
+        } else if (arg == "--until-done") {
+            window.set_exit_when_done(true);
+        } else if (arg == "--silent") {
+            window.set_silent();
+        } else if (arg == "--report") {
+            report = true;
         }
     }
     if (window.fullscreen()) { // restore the persisted window mode (see QSettings)
@@ -88,7 +151,11 @@ int run(int argc, char** argv) {
         window.show();
     }
 
-    return QGuiApplication::exec();
+    const int code = QGuiApplication::exec();
+    if (report) {
+        write_report(window);
+    }
+    return code;
 }
 
 } // namespace

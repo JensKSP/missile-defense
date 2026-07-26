@@ -57,6 +57,53 @@ jobs:
           path: build/release/*.deb
 
 
+  app-e2e:
+    # The shipped surfaces, driven in their own processes: the game binary, a
+    # real short training run, and the console window. Everything else in this
+    # file tests code; this job tests the programs, which is where the failures
+    # a person meets first actually live (docs/TESTING.md).
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        # xvfb is the load-bearing one: the game is Vulkan, and Qt's `offscreen`
+        # platform has no Vulkan support at all, so it needs a real X server —
+        # just not one with a monitor. mesa-vulkan-drivers supplies lavapipe, a
+        # software device, because a CI runner has no GPU.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake ninja-build g++-14 \
+            qt6-base-dev qt6-base-dev-tools \
+            libvulkan-dev glslang-tools mesa-vulkan-drivers \
+            libminiaudio-dev catch2 \
+            xvfb python3 python3-pip
+
+      - name: Install the Python halves
+        # The CPU torch build: this job trains for seconds on four environments,
+        # so a CUDA wheel would be gigabytes downloaded to be ignored.
+        run: |
+          pip install --break-system-packages poethepoet pytest "numpy<2.5" PySide6 psutil
+          pip install --break-system-packages torch \
+            --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Build the game and the bindings
+        # Debug, because that is the build with VK_LAYER_KHRONOS_validation
+        # enabled — which is what makes "did it render correctly?" checkable
+        # without capturing a single pixel.
+        run: |
+          cmake --preset debug -DMD_SANITIZE=OFF
+          cmake --build --preset debug
+          python3 -m tools.build_bindings || pip install --break-system-packages -e .
+
+      - name: Application end-to-end suite
+        env:
+          # The only ICD installed, but named explicitly so a driver appearing on
+          # the image later cannot silently change what this job tested on.
+          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+        run: poe test-app
+
   wheel:
     # `pip install .` end to end: the Python half is packaged by
     # scikit-build-core, which compiles the extension through the same CMake

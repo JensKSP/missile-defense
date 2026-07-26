@@ -1,0 +1,177 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Jens Köhler
+# Assisted-by: Claude Code (Anthropic)
+"""The console, built for real against a real run directory.
+
+Offscreen throughout, so nothing appears on anyone's screen: Qt Widgets needs no
+graphics device — only the game does, and only because it is Vulkan.
+
+What these add over the existing `test_ui_*` tests is the window itself. Those
+cover the Qt-free halves (`sources`, `runner`, `params`) thoroughly and cannot
+touch the part where a `QMainWindow` is constructed, wired to a directory, and
+ticked. Every panel being fed from files a *different process* wrote is the claim
+here, and the failure mode it guards against — a console that starts and shows
+empty panels next to a run full of data — is invisible to both halves separately.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import time
+from pathlib import Path
+
+import pytest
+
+from .harness import needs_native, needs_qt, needs_torch
+
+pytestmark = [pytest.mark.e2e, needs_qt]
+
+
+@pytest.fixture
+def console(qt_app: object, trained_run: Path):  # noqa: ANN201 — PySide6 is optional
+    """A real console window attached to a finished run."""
+    from md.ui.app import Console  # noqa: PLC0415 — optional dependency
+
+    window = Console(trained_run)
+    window.resize(1280, 800)
+    yield window
+    window.close()
+
+
+@needs_torch
+@needs_native
+def test_the_console_opens_on_a_run_and_shows_its_curves(console) -> None:  # noqa: ANN001
+    console._tick()
+    # One update counted per row of metrics.csv. An empty window next to a run
+    # full of data is the failure this whole file exists to catch, and it is
+    # invisible to the Qt-free tests because they never build the window.
+    assert console._updates > 0
+
+
+@needs_torch
+@needs_native
+def test_the_console_lists_the_episodes_it_could_play(console) -> None:  # noqa: ANN001
+    console._tick()
+    assert console._list.count() > 0
+
+
+@needs_torch
+@needs_native
+def test_the_console_describes_the_model_that_was_trained(console) -> None:  # noqa: ANN001
+    console._tick()
+    # ModelPanel keeps what it last painted; a run with a model.json must have
+    # made it paint something other than its empty state.
+    assert console._model._shown is not None
+    assert console._model._headline.text()
+
+
+@needs_torch
+@needs_native
+def test_a_run_that_just_wrote_reads_as_live(console) -> None:  # noqa: ANN001
+    # Liveness is inferred from the files alone — how long ago metrics.csv was
+    # written — which is exactly what lets the console tell the truth about a run
+    # it never started. A run that wrote a moment ago is *correctly* live even
+    # though its process has exited: the console cannot know that, and guessing
+    # "stopped" would take Pause and Stop away from a run that is still going.
+    console._tick()
+    assert console._stop.isEnabled()
+    assert console._primary.text() == "Pause"
+
+
+@needs_torch
+@needs_native
+def test_a_run_that_has_gone_quiet_reads_as_idle(
+    qt_app: object, trained_run: Path, tmp_path: Path
+) -> None:
+    # The other side of the same rule, and the reason it is a timeout rather than
+    # a flag: nothing writes "this run is over" to the directory, so silence is
+    # the only signal there is.
+    from md.ui.app import LIVE_AFTER_S, Console  # noqa: PLC0415
+
+    quiet = tmp_path / "quiet"
+    quiet.mkdir()
+    stale = time.time() - (LIVE_AFTER_S * 2)
+    for name in ("metrics.csv", "evals.csv"):
+        shutil.copy(trained_run / name, quiet / name)
+        os.utime(quiet / name, (stale, stale))
+
+    window = Console(quiet)
+    try:
+        window._tick()
+        assert window._updates > 0, "the rows were still read"
+        assert not window._stop.isEnabled()
+        assert window._primary.text() in ("Start", "Set up training…")
+    finally:
+        window.close()
+
+
+def test_the_console_on_an_empty_directory_explains_itself(qt_app: object, tmp_path: Path) -> None:
+    # Empty states are part of the design (docs/ROADMAP.md, M8): a fresh
+    # directory must say what is missing and what would fill it, not show a
+    # blank panel or a zeroed meter.
+    from md.ui.app import Console  # noqa: PLC0415
+
+    window = Console(tmp_path)
+    try:
+        window._tick()
+        message = window.statusBar().currentMessage()
+        assert "metrics.csv" in message
+        assert window._updates == 0
+    finally:
+        window.close()
+
+
+def test_the_setup_dialog_offers_only_builds_this_platform_has(qt_app: object) -> None:
+    # The console's answer to "I have no torch". Built for real; nothing is
+    # installed, because the install itself is covered by test_runtime.py against
+    # a fake runner and does not need several gigabytes to be exercised again.
+    from md import runtime  # noqa: PLC0415
+    from md.ui.runtime_dialog import RuntimeDialog  # noqa: PLC0415
+
+    dialog = RuntimeDialog(runtime.Runtime(Path("/nonexistent")), probes=[])
+    try:
+        offered = {dialog._backend.itemData(i) for i in range(dialog._backend.count())}
+        assert "cpu" in offered, "the fallback build must always be installable"
+        assert dialog._primary.text() == "Install"
+    finally:
+        dialog.close()
+
+
+def test_the_run_a_console_would_start_is_a_command_you_could_type(
+    qt_app: object, tmp_path: Path
+) -> None:
+    # The parameter dialog teaches the CLI rather than replacing it, so the
+    # command it shows has to be the command it would run.
+    from md.ui.forms import ParameterDialog  # noqa: PLC0415
+    from md.ui.params import read_params  # noqa: PLC0415
+    from md.ui.runner import PACKAGE_PATH  # noqa: PLC0415
+
+    dialog = ParameterDialog(
+        read_params(PACKAGE_PATH / "md"), python="/usr/bin/python3", out_dir=tmp_path
+    )
+    try:
+        command = dialog.command()
+        assert command[0] == "/usr/bin/python3"
+        assert "md.train" in command
+        assert str(tmp_path) in command
+    finally:
+        dialog.close()
+
+
+@needs_torch
+@needs_native
+def test_the_console_and_the_trainer_agree_on_what_a_run_directory_is(
+    console,  # noqa: ANN001
+    trained_run: Path,
+) -> None:
+    # One directory, two programs, no shared code path — only the file names.
+    # This is the contract that silently breaks when either side is refactored.
+    written = {path.name for path in trained_run.iterdir()}
+    assert {"metrics.csv", "evals.csv", "config.json", "model.json", "train.log"} <= written
+    console._tick()
+    # And the console agrees about what is *in* them: the parameter count it
+    # shows is the one the trainer wrote, not a plausible number of its own.
+    card = json.loads((trained_run / "model.json").read_text(encoding="utf-8"))
+    assert f"{card['parameters']:,}" in console._model._headline.text()

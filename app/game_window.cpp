@@ -11,6 +11,7 @@
 #include <QMouseEvent>
 #include <QSettings>
 #include <QStandardPaths>
+#include <QTimer>
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -40,7 +41,20 @@ void GameWindow::load_settings() {
     // Fullscreen is applied by main() at startup (before the window is shown).
 }
 
+void GameWindow::set_silent() noexcept {
+    silent_ = true;
+    audio_on_ = false;
+    music_on_ = false;
+    audio_.set_enabled(false);
+    audio_.set_music_enabled(false);
+}
+
 void GameWindow::save_settings() const {
+    if (silent_) {
+        // Borrowed, not changed: a run told to be quiet must not be the reason
+        // the next human to start the game finds the sound switched off.
+        return;
+    }
     QSettings settings;
     settings.setValue("audio/sfx", audio_on_);
     settings.setValue("audio/music", music_on_);
@@ -222,6 +236,15 @@ void GameWindow::play_selected_replay() {
     if (!watch_replay(path)) {
         open_menu(); // unreadable (wrong build, truncated): do not pretend
     }
+}
+
+bool GameWindow::finished() const noexcept {
+    if (frame_budget_ != 0 && frames_ > frame_budget_) {
+        return true;
+    }
+    // GameOver *and* EnterScore: a qualifying score diverts to initials entry,
+    // and a run driven to its end unattended has nobody to type them.
+    return exit_when_done_ && (state_ == State::GameOver || state_ == State::EnterScore);
 }
 
 void GameWindow::end_game() {
@@ -455,6 +478,21 @@ void GameWindow::activate(int index) {
 }
 
 void GameWindow::advance() {
+    // Counted before anything can return early, because what `--frames` bounds is
+    // the *run*, not the part of it spent playing: a window stuck on the menu has
+    // to hit its budget too, or the bound it exists to provide is not one.
+    ++frames_;
+    if (finished() && !closing_) {
+        // Deferred out of the render callback, not quit() on the spot. advance()
+        // runs from inside startNextFrame(), so tearing the application down here
+        // destroys the swapchain and the device while this frame is still being
+        // built — which is a segfault at exit rather than a clean run. A queued
+        // close lands between frames, where QVulkanWindow releases its resources
+        // the way it expects to, and the last window closing ends exec().
+        closing_ = true;
+        QTimer::singleShot(0, this, &GameWindow::close);
+        return;
+    }
     // Hide the OS cursor while playing so the on-screen crosshair is the pointer.
     const bool hide = (state_ == State::Playing);
     if (hide != cursor_hidden_) {

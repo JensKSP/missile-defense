@@ -52,11 +52,178 @@ New files have one responsibility each:
 | `replay/tests/unit/test_match.cpp` | Match integrity and synchronization tests |
 | `app/match_window.hpp` / `app/match_window.cpp` | Split-screen spectator state |
 | `packaging/missile-defense-training.desktop` | Console desktop entry |
+| `python/tests/e2e/harness.py` | Drive the shipped binaries as a user does |
+| `python/tests/e2e/test_game.py` | The game: boot, play, watch, replay, exit |
+| `python/tests/e2e/test_training.py` | A real short run, and every artifact it owes |
+| `python/tests/e2e/test_console.py` | The console against a live run directory |
+| `python/tests/e2e/test_journey.py` | The whole installed-user journey, in order |
 
 Existing large UI files should compose these services; they should not absorb
 their persistence, package-management, archive, or tournament logic.
 
+---
+
+## End-to-end tests
+
+**Why this section exists.** Every layer of this project is tested except the one
+the user actually touches. `core/tests/e2e/` drives a whole *simulation* — which
+is not the same claim as "the game starts", "the console can start a run", or
+"the recording that run wrote plays back". Those are the failures a person meets
+first, and nothing in the tree would currently catch one.
+
+**Definition.** An e2e test here **drives a shipped surface in its own process** —
+a real binary, a real subprocess, a real window, real files in a real directory —
+and asserts on what a user could observe. If it can be written by calling a
+function, it is a unit test and belongs beside the code. The distinction is the
+process boundary, not the size of the assertion.
+
+### The four subjects
+
+| Subject | Driven as | The claim it makes |
+|---|---|---|
+| **The game** | `md_app` with a frame budget | boots, renders, plays, watches, replays, exits 0 |
+| **A training run** | `md-train` in a temp `--out-dir` | learns briefly and writes every artifact it owes |
+| **The console** | `md.ui` offscreen on that directory | attaches, reads, controls, launches, sets up a runtime |
+| **The contest** | league + tournament CLIs and UI | promotes, evaluates fairly, ranks, and plays a match back |
+
+The fourth does not exist yet; Tasks 6–8 build it, and each carries the e2e that
+proves it. The first three exist now and get theirs immediately, because the
+point of adding tests early is to have them *before* the next task moves the
+ground under them.
+
+### What has to change first
+
+The game cannot be tested at all today: `md_app` blocks in `QGuiApplication::exec()`
+and only ever leaves it when a human closes the window, so CI can do nothing with
+it but kill it and guess. Three small flags fix that, and they are the
+prerequisite for every game-level e2e below:
+
+* `--frames N` — quit after N rendered frames. A hard upper bound, so a hung
+  window is a *failure* rather than a job that runs until the runner times out.
+* `--until-done` — quit as soon as the game or the recording ends. This is the
+  one that makes a replay assertion deterministic: a recording has a fixed
+  length, so "play it to the end and say what happened" has exactly one answer.
+* `--report` — write one JSON line describing the end state (mode, ticks, score,
+  wave, cities, how it ended). This is the assertion surface; without it the only
+  observable is an exit code, which cannot tell "played a game" from "showed a
+  menu for four seconds".
+
+These are test affordances, but not *only* test affordances: `--frames` with
+`--report` is also how you benchmark a renderer change, and `--until-done` is
+what a kiosk or an attract mode would want.
+
+### Rules
+
+Each of these exists because the obvious version of the test is flaky or lies.
+
+1. **No `sleep`.** Poll for the condition with a deadline. A sleep long enough for
+   a loaded CI runner is a sleep that wastes minutes on every developer's machine,
+   and one tuned for a developer's machine is the flake CI reports next month.
+2. **Real artifacts, temporary directories.** Every test gets its own `--out-dir`
+   under `tmp_path`. Nothing reads or writes the developer's `runs/`, and nothing
+   depends on a previous test having run.
+3. **Skip, do not fail, when an optional half is absent.** torch and PySide6 are
+   optional by design (the game must never depend on either), so a machine
+   without them must report *skipped*, not red. The skip reason names the package.
+4. **Determinism where it is available, bounds where it is not.** A replay played
+   to its end has one right answer and the test asserts it exactly. A frame-budgeted
+   live game does not, and the test asserts what must hold regardless — it advanced,
+   it did not crash, it exited cleanly.
+5. **Validation errors are failures.** The debug build turns on
+   `VK_LAYER_KHRONOS_validation`; any `VUID` on stderr fails the test. This is what
+   makes "it rendered correctly" checkable without capturing a single pixel.
+6. **A training e2e trains for seconds, not minutes.** Two envs, a handful of
+   steps, two updates. It is not checking that PPO learns — `test_ppo.py` does
+   that — it is checking that a run produces `metrics.csv`, `evals.csv`,
+   `config.json`, `model.json`, a checkpoint and a recording, and that the console
+   and the game can read every one of them.
+
+### Where they live, and how they run
+
+```
+python/tests/e2e/
+  harness.py       # process drivers, deadlines, skip guards. No tests.
+  test_game.py     # md_app
+  test_training.py # md-train
+  test_console.py  # md.ui, offscreen
+  test_journey.py  # the whole thing, in the order a user meets it
+```
+
+pytest rather than Catch2, and Python rather than C++, because an e2e here
+orchestrates *both* halves — a C++ binary writing a file a Python console reads,
+and a Python trainer writing a recording a C++ binary plays. The existing
+`core/tests/e2e/` keeps its meaning (whole-simulation invariants in-process) and
+is not moved.
+
+Marked `@pytest.mark.e2e` so `poe pytest` stays the fast inner loop and
+`poe test-e2e-app` runs these. The full gate runs both.
+
+**Headless.** Linux CI has no GPU and no display; both are solvable with what
+the distribution already ships, and neither needs a new project dependency:
+
+* **Vulkan** — `mesa-vulkan-drivers` provides lavapipe, a software device. Point
+  `VK_ICD_FILENAMES` at `lvp_icd.json` and the renderer runs on the CPU.
+* **A display** — `xvfb-run`, with `QT_QPA_PLATFORM=xcb`. The console needs no X
+  at all: `QT_QPA_PLATFORM=offscreen` is enough for Qt Widgets.
+
+A machine with neither skips the game tests and still runs the console and
+training ones, which is the right behaviour on a build box that has no graphics
+stack.
+
+### Retro-fitting the three that already exist
+
+Before Task 6, and independently of it — these test code that is already written,
+so they are pure additions and can land at once:
+
+- [ ] **The game boots and exits cleanly** — `--frames`, menu, `--play`,
+      `--watch`; exit 0, no `VUID`, a report showing it advanced.
+- [ ] **A recording plays back to the state it was recorded in** — the strongest
+      single assertion in the suite, because it crosses every boundary in the
+      project: a Python trainer wrote it, C++ replays it, and the score has to
+      match what the trainer said. `--replay X --until-done --report`.
+- [ ] **A short real training run writes every artifact** — and each is readable
+      by the thing that consumes it.
+- [ ] **The console attaches to that directory** and shows the run: curves
+      populated, recordings listed, model panel filled, Start enabled.
+- [ ] **Runtime setup installs, health-checks and is then used** — against a
+      local wheel directory rather than the network, so the test is hermetic.
+
+### What the first run of this layer found
+
+Both of these were already there, in a plain debug run of the game with none of
+the new flags, and nothing in the tree was catching either. They are baselined in
+`harness.KNOWN_VALIDATION_ERRORS` so that *new* validation errors fail
+immediately rather than being buried under them — which is not the same as
+accepting them.
+
+- [ ] **`VUID-vkAcquireNextImageKHR-semaphore-01779`** — the swapchain acquire
+      semaphore is reused while a previous signal or wait on it is still
+      pending. One semaphore where there must be one per frame in flight; it
+      happens to work on this driver and is undefined behaviour. Ten occurrences
+      in fifteen seconds of play, so it is every frame, not an edge case.
+- [ ] **`VUID-VkShaderModuleCreateInfo-pCode-08740`** — a SPIR-V capability is
+      declared whose environment requirement the instance does not satisfy: the
+      shaders are compiled against a newer target than the instance asks for.
+
+Neither belongs to this program of work — they are renderer bugs, and fixing
+them is a separate change with its own tests. They are recorded here because the
+e2e layer is what surfaced them, on the day it was written.
+
+### Then: one per task, from here on
+
+Every task below gains an **e2e step** stating the user-visible claim it must
+make true. They are listed with their tasks; the rule is that a task is not done
+until its e2e passes, and that the e2e is written when the task starts rather
+than after it works.
+
+---
+
 ### Task 1: Define the portable learned-policy format
+
+**E2E:** none of its own — a file format has no shipped surface until Task 3
+loads one in the game, and a round-trip through its own reader is a unit test by
+definition. The claim it is really making is checked in Task 2, across a process
+boundary, against a different language's implementation.
 
 **Files:**
 - Create: `python/md/policy_format.py`
@@ -142,6 +309,12 @@ git commit -m "Define the portable learned-policy format"
 
 ### Task 2: Add native C++ policy loading and inference
 
+**E2E:** *the same policy chooses the same move in both languages.* Export a
+checkpoint, then have `md_agent_eval` play a fixed seed with it and the Python
+evaluator play the same seed with the same file, and assert the action logs are
+identical tick for tick. Parity asserted in one process proves the maths; parity
+asserted across two proves the *file*, which is the thing being shipped.
+
 **Files:**
 - Create: `agent/include/md/agent/policy.hpp`
 - Create: `agent/src/policy.cpp`
@@ -218,6 +391,12 @@ git commit -m "Run exported learned policies in native code"
 
 ### Task 3: Bundle and watch the pretrained model
 
+**E2E:** *the shipped game plays well with the shipped model, and needs no
+Python to do it.* `md_app --watch-model <installed path> --frames N --report`
+from the staged install tree, with Python removed from `PATH`: exit 0, no `VUID`,
+and a report showing a game that advanced and scored. Repeat with
+`--watch-scripted` so both bundled agents are covered.
+
 **Files:**
 - Create: `models/pretrained.mdp`
 - Create: `models/pretrained.json`
@@ -272,6 +451,13 @@ git commit -m "Ship a pretrained agent with the standalone game"
 
 ### Task 4: Package and discover the existing console
 
+**E2E:** *the two packages are two different products.* From the game-only
+staging tree with Python off `PATH`: the game launches and its menu has no
+TRAIN AI entry. From the full tree: the console launcher resolves, `md-console`
+starts and exits cleanly under `QT_QPA_PLATFORM=offscreen`, and TRAIN AI appears.
+The negative half matters more than the positive one — it is the promise that the
+game stays Python-free.
+
 **Files:**
 - Modify: `debian/control`
 - Modify: `debian/rules`
@@ -323,6 +509,12 @@ git commit -m "Package the training console as an optional companion"
 ```
 
 ### Task 5: Implement one-click managed runtime setup
+
+**E2E:** *a console with no torch can end up training.* Drive the setup dialog
+against a **local wheel directory** rather than the network (hermetic, and fast),
+then assert the console starts a real short run with the managed interpreter and
+the run writes `metrics.csv`. Also: cancelling leaves nothing behind, and a
+console with a broken runtime still browses and replays.
 
 **Files:**
 - Create: `python/md/runtime.py`
@@ -389,6 +581,11 @@ git commit -m "Install the training runtime from the console"
 
 ### Task 6: Build the run library and explicit model promotion
 
+**E2E:** *promotion produces something the rest of the system can actually
+use.* Train briefly, promote from the library, and assert the league directory
+holds a `policy.mdp` that the **native** evaluator loads and plays a seed with —
+not merely a file that the Python that wrote it can read back.
+
 **Files:**
 - Create: `python/md/library.py`
 - Create: `python/md/league.py`
@@ -445,6 +642,12 @@ git commit -m "Promote trained policies into a local Model League"
 
 ### Task 7: Evaluate league models and create paired matches
 
+**E2E:** *the contest is fair and complete.* Promote two models, run a canonical
+head-to-head, and assert: every contestant was given the identical seed set, the
+ranking only appears once every seed is in, a cancelled tournament replaces no
+ranked result, and one match manifest exists per paired seed. Fairness is a
+property of the whole orchestration, so it is only checkable from outside it.
+
 **Files:**
 - Create: `python/md/tournament.py`
 - Create: `python/tests/test_tournament.py`
@@ -494,6 +697,12 @@ git commit -m "Run fair local tournaments between learned policies"
 ```
 
 ### Task 8: Add synchronized split-screen spectator mode
+
+**E2E:** *a match plays back as one thing.* `md_app --match <manifest>
+--until-done --report`: both sides run to their own ends, the report names both
+final scores and they match the tournament's record of that seed. Then the same
+manifest with a seek and a restart, asserting the two sides are still on the same
+tick — desynchronisation is the entire failure mode of this feature.
 
 **Files:**
 - Create: `replay/include/md/replay/match.hpp`
@@ -556,6 +765,12 @@ git commit -m "Spectate model matches in synchronized split screen"
 ```
 
 ### Task 9: Add safe cleanup, archive, restore, export, and import
+
+**E2E:** *an archived run comes back.* Archive a run, verify, remove the
+original, restore it to a new directory, and assert the console draws the same
+curves from the restored copy as it did from the original. Plus the refusals:
+a traversal entry, a corrupt archive, and an existing target are each rejected
+without having deleted anything.
 
 **Files:**
 - Create: `python/md/archive.py`
@@ -621,6 +836,12 @@ git commit -m "Manage training artifacts without losing promoted models"
 
 ### Task 10: Make the UI journey the documented and packaged default
 
+**E2E:** *the whole journey, in the order a person meets it* — install, set up
+the runtime, start a named run, watch it, promote it, hold it against another
+model, spectate the match, clean up, archive, restore. This is `test_journey.py`,
+and it is the one test that would have caught every integration failure the
+tasks above can produce individually.
+
 **Files:**
 - Modify: `README.md`
 - Modify: `docs/TRAINING.md`
@@ -675,6 +896,10 @@ git commit -m "Document and verify the UI-only AI training journey"
 
 ### Task 11: Complete per-run simulation statistics
 
+**E2E:** *the numbers reach the files people read.* A short real run's
+`evals.csv` carries every new column with plausible values, and `poe eval` prints
+the full block — asserted by running both, not by calling `summarize`.
+
 **Why:** Today a run reports score, wave, cities-left and kills-per-shot only.
 "Why did that policy plateau?" needs the full picture — how long episodes
 survived, how much damage they took, and *how* the ammunition was spent — as
@@ -723,6 +948,11 @@ instrumentation — every other field is event-counting already proven in
       GPU run. Commit: `Report the full statistics of a simulated run`.
 
 ### Task 12: Statistical analysis of runs in the console
+
+**E2E:** *the analysis view renders from a real run.* Point the console at the
+directory the training e2e produced and assert the distribution and the curves
+are populated rather than showing their empty states, and that the compare picker
+overlays a second run.
 
 **Why:** Numbers in `evals.csv` are only as useful as what you can see in them.
 The console already tails those files for the score curve; this turns it into an
