@@ -123,9 +123,17 @@ own — so the MSYS2 tooling and the training environment coexist. The rest of
 training is platform-independent: see [TRAINING.md](TRAINING.md).
 
 The **training console** (`poe ui`) belongs to that same native interpreter —
-`pip install PySide6` there, because its wheels are MSVC-built like torch's. Run
-it as `python -m md.ui runs` with `PYTHONPATH=python` if `poe` on your `PATH` is
-the MSYS2 one. Double-clicking a recording starts the MSYS2-built game from a
+`pip install PySide6` there, because its wheels are MSVC-built like torch's.
+
+`poe` itself is usually the MSYS2 one, so `poe train` and `poe ui` would run the
+interpreter that has neither package. Both go through `tools/launch.py`, which
+looks for one that does — `$MD_PYTHON` first, then the running interpreter, then
+whatever `py -0p` knows about — and puts this checkout's `python/` on its import
+path. When nothing on the machine can run it, it names the interpreters it tried
+and the `pip install` that would fix one, rather than failing with an ImportError
+from inside a module. Set `MD_PYTHON` to skip the search.
+
+Double-clicking a recording starts the MSYS2-built game from a
 non-MSYS2 process, so the console puts `<msys2>\clang64\bin` back on `PATH` for
 the child — otherwise it dies looking for `libc++.dll` with no window to say so.
 Set `MSYS2_ROOT` if MSYS2 is not at `C:\msys64`.

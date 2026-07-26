@@ -23,8 +23,10 @@ app       = { cmd = "python -m tools.run_app", deps = ["release"], help = "Build
 eval      = { cmd = "python -m tools.run_eval", deps = ["release"], help = "Benchmark the scripted baseline (M4) over the canonical seed set" }
 bench     = { cmd = "python -m tools.run_bench", deps = ["release"], help = "Throughput benchmark: how many sims/s does this machine run?" }
 profile   = { cmd = "python -m tools.run_bench --profile", help = "Benchmark with per-phase timers (builds the 'profile' preset)" }
-train     = { cmd = "python -m md.train", help = "Train a policy with PPO (needs torch; see docs/TRAINING.md)" }
-ui        = { cmd = "python -m md.ui", env = { PYTHONPATH = "python" }, help = "Training console: watch a run's curves and replays (needs PySide6)" }
+# Both go through tools.launch, which picks an interpreter that has torch /
+# PySide6 rather than whichever python is first on PATH — see its docstring.
+train     = { cmd = "python -m tools.launch md.train", help = "Train a policy with PPO (needs torch; see docs/TRAINING.md)" }
+ui        = { cmd = "python -m tools.launch md.ui", help = "Training console: watch a run's curves and replays (needs PySide6)" }
 bindings  = { cmd = "python -m tools.build_bindings", help = "Build the Python extension (_md_native) and put it beside the package" }
 shot      = { cmd = "python -m tools.capture screenshot", help = "Screenshot the running app -> shot.png (append --launch to spawn one)" }
 rec       = { cmd = "python -m tools.capture record", help = "Record the running app -> clip.mp4 (append --launch to spawn one)" }
@@ -119,5 +121,7 @@ typeCheckingMode = "strict"
 # ---- pytest ------------------------------------------------------------------
 [tool.pytest.ini_options]
 testpaths = ["python/tests"]
-pythonpath = ["python"]
+# The root as well as the package, so `tools` — the developer tooling, which has
+# discovery logic of its own — is testable rather than only type-checked.
+pythonpath = ["python", "."]
 addopts = "-q"
