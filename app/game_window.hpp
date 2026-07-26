@@ -7,7 +7,9 @@
 #include "console.hpp"
 #include "highscores.hpp"
 #include "human_input.hpp"
+#include "md/agent/eval.hpp"
 #include "md/agent/heuristic.hpp"
+#include "md/agent/policy.hpp"
 #include "md/replay/recording.hpp"
 #include "md/sim.hpp"
 
@@ -15,6 +17,7 @@
 #include <QVulkanWindow>
 #include <array>
 #include <cstdint>
+#include <filesystem>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -42,7 +45,11 @@ class GameWindow : public QVulkanWindow {
         About,
         Options,
         EnterScore,
-        Replays
+        Replays,
+        /// The WATCH AI submenu: SCRIPTED / PRETRAINED / BACK. A screen rather
+        /// than a cycling toggle, because which agent you are about to watch is
+        /// the whole question and a toggle answers it only after the fact.
+        Watch
     };
 
     GameWindow();
@@ -57,6 +64,14 @@ class GameWindow : public QVulkanWindow {
 
     /// Start a game with the scripted agent at the controls (the `--watch` flag).
     void watch_now() { start_ai_game(); }
+
+    /// Start a game a learned policy plays (the `--watch-model <path>` flag).
+    ///
+    /// False when the file is not a policy this build can run, with the reason
+    /// on stderr. A refusal rather than a silent fall back to the scripted
+    /// agent: watching the wrong agent and not being told is worse than not
+    /// watching at all, and it is exactly the confusion Step 4b exists to end.
+    bool watch_model(const std::string& path);
 
     /// Play a recorded run (the `--replay` flag). False if it could not be read.
     bool watch_replay(const std::string& path);
@@ -87,8 +102,24 @@ class GameWindow : public QVulkanWindow {
     /// two flags the Options screen writes.
     void set_silent() noexcept;
 
-    /// Is the scripted agent driving rather than the mouse?
+    /// Is an agent driving rather than the mouse?
     [[nodiscard]] bool ai_driving() const noexcept { return ai_driving_; }
+
+    /// Who is at the controls, for the HUD and for `--report`.
+    ///
+    /// **Asked for directly** (docs/ROADMAP.md, M8): watching two agents and
+    /// being unable to tell which one is on screen makes the whole feature
+    /// nearly useless. `SCRIPTED`, or the model's display name out of its
+    /// `.mdp` — never a path, because `policy-best.pt` says nothing about which
+    /// run produced it. Empty while a human is playing.
+    [[nodiscard]] std::string_view driver_name() const noexcept { return driver_name_; }
+
+    /// Does this build have a bundled learned policy to offer in the menu?
+    ///
+    /// False in a source checkout with no `models/pretrained.mdp` and in every
+    /// package until one ships, which is the honest state today: WATCH AI then
+    /// starts the scripted agent directly rather than offering a choice of one.
+    [[nodiscard]] bool has_pretrained() const noexcept { return pretrained_.has_value(); }
 
     /// Is a recorded run being played back?
     [[nodiscard]] bool replaying() const noexcept { return replay_.has_value(); }
@@ -107,6 +138,10 @@ class GameWindow : public QVulkanWindow {
     /// Did the agent drive any part of this game? Such a run is never eligible for
     /// the highscore table — those are the human's.
     [[nodiscard]] bool ai_assisted() const noexcept { return ai_assisted_; }
+
+    /// Where a bundled learned policy would be found, or empty if none is.
+    /// Static so the packaging tests can ask without building a window.
+    [[nodiscard]] static std::filesystem::path pretrained_path();
 
     /// Simulation ticks run per frame — 1 is real time, higher fast-forwards.
     [[nodiscard]] int speed() const noexcept { return speed_; }
@@ -138,6 +173,10 @@ class GameWindow : public QVulkanWindow {
     // Options screen (a second centered list): AUDIO / MUSIC / FULLSCREEN + BACK.
     [[nodiscard]] static int options_count() noexcept;
     [[nodiscard]] std::string_view options_label(int index) const;
+
+    // The WATCH AI submenu (a third): SCRIPTED / the model's name / BACK.
+    [[nodiscard]] int watch_count() const noexcept;
+    [[nodiscard]] std::string_view watch_label(int index) const;
 
     [[nodiscard]] bool audio_on() const noexcept { return audio_on_; }
 
@@ -185,6 +224,8 @@ class GameWindow : public QVulkanWindow {
         Resume,
         NewGame,
         WatchAi,
+        WatchScripted,
+        WatchPretrained,
         TrainAi,
         Replays,
         Help,
@@ -200,7 +241,10 @@ class GameWindow : public QVulkanWindow {
     void update_aim(float px, float py);
     void start_game();
     void start_ai_game(); // same, but the scripted agent supplies the actions
-    void end_game();      // termination -> initials entry (if a high score) or game over
+    /// ... and this one, but a learned policy does. `policy` empty means the
+    /// bundled one; `--watch-model` passes a file it has just loaded.
+    void start_model_game(std::optional<agent::Policy> policy = std::nullopt);
+    void end_game(); // termination -> initials entry (if a high score) or game over
     void handle_score_entry(int key); // arcade initials input
     void toggle_fullscreen();
     void toggle_audio();
@@ -210,6 +254,7 @@ class GameWindow : public QVulkanWindow {
     void open_menu();
     void open_options();
     void open_replays();      // scan the runs directory and show what is there
+    void open_watch();        // the WATCH AI submenu: which agent is playing
     void open_console();      // start the training console, if this install has one
     void scrub(int seconds);  // seek the active replay, relative
     void activate(int index); // activate the item at index in the active list
@@ -223,6 +268,17 @@ class GameWindow : public QVulkanWindow {
     /// is a filesystem search and the menu asks on every frame. Empty on a
     /// game-only install, which is what removes the TRAIN AI entry.
     std::optional<console::Command> console_;
+    /// The bundled learned policy, loaded once at startup. Empty until one is
+    /// shipped — see `pretrained_path`.
+    std::optional<agent::Policy> pretrained_;
+    /// Its display name, upper-cased once: the pixel font has no lower case,
+    /// and `watch_label` hands back a view rather than a string.
+    std::string pretrained_label_;
+    /// The policy currently at the controls, and its driver. Held separately
+    /// from `pretrained_` because `--watch-model` can name any file.
+    std::optional<agent::Policy> watched_;
+    std::optional<agent::PolicyDriver> watch_driver_;
+    std::string driver_name_;
     agent::Heuristic agent_{};              // the M4 baseline, used in watch mode
     std::optional<replay::Player> replay_;  // a recorded run being played back
     std::vector<std::string> replay_files_; // paths offered by the REPLAYS screen

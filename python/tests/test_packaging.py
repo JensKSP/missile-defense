@@ -223,6 +223,27 @@ def test_the_installer_offers_the_console_without_preselecting_it() -> None:
     assert app_cmake.count("COMPONENT game") >= 8
 
 
+def test_a_bundled_model_would_ship_with_the_game_and_not_with_the_console() -> None:
+    """The agent is `game`, not `python`, and that is the whole point.
+
+    A `.mdp` is data (docs/API.md §7) and `md::agent::Policy` reads it natively,
+    so playing against a learned agent needs no interpreter. Tagging it `python`
+    would have made the pretrained agent a feature of the *training* package —
+    exactly the coupling the format exists to remove.
+
+    Asserted against the install rules rather than against a staged tree,
+    because no model ships yet: every checkpoint predates the observation
+    encoding's last change. This is the rule waiting for its payload.
+    """
+    cmake = (ROOT / "app" / "CMakeLists.txt").read_text(encoding="utf-8")
+    block = cmake[cmake.index("MD_PRETRAINED") : cmake.index("# ---- Install / packaging")]
+    assert "models/pretrained.mdp" in block
+    assert block.count("COMPONENT game") == 3, "one install rule per platform, all `game`"
+    assert "COMPONENT python" not in block
+    # Optional, or a checkout with no model would fail to configure.
+    assert "if(EXISTS" in block
+
+
 def test_the_console_has_a_desktop_entry_of_its_own() -> None:
     """A separate product gets a separate launcher, or it is not discoverable."""
     entry = (ROOT / "packaging" / "missile-defense-training.desktop").read_text(encoding="utf-8")

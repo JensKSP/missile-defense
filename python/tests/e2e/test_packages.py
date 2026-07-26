@@ -141,6 +141,54 @@ def full_tree(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return prefix
 
 
+@pytest.fixture(scope="module")
+def exported_policy(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """A real `.mdp` to hand the game.
+
+    Built from a deterministic generator rather than from a training run: what
+    is being tested is that the *game* can load and run a policy file with no
+    Python within reach, and a run would make that a slow test of PPO instead.
+    The sizes have to be the simulation's own, though, or the driver refuses —
+    which is the point of the refusal.
+    """
+    torch_free = pytest.importorskip("md.policy_format", reason="numpy is not installed")
+    native = pytest.importorskip("md._md_native", reason="the native binding is not built")
+    import numpy as np  # noqa: PLC0415 — optional dependency
+
+    # From the binding rather than from constants here: the sizes are the
+    # simulation's own and they *move* — this whole fixture exists because a
+    # policy built against the wrong ones is refused, which is correct.
+    spec = native.ObsSpec()
+    observation = int(spec.size)
+    actions = 1 + (int(native.BASE_COUNT) * int(spec.threats))
+
+    rng = np.random.default_rng(20260726)
+    hidden = 8  # small: this is a load-and-run test, not a quality one
+
+    def normal(*shape: int) -> np.ndarray:
+        return (rng.standard_normal(shape) * 0.05).astype(np.float32)
+
+    policy = torch_free.NativePolicy(
+        schema=torch_free.SCHEMA,
+        observation_size=observation,
+        action_count=actions,
+        architecture="mlp",
+        tensors=(
+            torch_free.Tensor("trunk.0.weight", (hidden, observation), normal(hidden, observation)),
+            torch_free.Tensor("trunk.0.bias", (hidden,), normal(hidden)),
+            torch_free.Tensor("trunk.2.weight", (hidden, hidden), normal(hidden, hidden)),
+            torch_free.Tensor("trunk.2.bias", (hidden,), normal(hidden)),
+            torch_free.Tensor("policy_head.weight", (actions, hidden), normal(actions, hidden)),
+            torch_free.Tensor("policy_head.bias", (actions,), normal(actions)),
+            torch_free.Tensor("value_head.weight", (1, hidden), normal(1, hidden)),
+            torch_free.Tensor("value_head.bias", (1,), normal(1)),
+        ),
+        metadata={"display_name": "Bundled Test"},
+    )
+    destination = tmp_path_factory.mktemp("model") / "test.mdp"
+    return torch_free.write(destination, policy)
+
+
 def _pathless_environ(sandbox: Path, tree: Path | None) -> dict[str, str]:
     """The environment of a machine with no Python and no console anywhere.
 
@@ -239,6 +287,92 @@ def test_the_full_install_offers_to_train(full_tree: Path, tmp_path: Path) -> No
     assert_clean(run)
     assert run.report.get("can_train") is True
     assert "TRAIN AI" in run.menu
+
+
+# ---- the bundled agents ------------------------------------------------------
+# Task 3's claim: *the shipped game plays well with the shipped agents, and needs
+# no Python to do it.* Both halves run out of the game-only tree with the
+# interpreter off PATH, because "no Python" is the promise and the developer's
+# machine is the one place it is never tested.
+
+
+@needs_cmake
+@needs_build_tree
+@needs_display
+def test_the_game_only_install_can_watch_the_scripted_agent(
+    game_only_tree: Path, tmp_path: Path
+) -> None:
+    run = run_app(
+        "--watch-scripted",
+        frames=600,
+        sandbox=tmp_path,
+        binary=game_only_tree / STAGED_GAME,
+        environ=_pathless_environ(tmp_path, None),
+    )
+    assert_clean(run)
+    assert run.mode == "watch"
+    # It kills things within a couple of seconds of play, so a zero score here
+    # means the agent is not actually driving.
+    assert run.score > 0
+    # And the screen says which agent it is. Asked for directly: watching two
+    # agents and being unable to tell them apart makes the feature useless.
+    assert run.report.get("driver") == "SCRIPTED"
+
+
+@needs_cmake
+@needs_build_tree
+@needs_display
+def test_a_learned_policy_plays_the_shipped_game_with_no_python_anywhere(
+    game_only_tree: Path, tmp_path: Path, exported_policy: Path
+) -> None:
+    """The other half, and the one that needed all of Tasks 1 and 2 first.
+
+    An `.mdp` exported by Python, loaded and run by a binary that has no
+    interpreter within reach — which is the whole reason the format is data-only
+    and the forward pass is native.
+    """
+    run = run_app(
+        "--watch-model",
+        str(exported_policy),
+        frames=600,
+        sandbox=tmp_path,
+        binary=game_only_tree / STAGED_GAME,
+        environ=_pathless_environ(tmp_path, None),
+    )
+    assert_clean(run)
+    assert run.mode == "watch"
+    assert run.ticks > 0
+    # The model's *name*, out of its own file. Never a path: `policy-best.pt`
+    # says nothing about which run produced it.
+    assert run.report.get("driver") == "Bundled Test"
+
+
+@needs_cmake
+@needs_build_tree
+@needs_display
+def test_a_model_the_game_cannot_run_is_refused_rather_than_swapped_out(
+    game_only_tree: Path, tmp_path: Path
+) -> None:
+    """A refusal, not a silent fall back to the scripted agent.
+
+    Watching the wrong agent and not being told is worse than not watching at
+    all — and after 2026-07-26 this is the common case, not an exotic one: the
+    observation encoding grew a feature and every checkpoint trained before it
+    became unrunnable.
+    """
+    junk = tmp_path / "wrong.mdp"
+    junk.write_bytes(b"MDPOLICY" + bytes(32))
+    run = run_app(
+        "--watch-model",
+        str(junk),
+        frames=60,
+        sandbox=tmp_path,
+        binary=game_only_tree / STAGED_GAME,
+        environ=_pathless_environ(tmp_path, None),
+        expect_report=False,
+    )
+    assert run.exit_code != 0
+    assert "could not load the model" in run.stderr
 
 
 @needs_cmake

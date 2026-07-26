@@ -8,6 +8,8 @@
 
 #include <QCoreApplication>
 #include <QCursor>
+#include <QDir>
+#include <QFileInfo>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QProcess>
@@ -21,6 +23,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
+#include <print>
 #include <system_error>
 
 namespace md {
@@ -34,6 +37,49 @@ GameWindow::GameWindow() {
     // change while the game is running, and it costs a handful of stat() calls.
     console_ = console::command(
         console::machine_lookup(QCoreApplication::applicationFilePath().toStdString()));
+    // The bundled agent, if this build ships one. A missing file is the normal
+    // state today and not an error; a *present but unreadable* one is worth
+    // saying out loud, because it means the package is broken rather than lean.
+    if (const std::filesystem::path bundled = pretrained_path(); !bundled.empty()) {
+        try {
+            pretrained_ = agent::Policy::load(bundled);
+            pretrained_label_ = pretrained_->display_name();
+            std::ranges::transform(
+                pretrained_label_, pretrained_label_.begin(),
+                [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+            if (pretrained_label_.empty()) {
+                pretrained_label_ = "PRETRAINED";
+            }
+        } catch (const agent::Policy::Error& error) {
+            std::println(stderr, "bundled model could not be loaded: {}", error.what());
+        }
+    }
+}
+
+/// Where a bundled learned policy lives, or empty when this build ships none.
+///
+/// Beside the executable on every platform, which is the one layout all three
+/// installers already produce: `md_app.exe` and `models/` in the same directory
+/// on Windows, `Contents/Resources/models` inside the macOS bundle, and
+/// `/usr/share/missile-defense/models` from the Debian package — reached from
+/// `/usr/games/missile-defense` by the relative hop below. A checkout finds the
+/// source tree's own `models/`, so `--watch-model` is not the only way to try
+/// one during development.
+std::filesystem::path GameWindow::pretrained_path() {
+    const QString here = QCoreApplication::applicationDirPath();
+    const std::array<QString, 4> candidates{
+        here + "/models/pretrained.mdp",
+        here + "/../Resources/models/pretrained.mdp",             // macOS bundle
+        here + "/../share/missile-defense/models/pretrained.mdp", // Debian
+        here + "/../../../models/pretrained.mdp", // build/<preset>/app -> the checkout
+    };
+    for (const QString& candidate : candidates) {
+        const QString resolved = QDir::cleanPath(candidate);
+        if (QFileInfo::exists(resolved)) {
+            return std::filesystem::path{resolved.toStdString()};
+        }
+    }
+    return {};
 }
 
 // Persisted via QSettings — QGuiApplication's organization/application name (set
@@ -111,6 +157,10 @@ std::string_view GameWindow::menu_label(int index) const {
         return in_progress_ ? "NEW GAME" : "START";
     case MenuAction::WatchAi:
         return "WATCH AI";
+    case MenuAction::WatchScripted:
+        return "SCRIPTED";
+    case MenuAction::WatchPretrained:
+        return "PRETRAINED";
     case MenuAction::TrainAi:
         return "TRAIN AI";
     case MenuAction::Replays:
@@ -133,6 +183,26 @@ int GameWindow::options_count() noexcept {
     return 4; // AUDIO, MUSIC, FULLSCREEN, BACK
 }
 
+/// The WATCH AI submenu. Two agents and a way back — or, until a model ships,
+/// only the scripted one, in which case WATCH AI never opens this screen at all
+/// (see `activate`). A chooser with one choice on it is a screen that wastes a
+/// keypress and implies a second option exists.
+int GameWindow::watch_count() const noexcept {
+    return pretrained_.has_value() ? 3 : 2;
+}
+
+std::string_view GameWindow::watch_label(int index) const {
+    if (index == 0) {
+        return "SCRIPTED";
+    }
+    if (pretrained_.has_value() && index == 1) {
+        // The model's own display name, never the filename: a path is not a
+        // name. Upper-cased at load, because this font has no lower case.
+        return pretrained_label_;
+    }
+    return "BACK";
+}
+
 std::string_view GameWindow::options_label(int index) const {
     switch (index) {
     case 0:
@@ -147,11 +217,25 @@ std::string_view GameWindow::options_label(int index) const {
 }
 
 int GameWindow::active_count() const noexcept {
-    return state_ == State::Options ? options_count() : menu_count();
+    switch (state_) {
+    case State::Options:
+        return options_count();
+    case State::Watch:
+        return watch_count();
+    default:
+        return menu_count();
+    }
 }
 
 std::string_view GameWindow::active_label(int index) const {
-    return state_ == State::Options ? options_label(index) : menu_label(index);
+    switch (state_) {
+    case State::Options:
+        return options_label(index);
+    case State::Watch:
+        return watch_label(index);
+    default:
+        return menu_label(index);
+    }
 }
 
 // The menu list is laid out inside this band (world-height fractions): clear of
@@ -346,7 +430,9 @@ void GameWindow::start_game() {
     fire_latch_.clear();
     ai_driving_ = false;
     ai_assisted_ = false;
-    replay_.reset(); // a new game is never still playing back a recording
+    replay_.reset();       // a new game is never still playing back a recording
+    watch_driver_.reset(); // ... nor still being driven by the last policy
+    driver_name_.clear();
     speed_ = 1;
 }
 
@@ -359,6 +445,58 @@ void GameWindow::start_ai_game() {
     start_game();
     ai_driving_ = true;
     ai_assisted_ = true; // sticky: taking over later does not make it your score
+    watch_driver_.reset();
+    driver_name_ = "SCRIPTED";
+}
+
+/// The same, with a learned policy at the controls instead.
+///
+/// `watched_` holds the policy and `watch_driver_` the thing that turns an
+/// observation into an `Action` — the *same* `PolicyDriver` the evaluator uses,
+/// so what is on screen is the agent `md_agent_eval` scores and not a second
+/// implementation of it that might steer differently.
+void GameWindow::start_model_game(std::optional<agent::Policy> policy) {
+    if (policy.has_value()) {
+        watched_ = std::move(policy);
+    } else if (pretrained_.has_value()) {
+        watched_ = pretrained_;
+    } else {
+        return;
+    }
+    // Constructed before `start_game`, because a policy trained against a
+    // different observation encoding throws here — and a refusal must not
+    // leave a game running with nobody driving it.
+    // Constructed before `start_game`, because the constructor throws when the
+    // policy was trained against a different observation encoding — and a
+    // refusal must not leave a game running with nobody driving it.
+    agent::PolicyDriver driver{*watched_, ObsSpec{}};
+    start_game(); // clears watch_driver_, so the move below has to follow it
+    driver_name_ = driver.name();
+    watch_driver_ = std::move(driver);
+    ai_driving_ = true;
+    ai_assisted_ = true;
+}
+
+/// `--watch-model <path>`: play a policy from anywhere on disk.
+///
+/// The development and packaging-test path, and the one that makes a promoted
+/// model watchable before it is bundled. A refusal is loud rather than a silent
+/// fall back to the scripted agent: watching the wrong agent and not being told
+/// is worse than not watching at all.
+bool GameWindow::watch_model(const std::string& path) {
+    try {
+        start_model_game(agent::Policy::load(path));
+    } catch (const agent::Policy::Error& error) {
+        std::println(stderr, "could not load the model: {}", error.what());
+        return false;
+    }
+    return true;
+}
+
+/// The WATCH AI submenu, when there is more than one agent to choose between.
+void GameWindow::open_watch() {
+    state_ = State::Watch;
+    menu_index_ = 0;
 }
 
 /// Play back a recorded run — typically an episode a training run dropped on disk.
@@ -500,6 +638,16 @@ void GameWindow::activate(int index) {
         }
         return;
     }
+    if (state_ == State::Watch) {
+        if (index == 0) {
+            start_ai_game();
+        } else if (pretrained_.has_value() && index == 1) {
+            start_model_game();
+        } else {
+            open_menu(); // BACK
+        }
+        return;
+    }
     switch (action_at(index)) {
     case MenuAction::Resume:
         state_ = State::Playing;
@@ -509,7 +657,20 @@ void GameWindow::activate(int index) {
         start_game();
         break;
     case MenuAction::WatchAi:
+        // Straight to the scripted agent when there is nothing else to choose
+        // between; a chooser with one entry on it is a wasted keypress that
+        // also implies a second option exists somewhere.
+        if (pretrained_.has_value()) {
+            open_watch();
+        } else {
+            start_ai_game();
+        }
+        break;
+    case MenuAction::WatchScripted:
         start_ai_game();
+        break;
+    case MenuAction::WatchPretrained:
+        start_model_game();
         break;
     case MenuAction::TrainAi:
         open_console();
@@ -589,7 +750,12 @@ void GameWindow::advance() {
                 continue;
             }
             Action action;
-            if (ai_driving_) {
+            if (watch_driver_.has_value()) {
+                // A learned policy, through the evaluator's own driver — so the
+                // agent on screen is the one `md_agent_eval` scores rather than
+                // a second implementation that might steer differently.
+                action = watch_driver_->act(sim_);
+            } else if (ai_driving_) {
                 // The agent is just another driver: same Action, same Sim::step,
                 // same crosshair and trigger limits a hand is held to.
                 action = agent_.act(sim_);
@@ -647,7 +813,8 @@ void GameWindow::mousePressEvent(QMouseEvent* event) {
                static_cast<float>(event->position().y()));
     switch (state_) {
     case State::Menu:
-    case State::Options: {
+    case State::Options:
+    case State::Watch: {
         const int hit = menu_hit(aim_);
         if (hit >= 0) {
             menu_index_ = hit;
@@ -709,6 +876,7 @@ void GameWindow::keyPressEvent(QKeyEvent* event) {
     switch (state_) {
     case State::Menu:
     case State::Options:
+    case State::Watch:
         if (key == Qt::Key_Up || key == Qt::Key_W) {
             menu_index_ = (menu_index_ + active_count() - 1) % active_count();
         } else if (key == Qt::Key_Down || key == Qt::Key_S) {
@@ -736,10 +904,12 @@ void GameWindow::keyPressEvent(QKeyEvent* event) {
             replay_.reset();
             speed_ = 1;
         } else if (ai_driving_ && key == Qt::Key_T) {
-            // Take over mid-game. The sim is a value and the agent holds no state,
-            // so switching the action source is all it takes — the run simply
-            // continues from here under new management.
+            // Take over mid-game. The sim is a value and neither driver holds
+            // state that outlives a decision, so switching the action source is
+            // all it takes — the run continues from here under new management.
             ai_driving_ = false;
+            watch_driver_.reset();
+            driver_name_.clear();
             speed_ = 1;
         } else if ((ai_driving_ || replay_.has_value()) &&
                    (key == Qt::Key_BracketRight || key == Qt::Key_Plus || key == Qt::Key_Equal)) {

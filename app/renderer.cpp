@@ -639,10 +639,24 @@ void Renderer::startNextFrame() {
             draw_text(inst, "T TAKE OVER   ARROWS SEEK   R RESTART", cx, hint_y, world_h * 0.008f,
                       hint_r, hint_g, hint_b, true);
         }
-        // Watch mode: say plainly who is at the controls, and how to take over.
+        // Watch mode: say plainly *which* agent is at the controls, and how to
+        // take over. The name and not "AI PLAYING": watching two agents and
+        // being unable to tell which one is on screen makes the whole feature
+        // nearly useless, and a path would not help — `policy-best.pt` says
+        // nothing about which run produced it. `driver_name()` comes from the
+        // model's own `.mdp` (docs/ROADMAP.md, M8; docs/API.md §7).
         if (playing && window_->ai_driving()) {
-            draw_text(inst, "AI PLAYING", cx, world_h * 0.955f, world_h * 0.012f, 0.45f, 0.95f,
-                      0.65f, true);
+            // Upper-cased here and not at the source: the report wants the
+            // model's name as its `.mdp` spells it, and this font has no lower
+            // case at all — `glyph_for` returns a blank for one, so "Parity"
+            // would draw as a P and five spaces.
+            std::string banner{window_->driver_name()};
+            std::ranges::transform(banner, banner.begin(), [](unsigned char c) {
+                return static_cast<char>(std::toupper(c));
+            });
+            banner = banner.empty() ? std::string{"AI PLAYING"} : banner + " PLAYING";
+            draw_text(inst, banner, cx, world_h * 0.955f, world_h * 0.012f, 0.45f, 0.95f, 0.65f,
+                      true);
             draw_text(inst, "T TAKE OVER    BRACKETS SPEED", cx, hint_y, world_h * 0.008f, hint_r,
                       hint_g, hint_b, true);
         }
@@ -781,6 +795,20 @@ void Renderer::startNextFrame() {
         }
         draw_text(inst, "ARROWS ENTER OR MOUSE", cx, world_h * 0.09f, world_h * 0.010f, 0.4f, 0.45f,
                   0.5f, true);
+    } else if (state == GameWindow::State::Watch) {
+        // The same centred list as OPTIONS, and deliberately so: this is the
+        // third screen with that shape, and a chooser that looked different
+        // from the other two would read as a different kind of thing.
+        draw_text(inst, "WATCH AI", cx, world_h * 0.88f, world_h * 0.026f, 0.85f, 0.92f, 1.0f,
+                  true);
+        for (int i = 0; i < window_->watch_count(); ++i) {
+            const bool sel = window_->menu_index() == i;
+            const float y = window_->menu_item_top_y(i);
+            draw_text(inst, window_->watch_label(i), cx, y, window_->menu_text_px(),
+                      sel ? 0.95f : 0.45f, sel ? 0.75f : 0.45f, sel ? 0.25f : 0.50f, true);
+        }
+        draw_text(inst, "WHO PLAYS. T TAKES OVER MID GAME", cx, world_h * 0.09f, world_h * 0.010f,
+                  0.4f, 0.45f, 0.5f, true);
     } else if (state == GameWindow::State::Highscores) {
         draw_text(inst, "HIGHSCORES", cx, world_h * 0.90f, world_h * 0.026f, 0.85f, 0.92f, 1.0f,
                   true);

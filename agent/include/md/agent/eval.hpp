@@ -118,10 +118,6 @@ void bin_active_blasts(EpisodeResult& result, std::span<const Blast> blasts) noe
 class Driver {
   public:
     Driver() = default;
-    Driver(const Driver&) = delete;
-    Driver(Driver&&) = delete;
-    Driver& operator=(const Driver&) = delete;
-    Driver& operator=(Driver&&) = delete;
     virtual ~Driver() = default;
 
     /// The candidate action for this tick. `Sim` samples it at the shared player
@@ -138,6 +134,15 @@ class Driver {
     [[nodiscard]] virtual std::string_view name() const noexcept = 0;
 
     static constexpr std::uint32_t no_index = 0xFFFFFFFFu;
+
+  protected:
+    // Protected rather than deleted: a concrete driver may want to be movable —
+    // the game holds one in an `optional` and replaces it when the watched agent
+    // changes — while slicing one through a `Driver&` stays impossible.
+    Driver(const Driver&) = default;
+    Driver(Driver&&) = default;
+    Driver& operator=(const Driver&) = default;
+    Driver& operator=(Driver&&) = default;
 };
 
 /// The M4 baseline as a `Driver`.

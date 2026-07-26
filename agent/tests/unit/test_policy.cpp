@@ -15,7 +15,9 @@
 // The rest is refusals. This reader is handed files a person may have
 // downloaded, so every malformed case is a promise that it throws rather than
 // reading past the end of a buffer.
+#include "md/agent/eval.hpp"
 #include "md/agent/policy.hpp"
+#include "md/observation.hpp"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -219,4 +221,17 @@ TEST_CASE("The failure message names the file and the check", "[unit][agent][pol
         CHECK(message.find("named.mdp") != std::string::npos);
         CHECK(message.find("checksum") != std::string::npos);
     }
+}
+
+TEST_CASE("A policy trained against a different simulation is refused, not run",
+          "[unit][agent][policy]") {
+    // The exact state every checkpoint in this project was in on 2026-07-26: the
+    // observation grew a feature (blast lifetime phase, 64 slots => +64 floats)
+    // and every policy trained before it became unrunnable. Silently feeding one
+    // a shorter observation would give an agent that plays like noise and no
+    // indication why, so the driver refuses at construction — which is also
+    // before the game has started a round nobody is driving.
+    const md::agent::Policy policy = md::agent::Policy::load(fixture("tiny-policy.mdp"));
+    const md::ObsSpec current{}; // the real simulation, far wider than the fixture
+    CHECK_THROWS_AS(md::agent::PolicyDriver(policy, current), md::agent::Policy::Error);
 }

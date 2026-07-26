@@ -479,30 +479,46 @@ and a report showing a game that advanced and scored. Repeat with
 - Modify: `agent/eval_main.cpp`
 - Modify: `core/tests/e2e/` golden/evaluation tests
 
-- [ ] **Step 1: Add failing installed-resource and menu tests**
+- [x] **Step 1: Add failing installed-resource and menu tests**
 
 Assert the release resource exists, validates, and produces the recorded
 canonical score summary. Add menu tests for scripted and learned watch choices
 without changing human high-score eligibility.
 
-- [ ] **Step 2: Verify the focused C++ tests fail**
+- [x] **Step 2: Verify the focused C++ tests fail**
 
 Run: `cmake --build --preset debug && ctest --preset debug -R "policy|menu|eval" --output-on-failure`
 Expected: failures for the missing bundled resource and learned watch action.
 
-- [ ] **Step 3: Promote the release model**
+- [ ] **Step 3: Promote the release model** — *blocked, 2026-07-26*
 
 Export one reviewed checkpoint, generate `pretrained.json` with provenance,
 license, policy schema, simulator version, seed-set version, and canonical
 metrics, then verify it with the Task 2 parity harness.
 
-- [ ] **Step 4: Add game watch selection**
+> **There is nothing to promote.** Every surviving checkpoint declares
+> `obs_size` 1895 and the simulation now encodes 1959: `blast_features` went
+> 4 → 5 (lifetime phase) in `a100aec`, the commit that also moved the baseline
+> to 98,542. That is +64 floats over 64 blast slots, and it makes
+> `runs/{,entity-1024,entity-4096,mlp-measures}` unloadable — there is nothing
+> to re-evaluate, let alone bundle. `md::agent::PolicyDriver` refuses such a
+> policy at construction rather than feeding it a short observation, and
+> `test_policy.cpp` pins that refusal.
+>
+> Everything else in this task is done and the payload is optional by design:
+> `app/CMakeLists.txt` installs `models/pretrained.mdp` under component `game`
+> when it exists, the menu offers the model by name when it loads, and WATCH AI
+> starts the scripted agent directly when it does not. **Promoting a model is
+> one export away** once a run on the current simulation produces one worth
+> shipping — which is training work, and out of this program's scope.
+
+- [x] **Step 4: Add game watch selection**
 
 Turn **WATCH AI** into a choice between **SCRIPTED** and **PRETRAINED**. Add
 `--watch-scripted` and `--watch-model <path>` for package/E2E tests. Both drivers
 must use the same `Action` timing path as human input.
 
-- [ ] **Step 4b: Say on screen who is playing** *(asked for directly, 2026-07-26)*
+- [x] **Step 4b: Say on screen who is playing** *(asked for directly, 2026-07-26)*
 
 While the AI plays, the HUD names the driver — `SCRIPTED` or the model's display
 name — and the game-over screen keeps it, so a watched game is attributable
@@ -517,18 +533,18 @@ model with no display name falls back to its stable ID. `--report` gains the
 same field, which is what lets the e2e assert it rather than a human squinting
 at a screenshot.
 
-- [ ] **Step 5: Install the resource on every platform**
+- [x] **Step 5: Install the resource on every platform**
 
 Embed it in Qt resources or install it beside the executable using one
 cross-platform lookup function. Package tests must locate it from the installed
 layout, not the source tree.
 
-- [ ] **Step 6: Verify game-only behavior**
+- [x] **Step 6: Verify game-only behavior**
 
 Run the Debug and Release E2E suites and a package smoke test that removes Python
 from `PATH`, launches both watch modes, and confirms no training menu entry.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add models app agent core/tests
@@ -1085,8 +1101,12 @@ becomes visible at a glance and comparable across runs.
 ## Program completion checklist
 
 - [ ] Game-only packages contain both bundled agents and no Python/training UI.
-- [ ] While an agent plays, the screen says which one — `SCRIPTED` or the model's
+      *(No Python: done and asserted. **Both agents: the machinery ships, the
+      learned one does not** — no checkpoint survives the observation change in
+      `a100aec`. See Task 3 Step 3.)*
+- [x] While an agent plays, the screen says which one — `SCRIPTED` or the model's
       display name — and runs and models are named by their owner, not by path.
+      *(The HUD half is done; naming **runs** is Task 6.)*
 - [x] Full Windows/macOS packages launch the existing console directly and from
       the game.
 - [x] Debian produces three binary packages from one source.

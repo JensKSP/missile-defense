@@ -135,6 +135,36 @@ if(MD_VULKAN_VALIDATION)
   target_compile_definitions(md_app PRIVATE MD_VULKAN_VALIDATION)
 endif()
 
+# ---- The bundled learned agent -----------------------------------------------
+# `models/pretrained.mdp` ships *with the game* — component `game`, not
+# `python` — because playing against it needs no interpreter at all: it is a
+# data-only file (docs/API.md §7) and `md::agent::Policy` reads it natively.
+# That is the entire reason the format exists.
+#
+# **Optional on purpose.** No model ships today: the observation encoding gained
+# a feature in a100aec and every checkpoint trained before it is unrunnable, so
+# there is nothing honest to bundle until a run on the current simulation
+# produces one. The game handles that state — WATCH AI starts the scripted agent
+# directly rather than offering a choice of one — and this stays a no-op until
+# the file appears. `GameWindow::pretrained_path()` knows these three layouts.
+include(GNUInstallDirs)
+set(MD_PRETRAINED "${CMAKE_SOURCE_DIR}/models/pretrained.mdp")
+if(EXISTS "${MD_PRETRAINED}")
+  message(STATUS "md_app: bundling ${MD_PRETRAINED}")
+  if(WIN32)
+    install(FILES "${MD_PRETRAINED}" DESTINATION models COMPONENT game)
+  elseif(APPLE)
+    # Inside the bundle: nothing beside an .app is guaranteed to travel with it.
+    install(FILES "${MD_PRETRAINED}"
+      DESTINATION "md_app.app/Contents/Resources/models" COMPONENT game)
+  else()
+    install(FILES "${MD_PRETRAINED}"
+      DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/missile-defense/models" COMPONENT game)
+  endif()
+else()
+  message(STATUS "md_app: no models/pretrained.mdp — the game ships the scripted agent only")
+endif()
+
 # ---- Install / packaging -----------------------------------------------------
 # Everything the game installs is tagged `COMPONENT game`, and everything the
 # training half installs is tagged `python` (bindings/CMakeLists.txt and the

@@ -365,6 +365,32 @@ contestants end up measured by two subtly different rulers.
 the flag it is the scripted baseline, exactly as before. `--action-log <file>`
 writes one action index per *sampled decision*.
 
+The game runs the same driver:
+
+```
+md_app --watch-scripted            # the M4 baseline
+md_app --watch-model <file.mdp>    # a learned policy, from anywhere on disk
+```
+
+`--watch-model` **refuses** a file it cannot run rather than falling back to the
+scripted agent, because watching the wrong agent and not being told is worse than
+not watching at all. A policy trained against a different observation encoding is
+one of those refusals, and not a rare one: the encoding gained a feature in
+`a100aec` and every checkpoint written before it is unrunnable.
+
+While an agent plays, the HUD names it — `SCRIPTED`, or the model's `display_name`
+upper-cased for the pixel font — and `--report` carries the same string in its
+`driver` field, so a test can assert who was playing instead of a human squinting
+at a screenshot.
+
+A **bundled** model is `models/pretrained.mdp` in the source tree; `app/CMakeLists.txt`
+installs it beside the executable (`models/` on Windows, `Contents/Resources/models`
+on macOS, `/usr/share/missile-defense/models` on Debian) under component `game`,
+not `python` — playing against a learned agent needs no interpreter, which is the
+entire reason this format exists. It is **optional**: none ships today, and with
+none the WATCH AI menu entry starts the scripted agent directly rather than
+offering a choice of one.
+
 **The observation is per decision, not per tick.** `md::encode` writes the
 current tick's events into the observation's event suffix; a driver that only
 ever encodes on decision ticks is blind to the three ticks in between, where most
