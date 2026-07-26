@@ -33,6 +33,7 @@ import math
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from statistics import fmean, pstdev
 from typing import Generic, TypeVar
 
 #: Files a run writes, relative to its output directory (``--out-dir``).
@@ -325,6 +326,45 @@ def evals_tail(run_dir: Path) -> CsvTail[EvalRow]:
     return CsvTail(run_dir / EVALS_NAME, _eval_row)
 
 
+# ---- peaks ------------------------------------------------------------------
+
+
+class Peak:
+    """The highest a measurement has been, and the update it was there.
+
+    A run is not monotone. PPO peaks and then regresses — a moving target
+    destabilises the critic, entropy collapses — so the newest number is not the
+    best one, and a tile showing only the newest cannot answer "has this run
+    already been better than it is now?". ``md.train`` keeps exactly this for the
+    eval score, because it decides which policy ``policy-best.pt`` is; the
+    console keeps it for the numbers it puts on screen.
+
+    Fed each row as the tail hands it over rather than computed from a curve: the
+    rows arrive once, and a widget is the wrong place to keep a fact about a run.
+    """
+
+    def __init__(self) -> None:
+        self.value: float | None = None
+        self.update: int | None = None
+
+    def offer(self, update: int, value: float | None) -> bool:
+        """Take ``value`` if it beats the peak. True when the peak moved.
+
+        A missing measurement is never a peak: the trainer writes ``nan`` for the
+        mean return until the first episodes finish, and a gap is not a high.
+        """
+        if value is None or (self.value is not None and value <= self.value):
+            return False
+        self.value = value
+        self.update = update
+        return True
+
+    def clear(self) -> None:
+        """Forget it — a different run is writing into this file now."""
+        self.value = None
+        self.update = None
+
+
 # ---- recordings -------------------------------------------------------------
 
 
@@ -477,6 +517,74 @@ def next_run_dir(run_dir: Path) -> Path:
 
 # ---- glanceable formatting --------------------------------------------------
 # Pure, so the console's most-read text is covered by tests rather than by eye.
+
+
+def peak_note(peak: Peak, spec: str) -> str:
+    """``peak 128,900 · update 400`` — the best a tile's number has been.
+
+    Empty until there is one, because a tile that says "peak —" has spent a line
+    to tell you nothing.
+    """
+    if peak.value is None or peak.update is None:
+        return ""
+    return f"peak {spec.format(peak.value)} · update {peak.update:,}"
+
+
+#: The longest window the charts' statistics are taken over. Long enough to see
+#: through PPO's per-update noise, short enough to still mean *lately*.
+RECENT_POINTS = 50
+
+
+def curve_note(values: Sequence[float], value_format: str) -> str:
+    """``μ50 4.61 ±0.31 · Δ +0.42`` — the statistics in a chart's corner.
+
+    Three facts a curve does not give you by being looked at. Where it is *now*
+    net of the noise (μ), how noisy it is (σ, which is what tells you whether a
+    rise is real), and whether it is still moving (Δ: this window's mean against
+    the one before it). The last is the question a training curve is actually
+    asked, and neither the newest point nor the peak can answer it.
+
+    The window is the curve's last half capped at :data:`RECENT_POINTS`, so it
+    says something on the tenth point as well as on the ten-thousandth, and it is
+    *named* in the text: these charts are sampled at different rates — one point
+    per update, one per ``--eval-every`` updates — so "the last 50" is a different
+    span of a run on each of them.
+
+    ``value_format`` is the printf format the chart's own axis is labelled with,
+    so the digits under the plot and the digits beside it agree.
+    """
+    if not values:
+        return ""
+    window = min(RECENT_POINTS, max(len(values) // 2, 1))
+    recent = values[-window:]
+    mean = fmean(recent)
+    parts = [f"μ{window} {value_format % mean} ±{value_format % pstdev(recent)}"]
+    before = values[-2 * window : -window]
+    if before:
+        # Signed explicitly: "0.42" and "-0.42" differ by one character, and which
+        # way a run is going is the whole reason this number is here.
+        change = mean - fmean(before)
+        parts.append(f"Δ {'+' if change >= 0 else '-'}{value_format % abs(change)}")
+    return " · ".join(parts)
+
+
+def readout_note(
+    update: float,
+    value: float,
+    value_format: str,
+    compare_name: str = "",
+    compare_value: float | None = None,
+) -> str:
+    """``update 812 · 4.87 · runs-2 4.51`` — the point under the pointer.
+
+    The *nearest recorded point*, never an interpolation between two: a curve is
+    a sequence of measurements, and inventing a value between them would be the
+    chart making up a number the run never produced.
+    """
+    text = f"update {update:,.0f} · {value_format % value}"
+    if compare_name and compare_value is not None:
+        text += f" · {compare_name} {value_format % compare_value}"
+    return text
 
 
 def human_age(seconds: float) -> str:

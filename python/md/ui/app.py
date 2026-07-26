@@ -113,6 +113,13 @@ class StatTile(QFrame):
         self._caption.setProperty("role", "caption")
         self._value = QLabel("—")
         self._value.setProperty("role", "value")
+        # The best this number has been, under what it is now. A run regresses as
+        # well as improves — PPO peaks and then falls back — so "is this the best
+        # it has managed?" is a real question, and the only other thing that can
+        # answer it is remembering where the curve's high point was.
+        self._peak = QLabel()
+        self._peak.setProperty("role", "note")
+        self._peak.setVisible(False)
         self._note = QLabel(note)
         self._note.setProperty("role", "note")
         # The same number from the run being compared against. A line of its own
@@ -121,8 +128,11 @@ class StatTile(QFrame):
         self._compare = QLabel()
         self._compare.setProperty("role", "note")
         self._compare.setVisible(False)
-        for widget in (self._caption, self._value, self._note, self._compare):
+        for widget in (self._caption, self._value, self._peak, self._note, self._compare):
             layout.addWidget(widget)
+        # Packed to the top, so a tile with no peak line still has its caption and
+        # its number on the same baselines as the ones beside it.
+        layout.addStretch(1)
         self._colour = ""
 
     def set_value(self, text: str, colour: str = theme.TEXT) -> None:
@@ -133,6 +143,11 @@ class StatTile(QFrame):
 
     def set_note(self, text: str) -> None:
         self._note.setText(text)
+
+    def set_peak(self, text: str) -> None:
+        if text != self._peak.text():
+            self._peak.setText(text)
+        self._peak.setVisible(bool(text))
 
     def set_compare(self, text: str) -> None:
         if text != self._compare.text():
@@ -185,6 +200,12 @@ class Console(QMainWindow):
         self._updates = 0
         self._last_metric: MetricRow | None = None
         self._last_eval: EvalRow | None = None
+        #: The high-water mark of each headline number, so a tile says what the
+        #: run has *managed* and not only what it is doing this second. Per run,
+        #: so they are made here with everything else that re-attaching resets.
+        self._peak_score = sources.Peak()
+        self._peak_return = sources.Peak()
+        self._peak_entropy = sources.Peak()
         #: Every eval, by the update it scored. A checkpoint is described by the
         #: evaluation at *its* update, which is not always the newest one.
         self._eval_rows: dict[int, EvalRow] = {}
@@ -192,6 +213,7 @@ class Console(QMainWindow):
             curve.clear()
         for tile in (self._tile_update, self._tile_score, self._tile_return, self._tile_entropy):
             tile.set_value("—")
+            tile.set_peak("")
 
         self.setWindowTitle(f"Missile Command — training console · {run_dir}")
         self._refresh_model()  # not on the next rescan: it would be the old run's
@@ -423,12 +445,19 @@ class Console(QMainWindow):
                 curve.clear()
             self._updates = 0
             self._last_metric = None
+            self._peak_return.clear()
+            self._peak_entropy.clear()
             for tile in (self._tile_update, self._tile_return, self._tile_entropy):
                 tile.set_value("—")
+                tile.set_peak("")
         for row in batch.rows:
             self._return.append(row.update, row.mean_return)
             self._entropy.append(row.update, row.entropy)
             self._value.append(row.update, row.value_loss)
+            # Every row, not only the last of the batch: a poll can carry a
+            # hundred updates, and the peak is often not in the newest one.
+            self._peak_return.offer(row.update, row.mean_return)
+            self._peak_entropy.offer(row.update, row.entropy)
             self._updates += 1
         if not batch.rows:
             return
@@ -438,6 +467,8 @@ class Console(QMainWindow):
         self._tile_update.set_note(f"{row.samples:,} samples")
         self._tile_return.set_value(_number(row.mean_return, "{:,.1f}"))
         self._tile_entropy.set_value(_number(row.entropy, "{:.3f}"))
+        self._tile_return.set_peak(sources.peak_note(self._peak_return, "{:,.1f}"))
+        self._tile_entropy.set_peak(sources.peak_note(self._peak_entropy, "{:.3f}"))
 
     def _read_evals(self) -> None:
         batch = self._evals.poll()
@@ -445,12 +476,16 @@ class Console(QMainWindow):
             self._score.clear()
             self._last_eval = None
             self._eval_rows.clear()
+            self._peak_score.clear()
             self._tile_score.set_value("—")
+            self._tile_score.set_peak("")
         for row in batch.rows:
             self._score.append(row.update, row.mean_score)
             self._eval_rows[row.update] = row
+            self._peak_score.offer(row.update, row.mean_score)
         if not batch.rows:
             return
+        self._tile_score.set_peak(sources.peak_note(self._peak_score, "{:,.0f}"))
         row = self._last_eval = batch.rows[-1]
         delta = row.mean_score - BASELINE_MEAN_SCORE
         ahead = delta > 0

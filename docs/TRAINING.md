@@ -145,6 +145,25 @@ count, the observation and action sizes and a line per layer, read out of
 torch, and the console deliberately cannot. Beside it, which checkpoint is newest
 and what it scored.
 
+Each headline number carries the **peak** it has reached and the update it
+reached it on, under the value it is at now. A run is not monotone — PPO peaks
+and then falls back, which is exactly why the trainer keeps a `policy-best.pt`
+separate from the final one — so "is this the best it has managed?" is a real
+question, and the eval score's peak is the score that checkpoint holds. Entropy's
+peak is almost always its first update, which is its own kind of useful: it is
+the number the collapse is measured from.
+
+In the corner of each chart is the same curve as statistics: `μ50 4.61 ±0.31 ·
+Δ +0.42` — the mean and spread of the last 50 points, and how that mean compares
+with the 50 before it. The window is the curve's last half up to 50 points and is
+named in the text, because the charts are sampled at different rates: one point
+per update for the diagnostics, one per `--eval-every` for the score. σ is what
+says whether a rise is real, and Δ answers the question a training curve is
+actually asked — *is it still going up?* — which neither the newest point nor the
+peak can. **Hover any chart** and a chip reports the point under the pointer
+(`update 400 · 1.32`), the nearest recorded one rather than an interpolation,
+with the compared run's value beside it when there is one.
+
 The dropdown beside the title lists the runs inside and beside the directory you
 opened, so `poe ui` on a `runs/` full of experiments is enough: pick one and every
 panel follows. Which is also how you flip between an experiment and the run it is

@@ -20,23 +20,35 @@ eye across a gap, and the question being asked — "did that change help?" — i
 answered by whether one line is above the other. It is drawn in the same colour
 at a third of the opacity, so it reads as *this metric, the other run* rather
 than as a fourth thing on the plot.
+
+Two things are written over the plot rather than beside it, because both are
+about the curve and a curve read from across the room has no room for a legend:
+a **footnote** in the corner with the statistics the shape alone does not give
+you (`md.ui.sources.curve_note`), and a **readout** that follows the pointer
+with the value it is over. The arithmetic for both is in `sources`, which has no
+Qt in it and is therefore tested; this file only places the labels.
 """
 
 from __future__ import annotations
 
+import bisect
 import math
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
-from PySide6.QtCore import QMargins, QPointF, Qt
-from PySide6.QtGui import QColor, QFont, QPainter, QPen, QResizeEvent
+from PySide6.QtCore import QEvent, QMargins, QPointF, Qt
+from PySide6.QtGui import QColor, QFont, QMouseEvent, QPainter, QPen, QResizeEvent
 from PySide6.QtWidgets import QLabel, QWidget
 
-from . import theme
+from . import sources, theme
 
 #: Out of 255. Enough to follow the line, faint enough that the attached run is
 #: unambiguously the subject.
 COMPARISON_ALPHA = 90
+
+#: How much of a chart's width the corner footnote may take before it starts
+#: dropping its last statistic. The title has the rest of that row.
+STATS_WIDTH = 0.58
 
 
 class CurveView(QChartView):
@@ -63,6 +75,7 @@ class CurveView(QChartView):
         # gap between the curve and the baseline is the thing being read, and an
         # axis that crops to the data would hide how big it is.
         self._from_zero = from_zero
+        self._value_format = value_format
         self._x_min = 0.0
         self._x_max = 0.0
         self._y_min = 0.0
@@ -71,6 +84,16 @@ class CurveView(QChartView):
         self._last: float | None = None
         self._baseline: float | None = None
         self._x_hint = 0.0
+        # The points, again, beside the series that draws them. Qt hands its own
+        # copy back as a list of QPointF, which is a copy of the whole run every
+        # time the pointer moves; these are what the footnote is computed from
+        # and what a hover is snapped to, and both want plain floats.
+        self._xs: list[float] = []
+        self._ys: list[float] = []
+        self._compare_xs: list[float] = []
+        self._compare_ys: list[float] = []
+        #: The footnote at full length, before it is trimmed to the chart's width.
+        self._full_stats = ""
 
         self._series = QLineSeries()
         self._series.setName(series_name or title)
@@ -97,6 +120,17 @@ class CurveView(QChartView):
         self._baseline_series.setPen(pen)
         self._baseline_series.setVisible(False)
 
+        # Where the pointer is, in the plot's own units — a vertical hairline at
+        # the point the readout is reporting. Without it the chip says "update
+        # 812" and you have to trust it; with it, you can see which point it means.
+        self._crosshair = QLineSeries()
+        hair = QColor(theme.MUTED)
+        hair.setAlpha(110)
+        pen = QPen(hair, 1.0)
+        pen.setStyle(Qt.PenStyle.DashLine)
+        self._crosshair.setPen(pen)
+        self._crosshair.setVisible(False)
+
         self._chart = QChart()
         self._chart.setBackgroundBrush(QColor(theme.PANEL))
         self._chart.setBackgroundRoundness(6.0)
@@ -110,6 +144,7 @@ class CurveView(QChartView):
         self._chart.legend().setLabelColor(QColor(theme.MUTED))
         self._chart.legend().setFont(_caption_font())
         self._chart.addSeries(self._baseline_series)
+        self._chart.addSeries(self._crosshair)
         self._chart.addSeries(self._compare)  # under the attached run, not over it
         self._chart.addSeries(self._series)
 
@@ -117,26 +152,40 @@ class CurveView(QChartView):
         self._y_axis = _axis(value_format)
         self._chart.addAxis(self._x_axis, Qt.AlignmentFlag.AlignBottom)
         self._chart.addAxis(self._y_axis, Qt.AlignmentFlag.AlignLeft)
-        for series in (self._series, self._baseline_series, self._compare):
+        for series in (self._series, self._baseline_series, self._compare, self._crosshair):
             series.attachAxis(self._x_axis)
             series.attachAxis(self._y_axis)
         self._show_compare_marker(False)
+        for marker in self._chart.legend().markers(self._crosshair):
+            marker.setVisible(False)  # the pointer is not one of the run's series
 
         self.setChart(self._chart)
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.setFrameShape(QChartView.Shape.NoFrame)
+        # Moves with no button held are what a hover is; a QGraphicsView delivers
+        # them through its viewport, so both have to be asked for them.
+        self.setMouseTracking(True)
+        self.viewport().setMouseTracking(True)
 
         # An empty panel says nothing; this says what is missing and what to do.
         self._placeholder = QLabel("", self)
         self._placeholder.setProperty("role", "placeholder")
         self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # The footnote in the corner, and the chip that follows the pointer. Both
+        # are children of the view, drawn over the plot; both are transparent to
+        # the mouse, or the chip would steal the very moves that position it.
+        self._stats = _overlay("stat", self)
+        self._readout = _overlay("readout", self)
         self._rescale()
+        self._refresh_stats()
 
     # ---- data ---------------------------------------------------------------
     def append(self, x: float, y: float | None) -> None:
         if y is None:
             return
         self._series.append(x, y)
+        self._xs.append(x)
+        self._ys.append(y)
         self._last = y
         self._count += 1
         if self._count == 1:
@@ -146,6 +195,7 @@ class CurveView(QChartView):
             self._x_min, self._x_max = min(self._x_min, x), max(self._x_max, x)
             self._y_min, self._y_max = min(self._y_min, y), max(self._y_max, y)
         self._rescale()
+        self._refresh_stats()
 
     def extend(self, points: Iterable[tuple[float, float | None]]) -> None:
         for x, y in points:
@@ -168,6 +218,8 @@ class CurveView(QChartView):
         if y is None:
             return
         self._compare.append(x, y)
+        self._compare_xs.append(x)
+        self._compare_ys.append(y)
         self._compare_count += 1
         if self._compare_count == 1:
             self._compare_min = self._compare_max = y
@@ -178,6 +230,8 @@ class CurveView(QChartView):
 
     def clear_comparison(self) -> None:
         self._compare.clear()
+        self._compare_xs.clear()
+        self._compare_ys.clear()
         self._compare_count = 0
         self._rescale()
 
@@ -213,9 +267,13 @@ class CurveView(QChartView):
     def clear(self) -> None:
         """Forget every point — the run's file was replaced by a new one."""
         self._series.clear()
+        self._xs.clear()
+        self._ys.clear()
         self._count = 0
         self._last = None
+        self._hide_readout()
         self._rescale()
+        self._refresh_stats()
 
     def set_placeholder(self, text: str) -> None:
         """What to say instead of an empty plot. Empty text says nothing at all."""
@@ -227,6 +285,89 @@ class CurveView(QChartView):
     @property
     def last_value(self) -> float | None:
         return self._last
+
+    # ---- the footnote -------------------------------------------------------
+    def _refresh_stats(self) -> None:
+        """Recompute the corner statistics; lay them out only when they changed."""
+        text = sources.curve_note(self._ys, self._value_format)
+        if text != self._full_stats:
+            self._full_stats = text
+            self._place_stats()
+
+    def _place_stats(self) -> None:
+        """Over the plot's top right, shortened rather than run into the title.
+
+        The footnote is the first thing to give way when the chart is narrow —
+        the last statistic is dropped, then the whole label. A curve whose title
+        is half-covered is worse off than a curve with no footnote.
+        """
+        parts = self._full_stats.split(" · ") if self._full_stats else []
+        room = int(self.width() * STATS_WIDTH)
+        while parts and self._stats.fontMetrics().horizontalAdvance(" · ".join(parts)) > room:
+            parts.pop()
+        self._stats.setText(" · ".join(parts))
+        self._stats.adjustSize()
+        self._stats.setVisible(bool(parts))
+        # Against the plot's own right edge rather than the widget's, so it lines
+        # up with the axis it is describing and stays on the panel.
+        area = self._chart.plotArea()
+        if area.isEmpty():  # before the first layout there is no plot to sit over
+            self._stats.move(max(self.width() - self._stats.width() - 12, 0), 4)
+            return
+        corner = self.mapFromScene(self._chart.mapToScene(area.topRight()))
+        self._stats.move(
+            max(corner.x() - self._stats.width(), 4),
+            max(corner.y() - self._stats.height() - 4, 2),
+        )
+
+    # ---- the pointer --------------------------------------------------------
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:  # noqa: N802 — Qt's name
+        super().mouseMoveEvent(event)
+        self._read_at(event.position())
+
+    def leaveEvent(self, event: QEvent) -> None:  # noqa: N802 — Qt's name
+        super().leaveEvent(event)
+        self._hide_readout()
+
+    def _read_at(self, position: QPointF) -> None:
+        """Report the recorded point nearest the pointer — and only inside the plot.
+
+        Over the axes, the title or an empty chart there is nothing to report, and
+        a chip that lingers there would be reporting the last place it *was*.
+        """
+        if not self._xs:
+            self._hide_readout()
+            return
+        point = self._chart.mapFromScene(self.mapToScene(position.toPoint()))
+        if not self._chart.plotArea().contains(point):
+            self._hide_readout()
+            return
+        index = _nearest(self._xs, self._chart.mapToValue(point, self._series).x())
+        x, y = self._xs[index], self._ys[index]
+        # The other run at the same update, when there is one: "did that change
+        # help?" is asked of a place on the curve, not only of the two curves.
+        other = self._compare_ys[_nearest(self._compare_xs, x)] if self._compare_xs else None
+        self._readout.setText(
+            sources.readout_note(x, y, self._value_format, self._compare.name(), other)
+        )
+        self._readout.adjustSize()
+        self._readout.move(*self._chip_at(position))
+        self._readout.setVisible(True)
+        self._crosshair.replace([QPointF(x, self._y_axis.min()), QPointF(x, self._y_axis.max())])
+        self._crosshair.setVisible(True)
+
+    def _chip_at(self, position: QPointF) -> tuple[int, int]:
+        """Up and to the right of the pointer, but never off the widget."""
+        size = self._readout.size()
+        x = min(int(position.x()) + 14, self.width() - size.width() - 6)
+        y = int(position.y()) - size.height() - 8
+        if y < 4:  # against the top edge it goes under the pointer instead
+            y = int(position.y()) + 16
+        return max(x, 6), y
+
+    def _hide_readout(self) -> None:
+        self._readout.setVisible(False)
+        self._crosshair.setVisible(False)
 
     # ---- layout -------------------------------------------------------------
     def _rescale(self) -> None:
@@ -266,6 +407,8 @@ class CurveView(QChartView):
     def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802 — Qt's name
         super().resizeEvent(event)
         self._centre_placeholder()
+        self._place_stats()  # a narrower chart may have room for one statistic less
+        self._hide_readout()  # the plot moved out from under the pointer
 
     def _centre_placeholder(self) -> None:
         """A card in the middle of the plot, sized to its text, not a curtain."""
@@ -329,6 +472,33 @@ def _axis(label_format: str) -> QValueAxis:
     axis.setLinePen(QPen(QColor(theme.EDGE), 1.0))
     axis.setMinorGridLineVisible(False)
     return axis
+
+
+def _nearest(xs: Sequence[float], x: float) -> int:
+    """Index of the point closest to ``x``.
+
+    A binary search rather than a scan: this runs on every mouse move, over every
+    update a run has produced, on four charts at once.
+    """
+    index = bisect.bisect_left(xs, x)
+    if index <= 0:
+        return 0
+    if index >= len(xs):
+        return len(xs) - 1
+    return index if xs[index] - x < x - xs[index - 1] else index - 1
+
+
+def _overlay(role: str, parent: QWidget) -> QLabel:
+    """A label drawn over the plot that the pointer passes straight through.
+
+    Transparent to the mouse because both of these follow or sit near the pointer,
+    and a child widget under it would swallow the very moves that place it.
+    """
+    label = QLabel("", parent)
+    label.setProperty("role", role)
+    label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+    label.setVisible(False)
+    return label
 
 
 def _caption_font() -> QFont:

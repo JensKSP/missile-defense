@@ -17,8 +17,11 @@ from md.ui.sources import (
     BASELINE_MEAN_SCORE,
     MAX_RUN_CHOICES,
     NO_CHECKPOINTS,
+    RECENT_POINTS,
     EvalRow,
+    Peak,
     checkpoint_note,
+    curve_note,
     evals_tail,
     find_runs,
     human_age,
@@ -29,6 +32,8 @@ from md.ui.sources import (
     log_tail,
     metrics_tail,
     next_run_dir,
+    peak_note,
+    readout_note,
     run_choices,
 )
 
@@ -378,3 +383,75 @@ def test_a_fresh_run_in_the_same_directory_restarts_the_log(tmp_path: Path) -> N
     batch = tail.poll()
     assert batch.restarted
     assert batch.rows == ("update 1",)
+
+
+# ---- what the numbers say ----------------------------------------------------
+# The tiles' peak line and the charts' footnote: the console's own arithmetic,
+# tested here rather than read off a screenshot.
+
+
+def test_a_peak_is_the_best_value_and_the_update_it_was_on() -> None:
+    peak = Peak()
+    assert peak.offer(50, 91_000.0)
+    assert not peak.offer(100, 88_400.0)  # a run regresses; the peak does not move
+    assert peak.offer(150, 118_900.0)
+    assert (peak.value, peak.update) == (118_900.0, 150)
+
+
+def test_a_missing_measurement_is_never_a_peak() -> None:
+    # The trainer writes nan for the mean return until the first episodes finish,
+    # and a gap in the curve is not a high point in it.
+    peak = Peak()
+    assert not peak.offer(1, None)
+    assert peak_note(peak, "{:,.1f}") == ""
+
+    peak.offer(2, 4.87)
+    assert not peak.offer(3, None)
+    assert (peak.value, peak.update) == (4.87, 2)
+
+
+def test_a_peak_is_forgotten_when_another_run_writes_into_the_file() -> None:
+    peak = Peak()
+    peak.offer(400, 128_900.0)
+    peak.clear()
+    assert peak_note(peak, "{:,.0f}") == ""
+
+
+def test_the_peak_note_names_the_value_and_its_update() -> None:
+    peak = Peak()
+    peak.offer(400, 128_900.0)
+    assert peak_note(peak, "{:,.0f}") == "peak 128,900 · update 400"
+
+
+def test_a_curve_with_no_points_has_nothing_to_say() -> None:
+    assert curve_note([], "%.2f") == ""
+
+
+def test_the_curve_note_averages_the_recent_half_and_names_the_window() -> None:
+    # Four points: the window is the last two, and it says so — these charts are
+    # sampled at different rates, so "the last 50" is not a fixed span of a run.
+    assert curve_note([1.0, 3.0, 5.0, 7.0], "%.2f") == "μ2 6.00 ±1.00 · Δ +4.00"
+
+
+def test_the_curve_note_window_stops_growing_at_the_cap() -> None:
+    note = curve_note([1.0] * (4 * RECENT_POINTS), "%.1f")
+    assert note.startswith(f"μ{RECENT_POINTS} 1.0 ±0.0")
+
+
+def test_the_curve_note_signs_a_fall_as_well_as_a_rise() -> None:
+    assert curve_note([9.0, 9.0, 4.0, 4.0], "%.1f").endswith("Δ -5.0")
+
+
+def test_a_curve_too_short_to_compare_two_windows_shows_no_change() -> None:
+    assert curve_note([4.87], "%.2f") == "μ1 4.87 ±0.00"
+
+
+def test_the_readout_names_the_point_it_snapped_to() -> None:
+    assert readout_note(812, 4.8712, "%.2f") == "update 812 · 4.87"
+
+
+def test_the_readout_carries_the_compared_run_when_there_is_one() -> None:
+    assert readout_note(812, 4.87, "%.2f", "runs-2", 4.51) == "update 812 · 4.87 · runs-2 4.51"
+    # Named but with nothing at that update: the other run says nothing, and the
+    # readout does not invent a value for it.
+    assert readout_note(812, 4.87, "%.2f", "runs-2", None) == "update 812 · 4.87"

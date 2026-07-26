@@ -89,6 +89,24 @@ def stylesheet() -> str:
         color: {MUTED};
         font-size: 11px;
     }}
+    /* The statistics in a chart's corner: a footnote to the curve, so it is the
+       smallest text in the window and never competes with the line itself. */
+    QLabel[role="stat"] {{
+        color: {MUTED};
+        font-family: {MONO};
+        font-size: 10px;
+    }}
+    /* The value under the pointer. A chip that has to stay readable over the
+       curve it is floating on, so unlike the footnote it carries a background. */
+    QLabel[role="readout"] {{
+        color: {TEXT};
+        font-family: {MONO};
+        font-size: 11px;
+        background: {PANEL};
+        border: 1px solid {EDGE};
+        border-radius: 4px;
+        padding: 3px 6px;
+    }}
     QLabel[role="placeholder"] {{
         color: {MUTED};
         font-size: 12px;
