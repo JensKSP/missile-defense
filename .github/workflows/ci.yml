@@ -57,6 +57,67 @@ jobs:
           path: build/release/*.deb
 
 
+  wheel:
+    # `pip install .` end to end: the Python half is packaged by
+    # scikit-build-core, which compiles the extension through the same CMake
+    # tree, so the way this breaks is a build that succeeds and installs an `md`
+    # whose first import fails. Installed into a venv *outside* the checkout and
+    # imported from there — from inside it, `python/md` on the path would make a
+    # wheel missing the module look fine.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build g++ python3 python3-venv python3-pip
+
+      - name: Build and install the wheel
+        run: |
+          python3 -m venv /tmp/wheelenv
+          /tmp/wheelenv/bin/pip install --quiet build
+          /tmp/wheelenv/bin/python -m build --wheel --outdir /tmp/dist .
+          /tmp/wheelenv/bin/pip install --quiet /tmp/dist/*.whl
+
+      - name: The environment works from an installed package
+        working-directory: /tmp
+        run: |
+          /tmp/wheelenv/bin/python - <<'PY'
+          import numpy as np
+          from md.env import VecEnv
+          env = VecEnv(num_envs=4, threads=1)
+          print("obs", env.observations.shape, "actions", env.action_count)
+          env.step(np.zeros(4, dtype=np.int32))
+          PY
+
+      - name: Both commands explain themselves without their optional half
+        working-directory: /tmp
+        run: |
+          # Neither torch nor PySide6 is installed here, on purpose: what is
+          # being checked is that each says so rather than raising out of an
+          # import (docs/PACKAGING.md).
+          ! /tmp/wheelenv/bin/md-train --updates 1 2>&1 | tee /tmp/train.log
+          grep -q "pip install torch" /tmp/train.log
+          ! /tmp/wheelenv/bin/md-console 2>&1 | tee /tmp/console.log
+          grep -q "pip install PySide6" /tmp/console.log
+
+  quick-start:
+    # The README's own commands, extracted from the page and run on a clean
+    # Debian. It is the first thing a stranger types and the one page nobody
+    # with the packages already installed can see is broken (tools/quickstart.py
+    # says which two lines it rewrites and why).
+    runs-on: ubuntu-24.04
+    container: debian:trixie
+    steps:
+      - name: Tools the README assumes you already have
+        run: |
+          apt-get update
+          apt-get install -y git ca-certificates python3
+      - uses: actions/checkout@v4
+      - name: Run it
+        run: python3 -m tools.quickstart --source "$GITHUB_WORKSPACE"
+
   artifacts:
     # The .dmg, the Windows installer and both .debs, from the same definition
     # release.yml uses. Sharing it is the point: a release cannot ship something

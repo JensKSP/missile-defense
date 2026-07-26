@@ -62,3 +62,34 @@ target_link_libraries(_md_native PRIVATE md::rl)
 # generated glue trips several of them, and they are not our code to fix.
 set_target_properties(_md_native PROPERTIES
   LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/python/md")
+
+# ---- Installing it -----------------------------------------------------------
+# Until now the module only ever landed in the build tree, which is right for
+# in-place development (`poe bindings` copies it beside the package) and leaves
+# nothing for a *package* to install. Both consumers want the same thing in
+# different places, so the destination is a variable:
+#
+#   scikit-build-core  takes the install tree as the wheel root, so the default
+#                      `md` puts the module inside the package.
+#   debian/rules       passes an absolute dist-packages path.
+#
+# STABLE_ABI above is what makes this worth installing at all: the object is
+# abi3, so it survives the distribution's Python moving a minor version and does
+# not have to be rebuilt in lockstep with it (docs/PACKAGING.md).
+set(MD_PYTHON_INSTALL_DIR "md" CACHE STRING
+    "Where `cmake --install` puts _md_native (relative to the prefix, or absolute)")
+
+# COMPONENT is repeated inside each artifact clause rather than written once at
+# the end. A trailing COMPONENT after per-artifact destinations binds only to the
+# clause before it, so the one form that looks tidiest quietly files the module
+# under "Unspecified" and `--component python` installs the stub alone.
+install(TARGETS _md_native
+        LIBRARY DESTINATION "${MD_PYTHON_INSTALL_DIR}" COMPONENT python
+        RUNTIME DESTINATION "${MD_PYTHON_INSTALL_DIR}" COMPONENT python)
+
+# The stub travels with the extension rather than with the .py sources: it
+# describes *this* module, and a package that installs one without the other
+# leaves an editor with no idea what `_md_native` exposes.
+install(FILES "${CMAKE_SOURCE_DIR}/python/md/_md_native.pyi"
+        DESTINATION "${MD_PYTHON_INSTALL_DIR}"
+        COMPONENT python)

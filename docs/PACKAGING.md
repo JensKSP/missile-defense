@@ -155,18 +155,42 @@ makes the torch story below work.
 3. It keeps `apt install python3-md` cheap for someone who only wants the
    environment to run their own agent against.
 
-The price is that a missing torch must be *explained* rather than raised: the
-console already checks with `importlib.util.find_spec` and disables Start with a
-reason (`md.ui.runner.can_train`), and `md-train` should do the same before it
-imports anything heavy.
+The price is that a missing torch must be *explained* rather than raised, and
+both commands now do. The console checks with `importlib.util.find_spec` and
+disables Start with a reason (`md.ui.runner.can_train`); `md-train` goes through
+`md.cli`, which checks before importing anything heavy and names the `pip
+install` that would fix it. CI installs the wheel into a venv with neither
+package and asserts both messages, because the failure being avoided is one that
+only appears where the optional half is absent — which is never a developer's
+machine.
+
+## What is pip-installable today
+
+`pip install .` works, and produces an `md` that can `import _md_native`:
+
+| Piece | Where |
+|---|---|
+| build backend | `scikit-build-core` — compiles the extension through this same CMake tree, with `MD_BUILD_APP=OFF`, so a NumPy array does not cost a Vulkan SDK |
+| the package | `wheel.packages = ["python/md"]` |
+| the extension | `install(TARGETS _md_native …)` in `bindings/CMakeLists.txt`, into `${MD_PYTHON_INSTALL_DIR}` — `md` by default, an absolute `dist-packages` path for a distribution build |
+| commands | `md-train` → `md.cli:train`, `md-console` → `md.ui.__main__:main` |
+| extras | `[train]` = torch, `[console]` = PySide6 + psutil; neither is ever required |
+
+`STABLE_ABI` is what makes the installed object worth keeping: it is `abi3`, so
+it survives the distribution's Python moving a minor version instead of having
+to be rebuilt in lockstep with it.
+
+That was the blocker under everything below — there was no build backend at all,
+so nothing here was installable and `pybuild` had nothing to invoke.
 
 ## Checklist for the day this is published
 
 * `debian/control`: the three binary packages above, `dh-python`/`pybuild` for the
   Python one, `${python3:Depends}` and `${shlibs:Depends}` on the extension.
-* `debian/rules`: build with `-DMD_BUILD_BINDINGS=ON`, install the module into
-  `dist-packages` (it currently lands in the build tree for in-place development
-  only — `bindings/CMakeLists.txt` has no `install()` rule).
+* `debian/rules`: build with `-DMD_BUILD_BINDINGS=ON` and
+  `-DMD_PYTHON_INSTALL_DIR=/usr/lib/python3/dist-packages/md`, then
+  `dh_auto_install` the `python` component. ✅ the install rule exists; what is
+  left is the `debian/` side of it.
 * A `README.Debian` for `missile-defense-training` carrying the venv recipe above.
 * `debian/copyright` extended for the Python sources and for miniaudio, which is
   fetched at build time when `libminiaudio-dev` is absent.
