@@ -312,6 +312,7 @@ class Console(QMainWindow):
         self._library.opened.connect(self._open_run)
         self._league = LeagueView()
         self._league.watch.connect(self._watch_model)
+        self._league.show_match.connect(self._watch_match)
         split.addWidget(self._library)
         split.addWidget(self._league)
         split.setStretchFactor(0, 3)
@@ -385,6 +386,13 @@ class Console(QMainWindow):
         """
         try:
             self._launcher.launch_model(policy)
+        except AppNotFound as error:
+            QMessageBox.warning(self, "The game is not built", str(error))
+
+    def _watch_match(self, manifest: Path) -> None:
+        """Open a head-to-head split-screen — the league's `Watch the match`."""
+        try:
+            self._launcher.launch_match(manifest)
         except AppNotFound as error:
             QMessageBox.warning(self, "The game is not built", str(error))
 

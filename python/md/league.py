@@ -172,6 +172,16 @@ def load_model(path: Path) -> Model | None:
     )
 
 
+def matches_dir(root: Path | None = None) -> Path:
+    """Where recorded matches live: a `matches/` sibling of the league.
+
+    Beside the models rather than inside one, because a match belongs to two of
+    them and putting it under either would make deleting that one take the
+    comparison with it. Creates nothing.
+    """
+    return (paths.models_dir() if root is None else root).parent / "matches"
+
+
 def models(root: Path | None = None) -> list[Model]:
     """Every promoted model, newest first."""
     directory = paths.models_dir() if root is None else root

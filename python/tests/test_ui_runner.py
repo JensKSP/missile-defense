@@ -204,7 +204,36 @@ def test_replaying_builds_the_command_the_app_expects(tmp_path: Path) -> None:
     assert cwd == tmp_path
 
 
+def test_every_way_of_opening_the_game_builds_its_own_command(tmp_path: Path) -> None:
+    # Three flags, one spawn. They were three copies of the same twenty lines,
+    # and the "is it built?" message — the part a person actually reads — is
+    # exactly the kind of thing that drifts between copies.
+    binary = _build_app(tmp_path)
+    spawn = FakeSpawn()
+    launcher = ReplayLauncher(root=tmp_path, environ={}, spawn=spawn)
+
+    launcher.launch_model(tmp_path / "models" / "aaaa" / "policy.mdp")
+    launcher.launch_match(tmp_path / "matches" / "a-b" / "match.json")
+
+    assert [call[0][1] for call in spawn.calls] == ["--watch-model", "--match"]
+    assert spawn.calls[-1][0] == [
+        str(binary),
+        "--match",
+        str(tmp_path / "matches" / "a-b" / "match.json"),
+    ]
+
+
 def test_an_unbuilt_game_says_how_to_build_it(tmp_path: Path) -> None:
+    launcher = ReplayLauncher(root=tmp_path, environ={"PATH": str(tmp_path)}, spawn=FakeSpawn())
+    # Every entry point, not just the first: an unbuilt game is the normal state
+    # of a console-only install, and each of these is somebody's first click.
+    with pytest.raises(AppNotFound, match="cmake --build"):
+        launcher.launch_match(tmp_path / "match.json")
+    with pytest.raises(AppNotFound, match="cmake --build"):
+        launcher.launch_model(tmp_path / "policy.mdp")
+
+
+def test_an_unbuilt_game_says_how_to_build_it_for_replays(tmp_path: Path) -> None:
     launcher = ReplayLauncher(root=tmp_path, environ={"PATH": str(tmp_path)}, spawn=FakeSpawn())
     with pytest.raises(AppNotFound, match="cmake --build"):
         launcher.launch(tmp_path / "update-00025.mdr")

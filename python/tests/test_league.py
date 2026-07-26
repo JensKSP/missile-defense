@@ -334,3 +334,12 @@ def test_a_recorded_result_is_written_atomically(tmp_path: Path) -> None:
     assert not list((root / "m").glob("*.tmp"))
     stored = json.loads((root / "m" / league.RESULTS_NAME).read_text(encoding="utf-8"))
     assert stored["results"][0]["recorded_at"] > 0
+
+
+def test_matches_live_beside_the_league_not_inside_a_model(tmp_path: Path) -> None:
+    # A match belongs to two models. Under either one, deleting that model would
+    # take the comparison with it — including the half that is about the model
+    # still there.
+    matches = league.matches_dir(tmp_path / "models")
+    assert matches == tmp_path / "matches"
+    assert matches.parent == (tmp_path / "models").parent

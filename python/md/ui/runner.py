@@ -253,26 +253,31 @@ class ReplayLauncher:
 
     def launch(self, recording: Path) -> None:
         """Play ``recording`` in the game. Raises :class:`AppNotFound` if unbuilt."""
-        binary = app_binary(self._environ, root=self._root)
-        if binary is None:
-            raise AppNotFound(
-                "the game is not built here — run `cmake --build --preset release`, "
-                "or point MD_APP at an md_app binary"
-            )
-        self._children = [child for child in self._children if child.poll() is None]
-        self._children.append(
-            self._spawn(
-                [str(binary), "--replay", str(recording)],
-                self._root,
-                launch_environ(self._environ),
-            )
-        )
+        self._launch("--replay", recording)
+
+    def launch_match(self, manifest: Path) -> None:
+        """Open a recorded match split-screen. Raises if the game is absent.
+
+        Two agents, one seed, one clock — see `docs/API.md` §8. The manifest
+        carries the names and the scores, so the screen can state what it is
+        showing rather than leaving a viewer to assume.
+        """
+        self._launch("--match", manifest)
 
     def launch_model(self, policy: Path) -> None:
         """Open the game watching a promoted model. Raises if the game is absent.
 
         `--watch-model` and not a recording: the league's question is "how does
         this one play?", and a stored episode answers "how did it play once".
+        """
+        self._launch("--watch-model", policy)
+
+    def _launch(self, flag: str, target: Path) -> None:
+        """One spawn, however the game is being opened.
+
+        Three copies of this drifted apart once already — the flag is the only
+        thing that differs, and the "is it built?" message is the part a person
+        actually reads.
         """
         binary = app_binary(self._environ, root=self._root)
         if binary is None:
@@ -283,7 +288,7 @@ class ReplayLauncher:
         self._children = [child for child in self._children if child.poll() is None]
         self._children.append(
             self._spawn(
-                [str(binary), "--watch-model", str(policy)],
+                [str(binary), flag, str(target)],
                 self._root,
                 launch_environ(self._environ),
             )
