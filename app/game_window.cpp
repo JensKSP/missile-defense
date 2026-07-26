@@ -193,6 +193,23 @@ std::string_view GameWindow::menu_label(int index) const {
     return "";
 }
 
+namespace {
+/// The scripted ladder, in the order the menu offers it — worst first, so the
+/// list reads as a difficulty ramp rather than as three unrelated agents.
+/// Indexed by `Skill`, so `watch_skills[skill].label` is the HUD's name for it.
+struct Rung {
+    agent::Skill skill;
+    std::string_view label; // upper case: this font has no lower
+    std::string_view name;  // what `--watch-scripted` accepts
+};
+
+constexpr std::array<Rung, 3> watch_skills{{
+    {agent::Skill::low, "SCRIPTED LOW", "low"},
+    {agent::Skill::medium, "SCRIPTED MEDIUM", "medium"},
+    {agent::Skill::high, "SCRIPTED HIGH", "high"},
+}};
+} // namespace
+
 int GameWindow::options_count() noexcept {
     return 5; // AUDIO, MUSIC, FULLSCREEN, AI SKILL, BACK
 }
@@ -202,14 +219,16 @@ int GameWindow::options_count() noexcept {
 /// (see `activate`). A chooser with one choice on it is a screen that wastes a
 /// keypress and implies a second option exists.
 int GameWindow::watch_count() const noexcept {
-    return pretrained_.has_value() ? 3 : 2;
+    // Three scripted rungs, the bundled model when there is one, and BACK.
+    return static_cast<int>(watch_skills.size()) + (pretrained_.has_value() ? 2 : 1);
 }
 
 std::string_view GameWindow::watch_label(int index) const {
-    if (index == 0) {
-        return "SCRIPTED";
+    const auto rungs = static_cast<int>(watch_skills.size());
+    if (index >= 0 && index < rungs) {
+        return watch_skills[static_cast<std::size_t>(index)].label;
     }
-    if (pretrained_.has_value() && index == 1) {
+    if (pretrained_.has_value() && index == rungs) {
         // The model's own display name, never the filename: a path is not a
         // name. Upper-cased at load, because this font has no lower case.
         return pretrained_label_;
@@ -481,12 +500,25 @@ void GameWindow::start_game() {
 /// and trigger limits, so what you watch is exactly the run `poe eval` measured
 /// for this seed — the simulation and the agent are both deterministic, so the
 /// seed alone reproduces it.
-void GameWindow::start_ai_game() {
+void GameWindow::start_ai_game(agent::Skill skill) {
     start_game();
+    agent_ = agent::Heuristic{agent::params_for(skill)};
     ai_driving_ = true;
     ai_assisted_ = true; // sticky: taking over later does not make it your score
     watch_driver_.reset();
-    driver_name_ = "SCRIPTED";
+    // The rung, on screen. "SCRIPTED" alone was fine when there was one; with
+    // three that differ by ~78,000 points it would be the most misleading label
+    // in the game — you would have no way to tell which one you were watching.
+    driver_name_ = std::string{watch_skills[static_cast<std::size_t>(skill)].label};
+}
+
+std::optional<agent::Skill> GameWindow::skill_named(std::string_view name) {
+    for (const auto& rung : watch_skills) {
+        if (rung.name == name) {
+            return rung.skill;
+        }
+    }
+    return std::nullopt;
 }
 
 /// The same, with a learned policy at the controls instead.
@@ -682,9 +714,10 @@ void GameWindow::activate(int index) {
         return;
     }
     if (state_ == State::Watch) {
-        if (index == 0) {
-            start_ai_game();
-        } else if (pretrained_.has_value() && index == 1) {
+        const auto rungs = static_cast<int>(watch_skills.size());
+        if (index >= 0 && index < rungs) {
+            start_ai_game(watch_skills[static_cast<std::size_t>(index)].skill);
+        } else if (pretrained_.has_value() && index == rungs) {
             start_model_game();
         } else {
             open_menu(); // BACK
@@ -700,14 +733,9 @@ void GameWindow::activate(int index) {
         start_game();
         break;
     case MenuAction::WatchAi:
-        // Straight to the scripted agent when there is nothing else to choose
-        // between; a chooser with one entry on it is a wasted keypress that
-        // also implies a second option exists somewhere.
-        if (pretrained_.has_value()) {
-            open_watch();
-        } else {
-            start_ai_game();
-        }
+        // Always a choice now: there are three scripted rungs whether or not a
+        // model ships, and which one you are watching is the whole question.
+        open_watch();
         break;
     case MenuAction::WatchScripted:
         start_ai_game();
@@ -838,7 +866,11 @@ void GameWindow::update_aim(float px, float py) {
 void GameWindow::mouseMoveEvent(QMouseEvent* event) {
     update_aim(static_cast<float>(event->position().x()),
                static_cast<float>(event->position().y()));
-    if (state_ == State::Menu || state_ == State::Options) {
+    // Every centred list, not a list of them: WATCH AI was added to the click
+    // and key handlers and missed here, so it was the one screen in the game
+    // that did not light up under the pointer. Asking "is this a menu?" once
+    // means the next screen cannot be forgotten in the same way.
+    if (state_ == State::Menu || state_ == State::Options || state_ == State::Watch) {
         const int hit = menu_hit(aim_); // aim_ is the world point under the cursor
         if (hit >= 0) {
             menu_index_ = hit; // hover highlights the item under the pointer

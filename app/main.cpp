@@ -234,6 +234,15 @@ int run(int argc, char** argv) {
         if (arg == "--play") {
             window.play_now(); // boot straight into a game (skip the menu)
         } else if (arg == "--watch" || arg == "--watch-scripted") {
+            // An optional rung: `--watch-scripted medium`. Bare means the
+            // published baseline, so `--watch` keeps meaning exactly what it did.
+            if ((i + 1) < argc) {
+                if (const auto skill = md::GameWindow::skill_named(argv[i + 1])) {
+                    ++i;
+                    window.watch_now(*skill);
+                    continue;
+                }
+            }
             window.watch_now(); // boot straight into a game the scripted AI plays
         } else if (arg == "--watch-model" && (i + 1) < argc) {
             // Watch a learned policy. `--watch-scripted` is its twin, spelled

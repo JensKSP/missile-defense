@@ -65,6 +65,12 @@ class GameWindow : public QVulkanWindow {
     /// Start a game with the scripted agent at the controls (the `--watch` flag).
     void watch_now() { start_ai_game(); }
 
+    /// ... at a chosen skill (`--watch-scripted low|medium|high`).
+    void watch_now(agent::Skill skill) { start_ai_game(skill); }
+
+    /// Parse a skill name, or nothing when it is not one of the three.
+    [[nodiscard]] static std::optional<agent::Skill> skill_named(std::string_view name);
+
     /// Start a game a learned policy plays (the `--watch-model <path>` flag).
     ///
     /// False when the file is not a policy this build can run, with the reason
@@ -240,7 +246,9 @@ class GameWindow : public QVulkanWindow {
 
     void update_aim(float px, float py);
     void start_game();
-    void start_ai_game(); // same, but the scripted agent supplies the actions
+    /// Same, but the scripted agent supplies the actions — at `skill`, which
+    /// is the published baseline unless the menu or a flag says otherwise.
+    void start_ai_game(agent::Skill skill = agent::Skill::high);
     /// ... and this one, but a learned policy does. `policy` empty means the
     /// bundled one; `--watch-model` passes a file it has just loaded.
     void start_model_game(std::optional<agent::Policy> policy = std::nullopt);
@@ -281,7 +289,7 @@ class GameWindow : public QVulkanWindow {
     std::optional<agent::Policy> watched_;
     std::optional<agent::PolicyDriver> watch_driver_;
     std::string driver_name_;
-    agent::Heuristic agent_{};              // the M4 baseline, used in watch mode
+    agent::Heuristic agent_{};              // the scripted agent, at whatever skill was chosen
     std::optional<replay::Player> replay_;  // a recorded run being played back
     std::vector<std::string> replay_files_; // paths offered by the REPLAYS screen
     std::vector<std::string> replay_names_; // ...their display names, uppercased
