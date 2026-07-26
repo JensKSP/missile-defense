@@ -47,18 +47,23 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QSlider,
     QSplitter,
+    QStackedWidget,
     QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
+from .. import library as run_library
 from .. import modelcard, paths
 from ..control import Control
 from . import about, sources, theme
 from .analysis import AnalysisView
 from .charts import CurveView
 from .forms import ParameterDialog
+from .league import LeagueView, PromoteDialog
+from .library import LibraryView
 from .meters import SystemPanel
 from .model import ModelPanel
 from .params import read_params
@@ -99,6 +104,30 @@ NO_EVALS = (
 #: The compare picker's first entry, and its default. Comparing is something you
 #: ask for; the window's subject is one run.
 NO_COMPARISON = "no comparison"
+
+#: The stops the eval slider offers, in updates between scores. Discrete and
+#: roughly logarithmic, because "every 37 updates" is not a thought anyone has —
+#: a continuous slider would invite one and make the useful end, 1 to 25,
+#: unhittable. The first stop is the trainer's own "never score", spelled out.
+EVAL_EVERY_STOPS = (0, 1, 2, 5, 10, 25, 50, 100, 250, 500)
+#: What the slider falls back to when nothing has published a value, if the
+#: trainer's own default cannot be read beside this console.
+EVAL_EVERY_FALLBACK = 10
+EVAL_EVERY_HELP = (
+    "How often the run scores itself on the 32 validation seeds.\n\n"
+    "Drag it while the run goes: the trainer re-reads TUNING.json every update, so a "
+    "new interval takes effect from the next one — no restart, no lost checkpoint.\n\n"
+    "Often early, when the policy changes shape every few updates; less often later, "
+    "when an eval plays 32 full-length episodes to repeat what the last one said."
+)
+#: Why the slider is greyed out. A run started before this existed — or no run at
+#: all — publishes nothing, and a control that wrote into the void is worse than
+#: one that says it has nothing to drive.
+EVAL_EVERY_UNPUBLISHED = (
+    "No run here is publishing an eval interval.\n\n"
+    "A run writes TUNING.json when it starts, so this slider drives any run started "
+    "since — including one started from a terminal."
+)
 
 #: The pill in the corner, by what the run is doing. Read from across the room,
 #: so it is one word and a colour.
@@ -176,6 +205,13 @@ class Console(QMainWindow):
 
         self.setCentralWidget(self._build())
         self._attach(run_dir)
+        # Land on the library when the directory holds *several* runs, and on
+        # the run itself when it holds one. Both are what the person meant:
+        # `poe ui` on an experiment directory wants the list, and
+        # `poe ui -- runs/amber-anvil` wants that run.
+        self._library.attach(self._library_root())
+        self._league.refresh()
+        self._pages.setCurrentIndex(0 if run_library.load_run(run_dir) is None else 1)
 
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._tick)
@@ -235,14 +271,56 @@ class Console(QMainWindow):
             tile.set_value("—")
             tile.set_peak("")
 
-        self.setWindowTitle(f"Missile Command — training console · {run_dir}")
+        self.setWindowTitle(f"Missile Defense — training console · {run_dir}")
         self._refresh_model()  # not on the next rescan: it would be the old run's
         self._compare_with(None)  # a comparison is against *this* run, not the last
+        self._read_tuning()  # the box describes the run it is aimed at
         self._refresh_picker()
         self.statusBar().showMessage(f"watching {run_dir / sources.METRICS_NAME}")
 
     # ---- construction -------------------------------------------------------
     def _build(self) -> QWidget:
+        """Two levels, not two tabs.
+
+        The **library** lists every run and every promoted model; the **run**
+        screen is about one of them. That is a navigation step and not a peer
+        view — the run picker in the header cannot answer "which of these eleven
+        is worth my attention", because a dropdown shows names where the
+        question needs scores, sizes and states side by side.
+
+        The library is the landing view (docs/ROADMAP.md, M8): being dropped
+        into whichever run happened to sort first is how you read the wrong
+        curve for a minute.
+        """
+        self._pages = QStackedWidget()
+        self._pages.addWidget(self._library_page())
+        self._pages.addWidget(self._run_page())
+        return self._pages
+
+    def _library_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setSpacing(10)
+
+        title = QLabel("MISSILE DEFENSE · TRAINING CONSOLE")
+        title.setProperty("role", "title")
+        layout.addWidget(title)
+
+        split = QSplitter(Qt.Orientation.Horizontal)
+        self._library = LibraryView(on_new_run=self._new_run_from_library)
+        self._library.opened.connect(self._open_run)
+        self._league = LeagueView()
+        self._league.watch.connect(self._watch_model)
+        split.addWidget(self._library)
+        split.addWidget(self._league)
+        split.setStretchFactor(0, 3)
+        split.setStretchFactor(1, 2)
+        split.setSizes([760, 520])
+        layout.addWidget(split, stretch=1)
+        return page
+
+    def _run_page(self) -> QWidget:
         root = QWidget()
         layout = QVBoxLayout(root)
         layout.setContentsMargins(14, 12, 14, 8)
@@ -259,10 +337,73 @@ class Console(QMainWindow):
         layout.addWidget(self._log_pane())
         return root
 
+    # ---- moving between the two levels ---------------------------------------
+
+    def _show_library(self) -> None:
+        """Back to the list, and re-read it: a run may have finished meanwhile."""
+        self._library.attach(self._library_root())
+        self._league.refresh()
+        self._pages.setCurrentIndex(0)
+
+    def _open_run(self, run_dir: Path) -> None:
+        self._attach(run_dir)
+        self._pages.setCurrentIndex(1)
+        self._tick()
+
+    def _new_run_from_library(self) -> None:
+        """Start a run from the landing screen, in a fresh directory.
+
+        Fresh rather than "the one that sorted first": a New Run button that
+        silently reset an existing directory would be the most destructive
+        control in the window, and Reset already exists for that with a
+        confirmation in front of it.
+        """
+        root = self._library_root()
+        existing = [run.name for run in run_library.discover(root)]
+        self._open_run(root / run_library.default_name(existing))
+        self._primary_pressed()
+
+    def _library_root(self) -> Path:
+        """Where the library looks: the directory *containing* runs.
+
+        Derived from what the console was opened on rather than from
+        `paths.runs_dir()`, because the two differ exactly when it matters —
+        `poe ui -- runs/amber-anvil` opens one run and its library is `runs/`,
+        while `poe ui -- runs` opens a directory of them and is its own library.
+        Asking `paths` instead would show a list of somebody else's runs.
+        """
+        if run_library.load_run(self._run_dir) is None:
+            return self._run_dir  # a directory of runs, not a run
+        return self._run_dir.parent
+
+    def _watch_model(self, policy: Path) -> None:
+        """Open the game on a promoted model — the league's `Watch it play`.
+
+        `--watch-model` rather than a recording: this is the model as it plays
+        *now*, against a fresh seed, which is the question a league table
+        provokes and a stored episode cannot answer.
+        """
+        try:
+            self._launcher.launch_model(policy)
+        except AppNotFound as error:
+            QMessageBox.warning(self, "The game is not built", str(error))
+
     def _header(self) -> QHBoxLayout:
         row = QHBoxLayout()
-        title = QLabel("MISSILE COMMAND · TRAINING CONSOLE")
+        title = QLabel("MISSILE DEFENSE · TRAINING CONSOLE")
         title.setProperty("role", "title")
+        # The version, always on screen rather than behind a menu: "which build
+        # is this?" is the first question of every bug report, and the console is
+        # the half most often installed from a package by someone with no
+        # checkout to read it out of. Pressing it opens the rest — author,
+        # licence, and the LGPL libraries this MIT program runs on, which a user
+        # should be able to learn from the program and not only from a file in a
+        # repository they have never opened.
+        self._about = QPushButton(f"v{about.version()}")
+        self._about.setProperty("role", "version")
+        self._about.setToolTip("About Missile Defense")
+        self._about.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._about.clicked.connect(self._show_about)
         # Runs pile up one directory per experiment, so which one you are looking
         # at is a thing you change often — often enough that it belongs in the
         # window rather than in the command that started it.
@@ -279,7 +420,15 @@ class Console(QMainWindow):
         self._compare_picker.currentIndexChanged.connect(self._compare_picked)
         self._status = QLabel("NO RUN")
         self._status.setProperty("role", "caption")
+        # Back to the list. First in the row because it is a *level*, not an
+        # action on this run — the same place a browser puts one.
+        self._back = QPushButton("‹ Library")
+        self._back.setToolTip("Every run and every promoted model")
+        self._back.clicked.connect(self._show_library)
+        row.addWidget(self._back)
+        row.addSpacing(10)
         row.addWidget(title)
+        row.addWidget(self._about)
         row.addSpacing(12)
         row.addWidget(self._picker)
         row.addSpacing(6)
@@ -289,28 +438,20 @@ class Console(QMainWindow):
         row.addLayout(self._controls())
         row.addSpacing(14)
         row.addWidget(self._status)
-        # The version, always on screen rather than behind a menu: "which build
-        # is this?" is the first question of every bug report, and the console is
-        # the half most often installed from a package by someone with no
-        # checkout to read it out of. Pressing it opens the rest — author,
-        # licence, and the LGPL libraries this MIT program runs on, which a user
-        # should be able to learn from the program and not only from a file in a
-        # repository they have never opened.
-        self._about = QPushButton(f"v{about.version()}")
-        self._about.setProperty("role", "version")
-        self._about.setToolTip("About Missile Defense")
-        self._about.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._about.clicked.connect(self._show_about)
         return row
 
     def _controls(self) -> QHBoxLayout:
         """Three affordances, not a dashboard of them.
 
         One primary button that changes meaning, Stop beside it, and Reset kept
-        at arm's length because it is the one that abandons a run.
+        at arm's length because it is the one that abandons a run. The eval
+        interval sits with them because it is the same kind of thing: something
+        you do *to* the run that is going, not a parameter you chose before it.
         """
         row = QHBoxLayout()
         row.setSpacing(6)
+        row.addLayout(self._eval_control())
+        row.addSpacing(10)
         self._primary = QPushButton("Start")
         self._primary.setProperty("role", "primary")
         self._primary.clicked.connect(self._primary_pressed)
@@ -318,12 +459,64 @@ class Console(QMainWindow):
         self._stop.clicked.connect(self._stop_pressed)
         self._reset = QPushButton("Reset…")
         self._reset.clicked.connect(self._reset_pressed)
-        row.addWidget(self._about)
         self._log_toggle = QPushButton("Log")
         self._log_toggle.setCheckable(True)
         self._log_toggle.toggled.connect(self._show_log)
         for button in (self._primary, self._stop, self._reset, self._log_toggle):
             row.addWidget(button)
+        return row
+
+    def _eval_control(self) -> QHBoxLayout:
+        """The one hyperparameter that belongs on the screen you leave open.
+
+        Every other knob is chosen before a run and lives in the start dialog.
+        This one has no right answer for a whole run: you want the yardstick
+        constantly while the policy is still finding its shape, and hardly at all
+        once each eval costs more than the update it interrupts. Deciding that
+        from the curve, without stopping, is the point.
+
+        A slider rather than a number box, because it is a *dial*: the question
+        is "more often or less often than now", asked while looking at the curve,
+        and the answer is a direction. Its stops are the intervals worth having
+        (:data:`EVAL_EVERY_STOPS`), so there is nothing to mistype and no way to
+        land on a number nobody meant.
+
+        It writes :mod:`md.control`'s tuning file and nothing else — so it drives
+        a run this console never started, and a terminal can do the same with
+        ``echo``. Nothing here imports the trainer.
+        """
+        row = QHBoxLayout()
+        row.setSpacing(6)
+        caption = QLabel("eval every")
+        caption.setProperty("role", "caption")
+        #: The stops, which a run is allowed to add to: one started with
+        #: ``--eval-every 30`` must be shown where it actually is.
+        self._eval_stops: list[int] = list(EVAL_EVERY_STOPS)
+        self._eval_every = QSlider(Qt.Orientation.Horizontal)
+        self._eval_every.setFixedWidth(116)
+        self._eval_every.setRange(0, len(self._eval_stops) - 1)
+        self._eval_every.setPageStep(1)  # a click beside the handle is one stop
+        self._eval_every.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self._eval_every.setTickInterval(1)
+        self._eval_every.setToolTip(EVAL_EVERY_HELP)
+        # The number, because a slider on its own says "more" and "less" and
+        # never says *what*. Monospace and fixed-width, so the row does not
+        # twitch as the value changes under the handle.
+        self._eval_readout = QLabel()
+        self._eval_readout.setProperty("role", "readout")
+        self._eval_readout.setMinimumWidth(58)
+        self._eval_readout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # Seeded before the signals are connected: a slider that wrote a tuning
+        # file while it was being built would tune a directory nobody looked at.
+        self._show_eval_interval(_default_eval_every())
+        # Dragging is one decision, not the forty values it passes through, so
+        # the write waits for the handle to be let go. Arrow keys and clicks are
+        # already one decision each and take effect at once.
+        self._eval_every.valueChanged.connect(self._eval_every_moved)
+        self._eval_every.sliderReleased.connect(self._eval_every_settled)
+        row.addWidget(caption)
+        row.addWidget(self._eval_every)
+        row.addWidget(self._eval_readout)
         return row
 
     def _log_pane(self) -> QWidget:
@@ -379,7 +572,7 @@ class Console(QMainWindow):
             "policy evaluation score",
             theme.SCORE,
             value_format="%.0f",
-            markers=True,  # an eval every 50 updates is dots, not a dense line
+            markers=True,  # an eval every --eval-every updates is dots, not a line
             series_name="learned policy",
             from_zero=True,
         )
@@ -424,10 +617,44 @@ class Console(QMainWindow):
         # The machine's own row goes at the foot of this column rather than in
         # the tiles: this side had the space, and the curve is not allowed to
         # lose any.
-        self._system = SystemPanel()
+        # Promotion sits under the model panel because that panel is already
+        # "what this run has produced" — and because promoting is something you
+        # do *to* the thing described right above it, not a control that belongs
+        # in the bar with Start and Stop.
+        self._promote = QPushButton("Enter Model League…")
+        self._promote.setToolTip(
+            "Copy this run's best checkpoint into the league as a .mdp, where it "
+            "outlives the run and the game can play it"
+        )
+        self._promote.clicked.connect(self._promote_run)
         layout.addWidget(split, stretch=1)
+        layout.addWidget(self._promote)
+        self._system = SystemPanel()
         layout.addWidget(self._system)
         return panel
+
+    def _promote_run(self) -> None:
+        """Open the promotion dialog on the attached run.
+
+        Re-read rather than cached: the run may have written three more
+        checkpoints since the library last listed it, and the dialog's whole job
+        is to offer the right one.
+        """
+        run = run_library.load_run(self._run_dir)
+        if run is None:
+            QMessageBox.information(
+                self,
+                "Nothing to promote",
+                f"No run in {self._run_dir} yet — a run is promoted from its checkpoints, "
+                "and this directory has none.",
+            )
+            return
+        dialog = PromoteDialog(run, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.promoted is not None:
+            self._league.refresh()
+            self.statusBar().showMessage(
+                f"promoted {dialog.promoted.name} -> {dialog.promoted.policy}"
+            )
 
     def _recordings(self) -> QWidget:
         panel = QWidget()
@@ -482,6 +709,7 @@ class Console(QMainWindow):
         self._read_metrics()
         self._read_evals()
         self._read_comparison()
+        self._read_tuning()
         self._read_log()
         self._system.refresh()
         if self._ticks % RESCAN_EVERY == 1:
@@ -975,6 +1203,31 @@ class Console(QMainWindow):
         if answer == QMessageBox.StandardButton.Ok:
             self._attach(target)
 
+    def _show_about(self) -> None:
+        """Who wrote this, which build it is, and what it is standing on.
+
+        A plain box rather than a designed screen: it is opened once, read once,
+        and closed, so the space it deserves is the space its text takes. The
+        component list is the part that has to be here — the console runs on
+        PySide6 and Qt Charts under the LGPL, and this is where a user meets that
+        fact (:mod:`md.ui.about` has the reasoning).
+        """
+        box = QMessageBox(self)
+        box.setWindowTitle("About Missile Defense")
+        box.setTextFormat(Qt.TextFormat.PlainText)
+        box.setText(self._about_text())
+        box.setIcon(QMessageBox.Icon.NoIcon)
+        box.exec()
+
+    def _about_text(self) -> str:
+        """What the box says — separate from showing it, so it can be asserted.
+
+        `QMessageBox.exec()` blocks until someone closes it, which no test can
+        do, so a test that drove `_show_about` would hang rather than fail. This
+        is the seam: the text is checkable, and what is left is Qt's own job.
+        """
+        return about.summary()
+
     def _show_log(self, shown: bool) -> None:
         self._log.setVisible(shown)
 
@@ -1059,31 +1312,6 @@ class Console(QMainWindow):
             "<br><br>The trainer writes a new episode every --record-every "
             "updates; one from a finished run does not come back.",
             QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
-    def _show_about(self) -> None:
-        """Who wrote this, which build it is, and what it is standing on.
-
-        A plain box rather than a designed screen: it is opened once, read once,
-        and closed, so the space it deserves is the space its text takes. The
-        component list is the part that has to be here — the console runs on
-        PySide6 and Qt Charts under the LGPL, and this is where a user meets that
-        fact (:mod:`md.ui.about` has the reasoning).
-        """
-        box = QMessageBox(self)
-        box.setWindowTitle("About Missile Defense")
-        box.setTextFormat(Qt.TextFormat.PlainText)
-        box.setText(self._about_text())
-        box.setIcon(QMessageBox.Icon.NoIcon)
-        box.exec()
-
-    def _about_text(self) -> str:
-        """What the box says — separate from showing it, so it can be asserted.
-
-        `QMessageBox.exec()` blocks until someone closes it, which no test can
-        do, so a test that drove `_show_about` would hang rather than fail. This
-        is the seam: the text is checkable, and what is left is Qt's own job.
-        """
-        return about.summary()
-
             QMessageBox.StandardButton.Cancel,
         )
         if answer != QMessageBox.StandardButton.Ok:
@@ -1105,6 +1333,23 @@ def _same(left: list[Recording], right: list[Recording]) -> bool:
     return [(r.path, r.modified) for r in left] == [(r.path, r.modified) for r in right]
 
 
+def _eval_label(updates: int) -> str:
+    """What the slider is pointing at, in the words the trainer uses."""
+    return "off" if updates <= 0 else f"{updates} upd"
+
+
+def _default_eval_every() -> int:
+    """What the trainer would use, read out of its own source (:mod:`md.ui.params`).
+
+    For the box before any run has published a value: showing the number the next
+    Start would use beats inventing one here and drifting from the dataclass.
+    """
+    for field in read_params(TRAINER_SOURCES):
+        if field.name == "eval_every" and field.default.isdigit():
+            return int(field.default)
+    return EVAL_EVERY_FALLBACK  # no trainer beside this console
+
+
 def _number(value: float | None, spec: str) -> str:
     """A measurement the trainer has not produced yet is a dash, never a zero."""
     return "—" if value is None else spec.format(value)
@@ -1116,7 +1361,7 @@ def _compare_note(name: str, value: float | None, spec: str) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Watch a Missile Command training run.")
+    parser = argparse.ArgumentParser(description="Watch a Missile Defense training run.")
     parser.add_argument(
         "run_dir",
         nargs="?",
@@ -1132,7 +1377,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     app = QApplication(sys.argv[:1])
-    app.setApplicationName("Missile Command training console")
+    app.setApplicationName("Missile Defense training console")
     app.setStyleSheet(theme.stylesheet())
     window = Console(paths.runs_dir(args.run_dir))
     if args.self_test:

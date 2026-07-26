@@ -268,6 +268,27 @@ class ReplayLauncher:
             )
         )
 
+    def launch_model(self, policy: Path) -> None:
+        """Open the game watching a promoted model. Raises if the game is absent.
+
+        `--watch-model` and not a recording: the league's question is "how does
+        this one play?", and a stored episode answers "how did it play once".
+        """
+        binary = app_binary(self._environ, root=self._root)
+        if binary is None:
+            raise AppNotFound(
+                "the game is not built here — run `cmake --build --preset release`, "
+                "or point MD_APP at an md_app binary"
+            )
+        self._children = [child for child in self._children if child.poll() is None]
+        self._children.append(
+            self._spawn(
+                [str(binary), "--watch-model", str(policy)],
+                self._root,
+                launch_environ(self._environ),
+            )
+        )
+
     @property
     def running(self) -> int:
         """How many game windows this console has open."""
