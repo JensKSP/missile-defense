@@ -141,6 +141,20 @@ a CI runner is not what you want.
 
 [rcodesign]: https://github.com/indygreg/apple-platform-tools
 
+## Screenshots
+
+`poe shot` and `poe rec` have a macOS backend: `screencapture -R` over the
+window's rectangle for stills, ffmpeg's `avfoundation` cropped to it for video.
+The rectangle comes from `osascript` asking the accessibility API where
+`md_app`'s window is, because `screencapture` can only take a window
+*interactively* — so **the terminal you run it from needs a tick under System
+Settings → Privacy & Security → Accessibility**, and says so when it does not
+have one.
+
+> Like the rest of this page, written from the documented behaviour of those
+> tools rather than from a Mac — see the note at the top. The Linux and Windows
+> backends have both been run against a real window; this one has not.
+
 ## If the game starts and immediately dies
 
 `Failed to create Vulkan instance` means the loader found no driver. Check what

@@ -138,6 +138,21 @@ non-MSYS2 process, so the console puts `<msys2>\clang64\bin` back on `PATH` for
 the child — otherwise it dies looking for `libc++.dll` with no window to say so.
 Set `MSYS2_ROOT` if MSYS2 is not at `C:\msys64`.
 
+## Screenshots
+
+`poe shot` and `poe rec` work here — the backend is PowerShell plus
+`Graphics.CopyFromScreen` for stills and ffmpeg's `gdigrab` for video, so
+nothing extra is installed. `poe shot -- --launch` starts the game, waits for
+its window, raises it and closes it again; `--title` aims the same command at
+the training console instead.
+
+Two things to know, because both give you a *plausible but wrong* picture rather
+than an error. **Capture in windowed mode** — a fullscreen Vulkan swapchain
+bypasses the compositor, so a screen grab of one is the desktop behind it, and
+`poe shot` warns when the window fills the screen. And the pixels come from the
+screen, so **a notification that arrives mid-grab is in the file**. Look at the
+image before you believe it.
+
 > **Determinism.** `-ffp-contract=off` is what makes replays bit-identical, and
 > `cl.exe` has no exact equivalent (`clang-cl` passes it through). The MSVC build
 > has been checked against the golden trajectory checksum and matches, but if you

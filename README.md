@@ -123,7 +123,7 @@ The `apt install` line for exactly these is in the
 | Editor tooling | `clangd-21 clang-format-21 clang-tidy-21` |
 | Coverage | `llvm-21` (provides `llvm-cov-21`, `llvm-profdata-21`) |
 | Debian package build | `cpack` (ships with `cmake`), `dpkg-dev` |
-| Screenshot / video capture | `imagemagick` (`import`), `ffmpeg`, `xdotool` |
+| Screenshot / video capture | `imagemagick` (`import`), `ffmpeg`, `xdotool` — on Linux/X11; Windows and macOS use what they ship with |
 
 ```bash
 sudo apt install python3 python3-pip python3-venv \
