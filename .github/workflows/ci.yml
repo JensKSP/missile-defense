@@ -214,17 +214,34 @@ jobs:
     # CPack and a different code path entirely — no -Werror, hardening=+all,
     # dh_auto_* rather than cmake --install — so one can break while the other
     # still works. This job is the one that would catch it.
+    #
+    # In a Debian trixie container, not on the Ubuntu runner, because "what
+    # Debian would build" is the entire claim and the two distributions do not
+    # agree on the thing this package needs most: trixie's default g++ is 14 and
+    # has <print>, Ubuntu 24.04's is 13 and does not, so agent/ and bench/ do not
+    # compile there at all. Building the Debian package on Ubuntu was testing a
+    # near-miss. It also means the build-dependency versions resolved here are
+    # the ones the package will actually be built against.
     runs-on: ubuntu-24.04
+    container: debian:trixie
     steps:
+      - name: Install git
+        # The image has none, and without it actions/checkout silently falls back
+        # to a REST-API tarball rather than a checkout.
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git ca-certificates
+
       - uses: actions/checkout@v4
 
       - name: Install the declared build dependencies
         # From debian/control itself, so the job cannot drift from what the
         # package claims to need — which is half of what it exists to check.
+        # No sudo: a container runs as root, and Rules-Requires-Root: no means
+        # dpkg-buildpackage is content either way.
         run: |
-          sudo apt-get update
-          sudo apt-get install -y devscripts equivs lintian
-          sudo mk-build-deps --install --remove \
+          apt-get install -y --no-install-recommends devscripts equivs lintian
+          mk-build-deps --install --remove \
             --tool 'apt-get -y --no-install-recommends' debian/control
 
       - name: Build the package

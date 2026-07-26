@@ -58,7 +58,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from . import paths
+from . import modelcard, paths
 from .control import Control
 from .env import Actions, Flags, Observations, Shaping, VecEnv
 from .eval import evaluate, format_summary
@@ -171,6 +171,20 @@ def train(config: TrainConfig, ppo: PPOConfig | None = None) -> nn.Module:
     control = Control(out_dir)
     control.clear()
     _write_config(out_dir / "config.json", config, ppo, out_dir)
+    # Beside it, what the run is *training* — the console reads this rather than
+    # a checkpoint, because opening one needs torch and it must never import it
+    # (docs/ROADMAP.md, M8, risk 3). Written once: within a run the shapes never
+    # change, and the iteration is already in each checkpoint's name.
+    modelcard.write(
+        out_dir,
+        modelcard.describe(
+            {name: tuple(tensor.shape) for name, tensor in policy.state_dict().items()},
+            architecture=ppo.architecture,
+            obs_size=shape[0],
+            action_count=shape[1],
+            hidden=ppo.hidden,
+        ),
+    )
 
     print(
         f"training on {device} | {config.envs} envs x {config.steps} steps "

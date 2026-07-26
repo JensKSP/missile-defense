@@ -97,6 +97,7 @@ Everything under `runs/` (`--out-dir` to change it):
 | `runs/metrics.csv` | one row per update, for plotting afterwards |
 | `runs/evals.csv` | one row per `--eval-every` scoring, in the baseline's units |
 | `runs/config.json` | every setting the run was started with |
+| `runs/model.json` | the network it is training — layers, shapes, parameter count |
 
 `runs/` means the directory beside you in a checkout, and the per-user data
 directory (`~/.local/share/MissileDefense/runs`) once this is installed from a
@@ -135,8 +136,13 @@ poe ui -- path/to/run     # or to a run directory synced from another machine
 ```
 
 The eval score against the baseline as the big curve, return / entropy / value
-loss underneath, and the recordings listed newest-first — double-click one and it
-opens in the game.
+loss underneath, and the recordings listed newest-first — select one and press
+**▶ Play** (or double-click it) and it opens in the game; **Delete** removes one
+you are done with. Under them is the network itself: architecture, parameter
+count, the observation and action sizes and a line per layer, read out of
+`runs/model.json` rather than out of a checkpoint — opening one of those needs
+torch, and the console deliberately cannot. Beside it, which checkpoint is newest
+and what it scored.
 
 The dropdown beside the title lists the runs inside and beside the directory you
 opened, so `poe ui` on a `runs/` full of experiments is enough: pick one and every

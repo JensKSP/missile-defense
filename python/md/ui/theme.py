@@ -120,6 +120,12 @@ def stylesheet() -> str:
     }}
     QPushButton:hover, QToolButton:hover {{ background: {GRID}; }}
     QPushButton:disabled {{ color: {MUTED}; border-color: {GRID}; }}
+    /* Buttons that share a row with a caption rather than the control bar —
+       they belong to the panel under them, so they must not out-shout it. */
+    QPushButton[role="compact"] {{
+        padding: 2px 9px;
+        font-size: 11px;
+    }}
     /* The one button that changes meaning — Start, then Pause, then Resume. */
     QPushButton[role="primary"] {{
         background: {CITY};
@@ -184,8 +190,10 @@ def stylesheet() -> str:
         outline: none;
         padding: 2px;
     }}
+    /* Tight rows: this list is the column's scarce space, and the run adds an
+       episode every few minutes — how many fit is worth more than the air. */
     QListWidget::item {{
-        padding: 7px 9px;
+        padding: 5px 9px;
         border-radius: 4px;
         color: {TEXT};
     }}

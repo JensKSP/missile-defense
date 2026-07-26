@@ -39,6 +39,8 @@ from typing import Generic, TypeVar
 METRICS_NAME = "metrics.csv"
 EVALS_NAME = "evals.csv"
 RECORDING_SUFFIX = ".mdr"
+CHECKPOINTS_NAME = "checkpoints"
+CHECKPOINT_SUFFIX = ".pt"
 
 #: The scripted agent's mean score over the canonical seeds (docs/ROADMAP.md, M4)
 #: — the line the console draws across the score curve. ``md.train`` keeps its own
@@ -99,6 +101,25 @@ class Recording:
 
     path: Path
     update: int | None
+    size: int
+    modified: float
+
+    @property
+    def name(self) -> str:
+        return self.path.stem
+
+
+@dataclass(frozen=True)
+class Checkpoint:
+    """A saved policy: ``runs/checkpoints/policy-00800.pt``.
+
+    ``iteration`` is ``None`` for ``policy-final.pt``, which is deliberately not
+    numbered — it is whatever the run ended on, and inventing a number for it
+    here would be guessing at one the file does not carry.
+    """
+
+    path: Path
+    iteration: int | None
     size: int
     modified: float
 
@@ -302,6 +323,41 @@ def _update_in(stem: str) -> int | None:
     return int(tail)
 
 
+# ---- checkpoints ------------------------------------------------------------
+
+
+def list_checkpoints(run_dir: Path) -> list[Checkpoint]:
+    """Saved policies in ``run_dir/checkpoints``, newest first.
+
+    By modification time, like the recordings and for the same reason: the one
+    you want is almost always the last one written, and ``policy-final.pt`` sorts
+    to the top by simply being last — which is also where it belongs, being the
+    only one guaranteed to exist.
+    """
+    found: list[Checkpoint] = []
+    try:
+        entries: Iterable[Path] = list((run_dir / CHECKPOINTS_NAME).iterdir())
+    except OSError:
+        return []
+    for path in entries:
+        if path.suffix != CHECKPOINT_SUFFIX:
+            continue
+        try:
+            stat = path.stat()
+        except OSError:
+            continue  # written and removed between listing and stat'ing
+        found.append(
+            Checkpoint(
+                path=path,
+                iteration=_update_in(path.stem),
+                size=stat.st_size,
+                modified=stat.st_mtime,
+            )
+        )
+    found.sort(key=lambda c: (c.modified, c.name), reverse=True)
+    return found
+
+
 def last_modified(path: Path) -> float | None:
     """Modification time, or ``None`` when the file is not there."""
     try:
@@ -403,3 +459,31 @@ def human_size(size: int) -> str:
     if size < 1_000_000:
         return f"{size / 1000:.0f} kB"
     return f"{size / 1_000_000:.1f} MB"
+
+
+#: What the model panel says when a run has saved nothing yet. An empty state
+#: names the flag that would change it, like the others.
+NO_CHECKPOINTS = (
+    "No checkpoint saved yet — the trainer writes one every --checkpoint-every updates."
+)
+
+
+def checkpoint_note(checkpoints: Sequence[Checkpoint], evals: Mapping[int, EvalRow]) -> str:
+    """Which policy is on disk, how many there are, and what it scored.
+
+    The score is looked up by the checkpoint's *own* update rather than taken
+    from the most recent evaluation. Those are usually the same row and
+    occasionally are not, and quietly labelling update 750's score as update
+    800's would make the one panel that exists to say "this is the model you
+    have" the one that lies about it.
+    """
+    if not checkpoints:
+        return NO_CHECKPOINTS
+    newest = checkpoints[0]
+    parts = [newest.name, f"{len(checkpoints)} saved"]
+    row = evals.get(newest.iteration) if newest.iteration is not None else None
+    if row is not None:
+        delta = row.mean_score - BASELINE_MEAN_SCORE
+        verdict = "ahead of" if delta > 0 else "behind"
+        parts.append(f"scored {row.mean_score:,.0f}, {abs(delta):,.0f} {verdict} baseline")
+    return " · ".join(parts)

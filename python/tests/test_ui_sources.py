@@ -14,12 +14,17 @@ import os
 from pathlib import Path
 
 from md.ui.sources import (
+    BASELINE_MEAN_SCORE,
     MAX_RUN_CHOICES,
+    NO_CHECKPOINTS,
+    EvalRow,
+    checkpoint_note,
     evals_tail,
     find_runs,
     human_age,
     human_size,
     last_modified,
+    list_checkpoints,
     list_recordings,
     metrics_tail,
     next_run_dir,
@@ -258,3 +263,79 @@ def test_ages_and_sizes_read_at_a_glance() -> None:
     assert human_size(812) == "812 B"
     assert human_size(79_000) == "79 kB"
     assert human_size(1_200_000) == "1.2 MB"
+
+
+# ---- checkpoints -------------------------------------------------------------
+
+
+def _checkpoint(run_dir: Path, name: str, when: int, size: int = 5_000_000) -> Path:
+    path = run_dir / "checkpoints" / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"\0" * size)
+    os.utime(path, (when, when))
+    return path
+
+
+def test_a_run_that_has_saved_nothing_lists_no_checkpoints(tmp_path: Path) -> None:
+    assert list_checkpoints(tmp_path) == []
+
+
+def test_checkpoints_come_back_newest_first(tmp_path: Path) -> None:
+    _checkpoint(tmp_path, "policy-00100.pt", 1000)
+    _checkpoint(tmp_path, "policy-00200.pt", 2000)
+    _checkpoint(tmp_path, "policy-final.pt", 3000)
+
+    found = list_checkpoints(tmp_path)
+    assert [c.name for c in found] == ["policy-final", "policy-00200", "policy-00100"]
+
+
+def test_a_numbered_checkpoint_carries_its_update(tmp_path: Path) -> None:
+    _checkpoint(tmp_path, "policy-00200.pt", 2000)
+    assert list_checkpoints(tmp_path)[0].iteration == 200
+
+
+def test_the_final_checkpoint_has_no_update_to_claim(tmp_path: Path) -> None:
+    # It is whatever the run ended on, and the file does not say which.
+    _checkpoint(tmp_path, "policy-final.pt", 3000)
+    assert list_checkpoints(tmp_path)[0].iteration is None
+
+
+def test_only_torch_files_are_checkpoints(tmp_path: Path) -> None:
+    _checkpoint(tmp_path, "policy-00100.pt", 1000)
+    _checkpoint(tmp_path, "notes.txt", 1000)
+    assert [c.name for c in list_checkpoints(tmp_path)] == ["policy-00100"]
+
+
+def test_the_model_note_says_what_would_produce_a_checkpoint(tmp_path: Path) -> None:
+    assert checkpoint_note([], {}) == NO_CHECKPOINTS
+
+
+def test_the_model_note_names_the_newest_and_counts_the_rest(tmp_path: Path) -> None:
+    _checkpoint(tmp_path, "policy-00100.pt", 1000, size=1_000_000)
+    _checkpoint(tmp_path, "policy-00200.pt", 2000, size=1_000_000)
+
+    note = checkpoint_note(list_checkpoints(tmp_path), {})
+    assert note.startswith("policy-00200")
+    assert "2 saved" in note
+
+
+def test_the_model_note_scores_the_checkpoint_by_its_own_update(tmp_path: Path) -> None:
+    # Not by the most recent evaluation: those are usually the same row and
+    # occasionally are not, and mislabelling one as the other is the one lie
+    # this panel must not tell.
+    _checkpoint(tmp_path, "policy-00200.pt", 2000)
+    # Written against the baseline rather than a literal: what it is worth is
+    # the scripted agent's business and it moves when the game's scoring does.
+    evals = {
+        200: EvalRow(200, BASELINE_MEAN_SCORE + 1964, None, None, None, None, None, None, None),
+        250: EvalRow(250, BASELINE_MEAN_SCORE - 5000, None, None, None, None, None, None, None),
+    }
+    note = checkpoint_note(list_checkpoints(tmp_path), evals)
+    assert f"scored {BASELINE_MEAN_SCORE + 1964:,.0f}" in note
+    assert "1,964 ahead of baseline" in note
+    assert f"{BASELINE_MEAN_SCORE - 5000:,.0f}" not in note
+
+
+def test_an_unscored_checkpoint_simply_says_nothing_about_a_score(tmp_path: Path) -> None:
+    _checkpoint(tmp_path, "policy-final.pt", 3000)
+    assert "scored" not in checkpoint_note(list_checkpoints(tmp_path), {})

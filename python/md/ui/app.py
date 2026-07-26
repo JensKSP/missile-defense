@@ -43,12 +43,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import paths
+from .. import modelcard, paths
 from ..control import Control
 from . import sources, theme
 from .charts import CurveView
 from .forms import ParameterDialog
 from .meters import SystemPanel
+from .model import ModelPanel
 from .params import read_params
 from .runner import (
     PACKAGE_PATH,
@@ -164,12 +165,16 @@ class Console(QMainWindow):
         self._updates = 0
         self._last_metric: MetricRow | None = None
         self._last_eval: EvalRow | None = None
+        #: Every eval, by the update it scored. A checkpoint is described by the
+        #: evaluation at *its* update, which is not always the newest one.
+        self._eval_rows: dict[int, EvalRow] = {}
         for curve in (self._score, self._return, self._entropy, self._value):
             curve.clear()
         for tile in (self._tile_update, self._tile_score, self._tile_return, self._tile_entropy):
             tile.set_value("—")
 
         self.setWindowTitle(f"Missile Command — training console · {run_dir}")
+        self._refresh_model()  # not on the next rescan: it would be the old run's
         self._refresh_picker()
         self.statusBar().showMessage(f"watching {run_dir / sources.METRICS_NAME}")
 
@@ -184,9 +189,9 @@ class Console(QMainWindow):
 
         split = QSplitter(Qt.Orientation.Horizontal)
         split.addWidget(self._plots())
-        split.addWidget(self._recordings())
+        split.addWidget(self._side())
         split.setStretchFactor(0, 1)
-        split.setSizes([980, 300])
+        split.setSizes([980, 320])
         layout.addWidget(split, stretch=1)
         layout.addWidget(self._log_pane())
         return root
@@ -294,17 +299,74 @@ class Console(QMainWindow):
         layout.addLayout(strip, stretch=2)
         return panel
 
+    def _side(self) -> QWidget:
+        """The right-hand column: what the run has produced, and what it is.
+
+        Episodes above, the network below, the machine under both — three
+        questions asked a few times a run rather than watched, so none of them
+        is allowed to take space from the curve.
+
+        The machine's row is three meters however long the run has been going,
+        so it is pinned at the foot. The other two share what is left through a
+        splitter: a network has as many layers as it has, but a run accumulates
+        episodes for hours, and how many of them you want to see at once is a
+        judgement only the person watching can make.
+        """
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+        self._model = ModelPanel()
+        split = QSplitter(Qt.Orientation.Vertical)
+        split.addWidget(self._recordings())
+        split.addWidget(self._model)
+        split.setStretchFactor(0, 1)  # a taller window is more episodes, not more layers
+        split.setStretchFactor(1, 0)
+        split.setSizes([380, 180])
+        # The machine's own row goes at the foot of this column rather than in
+        # the tiles: this side had the space, and the curve is not allowed to
+        # lose any.
+        self._system = SystemPanel()
+        layout.addWidget(split, stretch=1)
+        layout.addWidget(self._system)
+        return panel
+
     def _recordings(self) -> QWidget:
         panel = QWidget()
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
+
+        # The buttons live in the caption's own row rather than under the list:
+        # this column's height is the scarce thing, and a strip of controls
+        # across the bottom would cost an episode or two of it.
+        head = QHBoxLayout()
+        head.setSpacing(6)
         caption = QLabel("recordings")
         caption.setProperty("role", "caption")
-        layout.addWidget(caption)
+        head.addWidget(caption)
+        head.addStretch(1)
+        # Double-click has always played an episode and still does — it was just
+        # never an affordance you could *see*. These are, and Delete is the one
+        # thing you could previously only do from a file manager.
+        self._play = QPushButton("▶ Play")
+        self._play.setToolTip("Open the selected episode in the game (or double-click it)")
+        self._play.clicked.connect(self._play_selected)
+        self._delete = QPushButton("Delete…")
+        self._delete.setToolTip("Delete the selected recording from this run directory")
+        for button in (self._play, self._delete):
+            button.setProperty("role", "compact")
+            head.addWidget(button)
+        self._delete.clicked.connect(self._delete_selected)
+        layout.addLayout(head)
+
         self._list = QListWidget()
         self._list.itemActivated.connect(self._open)
         self._list.itemDoubleClicked.connect(self._open)
+        self._list.itemSelectionChanged.connect(self._selection_changed)
+        # Four rows, so a network with many layers below cannot squeeze the list
+        # down to a scrollbar with one episode in it.
+        self._list.setMinimumHeight(140)
         layout.addWidget(self._list, stretch=1)
         # A greyed-out list row is painted from the disabled palette, which under
         # this stylesheet is invisible; an empty state has to be a real widget.
@@ -314,13 +376,6 @@ class Console(QMainWindow):
         self._no_recordings.setAlignment(Qt.AlignmentFlag.AlignTop)
         self._no_recordings.setVisible(False)
         layout.addWidget(self._no_recordings, stretch=1)
-        note = QLabel("double-click to watch an episode")
-        note.setProperty("role", "note")
-        layout.addWidget(note)
-        # The machine's own row goes here rather than in the tiles: this column
-        # had the space, and the curve is not allowed to lose any.
-        self._system = SystemPanel()
-        layout.addWidget(self._system)
         return panel
 
     # ---- the poll -----------------------------------------------------------
@@ -332,6 +387,7 @@ class Console(QMainWindow):
         self._system.refresh()
         if self._ticks % RESCAN_EVERY == 1:
             self._refresh_recordings()
+            self._refresh_model()
             self._refresh_picker()  # a new run directory can appear at any time
         self._refresh_status()
 
@@ -363,9 +419,11 @@ class Console(QMainWindow):
         if batch.restarted:
             self._score.clear()
             self._last_eval = None
+            self._eval_rows.clear()
             self._tile_score.set_value("—")
         for row in batch.rows:
             self._score.append(row.update, row.mean_score)
+            self._eval_rows[row.update] = row
         if not batch.rows:
             return
         row = self._last_eval = batch.rows[-1]
@@ -386,18 +444,36 @@ class Console(QMainWindow):
         self._list.setVisible(bool(found))
         self._no_recordings.setVisible(not found)
         if not found:
+            self._selection_changed()
             return
         now = time.time()
         for recording in found:
+            # One line, not two. This column is the scarce space in the window
+            # and a run leaves an episode every few minutes, so how *many* you
+            # can see at once is worth more than the second line's air.
             item = QListWidgetItem(
-                f"{recording.name}\n"
-                f"{sources.human_age(now - recording.modified)} · "
+                f"{recording.name}   {sources.human_age(now - recording.modified)} · "
                 f"{sources.human_size(recording.size)}"
             )
             item.setData(Qt.ItemDataRole.UserRole, str(recording.path))
             self._list.addItem(item)
             if recording.path == selected:
                 self._list.setCurrentItem(item)
+        self._selection_changed()
+
+    def _refresh_model(self) -> None:
+        """Re-read the model card and the checkpoints.
+
+        Both appear *during* a run — the card when the trainer starts, a
+        checkpoint every `--checkpoint-every` updates — so this is a poll rather
+        than something done once on attach. It is a small JSON and one directory
+        listing, and the panel repaints only when the text actually changed.
+        """
+        self._model.show_run(
+            modelcard.read(self._run_dir),
+            sources.list_checkpoints(self._run_dir),
+            self._eval_rows,
+        )
 
     def _refresh_picker(self) -> None:
         """Rebuild the run list, without disturbing anyone reading it.
@@ -581,16 +657,62 @@ class Console(QMainWindow):
         data = selected[0].data(Qt.ItemDataRole.UserRole)
         return Path(str(data)) if data else None
 
+    def _selection_changed(self) -> None:
+        """Play and Delete act on a selection, so they are off without one."""
+        chosen = self._selected_path() is not None
+        self._play.setEnabled(chosen)
+        self._delete.setEnabled(chosen)
+
     def _open(self, item: QListWidgetItem) -> None:
         data = item.data(Qt.ItemDataRole.UserRole)
-        if not data:
-            return
+        if data:
+            self._play_recording(Path(str(data)))
+
+    def _play_selected(self) -> None:
+        path = self._selected_path()
+        if path is not None:
+            self._play_recording(path)
+
+    def _play_recording(self, path: Path) -> None:
         try:
-            self._launcher.launch(Path(str(data)))
+            self._launcher.launch(path)
         except AppNotFound as error:
             QMessageBox.warning(self, "The game is not built", str(error))
             return
-        self.statusBar().showMessage(f"playing {Path(str(data)).name}")
+        self.statusBar().showMessage(f"playing {path.name}")
+
+    def _delete_selected(self) -> None:
+        """Remove one episode from the run directory.
+
+        It confirms, because this is the console's only destructive act on a
+        file — everything else it writes is a control marker. A recording is
+        cheap to regenerate only while the run that wrote it is still going, so
+        the dialog names the file rather than asking "are you sure".
+        """
+        path = self._selected_path()
+        if path is None:
+            return
+        answer = QMessageBox.question(
+            self,
+            "Delete this recording?",
+            f"<b>{path.name}</b> will be removed from {path.parent}."
+            "<br><br>The trainer writes a new episode every --record-every "
+            "updates; one from a finished run does not come back.",
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if answer != QMessageBox.StandardButton.Ok:
+            return
+        try:
+            path.unlink()
+        except OSError as error:
+            # Windows holds a lock on a file the game has open, and the honest
+            # answer is which file and why — not a traceback into the log pane.
+            QMessageBox.warning(self, "The recording could not be deleted", str(error))
+            return
+        self._listed = None  # force the rescan to notice, mtimes unchanged or not
+        self._refresh_recordings()
+        self.statusBar().showMessage(f"deleted {path.name}")
 
 
 def _same(left: list[Recording], right: list[Recording]) -> bool:
