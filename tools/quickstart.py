@@ -100,8 +100,11 @@ def rewrite(lines: Sequence[str], *, source: str, drop_sudo: bool) -> tuple[list
                 "starting it — there is no display, and the game does not exit"
             )
             continue
-        if drop_sudo and stripped.startswith("sudo "):
-            script.append(line.replace("sudo ", "", 1))
+        if drop_sudo and "sudo " in line:
+            # A root container has no `sudo` binary, so every occurrence goes —
+            # not only a leading one but one after a pipe too, as in
+            # `echo ... | sudo tee /etc/apt/sources.list.d/backports.list`.
+            script.append(line.replace("sudo ", ""))
             continue
         script.append(line)
     if drop_sudo:

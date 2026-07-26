@@ -56,6 +56,14 @@ option(MD_FETCH_MINIAUDIO "Fetch miniaudio when no system copy (libminiaudio-dev
 option(MD_NATIVE "Optimise for this machine's CPU (-march=native); not portable" OFF)
 option(MD_LTO "Link-time optimisation (ThinLTO) — cross-TU inlining" OFF)
 option(MD_BUILD_BINDINGS "Build the nanobind Python extension (needs Python + nanobind)" OFF)
+# The two headless command-line tools: the scripted-agent evaluator (poe eval)
+# and the throughput benchmark (poe bench). On for a dev or packaging build; the
+# wheel turns it OFF (pyproject.toml). They are the only translation units in the
+# tree that use <print>/std::println, which needs libstdc++ 14 — and a wheel is
+# compiled on whatever the installer's default compiler is, which on Ubuntu 24.04
+# is g++-13, with no <print>. The wheel ships only _md_native, so it has no
+# reason to build them and every reason not to.
+option(MD_BUILD_TOOLS "Build the headless CLI tools (md_agent_eval, md_bench)" ON)
 set(MD_PGO "off" CACHE STRING "Profile-guided optimisation: off | generate | use")
 set_property(CACHE MD_PGO PROPERTY STRINGS off generate use)
 # macOS only. "-" is an ad-hoc signature: enough to launch the bundle on the

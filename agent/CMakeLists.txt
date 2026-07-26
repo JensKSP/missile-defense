@@ -23,9 +23,13 @@ if(CMAKE_POSITION_INDEPENDENT_CODE OR MD_BUILD_BINDINGS)
   set_target_properties(md_agent PROPERTIES POSITION_INDEPENDENT_CODE ON)
 endif()
 
-# The benchmark runner: prints the metrics the learned agent must beat.
-add_executable(md_agent_eval eval_main.cpp)
-target_link_libraries(md_agent_eval PRIVATE md::agent md::warnings)
+# The benchmark runner: prints the metrics the learned agent must beat. It uses
+# std::println (libstdc++ 14), so a wheel built on an older compiler leaves it
+# out — MD_BUILD_TOOLS is OFF there; the library above is all the wheel needs.
+if(MD_BUILD_TOOLS)
+  add_executable(md_agent_eval eval_main.cpp)
+  target_link_libraries(md_agent_eval PRIVATE md::agent md::warnings)
+endif()
 
 if(BUILD_TESTING)
   add_subdirectory(tests)

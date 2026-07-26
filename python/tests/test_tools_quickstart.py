@@ -94,6 +94,14 @@ def test_sudo_goes_away_inside_a_root_container() -> None:
     assert any("sudo" in note for note in notes)
 
 
+def test_a_piped_sudo_goes_away_too() -> None:
+    # Adding an apt source is `echo ... | sudo tee <file>` — the sudo is after a
+    # pipe, not leading, and a root container still has no sudo to run it.
+    block = ["echo 'deb ... trixie-backports main' | sudo tee /etc/apt/x.list"]
+    script, _ = rewrite(block, source="/checkout", drop_sudo=True)
+    assert script == ["echo 'deb ... trixie-backports main' | tee /etc/apt/x.list"]
+
+
 def test_the_real_readme_still_has_a_quick_start_this_can_run() -> None:
     readme = (quickstart.PROJECT_ROOT / quickstart.README).read_text(encoding="utf-8")
     lines = extract(readme)

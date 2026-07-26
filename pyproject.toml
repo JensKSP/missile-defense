@@ -32,6 +32,10 @@ sdist.exclude = ["**/*.pyd", "**/*.so", "**/__pycache__", "build/", "runs/"]
 [tool.scikit-build.cmake.define]
 MD_BUILD_APP = "OFF"
 MD_BUILD_BINDINGS = "ON"
+# The CLI tools use <print> (libstdc++ 14); a wheel is compiled on the installer's
+# own compiler — g++-13 on Ubuntu 24.04 has no <print> — and the wheel ships only
+# _md_native, so there is nothing to gain by building them and a build to lose.
+MD_BUILD_TOOLS = "OFF"
 BUILD_TESTING = "OFF"
 # A wheel is built by whoever installs it, on whatever compiler they have. The
 # quality gate is where warnings are errors; a new compiler must not turn a

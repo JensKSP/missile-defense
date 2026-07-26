@@ -33,6 +33,9 @@ names using [Requirements](#requirements) below:
 
 ```bash
 # 1 — dependencies (a few hundred MB: Qt 6, Vulkan, clang)
+# clang-21 and lld-21 come from trixie-backports on Debian 13; enable it first.
+echo 'deb http://deb.debian.org/debian trixie-backports main' \
+  | sudo tee /etc/apt/sources.list.d/backports.list
 sudo apt update
 sudo apt install clang-21 lld-21 cmake ninja-build \
   qt6-base-dev qt6-base-dev-tools \
