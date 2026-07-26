@@ -374,7 +374,10 @@ swapping compilers, are in [WINDOWS.md](WINDOWS.md#training-on-windows).
 
 ### GPU
 
-* **NVIDIA** — the usual CUDA wheels.
+* **NVIDIA** — the usual CUDA wheels. The Debian recipe end to end, and why you
+  do *not* need the CUDA toolkit, is in [NVIDIA.md](NVIDIA.md) — along with the
+  measured numbers: ~43× the CPU's throughput at the same batch, and where the
+  card saturates.
 * **AMD** — ROCm PyTorch on Windows is a preview limited to RX 7000/9000 series
   and some Ryzen AI APUs; older cards are not supported, and consumer RDNA 2 on
   Linux needs `HSA_OVERRIDE_GFX_VERSION` workarounds. `torch-directml` runs on

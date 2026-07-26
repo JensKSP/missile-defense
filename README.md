@@ -72,6 +72,7 @@ Deeper reading: [design & reward spec](docs/DESIGN.md) ·
 [the agent API](docs/API.md) · [milestones / roadmap](docs/ROADMAP.md) ·
 [testing & quality gate](docs/TESTING.md) ·
 [simulation throughput](docs/PERFORMANCE.md) ·
+[training on an NVIDIA GPU](docs/NVIDIA.md) ·
 [packaging & file locations](docs/PACKAGING.md)
 
 ## Features
