@@ -93,6 +93,7 @@ Everything under `runs/` (`--out-dir` to change it):
 |---|---|
 | `runs/checkpoints/policy-<n>.pt` | weights + optimizer + iteration, every `--checkpoint-every` |
 | `runs/checkpoints/policy-final.pt` | always written at the end |
+| `runs/checkpoints/policy-best.pt` | the highest-scoring evaluation so far — **usually not the final one** |
 | `runs/update-<n>.mdr` | a watchable episode, ~80 kB |
 | `runs/metrics.csv` | one row per update, for plotting afterwards |
 | `runs/evals.csv` | one row per `--eval-every` scoring, in the baseline's units |
@@ -110,6 +111,13 @@ Those last two are deliberately separate files. `metrics.csv` is the training
 return, which as above is *not* a score; `evals.csv` is the 32-seed summary that
 is, so it is the one a "beat 113,834" line can honestly be drawn across. Keeping
 them apart also keeps the sparse rows out of the dense file.
+
+**Take `policy-best.pt`, not `policy-final.pt`.** PPO does not improve
+monotonically — a moving target destabilises the critic and entropy collapses —
+so a run that peaked at update 800 can quite normally finish worse at 1000. The
+best checkpoint is kept separately, by canonical eval score rather than by shaped
+return, and the trainer says which update it came from when it exits. The final
+one is what `--resume` continues; the best one is what you score or ship.
 
 ## What a run reports about itself
 

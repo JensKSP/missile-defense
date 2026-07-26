@@ -200,6 +200,12 @@ def train(config: TrainConfig, ppo: PPOConfig | None = None) -> nn.Module:
     running = np.zeros(config.envs, dtype=np.float64)
     started = time.perf_counter()
 
+    # The best *eval* score seen, and the update that scored it. PPO can peak and
+    # then regress (a moving target destabilises the critic, entropy collapses),
+    # so the final policy is not always the best one — keep the best separately.
+    best_score = float("-inf")
+    best_iteration = 0
+
     for iteration in range(first, first + config.updates):
         for step in range(config.steps):
             obs = torch.from_numpy(env.observations).to(device)
@@ -266,8 +272,11 @@ def train(config: TrainConfig, ppo: PPOConfig | None = None) -> nn.Module:
         )
         metrics.flush()  # so a plot can follow a run that is still going
         ret = f"{mean_return:>8.2f}" if recent else "       -"
+        # "shaped ret", not "return": this is the shaped, scaled, undiscounted sum
+        # (md.env.Shaping) and has no fixed relationship to the game score. The
+        # honest scoreboard is the eval block below and runs/evals.csv.
         print(
-            f"update {iteration:>5} | return {ret} "
+            f"update {iteration:>5} | shaped ret {ret} "
             f"| entropy {stats['entropy']:.3f} | value {stats['value_loss']:.3f} "
             f"| {steps_done / elapsed / 1e3:.0f}k steps/s"
         )
@@ -283,7 +292,20 @@ def train(config: TrainConfig, ppo: PPOConfig | None = None) -> nn.Module:
             print(format_summary(summary))
             delta = summary.mean_score - BASELINE_MEAN_SCORE
             verdict = "ahead of" if delta > 0 else "behind"
-            print(f"  {abs(delta):,.0f} {verdict} the scripted baseline")
+            print(
+                f"  eval score {summary.mean_score:,.0f} — "
+                f"{abs(delta):,.0f} {verdict} the scripted baseline"
+            )
+            # Keep the best policy by the yardstick that actually matters, not the
+            # last one — a peak at update 800 must survive a regression by 1000.
+            if summary.mean_score > best_score:
+                best_score = summary.mean_score
+                best_iteration = iteration
+                best_path = checkpoints / "policy-best.pt"
+                _save(policy, optimizer, iteration, shape, ppo, layout, best_path)
+                print(f"  new best — saved {best_path}")
+            else:
+                print(f"  best so far {best_score:,.0f} at update {best_iteration}")
 
         if config.checkpoint_every > 0 and iteration % config.checkpoint_every == 0:
             _save(
@@ -315,6 +337,12 @@ def train(config: TrainConfig, ppo: PPOConfig | None = None) -> nn.Module:
     metrics.close()
     control.clear()  # so the next run in this directory is not born stopped
     print(f"  final policy -> {checkpoints / 'policy-final.pt'}")
+    if best_iteration > 0:
+        # The one to score or ship: the final policy is often not the best one.
+        print(
+            f"  best policy  -> {checkpoints / 'policy-best.pt'} "
+            f"({best_score:,.0f} at update {best_iteration})"
+        )
     print(f"  metrics      -> {metrics_path}")
     return policy
 
