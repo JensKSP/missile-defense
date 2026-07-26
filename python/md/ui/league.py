@@ -25,7 +25,7 @@ before it renames.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
@@ -236,7 +236,7 @@ class LeagueView(QWidget):
                 model.name,
                 model.source_run or "imported",
                 f"{model.trained_updates:,}" if model.trained_updates else "—",
-                "unranked" if best is None else f"{float(best.get('mean_score', 0.0)):,.0f}",
+                _score_text(best),
                 f"{len(model.results)}",
             )
             for index, text in enumerate(cells):
@@ -293,6 +293,21 @@ class LeagueView(QWidget):
             QMessageBox.warning(self, "Could not import", str(error))
             return
         self.refresh()
+
+
+def _score_text(best: Mapping[str, object] | None) -> str:
+    """A ranked score, or the word that says there is not one.
+
+    "unranked" and not a number: a model whose only results are quick matches
+    has no benchmark score, and showing its warm-up in the same column as one
+    would put a four-seed run above a thirty-two-seed one.
+    """
+    if best is None:
+        return "unranked"
+    value = best.get("mean_score")
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return "unranked"
+    return f"{float(value):,.0f}"
 
 
 def _eval_rows(run: Path) -> list[sources.EvalRow]:

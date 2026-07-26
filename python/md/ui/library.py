@@ -232,8 +232,12 @@ class LibraryView(QWidget):
 
         self.table = RunTable()
         self.table.opened.connect(self.opened)
-        self.table.renamed.connect(lambda _: self.refresh())
+        self.table.renamed.connect(self._renamed)
         column.addWidget(self.table, stretch=1)
+
+    def _renamed(self, _path: Path) -> None:
+        """A name or a note changed; the row it is in has to be redrawn."""
+        self.refresh()
 
     def attach(self, root: Path) -> None:
         """Point the library at a directory of runs and read it."""
