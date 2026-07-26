@@ -59,10 +59,15 @@ class RunTable(QWidget):
 
     opened = Signal(Path)
     renamed = Signal(Path)
+    #: A run's contents changed on disk — cleaned up, or archived and removed.
+    changed = Signal()
 
     def __init__(self) -> None:
         super().__init__()
         self._runs: list[library.Run] = []
+        #: Where these runs live. Storage operations refuse to touch anything
+        #: outside it, so the table has to know rather than infer from a row.
+        self._root: Path | None = None
 
         column = QVBoxLayout(self)
         column.setContentsMargins(0, 0, 0, 0)
@@ -100,7 +105,13 @@ class RunTable(QWidget):
         self._rename.clicked.connect(self._rename_selected)
         self._note = QPushButton("Note…")
         self._note.clicked.connect(self._note_selected)
-        for button in (self._open, self._rename, self._note):
+        self._storage = QPushButton("Storage…")
+        self._storage.setToolTip(
+            "What this run costs on disk, and how to clean it up, archive it, "
+            "or archive it and remove it"
+        )
+        self._storage.clicked.connect(self._storage_selected)
+        for button in (self._open, self._rename, self._note, self._storage):
             actions.addWidget(button)
         actions.addStretch(1)
         self._summary = QLabel()
@@ -112,6 +123,9 @@ class RunTable(QWidget):
         self._selection_changed()
 
     # ---- feeding it ----------------------------------------------------------
+
+    def set_root(self, root: Path) -> None:
+        self._root = root
 
     def show_runs(self, runs: Sequence[library.Run]) -> None:
         """Redraw. Keeps the selection on the same *run* if it is still there.
@@ -195,6 +209,17 @@ class RunTable(QWidget):
             library.rename(run.path, name)
             self.renamed.emit(run.path)
 
+    def _storage_selected(self) -> None:
+        run = self.selected()
+        if run is None or self._root is None:
+            return
+        from .storage import StorageDialog  # noqa: PLC0415 — optional dependency
+
+        dialog = StorageDialog(run, self._root, self)
+        dialog.exec()
+        if dialog.changed:
+            self.changed.emit()
+
     def _note_selected(self) -> None:
         run = self.selected()
         if run is None:
@@ -225,6 +250,10 @@ class LibraryView(QWidget):
         caption.setProperty("role", "caption")
         heading.addWidget(caption)
         heading.addStretch(1)
+        self._restore = QPushButton("Restore…")
+        self._restore.setToolTip("Put an archived run back into this library")
+        self._restore.clicked.connect(self._restore_archive)
+        heading.addWidget(self._restore)
         if on_new_run is not None:
             new_run = QPushButton("New run…")
             new_run.setProperty("role", "primary")
@@ -235,7 +264,16 @@ class LibraryView(QWidget):
         self.table = RunTable()
         self.table.opened.connect(self.opened)
         self.table.renamed.connect(self._renamed)
+        self.table.changed.connect(self.refresh)
         column.addWidget(self.table, stretch=1)
+
+    def _restore_archive(self) -> None:
+        if self._root is None:
+            return
+        from .storage import restore  # noqa: PLC0415 — optional dependency
+
+        if restore(self._root, self) is not None:
+            self.refresh()
 
     def _renamed(self, _path: Path) -> None:
         """A name or a note changed; the row it is in has to be redrawn."""
@@ -244,6 +282,7 @@ class LibraryView(QWidget):
     def attach(self, root: Path) -> None:
         """Point the library at a directory of runs and read it."""
         self._root = root
+        self.table.set_root(root)
         self.refresh()
 
     def refresh(self) -> None:
