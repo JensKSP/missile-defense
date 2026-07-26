@@ -942,10 +942,15 @@ printout grows a full block. The histogram is the one new piece of core
 instrumentation — every other field is event-counting already proven in
 `run_episode`.
 
-- [ ] Steps: TDD each layer (C++ Catch2 for counting + `summarize` + histogram
+- [x] Steps: TDD each layer (C++ Catch2 for counting + `summarize` + histogram
       where `bin[0] == wasted`; pytest for the surfaced fields and `evals.csv`
       columns), rebuild bindings, `poe check`, verify with `poe eval` + a short
       GPU run. Commit: `Report the full statistics of a simulated run`.
+- [x] **E2E** — `test_a_runs_evaluation_carries_the_full_statistics` reads a real
+      run's `evals.csv` and asserts every new column is present *and plausible*
+      (a column of zeroes is the failure a header check would pass on), and
+      `test_the_evaluator_prints_the_full_statistics_block` drives the
+      `md_agent_eval` binary — the half with no Python in it — for the printout.
 
 ### Task 12: Statistical analysis of runs in the console
 
@@ -994,7 +999,7 @@ becomes visible at a glance and comparable across runs.
       bytes.
 - [ ] Archives verify before deletion and restore without unsafe extraction.
 - [ ] README and platform docs describe the installed UI flow as the default.
-- [ ] A run reports the full per-episode statistics (survival, damage, spend,
+- [x] A run reports the full per-episode statistics (survival, damage, spend,
       kills-per-shot distribution), aggregated and in `evals.csv`.
 - [ ] The console can analyse those statistics — distributions and cause-of-plateau
       views — within a run and across runs.
