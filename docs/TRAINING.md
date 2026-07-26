@@ -333,6 +333,35 @@ It does **not** need torch. Where there is none, the primary button offers to
 install one instead of being a dead control — see
 [Getting PyTorch](#from-the-console-without-a-terminal).
 
+## The library, and promoting a model
+
+`poe ui` opens on the **run library** when the directory holds several runs, and
+on the run itself when it holds one — both are what the path you gave meant. The
+library is a level above the dashboard rather than a tab beside it: "which of
+these eleven is worth my attention?" needs scores, sizes and states side by
+side, which a dropdown cannot show. `‹ Library` goes back.
+
+Every run has two names. The **directory** never changes — it is what a
+`--resume`, a path and every file inside the run refer to. The **display name**
+is yours, editable at any time including while the run is going, and it is what
+the list shows. Notes are for the sentence you will want in a fortnight.
+
+**Enter Model League** (on the run screen, under the model panel) copies a
+checkpoint into `models/<id>/` as a `policy.mdp` — the data-only format the game
+and the native evaluator read (docs/API.md §7). Three things about it:
+
+* it defaults to the best *evaluated checkpoint that still exists*, which is
+  often not the best score: checkpoints and evaluations happen on different
+  cadences, so a run's peak evaluation frequently has no file behind it;
+* it is a **copy**, so the model outlives the run being cleaned up or archived;
+* it can **refuse** — a checkpoint that cannot be exported and read back is not
+  promoted, and nothing is written. That is the intended outcome: a league entry
+  the game cannot load would be worse.
+
+The league sits beside the run list. **Watch it play** opens the game on that
+model against a fresh seed, and **Import .mdp…** takes one somebody else
+produced, validated before anything is written.
+
 ## Why a run stopped improving: the STATISTICS tab
 
 The score curve tells you a run has plateaued. It cannot tell you why, and that
@@ -467,6 +496,38 @@ to it. The ones actually worth touching first:
 | `--eval-every` | 10 | you want the yardstick more or less often — also changeable mid-run, above |
 | `--record-every` | 25 | you want more episodes to watch |
 | `--max-ticks` | 120000 | you are smoke-testing and want episodes to end fast |
+
+### What the agent is paid for
+
+The reward weights are the third group, and the only one that can change *what
+the policy converges to*. They are `--reward-*` on the command line and the last
+block of the console's **Advanced** section:
+
+| Flag | Default | What it prices |
+|---|---|---|
+| `--reward-city-weight` | 100 | a city still standing |
+| `--reward-base-weight` | 200 | a battery still firing — worth a third of your guns for the rest of the wave |
+| `--reward-ammo-weight` | 5 | an unspent interceptor |
+| `--reward-waste-penalty` | 0 | **a shot that killed nothing** |
+| `--reward-multikill-bonus` | 0 | **each kill beyond a blast's first** |
+| `--reward-gamma` | 0.999 | the shaping discount — *not* `--gamma`, which is PPO's |
+| `--reward-enabled` | true | shaping at all |
+
+**The two in bold behave differently from the rest, and it matters.** City, base
+and ammo are potential-based (Ng, Harada & Russell, 1999), so they provably
+leave the optimal policy unchanged and only change how fast it is found — they
+deliver the end-of-wave bonus at the moment it is earned instead of at the next
+wave boundary, where 60 Hz discounting makes it nearly invisible. `waste_penalty`
+and `multikill_bonus` are *not* potential terms: they genuinely change the
+objective, which is the only way to change what the agent learns to do, and the
+reason they must be judged on validation rather than on themselves.
+
+None of them touches the game score, so the 98,542.34375 scripted yardstick is
+unaffected whatever you set them to. A run records its weights in
+`runs/config.json`, so a result you liked is reproducible.
+
+`--reward-gamma` and `--gamma` are two different discounts, which is why the
+reward ones are prefixed at all — argparse refused to have both otherwise.
 
 `learning_rate` and `entropy_coef` in `PPOConfig` are the starting values. The
 trainer linearly reduces them to the two final values above, reaching them on

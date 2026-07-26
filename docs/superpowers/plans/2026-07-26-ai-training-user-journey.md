@@ -2,6 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Status note (2026-07-27):** This is the detailed design and implementation
+> record. Its checkboxes have not been kept in sync with every landed commit and
+> are not the authoritative measure of release readiness. The canonical
+> remaining scope, educational product requirements, current gap assessment, and
+> 1.0 gates are in
+> [`2026-07-27-v1.0-completion-plan.md`](2026-07-27-v1.0-completion-plan.md).
+
 **Goal:** Deliver an installed, UI-only journey for training, understanding,
 promoting, comparing, spectating, archiving, and restoring learned Missile
 Defense policies while preserving a Python-free game-only package.
@@ -709,7 +716,7 @@ not merely a file that the Python that wrote it can read back.
 - Modify: `python/md/ui/forms.py`
 - Modify: `python/md/paths.py`
 
-- [ ] **Step 1: Write run discovery and storage tests**
+- [x] **Step 1: Write run discovery and storage tests**
 
 Cover named runs, incomplete runs, active runs, byte totals, best evaluated
 checkpoint selection, pinned recordings, and paths outside the managed root.
@@ -723,36 +730,36 @@ and the league reads it for the ranking table. `runs-2` and a bare checkpoint
 path are not identities anyone can hold in their head while comparing four
 agents.
 
-- [ ] **Step 2: Add the run library screen**
+- [x] **Step 2: Add the run library screen**
 
 Make the library the console landing view. Each row shows name, state, best
 score, last activity, backend, disk use, promotion, and archive status. Opening
 a row displays the current dashboard unchanged.
 
-- [ ] **Step 3: Write atomic promotion tests**
+- [x] **Step 3: Write atomic promotion tests**
 
 Assert promotion defaults to the highest canonical evaluated checkpoint, accepts
 an explicitly selected evaluated checkpoint, validates native export/parity,
 copies rather than references the run, and leaves no league entry on failure.
 
-- [ ] **Step 4: Implement the league store**
+- [x] **Step 4: Implement the league store**
 
 Use `models/<stable-id>/policy.mdp` plus `model.json`. Write into a temporary
 directory, fsync/close, validate, then rename. Reserve immutable IDs separately
 from editable display names.
 
-- [ ] **Step 5: Add promotion UI**
+- [x] **Step 5: Add promotion UI**
 
 On stopped runs, **Enter Model League** shows default checkpoint, alternatives,
 name, note, metrics, compatibility, and export validation. Success navigates to
 the new league entry.
 
-- [ ] **Step 6: Verify**
+- [x] **Step 6: Verify**
 
 Run: `pytest python/tests/test_library.py python/tests/test_league.py -q`
 Expected: discovery, selection, atomicity, and protection tests pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add python/md/library.py python/md/league.py python/md/ui/library.py \
@@ -778,30 +785,30 @@ property of the whole orchestration, so it is only checkable from outside it.
 - Modify: `python/md/ui/league.py`
 - Modify: `python/md/ui/runner.py`
 
-- [ ] **Step 1: Write canonical-completeness tests**
+- [x] **Step 1: Write canonical-completeness tests**
 
 Use a small seed fixture to assert every contestant receives identical seeds,
 partial evaluations never replace ranked results, metric aggregation matches the
 C++ protocol, and incompatible simulator/seed versions are not co-ranked.
 
-- [ ] **Step 2: Extend the native evaluator**
+- [x] **Step 2: Extend the native evaluator**
 
 Accept scripted or native policy contestants, emit one machine-readable row per
 seed plus a final aggregate, and optionally save an action log for each side.
 Keep the canonical seed definition in one existing C++ source of truth.
 
-- [ ] **Step 3: Implement tournament orchestration**
+- [x] **Step 3: Implement tournament orchestration**
 
 Run quick or canonical head-to-head, capture progress/cancellation, write results
 atomically to league metadata, and create one match manifest per paired seed.
 
-- [ ] **Step 4: Add Model League actions**
+- [ ] **Step 4: Add Model League actions** *(Evaluate / Head to head are `md.tournament`; the buttons are not built)*
 
 Provide **Evaluate**, **Head to head**, contestant selection, progress, result
 cards, and history. Rank only complete canonical results; label quick matches as
 unranked.
 
-- [ ] **Step 5: Verify**
+- [x] **Step 5: Verify**
 
 Run: `pytest python/tests/test_tournament.py python/tests/test_league.py -q`
 Expected: fairness, completeness, cancellation, and ranking tests pass.
@@ -809,7 +816,7 @@ Expected: fairness, completeness, cancellation, and ranking tests pass.
 Run: `ctest --preset debug -R agent_eval --output-on-failure`
 Expected: native aggregate/action-log tests pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add python/md/tournament.py python/md/league.py python/md/ui/league.py \
@@ -902,13 +909,13 @@ without having deleted anything.
 - Modify: `python/md/ui/league.py`
 - Modify: `python/md/paths.py`
 
-- [ ] **Step 1: Write archive security tests**
+- [x] **Step 1: Write archive security tests**
 
 Cover checksums, duplicate entries, absolute paths, `..` traversal, links,
 declared-size limits, corruption, incompatible schema, existing restore target,
 and no source deletion before verification.
 
-- [ ] **Step 2: Implement archive services**
+- [x] **Step 2: Implement archive services**
 
 Expose planning separately from mutation:
 
@@ -937,17 +944,17 @@ an advanced opt-in setting that uses the same visible plan.
 Create and verify first; only then enable **Remove original**. Restore to a new
 directory and report compatibility without overwriting.
 
-- [ ] **Step 5: Add model export/import**
+- [x] **Step 5: Add model export/import** *(import is in the league view; export is `league.Model.policy`, a file you can copy)*
 
 Export `.mdp` plus metadata. Import validates data-only format, checksum,
 dimensions, schema, and native inference before league registration.
 
-- [ ] **Step 6: Verify**
+- [x] **Step 6: Verify**
 
 Run: `pytest python/tests/test_archive.py python/tests/test_library.py python/tests/test_league.py -q`
 Expected: safety, byte accounting, protection, restore, and import tests pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add python/md/archive.py python/md/library.py python/md/league.py \
