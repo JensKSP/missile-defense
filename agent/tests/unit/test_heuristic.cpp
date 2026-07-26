@@ -144,6 +144,35 @@ TEST_CASE("evaluate aggregates over the seed set", "[unit][agent]") {
     REQUIRE(s.min_score <= s.max_score);
 }
 
+TEST_CASE("Throttling the agent's decisions really holds its action", "[unit][agent]") {
+    // A scripted agent that re-aims every tick is being compared against a neural
+    // policy that decides every fourth, so part of any gap between them is
+    // reaction speed rather than tactics. `frame_skip` removes that part by
+    // holding the scripted agent's action the same way.
+    //
+    // That the throttle *works* is only visible when it is turned up far enough
+    // to hurt: at one decision a second the agent is aiming at where the threats
+    // were, and the score collapses. That collapse is the evidence the action is
+    // genuinely held rather than quietly recomputed.
+    const Config cfg;
+    const Heuristic agent{};
+    const std::vector<std::uint64_t> seeds = md::agent::default_seeds(4);
+    const md::agent::Summary native = md::agent::evaluate(cfg, seeds, agent, 3000, 1);
+    const md::agent::Summary crippled = md::agent::evaluate(cfg, seeds, agent, 3000, 60);
+    REQUIRE(crippled.mean_score < native.mean_score / 4.0);
+
+    // And the point of the flag: at the policy's own ~15 Hz the baseline is
+    // essentially undiminished, so a learned agent held to that rate is being
+    // compared against a fair opponent rather than a hobbled one.
+    const md::agent::Summary policy_rate = md::agent::evaluate(cfg, seeds, agent, 3000, 4);
+    REQUIRE(policy_rate.mean_score > native.mean_score * 0.9);
+
+    // Deterministic at every rate, or a comparison between two of them is noise.
+    REQUIRE(md::agent::evaluate(cfg, seeds, agent, 3000, 4).mean_score == policy_rate.mean_score);
+    // Zero would step nothing; it means "every tick", which is the default.
+    REQUIRE(md::agent::evaluate(cfg, seeds, agent, 3000, 0).mean_score == native.mean_score);
+}
+
 TEST_CASE("The agent obeys the player model like any other driver", "[unit][agent]") {
     // The crosshair cap and trigger interval live in Sim::step, so the agent
     // cannot opt out of them: its shots are paced exactly like a human's.

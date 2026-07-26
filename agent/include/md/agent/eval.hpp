@@ -49,8 +49,16 @@ struct Summary {
 [[nodiscard]] std::vector<std::uint64_t> default_seeds(std::size_t count = 32);
 
 /// Play one episode to termination or `max_ticks`, whichever comes first.
+///
+/// `frame_skip` is how many ticks the agent's action is held before it decides
+/// again: 1 is its native per-tick (60 Hz) rate; 4 throttles it to the neural
+/// policy's decision rate (~15 Hz), which is what makes the two comparable on
+/// tactics rather than on reaction speed. 0 means 1. The physics limits in
+/// `Sim::step` — the fire interval, the crosshair speed — apply regardless, so
+/// this throttles deciding and never the simulation.
 [[nodiscard]] EpisodeResult run_episode(const Config& config, std::uint64_t seed,
-                                        const Heuristic& agent, std::uint64_t max_ticks = 120000);
+                                        const Heuristic& agent, std::uint64_t max_ticks = 120000,
+                                        unsigned frame_skip = 1);
 
 /// Aggregate episode outcomes. Split out from `evaluate` so a *learned* agent —
 /// which is driven from Python and cannot be a `Heuristic` — is scored by the same
@@ -58,8 +66,10 @@ struct Summary {
 /// quietly differ. That is what makes "beat the baseline" a claim and not a vibe.
 [[nodiscard]] Summary summarize(std::span<const EpisodeResult> episodes);
 
-/// Play every seed and aggregate.
+/// Play every seed and aggregate. `frame_skip` throttles the agent's decision
+/// rate (see `run_episode`); the default 1 is the native per-tick baseline.
 [[nodiscard]] Summary evaluate(const Config& config, std::span<const std::uint64_t> seeds,
-                               const Heuristic& agent, std::uint64_t max_ticks = 120000);
+                               const Heuristic& agent, std::uint64_t max_ticks = 120000,
+                               unsigned frame_skip = 1);
 
 } // namespace md::agent
