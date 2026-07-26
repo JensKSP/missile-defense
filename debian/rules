@@ -14,7 +14,13 @@ export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 # The side effect is worth having on its own. Everything else — the Linux gate,
 # macOS, Windows — is Clang, so this is the one build that compiles the tree with
 # GCC, and the golden determinism test runs there against a second compiler.
-export CXX = g++
+#
+# g++-14 by preference: <print> (agent/, bench/) needs libstdc++ 14. Debian
+# trixie's default g++ is already 14, so this picks the default there and changes
+# nothing; Ubuntu 24.04's default is 13, where naming g++-14 explicitly is the
+# difference between the same packaging building and not. debian/control declares
+# that as an either/or so both distributions can satisfy it.
+export CXX := $(shell command -v g++-14 || command -v g++)
 
 %:
 	dh $@ --buildsystem=cmake
@@ -24,6 +30,7 @@ export CXX = g++
 override_dh_auto_configure:
 	dh_auto_configure -- \
 		-DMD_WERROR=OFF \
+		-DMD_PEDANTIC=OFF \
 		-DMD_SANITIZE=OFF \
 		-DMD_COVERAGE=OFF \
 		-DMD_BUILD_APP=ON

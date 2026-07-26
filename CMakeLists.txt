@@ -42,6 +42,13 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # ---- Options -----------------------------------------------------------------
 option(MD_SANITIZE "Enable AddressSanitizer + UBSan" OFF)
 option(MD_WERROR "Treat warnings as errors" ON)
+# Both default ON, and both are meant to be turned off by builds whose job is to
+# produce an artifact rather than to judge the code. A release or packaging build
+# runs on whatever compiler its machine ships, and a newer one inventing a new
+# diagnostic — or being stricter about ISO conformance in a third-party header —
+# must not be able to stop a package being built. The quality gate, on a pinned
+# clang-21, is where zero-warnings is enforced and where it means something.
+option(MD_PEDANTIC "Enable -Wpedantic (strict ISO conformance diagnostics)" ON)
 option(MD_BUILD_APP "Build the Qt 6 + Vulkan app (needs Qt6 + Vulkan)" ON)
 option(MD_COVERAGE "Instrument for LLVM source-based coverage (clang)" OFF)
 option(MD_VULKAN_VALIDATION "Request Vulkan validation layers (dev only)" OFF)
@@ -87,7 +94,6 @@ else()
   target_compile_options(md_warnings INTERFACE
     -Wall
     -Wextra
-    -Wpedantic
     -Wshadow
     -Wconversion
     -Wsign-conversion
@@ -102,6 +108,13 @@ else()
     -Wimplicit-fallthrough
     -Wmisleading-indentation)
 endif()
+# Separate from the list above so a packaging build can drop it alone. MSVC has
+# no -Wpedantic; /permissive- above is the nearest thing and is conformance mode
+# rather than a diagnostic, so it stays either way.
+if(MD_PEDANTIC AND NOT MSVC)
+  target_compile_options(md_warnings INTERFACE -Wpedantic)
+endif()
+
 if(MD_WERROR)
   target_compile_options(md_warnings INTERFACE $<IF:$<BOOL:${MSVC}>,/WX,-Werror>)
 endif()

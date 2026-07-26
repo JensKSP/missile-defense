@@ -119,6 +119,19 @@ jobs:
         continue-on-error: true
         run: vulkaninfo --summary
 
+      - name: Configure without -Werror or -Wpedantic
+        # This job builds an artifact; it does not judge the code. Apple Clang is
+        # whatever the runner image ships and moves under us, and a new diagnostic
+        # from it must not be able to stop the .dmg being built. The Linux gate,
+        # on a pinned clang-21, is where zero-warnings is enforced.
+        #
+        # Set on the cache here rather than in the presets so the poe tasks below
+        # inherit it: they re-run `cmake --preset ...`, and since the presets say
+        # nothing about these two, the cached values survive the reconfigure.
+        run: |
+          cmake --preset debug -DMD_WERROR=OFF -DMD_PEDANTIC=OFF
+          cmake --preset release -DMD_WERROR=OFF -DMD_PEDANTIC=OFF
+
       - name: C++ tests (Debug + sanitizers)
         run: poe test
 
@@ -182,14 +195,19 @@ jobs:
         # The debug preset asks for ASan/UBSan; CMakeLists degrades that to a
         # plain Debug build here, because there is no LeakSanitizer runtime under
         # MinGW. The tests are the point either way.
+        #
+        # No -Werror or -Wpedantic: this job exists to produce an installer, and
+        # MSYS2 rolls its clang forward continuously — a new warning arriving in
+        # a pacman update must not be able to stop a release being built. The
+        # Linux gate holds the zero-warning line on a pinned compiler.
         run: |
-          cmake --preset debug
+          cmake --preset debug -DMD_WERROR=OFF -DMD_PEDANTIC=OFF
           cmake --build --preset debug
           ctest --preset debug
 
       - name: C++ tests (Release)
         run: |
-          cmake --preset release
+          cmake --preset release -DMD_WERROR=OFF -DMD_PEDANTIC=OFF
           cmake --build --preset release
           ctest --preset release
 
@@ -215,15 +233,26 @@ jobs:
     # dh_auto_* rather than cmake --install — so one can break while the other
     # still works. This job is the one that would catch it.
     #
-    # In a Debian trixie container, not on the Ubuntu runner, because "what
-    # Debian would build" is the entire claim and the two distributions do not
-    # agree on the thing this package needs most: trixie's default g++ is 14 and
-    # has <print>, Ubuntu 24.04's is 13 and does not, so agent/ and bench/ do not
-    # compile there at all. Building the Debian package on Ubuntu was testing a
-    # near-miss. It also means the build-dependency versions resolved here are
-    # the ones the package will actually be built against.
+    # In containers rather than on the runner, because "the package this
+    # distribution would build" is the whole claim, and it is only true if the
+    # compiler and every Build-Depends version are that distribution's own.
+    #
+    # Both, because the two disagree about the thing this package needs most.
+    # Trixie's default g++ is 14 and has <print>; Ubuntu 24.04's is 13 and does
+    # not, so agent/ and bench/ do not compile there with the default at all.
+    # debian/control asks for `g++ (>= 4:14) | g++-14` and debian/rules picks
+    # g++-14 when it is there — which is the default on trixie and the explicit
+    # package on Ubuntu. This matrix is what keeps that claim honest.
     runs-on: ubuntu-24.04
-    container: debian:trixie
+    container: ${{ matrix.image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: debian:trixie
+            slug: debian-trixie
+          - image: ubuntu:24.04
+            slug: ubuntu-24.04
     steps:
       - name: Install git
         # The image has none, and without it actions/checkout silently falls back
