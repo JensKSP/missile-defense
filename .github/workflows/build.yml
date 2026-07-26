@@ -263,6 +263,10 @@ jobs:
         # already at the top of the file, and dch refuses to go backwards
         # without being told that is deliberate.
         if: inputs.deb-version != ''
+        # Explicitly bash: a container step defaults to `sh`, which is dash here,
+        # and Ubuntu's dash rejects `pipefail` outright while Debian's accepts it.
+        # The same script silently meant two different things on the two images.
+        shell: bash
         run: |
           set -euo pipefail
           # The trailer's identity comes from debian/control — the same place
@@ -271,6 +275,10 @@ jobs:
           # (bogus-mail-host-in-debian-changelog) and fails the job after the
           # package has already built and tested clean.
           maintainer="$(sed -n 's/^Maintainer: //p' debian/control)"
+          # An empty parse would hand dch no identity, it would invent
+          # root@<container-id>, and lintian would reject that for the same
+          # reason it rejected the last one — four platforms of build later.
+          [ -n "$maintainer" ] || { echo "no Maintainer in debian/control" >&2; exit 1; }
           DEBFULLNAME="${maintainer%% <*}"
           DEBEMAIL="${maintainer##*<}"; DEBEMAIL="${DEBEMAIL%>}"
           export DEBFULLNAME DEBEMAIL
