@@ -44,7 +44,7 @@ neural policy, and no scripted agent in sight.
 Same-trajectory split of a driven tick: **policy ~69 %, simulation ~31 %**. Note
 this is measured on one trajectory with timers around both calls — comparing the
 two throughput rows above instead would be wrong, because undefended episodes die
-around wave 3 with an almost empty sky while agent-driven ones reach wave 16 with
+around wave 3 with an almost empty sky while agent-driven ones reach wave 17 with
 far more entities per tick.
 
 For **training** throughput the relevant path is `step` + `encode` ≈ 90 ns/tick;

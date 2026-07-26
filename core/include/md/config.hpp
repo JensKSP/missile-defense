@@ -78,11 +78,21 @@ struct Config {
     float smart_bomb_dodge_range = 22.0f; // reacts to blasts within this (world units)
     float smart_bomb_dodge_accel = 90.0f; // lateral steering accel (world units / s^2)
 
-    // Scoring (DESIGN.md §4.3).
+    // Scoring (DESIGN.md §4.3), following the 1980 arcade original.
     std::int32_t score_per_kill = 25;
+    // A smart bomb is worth five ordinary warheads in the original, and it is by
+    // far the hardest thing on the field to hit — it steers around blasts.
+    std::int32_t score_per_smart_bomb = 125;
     std::int32_t score_per_unused_interceptor = 5;
     std::int32_t score_per_surviving_city = 100;
     std::int32_t bonus_city_score = 10000; // restore a destroyed city every N points
+    // The arcade multiplies *everything* — kills and the end-of-wave bonus — by a
+    // factor that steps up every two waves and caps out. It is the reason the
+    // original is a game about surviving deep rather than farming early waves: at
+    // the cap a surviving city is worth 600, not 100. Leaving it out, as this did
+    // until now, quietly flattens the whole incentive to last.
+    std::uint32_t score_multiplier_wave_step = 2; // waves per step up
+    std::uint32_t score_multiplier_max = 6;       // reached at wave 11
 };
 
 } // namespace md

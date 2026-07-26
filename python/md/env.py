@@ -58,7 +58,7 @@ class Shaping:
     genuinely change the objective, which is the only way to change what the
     policy converges to — and the reason they must be judged on the 32-seed score
     rather than on themselves. Neither touches the score, so
-    ``md::agent::evaluate`` and the 18,036 baseline are unaffected.
+    ``md::agent::evaluate`` and the 113,834 baseline are unaffected.
     """
 
     city_weight: float = 100.0
@@ -70,7 +70,9 @@ class Shaping:
     #: the cities. Being a potential term it cannot change the optimal policy, only
     #: how quickly the loss becomes visible.
     base_weight: float = 200.0
-    gamma: float = 0.997
+    #: Must match `PPOConfig.gamma` — this discounts the potential term, that one
+    #: discounts the return, and the invariance proof assumes they are the same.
+    gamma: float = 0.999
     enabled: bool = True
 
     #: Charged when an interceptor's blast expires having destroyed nothing. Unlike
@@ -78,17 +80,21 @@ class Shaping:
     #: objective — which is the point, and the reason to judge it on the 32-seed
     #: score rather than on itself.
     #:
-    #: A kill pays `score_per_kill` (25) and firing already costs `ammo_weight` (5),
-    #: so the untouched reward breaks even at 5/25 = 20% accuracy — and the policy
-    #: duly converged to 25%, firing 72% of its interceptors into a zone another
-    #: was already covering. At 10 the break-even moves to 60%.
-    waste_penalty: float = 10.0
-    #: Paid per kill beyond a blast's first. The score already pays 25 for each, so
-    #: this only sharpens an incentive that exists; the scripted baseline reaches
-    #: 1.10 kills per interceptor and that is the headroom. Kept smaller than a
-    #: kill because it is the one term that rewards *waiting*, and an agent that
-    #: overlearns it holds fire for a cluster while the cities burn.
-    multikill_bonus: float = 10.0
+    #: **Off by default, on the evidence.** Set to 10 it moved break-even accuracy
+    #: from 20% to 60%, and across 800 updates the policy's accuracy did not move
+    #: at all: 0.257 at update 50, 0.242 at update 800. It paid the penalty rather
+    #: than avoiding it — rationally, because a landed warhead costs 100-200 in
+    #: potential while a wasted shot costs 15, so firing on a poor chance is still
+    #: the better bet. The knob works; the theory behind it did not. Kept because
+    #: it is one flag to re-test once something else has changed.
+    waste_penalty: float = 0.0
+    #: Also off by default, and for a better reason than the above: the score now
+    #: pays for multi-kills properly by itself. A blast catching two warheads at
+    #: the wave-11 multiplier is worth 300, and ammunition is finite, so the
+    #: incentive to catch clusters is already in the objective. Adding a bonus on
+    #: top only distorts it — and it is the one term that rewards *waiting*, which
+    #: an agent can overlearn into holding fire while the cities burn.
+    multikill_bonus: float = 0.0
 
     @property
     def scale(self) -> float:

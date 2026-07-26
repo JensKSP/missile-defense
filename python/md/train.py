@@ -18,7 +18,7 @@ interpretable rather than just a number going up:
 
 * **The yardstick.** Every `eval_every` updates the policy is scored on the M4
   protocol — the same 32 seeds, aggregated by the same function as the scripted
-  baseline — and printed next to the baseline's 18,036. That is the number that
+  baseline — and printed next to the baseline's 113,834. That is the number that
   decides whether M6 succeeded, so it is also appended to ``runs/evals.csv``
   rather than only scrolling past: it is the one measurement in a run that is in
   the baseline's own units, and the training console draws the baseline across it.
@@ -68,7 +68,7 @@ from .ppo import ObsLayout, PPOConfig, Rollout, build_policy, update
 Policy_fn = Callable[[Observations, Flags], Actions]
 
 #: The scripted baseline (docs/ROADMAP.md, M4). What a learned policy has to beat.
-BASELINE_MEAN_SCORE = 18_036.0
+BASELINE_MEAN_SCORE = 113_834.0
 
 
 @dataclass
@@ -353,7 +353,7 @@ def _log_eval(path: Path, iteration: int, summary: Any) -> None:
 
     A separate file from ``metrics.csv`` on purpose. That one carries the training
     return, which is shaped, scaled and summed undiscounted — a fine diagnostic,
-    but *not* a score, so drawing 18,036 across it would be comparing units that
+    but *not* a score, so drawing 113,834 across it would be comparing units that
     have no relationship. These rows are the ones that do compare: same 32 seeds,
     same C++ ``summarize``, greedy play, exactly what ``poe eval`` reports for the
     scripted agent. They are also sparse (one per ``eval_every``), which is

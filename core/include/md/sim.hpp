@@ -54,6 +54,12 @@ class Sim {
 
     [[nodiscard]] std::uint32_t wave() const noexcept { return wave_; }
 
+    /// The arcade's wave score multiplier: 1x for waves 1-2, 2x for 3-4, and so
+    /// on to `score_multiplier_max`. Applies to kills and to the end-of-wave
+    /// bonus alike, so surviving deep is worth far more than playing early waves
+    /// perfectly. Derived from the wave rather than stored, so it cannot drift.
+    [[nodiscard]] std::int32_t score_multiplier() const noexcept;
+
     [[nodiscard]] bool terminated() const noexcept { return terminated_; }
 
     /// The aiming crosshair — simulation state, steered toward `Action::aim` at
@@ -112,6 +118,7 @@ class Sim {
     void steer_smart_bombs() noexcept;
     void split_mirvs() noexcept;
     std::int32_t resolve_blast_hits() noexcept;
+    [[nodiscard]] std::int32_t kill_score(ThreatType type) const noexcept;
     void resolve_ground_hits() noexcept;
     void update_waves() noexcept;
     void start_wave(std::uint32_t wave) noexcept;

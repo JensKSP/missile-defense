@@ -120,15 +120,15 @@ already near is cheapest to shoot, which stops it oscillating between rivals.
 
 | Metric | Value |
 |---|---|
-| Mean score | **18,036** (range 15,275 – 20,610) |
-| Mean wave reached | **16.0** |
+| Mean score | **113,834** (range 97,805 – 128,965) |
+| Mean wave reached | **17.09** |
 | Mean cities surviving | **0.00** of 6 |
 | Kills per interceptor | **1.10** |
 | Episodes surviving the cap | 0 / 32 |
 
 **This settles the question the design turned on.** A perfect-marksmanship agent — one
 that solves the lead-intercept exactly and never misses — still loses *every* game, with
-every city gone, around wave 16. The difficulty is not aiming; it is allocation under an
+every city gone, around wave 17. The difficulty is not aiming; it is allocation under an
 ammunition budget that goes negative as waves grow. Exact velocity information does not
 trivialise the game, which is why the observation gives raw state rather than hiding it.
 
@@ -189,7 +189,7 @@ their defaults are good and reasoned. Show the four that change a run's characte
 Each field carries the reasoning already written beside it in code as its tooltip —
 the UI should teach, since that is what this project is for.
 
-**The baseline is the hero.** 18,036 drawn as a horizontal line the return curve is
+**The baseline is the hero.** 113,834 drawn as a horizontal line the return curve is
 climbing toward. That single element is the difference between "a number going up"
 and "am I winning yet". Everything else on the plot is secondary.
 
@@ -222,7 +222,7 @@ Instead the run is a subprocess and the existing artifacts *are* the interface:
 | `runs/checkpoints/*.pt` | list → `--load` to score, or `--resume` to continue |
 | stdout | streamed into a log pane |
 
-> **`evals.csv` was added for this.** The plan said to draw 18,036 across the
+> **`evals.csv` was added for this.** The plan said to draw 113,834 across the
 > *return* curve, and that turned out to be wrong: the return in `metrics.csv` is
 > shaped, scaled and summed undiscounted, so it reads in the tens and has no fixed
 > relationship to a game score. The only number in a run that *is* comparable is
@@ -276,7 +276,7 @@ surface.
    reasoning already written beside them in code as tooltips), start/pause/stop/reset,
    live status.
 2. **Curves** — return, entropy, value loss, clip fraction, from `metrics.csv`. The
-   **baseline drawn as a horizontal line**, because "beat 18,036" is the actual goal and
+   **baseline drawn as a horizontal line**, because "beat 113,834" is the actual goal and
    a curve without it is just a number going up.
 3. **Model** — parameter count, layer shapes, observation/action sizes, the iteration a
    checkpoint came from, and its eval summary against the baseline.

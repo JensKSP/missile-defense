@@ -11,7 +11,7 @@ through this wrapper (``append`` / ``set_baseline`` / ``clear``), so swapping th
 library later touches this file and no other (docs/ROADMAP.md, M8, risk 1).
 
 The baseline is the reason this is a wrapper and not a bare ``QChartView``: a
-horizontal line at 18,036 is what turns a number going up into "am I winning
+horizontal line at 113,834 is what turns a number going up into "am I winning
 yet", and it has to keep spanning the plot as the run grows.
 """
 
@@ -168,7 +168,7 @@ class CurveView(QChartView):
         """Fit both axes around the data, the baseline included.
 
         The baseline has to be inside the y range or the whole point of it is
-        invisible — early in a run the curve is nowhere near 18,036, and that gap
+        invisible — early in a run the curve is nowhere near 113,834, and that gap
         *is* the information.
         """
         x_min, x_max = (0.0, 10.0) if self._count == 0 else (self._x_min, self._x_max)

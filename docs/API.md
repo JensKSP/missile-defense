@@ -167,10 +167,27 @@ is good — the score is dense and always informative.
 
 ### The primary reward is the score delta
 
-`StepResult::reward` is the per-tick score delta (DESIGN §4.3: +25 per kill, and at
-each wave end +5 per unused interceptor and +100 per surviving city). Keep the RL
-objective identical to the benchmark metric, or you will optimise something other
-than what `md::agent::evaluate` reports.
+`StepResult::reward` is the per-tick score delta. Keep the RL objective identical
+to the benchmark metric, or you will optimise something other than what
+`md::agent::evaluate` reports.
+
+The scoring follows the 1980 arcade original:
+
+| Event | Points |
+|---|---|
+| Missile destroyed (ICBM, MIRV, split warhead) | 25 |
+| Smart bomb destroyed | 125 |
+| Unused interceptor, at wave end | 5 each |
+| Surviving city, at wave end | 100 each |
+| Bonus city | every 10,000 points |
+
+**All of it is multiplied by the wave multiplier**, which steps up every two waves
+and caps at ×6 from wave 11: ×1 for waves 1–2, ×2 for 3–4, and so on. This is the
+single most important fact about the objective, because it is what makes the game
+about *surviving deep* rather than playing early waves cleanly — at the cap a
+surviving city is worth 600 and a smart bomb 750. A version of this simulation
+without the multiplier flattened that incentive completely, and the scripted
+baseline's score rose from 18,036 to 113,834 when it was restored.
 
 ### The trap: at 60 Hz, discounting erases the city bonus
 
@@ -216,9 +233,14 @@ assignment without biasing the objective.
   `V(s′)`; on real game-over you must not. `StepResult` carries only `terminated`,
   so the Gym wrapper owns truncation and must keep the two distinct — conflating
   them teaches the agent that running out of clock is as bad as dying.
-- **Do not reward survival directly.** A per-tick "still alive" bonus competes with
-  the score objective and encourages stalling; termination handling already makes
-  dying expensive, since a dead agent collects nothing more.
+- **Survival is not something you can farm here.** An earlier version of this page
+  warned against rewarding survival directly, on the usual grounds that it
+  encourages stalling. That warning does not apply to this game: the wave schedule
+  is not under the agent's control, there is no way to slow the game down, and
+  doing nothing kills you fastest of all. The only way to last longer is to defend
+  better. If a survival term ever earns its place, the objection to answer is a
+  different one — that a per-tick bonus pays the same whether the last shot was
+  brilliant or wasted, so it carries far less per-action credit than the score.
 
 ## 6. Determinism
 
@@ -242,5 +264,5 @@ consequences the API leans on:
 
 The learned agent is scored by the **same** `md::agent::evaluate` over the **same**
 `default_seeds`, so "beat the baseline" is a concrete claim. Current baseline:
-mean score 18,036, mean wave 16.0, 0/6 cities surviving, 1.09 kills per
+mean score 113,834, mean wave 17.1, 0/6 cities surviving, 1.10 kills per
 interceptor ([ROADMAP.md](ROADMAP.md#m4--algorithmic-reference-ai--implemented--ready-for-sign-off)).

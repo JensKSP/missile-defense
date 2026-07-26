@@ -43,9 +43,15 @@ class PPOConfig:
     #: Hidden width of the shared trunk. The observation is ~1900 floats of mostly
     #: padding, so width matters more than depth here.
     hidden: int = 512
-    #: Discount. One agent step is frame_skip ticks (~1/15 s), and an episode runs
-    #: tens of thousands of ticks, so this has to be close to 1 to see a wave out.
-    gamma: float = 0.997
+    #: Discount, and it has to match `Shaping.gamma`. One agent step is frame_skip
+    #: ticks (~1/15 s), so 1/(1-gamma) reads directly as an horizon: 0.997 is 333
+    #: steps ~ 22 s, barely one wave, and 0.999 is 1000 steps ~ 66 s.
+    #:
+    #: 0.997 was chosen to span a wave, which was right when every wave scored the
+    #: same. It is not right now: the arcade multiplier makes wave 11 worth six
+    #: times wave 1, so what a shot is *worth* depends on surviving several waves
+    #: further, and an agent that cannot see that far cannot be asked to value it.
+    gamma: float = 0.999
     #: GAE trace decay — the usual bias/variance dial.
     gae_lambda: float = 0.95
     #: PPO's trust region. 0.2 is the standard starting point.

@@ -316,7 +316,7 @@ std::int32_t Sim::resolve_blast_hits() noexcept {
                 ++tick_multi_kills_;
             }
             ++blasts_[by].kills;
-            reward += config_.score_per_kill;
+            reward += kill_score(threats_[i].type) * score_multiplier();
             push_event(EventType::ThreatKilled, threats_[i].pos);
             threats_[i] = threats_[threat_count_ - 1];
             --threat_count_;
@@ -509,6 +509,21 @@ void Sim::split_mirvs() noexcept {
     }
 }
 
+std::int32_t Sim::kill_score(ThreatType type) const noexcept {
+    // Everything that flies is a missile and scores alike, except the smart bomb
+    // — the one threat that actively evades, and the one the arcade pays extra
+    // for. A MIRV and the warheads it splits into are ordinary missiles.
+    return type == ThreatType::SmartBomb ? config_.score_per_smart_bomb : config_.score_per_kill;
+}
+
+std::int32_t Sim::score_multiplier() const noexcept {
+    if (wave_ == 0u || config_.score_multiplier_wave_step == 0u) {
+        return 1;
+    }
+    const std::uint32_t steps = (wave_ - 1u) / config_.score_multiplier_wave_step;
+    return static_cast<std::int32_t>(std::min(steps + 1u, config_.score_multiplier_max));
+}
+
 void Sim::award_end_of_wave_bonus() noexcept {
     std::int32_t bonus = 0;
     for (const auto& base : bases_) {
@@ -521,7 +536,9 @@ void Sim::award_end_of_wave_bonus() noexcept {
             bonus += config_.score_per_surviving_city;
         }
     }
-    score_ += bonus;
+    // The multiplier is the one for the wave just cleared: this runs before
+    // start_wave advances the counter.
+    score_ += bonus * score_multiplier();
 }
 
 bool Sim::pick_target(TargetKind& kind, std::uint32_t& index) noexcept {

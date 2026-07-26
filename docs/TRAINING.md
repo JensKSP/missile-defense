@@ -30,15 +30,15 @@ The scripted agent (`poe eval`) plays 32 fixed seeds and scores:
 
 | Metric | Baseline |
 |---|---|
-| Mean score | **18,036** |
-| Mean wave reached | **16.0** |
+| Mean score | **113,834** |
+| Mean wave reached | **17.09** |
 | Cities surviving | **0.00** of 6 |
 | Kills per interceptor | **1.10** |
 
 That last row is where the headroom is. A blast that catches two warheads scores
 twice for one interceptor, and the scripted agent manages that only occasionally.
 Ammunition — not aim — is what runs out. **A perfect-marksmanship agent still
-loses every game around wave 16**, which is exactly why this is worth learning
+loses every game around wave 17**, which is exactly why this is worth learning
 on: the problem is allocation under a budget, not reflexes.
 
 Your policy is scored on those same 32 seeds, aggregated by the same C++
@@ -54,7 +54,7 @@ poe train             # 1024 envs, defaults, ~131k samples per update
 You will see a line per update — this is a real run, on a 16-thread CPU:
 
 ```
-training on cpu | 1024 envs x 128 steps = 131,072 samples/update | baseline 18,036
+training on cpu | 1024 envs x 128 steps = 131,072 samples/update | baseline 113,834
 update     1 | return        - | entropy 1.263 | value 1.503 | 8k steps/s
 update     2 | return        - | entropy 1.176 | value 1.040 | 8k steps/s
 update     5 | return     8.58 | entropy 0.548 | value 0.236 | 7k steps/s
@@ -68,7 +68,7 @@ these settings. Pass `--updates 20` if you only want to see the loop turn over.
   ticks long, so this is normal, not a hang.
 * **`return` is not the game score**, and the two are not comparable. It is the
   sum of *shaped* reward over an episode divided by `Shaping.scale` (100), so it
-  reads in the tens while the baseline's score is 18,036. The eval block every
+  reads in the tens while the baseline's score is 113,834. The eval block every
   `--eval-every` updates is what puts the policy and the baseline on one ruler.
 * `entropy` is how undecided the policy is. It starts near **1.2, not ln(385) =
   5.9**, because action masking means only a handful of actions are ever legal —
@@ -107,7 +107,7 @@ follows the same rule so it finds what the trainer wrote. The order is in
 
 Those last two are deliberately separate files. `metrics.csv` is the training
 return, which as above is *not* a score; `evals.csv` is the 32-seed summary that
-is, so it is the one a "beat 18,036" line can honestly be drawn across. Keeping
+is, so it is the one a "beat 113,834" line can honestly be drawn across. Keeping
 them apart also keeps the sparse rows out of the dense file.
 
 ## Stopping a run without losing it

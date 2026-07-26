@@ -39,11 +39,11 @@ ammo. Six cities, three batteries, and less ammunition than you would like.
 **Watch the AI play it.** `./build/release/app/md_app --watch` boots straight
 into a game driven by the scripted agent — held to the same crosshair speed and
 trigger interval as your hand. `]` fast-forwards to 8×; `T` takes the controls
-back mid-game. It averages **18,036** points and still loses every game around
-wave 16, because this game is about spending ammunition, not about aiming.
+back mid-game. It averages **113,834** points and still loses every game around
+wave 17, because this game is about spending ammunition, not about aiming.
 → [More](#watching-the-ai-play)
 
-**Train one that beats it.** 18,036 is the number a learned policy has to beat,
+**Train one that beats it.** 113,834 is the number a learned policy has to beat,
 scored on the same 32 seeds by the same code. → [docs/TRAINING.md](docs/TRAINING.md)
 
 On **Windows** the same toolchain runs under MSYS2 — its own ten-minute path is

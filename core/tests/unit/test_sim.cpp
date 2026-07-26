@@ -757,3 +757,76 @@ TEST_CASE("Clearing a wave awards a bonus and advances to the next wave", "[unit
     REQUIRE(advanced);
     REQUIRE(sim.score() > 0); // end-of-wave bonus for surviving cities + unused ammo
 }
+
+TEST_CASE("The wave multiplier steps up every two waves and caps", "[unit][sim][scoring]") {
+    // 1x for waves 1-2, 2x for 3-4, and so on to 6x from wave 11. Without it the
+    // incentive to survive deep is flattened: at the cap a surviving city is
+    // worth 600, not 100. Waves are cleared by letting a single fast threat land.
+    Config cfg;
+    cfg.wave_base_threats = 1;
+    cfg.wave_threats_increment = 0; // stay at one threat per wave, however deep
+    cfg.threat_base_speed = 3000.0f;
+    cfg.wave_break = 0.05f;
+    Sim sim{cfg};
+    sim.reset(3);
+    REQUIRE(sim.wave() == 1u);
+    REQUIRE(sim.score_multiplier() == 1);
+
+    const auto multiplier_at = [](std::uint32_t wave) {
+        return static_cast<std::int32_t>(std::min((wave - 1u) / 2u + 1u, 6u));
+    };
+    for (int i = 0; i < 60000 && sim.wave() < 12u; ++i) {
+        const std::uint32_t before = sim.wave();
+        sim.step(Action::noop());
+        if (sim.wave() != before) {
+            CHECK(sim.score_multiplier() == multiplier_at(sim.wave()));
+        }
+    }
+    REQUIRE(sim.wave() >= 12u);
+    REQUIRE(sim.score_multiplier() == 6); // capped from wave 11 on
+}
+
+TEST_CASE("A smart bomb is worth five ordinary warheads", "[unit][sim][scoring]") {
+    // The arcade pays 125 for the one threat that steers around blasts; every
+    // other flier is an ordinary missile at 25. Wave 1, so the multiplier is 1x
+    // and the raw values are directly visible in the score.
+    const auto score_first_kill = [](std::uint64_t seed, ThreatType wanted) {
+        Config cfg = unpaced();
+        cfg.blast_max_radius = 40.0f;
+        cfg.blast_lifetime = 3.0f;
+        cfg.threat_base_speed = 5.0f;
+        cfg.interceptor_speed = 400.0f;
+        Sim sim{cfg};
+        sim.reset(seed);
+        sim.step(Action::noop());
+        if (sim.threats().empty() || sim.threats()[0].type != wanted) {
+            return -1; // this seed did not open with the threat we wanted
+        }
+        const std::int32_t before = sim.score();
+        sim.step(Action::fire_at(BaseId::Delta, sim.threats()[0].pos));
+        for (int i = 0; i < 300; ++i) {
+            sim.step(Action::noop());
+            if (sim.score() != before) {
+                return sim.score() - before;
+            }
+        }
+        return -1;
+    };
+
+    // Seeds differ in what wave 1 opens with; take the first that gives each type.
+    std::int32_t icbm = -1;
+    std::int32_t smart = -1;
+    for (std::uint64_t seed = 1; seed < 400 && (icbm < 0 || smart < 0); ++seed) {
+        if (icbm < 0) {
+            icbm = score_first_kill(seed, ThreatType::Icbm);
+        }
+        if (smart < 0) {
+            smart = score_first_kill(seed, ThreatType::SmartBomb);
+        }
+    }
+    REQUIRE(icbm == Config{}.score_per_kill);
+    if (smart > 0) { // smart bombs may not appear in wave 1 of any early seed
+        REQUIRE(smart == Config{}.score_per_smart_bomb);
+        REQUIRE(smart == 5 * icbm);
+    }
+}

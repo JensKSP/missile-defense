@@ -46,7 +46,7 @@ CHECKPOINT_SUFFIX = ".pt"
 #: — the line the console draws across the score curve. ``md.train`` keeps its own
 #: copy of this number rather than importing it, because the console must not be a
 #: dependency of the trainer and the trainer must not be one of the console.
-BASELINE_MEAN_SCORE = 18_036.0
+BASELINE_MEAN_SCORE = 113_834.0
 
 T = TypeVar("T")
 
@@ -79,7 +79,7 @@ class EvalRow:
     """One line of ``evals.csv`` — the policy scored on the canonical seeds.
 
     This is the only number in a run that is directly comparable to the scripted
-    baseline's 18,036: same seeds, same C++ ``summarize``, greedy play. The
+    baseline's 113,834: same seeds, same C++ ``summarize``, greedy play. The
     training return in ``metrics.csv`` is shaped, scaled and undiscounted, so it
     lives in units of its own.
     """
