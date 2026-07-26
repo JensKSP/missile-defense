@@ -155,3 +155,21 @@ def test_the_checkout_is_not_added_twice() -> None:
     package = str(launch.PROJECT_ROOT / "python")
     env = child_environ({"PYTHONPATH": package})
     assert env["PYTHONPATH"] == package
+
+
+# ---- what reaches the module -------------------------------------------------
+
+
+def test_poes_separator_is_not_passed_on() -> None:
+    """`poe train -- --updates 20` is the documented way to pass a flag."""
+    assert launch.forwarded(["--", "--updates", "20"]) == ["--updates", "20"]
+
+
+def test_only_the_leading_separator_is_dropped() -> None:
+    # A later `--` may be an argument in its own right; that is the module's
+    # business, not this launcher's.
+    assert launch.forwarded(["--updates", "20", "--", "x"]) == ["--updates", "20", "--", "x"]
+
+
+def test_no_arguments_stays_no_arguments() -> None:
+    assert launch.forwarded([]) == []

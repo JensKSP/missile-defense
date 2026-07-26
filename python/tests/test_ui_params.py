@@ -119,3 +119,22 @@ def test_the_command_line_carries_only_what_changed() -> None:
 
 def test_a_flag_is_the_field_name_with_dashes() -> None:
     assert Param("entropy_coef", "float", "0.01", "", "PPOConfig").flag == "--entropy-coef"
+
+
+def test_resuming_adds_the_checkpoint_last() -> None:
+    # Last so the command reads as "this run, continued from there" rather than
+    # burying the one flag that changes what the run *is* among the tuning.
+    command = command_line(
+        "python", {}, out_dir=Path("runs"), resume=Path("runs/checkpoints/policy-00400.pt")
+    )
+    assert command[-2:] == ["--resume", str(Path("runs/checkpoints/policy-00400.pt"))]
+
+
+def test_a_fresh_run_carries_no_resume_flag() -> None:
+    assert "--resume" not in command_line("python", {}, out_dir=Path("runs"))
+
+
+def test_resume_is_not_offered_as_a_text_field() -> None:
+    # It is a file that exists, so the form gives it a picker; a box you can
+    # mistype a path into is the thing being avoided (md.ui.forms).
+    assert "resume" not in {field.name for field in read_params(TRAINER)}

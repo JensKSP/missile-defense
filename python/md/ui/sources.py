@@ -41,6 +41,9 @@ EVALS_NAME = "evals.csv"
 RECORDING_SUFFIX = ".mdr"
 CHECKPOINTS_NAME = "checkpoints"
 CHECKPOINT_SUFFIX = ".pt"
+#: The trainer's own copy of what it printed (:mod:`md.runlog`), which is how a
+#: run this console never started still gets a log pane.
+LOG_NAME = "train.log"
 
 #: The scripted agent's mean score over the canonical seeds (docs/ROADMAP.md, M4)
 #: — the line the console draws across the score curve. ``md.train`` keeps its own
@@ -139,27 +142,25 @@ class Batch(Generic[T]):
 # ---- the tail ---------------------------------------------------------------
 
 
-class CsvTail(Generic[T]):
-    """Yields the rows appended to a CSV since the last :meth:`poll`.
+class LineTail:
+    """Yields the complete lines appended to a text file since the last poll.
 
-    Rows are handed to ``parse``, which returns ``None`` for anything it does not
-    recognise — that is also how header lines are skipped. Columns are matched by
-    *name*, so a run that gains a column is read correctly by an older console and
-    vice versa.
+    The three failure modes in this module's docstring all live here, so a
+    reader of any of a run's line-oriented files gets them handled once —
+    ``metrics.csv``, ``evals.csv`` and the trainer's own ``train.log`` differ
+    only in what a line *means*.
     """
 
-    def __init__(self, path: Path, parse: Callable[[Mapping[str, str]], T | None]) -> None:
+    def __init__(self, path: Path) -> None:
         self._path = path
-        self._parse = parse
         self._offset = 0
         self._fragment = b""
-        self._fields: list[str] = []
 
     @property
     def path(self) -> Path:
         return self._path
 
-    def poll(self) -> Batch[T]:
+    def poll(self) -> Batch[str]:
         try:
             size = self._path.stat().st_size
         except OSError:
@@ -167,13 +168,13 @@ class CsvTail(Generic[T]):
             # case, so it is an empty batch and not an error; a file that has
             # *vanished* invalidates whatever was drawn from it.
             if self._offset or self._fragment:
-                self._rewind()
+                self.rewind()
                 return Batch((), restarted=True)
             return Batch((), restarted=False)
 
         restarted = False
         if size < self._offset:
-            self._rewind()
+            self.rewind()
             restarted = True
 
         with self._path.open("rb") as handle:
@@ -186,18 +187,60 @@ class CsvTail(Generic[T]):
         head, newline, self._fragment = (self._fragment + chunk).rpartition(b"\n")
         if not newline:
             return Batch((), restarted)
+        # The trailing CR of a CRLF file goes with the newline it belongs to.
+        # This project's own writers use `newline=""` so they never produce one,
+        # but a run directory synced off another machine may have been through a
+        # tool that did — and a stray CR is invisible until it is not.
+        lines = tuple(
+            line.decode("utf-8", errors="replace").removesuffix("\r") for line in head.split(b"\n")
+        )
+        return Batch(lines, restarted)
 
-        rows: list[T] = []
-        for line in head.split(b"\n"):
-            row = self._row(line.decode("utf-8", errors="replace"))
-            if row is not None:
-                rows.append(row)
-        return Batch(tuple(rows), restarted)
-
-    def _rewind(self) -> None:
+    def rewind(self) -> None:
         self._offset = 0
         self._fragment = b""
-        self._fields = []
+
+
+def log_tail(run_dir: Path) -> LineTail:
+    """Tail ``<run_dir>/train.log`` — what the run has printed.
+
+    The trainer writes this itself (:mod:`md.runlog`), which is what gives the
+    console a log pane for a run it did not start. Its own child's stdout comes
+    down a pipe instead; this is for every other way a run can be launched.
+    """
+    return LineTail(run_dir / LOG_NAME)
+
+
+class CsvTail(Generic[T]):
+    """Yields the rows appended to a CSV since the last :meth:`poll`.
+
+    Rows are handed to ``parse``, which returns ``None`` for anything it does not
+    recognise — that is also how header lines are skipped. Columns are matched by
+    *name*, so a run that gains a column is read correctly by an older console and
+    vice versa.
+    """
+
+    def __init__(self, path: Path, parse: Callable[[Mapping[str, str]], T | None]) -> None:
+        self._lines = LineTail(path)
+        self._parse = parse
+        self._fields: list[str] = []
+
+    @property
+    def path(self) -> Path:
+        return self._lines.path
+
+    def poll(self) -> Batch[T]:
+        batch = self._lines.poll()
+        if batch.restarted:
+            # A different run writing into the same file may have different
+            # columns, so the remembered header goes with the offset.
+            self._fields = []
+        rows: list[T] = []
+        for line in batch.rows:
+            row = self._row(line)
+            if row is not None:
+                rows.append(row)
+        return Batch(tuple(rows), batch.restarted)
 
     def _row(self, line: str) -> T | None:
         parsed: list[list[str]] = list(csv.reader([line]))

@@ -221,7 +221,8 @@ Instead the run is a subprocess and the existing artifacts *are* the interface:
 | `runs/update-*.mdr` | list → ▶ Play (or double-click) launches `md_app --replay` |
 | `runs/checkpoints/*.pt` | list → `--load` to score, or `--resume` to continue |
 | `runs/model.json` | the network being trained — layers, shapes, parameter count |
-| stdout | streamed into a log pane |
+| `runs/train.log` | tail → a log pane, for a run this console never started |
+| stdout | the same pane, when the run *is* this console's child |
 
 > **`evals.csv` was added for this.** The plan said to draw 113,834 across the
 > *return* curve, and that turned out to be wrong: the return in `metrics.csv` is

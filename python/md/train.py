@@ -58,7 +58,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from . import modelcard, paths
+from . import modelcard, paths, runlog
 from .control import Control
 from .env import Actions, Flags, Observations, Shaping, VecEnv
 from .eval import evaluate, format_summary
@@ -563,23 +563,25 @@ def main(argv: list[str] | None = None) -> int:
         for field in dataclasses.fields(PPOConfig)
         if getattr(args, field.name) is not None
     }
-    train(
-        TrainConfig(
-            envs=args.envs,
-            steps=args.steps,
-            updates=args.updates,
-            frame_skip=args.frame_skip,
-            max_ticks=args.max_ticks,
-            eval_every=args.eval_every,
-            record_every=args.record_every,
-            checkpoint_every=args.checkpoint_every,
-            seed=args.seed,
-            device=args.device,
-            out_dir=args.out_dir,
-            resume=args.resume,
-        ),
-        PPOConfig(**given),
+    config = TrainConfig(
+        envs=args.envs,
+        steps=args.steps,
+        updates=args.updates,
+        frame_skip=args.frame_skip,
+        max_ticks=args.max_ticks,
+        eval_every=args.eval_every,
+        record_every=args.record_every,
+        checkpoint_every=args.checkpoint_every,
+        seed=args.seed,
+        device=args.device,
+        out_dir=args.out_dir,
+        resume=args.resume,
     )
+    # A copy of everything below goes to runs/train.log as well as the terminal.
+    # That is what lets the console show a log pane for a run it did not start
+    # — the case the whole out-of-process design exists for (md.runlog).
+    with runlog.teed(paths.runs_dir(config.out_dir)):
+        train(config, PPOConfig(**given))
     return 0
 
 

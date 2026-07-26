@@ -26,6 +26,7 @@ from md.ui.sources import (
     last_modified,
     list_checkpoints,
     list_recordings,
+    log_tail,
     metrics_tail,
     next_run_dir,
     run_choices,
@@ -339,3 +340,41 @@ def test_the_model_note_scores_the_checkpoint_by_its_own_update(tmp_path: Path) 
 def test_an_unscored_checkpoint_simply_says_nothing_about_a_score(tmp_path: Path) -> None:
     _checkpoint(tmp_path, "policy-final.pt", 3000)
     assert "scored" not in checkpoint_note(list_checkpoints(tmp_path), {})
+
+
+# ---- the trainer's own log ---------------------------------------------------
+
+
+def test_the_log_tail_yields_the_lines_appended_since_the_last_poll(tmp_path: Path) -> None:
+    # The console reads this for a run it did not start; the run writes it
+    # itself (md.runlog), which is what makes an attached run's log pane work.
+    path = tmp_path / "train.log"
+    _append(path, "update 1 | return 4.87\n")
+    tail = log_tail(tmp_path)
+    assert tail.poll().rows == ("update 1 | return 4.87",)
+
+    _append(path, "update 2 | return 5.10\n")
+    assert tail.poll().rows == ("update 2 | return 5.10",)
+    assert tail.poll().rows == ()
+
+
+def test_a_half_written_log_line_is_held_back(tmp_path: Path) -> None:
+    path = tmp_path / "train.log"
+    _append(path, "update 1 | ret")
+    tail = log_tail(tmp_path)
+    assert tail.poll().rows == ()
+
+    _append(path, "urn 4.87\n")
+    assert tail.poll().rows == ("update 1 | return 4.87",)
+
+
+def test_a_fresh_run_in_the_same_directory_restarts_the_log(tmp_path: Path) -> None:
+    path = tmp_path / "train.log"
+    _append(path, "an older, longer run said quite a lot\n")
+    tail = log_tail(tmp_path)
+    tail.poll()
+
+    path.write_text("update 1\n", encoding="utf-8")
+    batch = tail.poll()
+    assert batch.restarted
+    assert batch.rows == ("update 1",)

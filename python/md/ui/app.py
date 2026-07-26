@@ -151,6 +151,10 @@ class Console(QMainWindow):
         self._run_dir = run_dir
         self._metrics = sources.metrics_tail(run_dir)
         self._evals = sources.evals_tail(run_dir)
+        #: What the run has printed. A run this console started comes down a
+        #: pipe; every other one writes this file itself (md.runlog), which is
+        #: what gives a terminal-started run a log pane at all.
+        self._log_file = sources.log_tail(run_dir)
         self._control = Control(run_dir)
         #: A run *this* console started, kept after it exits so the window knows
         #: the difference between "quiet for now" and "over". Dropped on
@@ -591,7 +595,13 @@ class Console(QMainWindow):
     def _start(self) -> None:
         out_dir = self._run_dir.resolve()
         dialog = ParameterDialog(
-            read_params(TRAINER_SOURCES), python=training_python(), out_dir=out_dir, parent=self
+            read_params(TRAINER_SOURCES),
+            python=training_python(),
+            out_dir=out_dir,
+            # What is already in this directory, so continuing a run is a choice
+            # from a list rather than a path typed from memory.
+            checkpoints=sources.list_checkpoints(out_dir),
+            parent=self,
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
@@ -632,8 +642,18 @@ class Console(QMainWindow):
         self._log.appendPlainText(text)
 
     def _read_log(self) -> None:
-        """Drain what the run has printed, and notice when it is over."""
+        """Drain what the run has printed, and notice when it is over.
+
+        Two sources, never both: our own child's pipe if we have one, otherwise
+        the file the trainer writes. Reading both would double every line of a
+        run this console started, since the trainer tees rather than redirects.
+        """
         if self._run is None:
+            batch = self._log_file.poll()
+            if batch.restarted:
+                self._log.clear()  # a fresh run in this directory, from its first line
+            for line in batch.rows:
+                self._append_log(line)
             return
         for line in self._run.drain():
             self._append_log(line)

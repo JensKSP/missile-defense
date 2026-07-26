@@ -130,7 +130,12 @@ def _help_above(comments: dict[int, str], line: int) -> str:
 
 
 def command_line(
-    python: str, values: dict[str, str], *, out_dir: Path, module: str = "md.train"
+    python: str,
+    values: dict[str, str],
+    *,
+    out_dir: Path,
+    resume: Path | None = None,
+    module: str = "md.train",
 ) -> list[str]:
     """The command a configured run is started with.
 
@@ -138,8 +143,15 @@ def command_line(
     dataclass, so the command line reads as the diff from the defaults rather
     than as a wall of restated numbers. It is shown in the dialog for the same
     reason — the console should leave you able to start the same run without it.
+
+    ``resume`` comes last, and from a picker rather than the generic form: it is
+    a *file that exists*, so offering it as a text box would be offering a way
+    to mistype a path.
     """
     command = [python, "-u", "-m", module]
     for name, value in values.items():
         command += [f"--{name.replace('_', '-')}", value]
-    return [*command, "--out-dir", str(out_dir)]
+    command += ["--out-dir", str(out_dir)]
+    if resume is not None:
+        command += ["--resume", str(resume)]
+    return command

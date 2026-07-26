@@ -57,8 +57,8 @@ none of a developer's incidental state is the check.
 ## Where a run's files go
 
 Everything a run writes — `metrics.csv`, `evals.csv`, `config.json`,
-`model.json`, the `.mdr` recordings, `checkpoints/` — goes in **one directory**,
-chosen by this rule
+`model.json`, `train.log`, the `.mdr` recordings, `checkpoints/` — goes in **one
+directory**, chosen by this rule
 (`python/md/paths.py`, mirrored in `app/game_window.cpp`):
 
 1. an explicit `--out-dir`, or the console's run picker;

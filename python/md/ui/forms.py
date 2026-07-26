@@ -10,21 +10,28 @@ Four fields change a run's character (envs, steps, updates, learning rate); the
 rest sit behind *Advanced*, and every one of them carries as its tooltip the
 sentence already written beside it in the code (:mod:`md.ui.params`).
 
-Two things here are deliberate:
+Three things here are deliberate:
 
 * **Only changed values are passed.** A field left alone is left to the
   dataclass, so the command line reads as the difference from the defaults.
 * **The command line is shown.** The console must not become the only way to
   start a run — you can read it off the dialog and type it into a terminal.
+* **Resuming is a picker, not a field.** ``--resume`` takes a path to a file
+  that already exists, so a text box would only be a way to mistype one. It is
+  also the first question about a run rather than a twenty-first — start over,
+  or carry on? — so it sits above the parameters instead of in with them.
 """
 
 from __future__ import annotations
 
+import time
+from collections.abc import Sequence
 from pathlib import Path
 
 from PySide6.QtCore import QLocale, Qt
 from PySide6.QtGui import QDoubleValidator
 from PySide6.QtWidgets import (
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
@@ -40,11 +47,27 @@ from PySide6.QtWidgets import (
 
 from . import params as params_module
 from .params import Param
+from .sources import Checkpoint, human_age, human_size
 
 #: Wide enough for the four headline fields and their explanations.
 DIALOG_WIDTH = 620
 #: `--updates 2000000000` is nonsense, but a spin box needs *some* ceiling.
 SPIN_MAX = 2_000_000_000
+
+#: The picker's first entry — and its default, because "carry on" is the choice
+#: that has to be made deliberately.
+FROM_SCRATCH = "start from scratch"
+
+#: Why a resume is not the same as loading weights, in the one place someone is
+#: about to do it. The same reasoning is in docs/TRAINING.md.
+RESUME_HELP = (
+    "Continue a run from this checkpoint — weights, optimizer and iteration.\n\n"
+    "The optimizer is the part that matters: Adam carries momentum estimates, "
+    "and restarting without them makes the next few updates behave unlike the "
+    "ones before, which looks like a kink in the curve rather than the artefact "
+    "it is.\n\n"
+    "metrics.csv is appended, so the history stays whole."
+)
 
 
 class ParameterDialog(QDialog):
@@ -56,6 +79,7 @@ class ParameterDialog(QDialog):
         *,
         python: str,
         out_dir: Path,
+        checkpoints: Sequence[Checkpoint] = (),
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -63,6 +87,7 @@ class ParameterDialog(QDialog):
         self._python = python
         self._out_dir = out_dir
         self._editors: dict[str, QWidget] = {}
+        self._resume: QComboBox | None = None
 
         self.setWindowTitle("Start a training run")
         self.setMinimumWidth(DIALOG_WIDTH)
@@ -81,6 +106,12 @@ class ParameterDialog(QDialog):
             missing.setWordWrap(True)
             missing.setProperty("role", "note")
             layout.addWidget(missing)
+
+        # No checkpoints means no row at all rather than a disabled one: this is
+        # a dialog you dismiss, not a panel you leave open, and "you cannot
+        # continue a run that has not happened" is not news.
+        if checkpoints:
+            layout.addWidget(self._resume_row(checkpoints))
 
         headline = [field for field in fields if field.headline]
         advanced = [field for field in fields if not field.headline]
@@ -114,6 +145,31 @@ class ParameterDialog(QDialog):
         self._refresh_preview()
 
     # ---- construction -------------------------------------------------------
+    def _resume_row(self, checkpoints: Sequence[Checkpoint]) -> QWidget:
+        """The checkpoints this run directory already holds, newest first."""
+        frame = QFrame()
+        frame.setProperty("role", "panel")
+        form = QFormLayout(frame)
+        form.setContentsMargins(14, 12, 14, 12)
+        form.setSpacing(8)
+
+        self._resume = QComboBox()
+        self._resume.addItem(FROM_SCRATCH, "")
+        now = time.time()
+        for checkpoint in checkpoints:
+            self._resume.addItem(
+                f"{checkpoint.name}   {human_age(now - checkpoint.modified)} · "
+                f"{human_size(checkpoint.size)}",
+                str(checkpoint.path),
+            )
+        self._resume.currentIndexChanged.connect(self._refresh_preview)
+
+        label = QLabel("continue from")
+        for widget in (label, self._resume):
+            widget.setToolTip(RESUME_HELP)
+        form.addRow(label, self._resume)
+        return frame
+
     def _group(self, fields: list[Param]) -> QWidget:
         frame = QFrame()
         frame.setProperty("role", "panel")
@@ -198,8 +254,17 @@ class ParameterDialog(QDialog):
                 changed[field.name] = value
         return changed
 
+    def resume(self) -> Path | None:
+        """The checkpoint to continue from, or ``None`` for a fresh run."""
+        if self._resume is None:
+            return None
+        chosen = self._resume.currentData()
+        return Path(str(chosen)) if chosen else None
+
     def command(self) -> list[str]:
-        return params_module.command_line(self._python, self.values(), out_dir=self._out_dir)
+        return params_module.command_line(
+            self._python, self.values(), out_dir=self._out_dir, resume=self.resume()
+        )
 
     def _refresh_preview(self) -> None:
         self._preview.setText(" ".join(self.command()))

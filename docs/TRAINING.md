@@ -98,6 +98,7 @@ Everything under `runs/` (`--out-dir` to change it):
 | `runs/evals.csv` | one row per `--eval-every` scoring, in the baseline's units |
 | `runs/config.json` | every setting the run was started with |
 | `runs/model.json` | the network it is training — layers, shapes, parameter count |
+| `runs/train.log` | a copy of everything it printed, flushed line by line |
 
 `runs/` means the directory beside you in a checkout, and the per-user data
 directory (`~/.local/share/MissileDefense/runs`) once this is installed from a
@@ -157,8 +158,14 @@ form — the four fields that change a run's character, everything else behind
 `TrainConfig` and `PPOConfig`. Only what you change is passed, and the resulting
 command line is shown, so nothing here is a thing only the UI can do.
 
+**Start** also offers to *continue from* any checkpoint already in the run
+directory — a picker rather than a path you type, since the file has to exist —
+which passes `--resume` and carries the optimizer state with it.
+
 Training runs as a separate process throughout, so closing the console (or
-crashing it) leaves the run alone.
+crashing it) leaves the run alone. **Log** shows what it has printed, whichever
+way it was started: the trainer writes `runs/train.log` itself, so a run you
+started in a terminal has one too.
 
 Down the right-hand side, under the recordings, is what the machine is doing:
 CPU, memory, and the GPU. That last row appears only when a vendor backend

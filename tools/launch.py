@@ -245,6 +245,18 @@ def child_environ(environ: Mapping[str, str] | None = None) -> dict[str, str]:
     return env
 
 
+def forwarded(args: Sequence[str]) -> list[str]:
+    """Drop poe's separator, which is not an argument to anything.
+
+    `poe train -- --updates 20` is what the docs say and what the task's own
+    help implies, and poe passes the `--` straight through. argparse then treats
+    it as "everything after this is positional" and rejects `--updates` as an
+    unrecognised argument — so the documented way to pass a flag failed, and
+    failed inside the trainer where it read as the trainer's fault.
+    """
+    return list(args[1:]) if args and args[0] == "--" else list(args)
+
+
 def run(python: str, module: str, args: Sequence[str]) -> int:
     """Run ``module`` and hand back its exit code — Ctrl-C included.
 
@@ -269,7 +281,7 @@ def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
     if not args:
         raise SystemExit(f"usage: python -m tools.launch <module> [args…]  ({_known()})")
-    module, rest = args[0], args[1:]
+    module, rest = args[0], forwarded(args[1:])
     requirements = REQUIREMENTS.get(module, ())
 
     reports = survey([name for name, _ in requirements])
