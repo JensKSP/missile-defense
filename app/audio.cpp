@@ -4,6 +4,7 @@
 #include "audio.hpp"
 
 #include "md/rng.hpp"
+#include "voices.hpp"
 
 #include <algorithm>
 #include <array>
@@ -14,6 +15,7 @@
 #include <miniaudio.h>
 #include <mutex>
 #include <numbers>
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -31,7 +33,6 @@ namespace {
 constexpr float kPi = std::numbers::pi_v<float>;
 constexpr float kSampleRate = 48000.0f;
 constexpr std::size_t kEventCount = 10; // EventType values, Fire..WaveStarted
-constexpr std::size_t kVoiceCount = 16;
 
 std::size_t ix(EventType type) noexcept {
     return static_cast<std::size_t>(type);
@@ -294,12 +295,7 @@ struct AudioEngine::Impl {
     bool running = false;
     std::array<std::vector<float>, kEventCount> sfx = build_sfx();
 
-    struct Voice {
-        const std::vector<float>* buffer = nullptr;
-        std::size_t pos = 0;
-    };
-
-    std::array<Voice, kVoiceCount> voices{};
+    VoiceBank voices;
     std::mutex mutex;
     std::atomic<bool> enabled{true};  // SFX
     std::atomic<bool> music_on{true}; // background music
@@ -307,24 +303,29 @@ struct AudioEngine::Impl {
     std::size_t music_pos = 0; // audio thread only
 
     // Runs on the audio thread: sum the active SFX voices + looping music.
+    //
+    // **This callback must never block.** It runs on the backend's real-time
+    // thread against a hard deadline, and missing that deadline is not a dropped
+    // effect — it is an underrun, where the device keeps replaying the buffer it
+    // already has. That is the signature of the fault reported from real play on
+    // 2026-07-26: a sound repeating "over and over" after game over, which does
+    // not stop on its own because nothing is left to stop it.
+    //
+    // Game over is exactly where the window opens. The final cascade hands over
+    // six CityLost, three BaseLost, a detonation per interceptor still in flight
+    // and a GameOver in a single tick, and the game thread takes this same mutex
+    // to queue them — while it is also ending the game, checking the high-score
+    // table and writing QSettings. So the lock is *tried*, never waited on: if
+    // the game thread has it, this buffer goes out with music and no effects,
+    // which costs a few inaudible milliseconds of SFX. Waiting instead costs the
+    // stream.
     void mix(float* out, ma_uint32 frames) {
         for (ma_uint32 f = 0; f < frames; ++f) {
             out[f] = 0.0f;
         }
         if (enabled.load(std::memory_order_relaxed)) {
-            const std::scoped_lock lock(mutex);
-            for (auto& voice : voices) {
-                if (voice.buffer == nullptr) {
-                    continue;
-                }
-                for (ma_uint32 f = 0; f < frames; ++f) {
-                    if (voice.pos >= voice.buffer->size()) {
-                        voice.buffer = nullptr;
-                        break;
-                    }
-                    out[f] += (*voice.buffer)[voice.pos];
-                    ++voice.pos;
-                }
+            if (const std::unique_lock lock(mutex, std::try_to_lock); lock.owns_lock()) {
+                voices.mix({out, frames});
             }
         }
         if (music_on.load(std::memory_order_relaxed) && !music.empty()) {
@@ -341,21 +342,21 @@ struct AudioEngine::Impl {
         }
     }
 
-    void play(EventType type) {
-        const std::size_t idx = ix(type);
-        if (idx >= sfx.size() || sfx[idx].empty()) {
-            return;
-        }
+    /// Queue every event's effect under **one** acquisition of the mutex.
+    ///
+    /// Per-event locking was up to 128 acquire/release round-trips in the frame
+    /// where the game ends — the frame where the audio thread can least afford
+    /// to find the lock held (see mix()). One acquisition is one window instead
+    /// of a hundred, and it is shorter than any single one of them was, because
+    /// what it protects is a handful of pointer writes.
+    void play_all(std::span<const Event> events) {
         const std::scoped_lock lock(mutex);
-        for (auto& voice : voices) {
-            if (voice.buffer == nullptr) {
-                voice.buffer = &sfx[idx];
-                voice.pos = 0;
-                return;
+        for (const Event& event : events) {
+            const std::size_t idx = ix(event.type);
+            if (idx < sfx.size() && !sfx[idx].empty()) {
+                voices.start(sfx[idx]);
             }
         }
-        voices[0].buffer = &sfx[idx]; // all busy: steal the oldest slot
-        voices[0].pos = 0;
     }
 
     static void data_callback(ma_device* device, void* output, [[maybe_unused]] const void* input,
@@ -427,18 +428,14 @@ void AudioEngine::handle_events(std::span<const Event> events) noexcept {
     if (!impl_->running || !impl_->enabled.load(std::memory_order_relaxed)) {
         return;
     }
-    for (const auto& event : events) {
-        impl_->play(event.type);
-    }
+    impl_->play_all(events);
 }
 
 void AudioEngine::set_enabled(bool on) noexcept {
     impl_->enabled.store(on, std::memory_order_relaxed);
     if (!on) { // silence anything already playing
         const std::scoped_lock lock(impl_->mutex);
-        for (auto& voice : impl_->voices) {
-            voice.buffer = nullptr;
-        }
+        impl_->voices.silence();
     }
 }
 

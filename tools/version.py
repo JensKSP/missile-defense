@@ -3,16 +3,22 @@
 # Assisted-by: Claude Code (Anthropic)
 """Check that the version is spelled the same in every file that carries one.
 
-Three files declare it, independently, and nothing makes them agree:
+Four files declare it, independently, and nothing makes them agree:
 
-    CMakeLists.txt    project(... VERSION x.y.z)      the binary, and CPack's
+    CMakeLists.txt      project(... VERSION x.y.z)    the binary, and CPack's
                                                       .dmg / .exe / .zip names
-    pyproject.toml    version = "x.y.z"               the Python package
-    debian/changelog  missile-defense (x.y.z-r)       the .deb
+    pyproject.toml      version = "x.y.z"             the Python package
+    debian/changelog    missile-defense (x.y.z-r)     the .deb
+    python/md/__init__  __version__ = "x.y.z"         what `md` reports at run
+                                                      time, and what the training
+                                                      console's About box shows
 
-A release publishes artifacts built from all three at once, so a disagreement
+A release publishes artifacts built from all four at once, so a disagreement
 does not fail anything — it ships a disk image and a .deb that claim to be
-different versions of the same program, which is discovered by a user. Run it
+different versions of the same program, which is discovered by a user. The
+fourth is the one most likely to drift, because nothing builds from it: it is
+read at run time, so a stale value is not a broken build but a console that
+tells its user the wrong version of the thing they are running. Run it
 before tagging:
 
     poe version            # do the three agree?
@@ -36,6 +42,7 @@ SOURCES: tuple[tuple[str, str], ...] = (
     ("CMakeLists.txt", r"^\s*VERSION\s+(\d+\.\d+\.\d+)\s*$"),
     ("pyproject.toml", r'^version\s*=\s*"(\d+\.\d+\.\d+)"'),
     ("debian/changelog", r"^missile-defense\s+\((\d+\.\d+\.\d+)-\d+\)"),
+    ("python/md/__init__.py", r'^__version__\s*=\s*"(\d+\.\d+\.\d+)"'),
 )
 
 

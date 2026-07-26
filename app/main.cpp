@@ -9,8 +9,16 @@
 #include <cstdio>
 #include <cstdlib>
 #include <exception>
+#include <format>
 #include <print>
+#include <string>
 #include <string_view>
+
+#ifdef Q_OS_WIN
+// For the "no Vulkan driver" dialog — see report_no_vulkan().
+#define NOMINMAX
+#include <windows.h>
+#endif
 
 #ifdef Q_OS_MACOS
 #include <QByteArray>
@@ -50,6 +58,73 @@ void use_bundled_vulkan_driver() {
 }
 #endif
 
+/// Why the Vulkan instance would not open, in words the person can act on.
+///
+/// `VkResult` is a negative integer, and a negative integer is not a diagnosis.
+/// These three cover essentially every real failure: no driver at all, a loader
+/// that found one it cannot talk to, and a machine too short of memory to try.
+std::string_view explain_vulkan_failure(VkResult code) {
+    switch (code) {
+    case VK_SUCCESS:
+        // Qt reports no error at all when it gave up *before* calling the
+        // driver — which is what a platform plugin with no Vulkan support does
+        // (`offscreen`, `vnc`, a headless session). A different fault with a
+        // different fix, and the one a developer meets rather than a player.
+        return "the Qt platform plugin in use offers no Vulkan surface";
+    case VK_ERROR_INCOMPATIBLE_DRIVER:
+        return "no compatible Vulkan driver was found";
+    case VK_ERROR_INITIALIZATION_FAILED:
+        return "the Vulkan driver was found but could not be initialised";
+    case VK_ERROR_OUT_OF_HOST_MEMORY:
+    case VK_ERROR_OUT_OF_DEVICE_MEMORY:
+        return "there was not enough memory to create a Vulkan instance";
+    default:
+        return "the Vulkan loader refused to create an instance";
+    }
+}
+
+/// Tell the user the game cannot start, and what would fix it.
+///
+/// This replaces a `qFatal`, which aborts the process: no window, no message,
+/// and on Windows a crash dialog naming a module rather than a cause. A missing
+/// or too-old GPU driver is the single likeliest reason a *downloaded* build
+/// does not start — the machines a release reaches are exactly the ones nobody
+/// tested — and it is entirely fixable by the person in front of it, but only if
+/// they are told what is wrong. So: an exit code rather than an abort, an
+/// explanation rather than a number, and on Windows a dialog as well, because a
+/// GUI process there has no console for stderr to arrive in.
+void report_no_vulkan(VkResult code) {
+    // The numeric code is worth carrying for a bug report but not for a person,
+    // so it is a suffix — and omitted entirely when it is VK_SUCCESS, where
+    // printing "VkResult 0" beside a failure would just look like a second bug.
+    const std::string detail =
+        code == VK_SUCCESS ? std::string{} : std::format(" (VkResult {})", static_cast<int>(code));
+    const std::string message =
+        std::format("Missile Defense needs Vulkan to draw, and {}{}.\n"
+                    "\n"
+                    "This is almost always the graphics driver:\n"
+                    "  Windows  install the latest driver from AMD, Intel or NVIDIA\n"
+                    "  Linux    install your vendor's driver, or mesa-vulkan-drivers\n"
+                    "           for software rendering (Debian/Ubuntu:\n"
+                    "           sudo apt install mesa-vulkan-drivers vulkan-tools)\n"
+                    "  macOS    the bundle ships MoltenVK; a build run from a source\n"
+                    "           tree needs it installed (brew install molten-vk)\n"
+                    "\n"
+                    "`vulkaninfo` from vulkan-tools reports what this machine can see.\n"
+                    "If QT_QPA_PLATFORM is set, unset it: offscreen and vnc have no Vulkan.",
+                    explain_vulkan_failure(code), detail);
+    std::fputs(message.c_str(), stderr);
+    std::fputs("\n", stderr);
+#ifdef Q_OS_WIN
+    // stderr from a Windows GUI subsystem process goes nowhere at all, so
+    // without this the user who double-clicked the icon gets silence. user32 is
+    // already linked by Qt, so this costs no dependency — and QMessageBox is not
+    // an option: it lives in QtWidgets, which the game deliberately does not
+    // link (docs/PACKAGING.md — the game stays a small, Gui-only binary).
+    MessageBoxA(nullptr, message.c_str(), "Missile Defense", MB_OK | MB_ICONERROR);
+#endif
+}
+
 /// The window's state as one word, for `--report`.
 std::string_view state_name(md::GameWindow::State state) {
     using State = md::GameWindow::State;
@@ -72,6 +147,8 @@ std::string_view state_name(md::GameWindow::State state) {
         return "enter-score";
     case State::Replays:
         return "replays";
+    case State::Watch:
+        return "watch-menu";
     }
     return "unknown";
 }
@@ -82,6 +159,13 @@ std::string_view mode_name(const md::GameWindow& window) {
         return "replay";
     }
     return window.ai_driving() ? "watch" : "play";
+}
+
+/// *Which* agent, for `--report`. The same string the HUD shows, so an e2e can
+/// assert who was playing instead of a human squinting at a screenshot — which
+/// is the whole reason Step 4b put the name in a machine-readable place too.
+std::string_view driver_name(const md::GameWindow& window) {
+    return window.driver_name();
 }
 
 /// The main menu's labels, as a JSON array.
@@ -116,10 +200,10 @@ void write_report(const md::GameWindow& window) {
     const auto cities = std::ranges::count_if(sim.cities(), &md::City::alive);
     std::println(R"({{"mode":"{}","state":"{}","frames":{},"ticks":{},)"
                  R"("score":{},"wave":{},"cities_left":{},"terminated":{},)"
-                 R"("can_train":{},"menu":{}}})",
+                 R"("can_train":{},"driver":"{}","pretrained":{},"menu":{}}})",
                  mode_name(window), state_name(window.state()), window.frames(), sim.tick(),
                  sim.score(), sim.wave(), cities, sim.terminated(), window.can_train(),
-                 menu_json(window));
+                 driver_name(window), window.has_pretrained(), menu_json(window));
 }
 
 int run(int argc, char** argv) {
@@ -136,7 +220,7 @@ int run(int argc, char** argv) {
     instance.setLayers({"VK_LAYER_KHRONOS_validation"}); // dev builds only (opt-in)
 #endif
     if (!instance.create()) {
-        qFatal("Failed to create Vulkan instance: %d", static_cast<int>(instance.errorCode()));
+        report_no_vulkan(instance.errorCode());
         return 1;
     }
 
@@ -149,8 +233,15 @@ int run(int argc, char** argv) {
         const std::string_view arg(argv[i]);
         if (arg == "--play") {
             window.play_now(); // boot straight into a game (skip the menu)
-        } else if (arg == "--watch") {
+        } else if (arg == "--watch" || arg == "--watch-scripted") {
             window.watch_now(); // boot straight into a game the scripted AI plays
+        } else if (arg == "--watch-model" && (i + 1) < argc) {
+            // Watch a learned policy. `--watch-scripted` is its twin, spelled
+            // out so a packaging test can name both agents explicitly rather
+            // than relying on which one `--watch` happens to mean.
+            if (!window.watch_model(argv[++i])) {
+                return 2; // the reason is already on stderr; do not open a window
+            }
         } else if (arg == "--replay" && (i + 1) < argc) {
             // Watch a recorded run — e.g. an episode a training run dropped on disk.
             if (!window.watch_replay(argv[++i])) {

@@ -134,6 +134,31 @@ def test_the_console_on_an_empty_directory_explains_itself(qt_app: object, tmp_p
         window.close()
 
 
+def test_the_console_says_which_build_it_is_and_what_it_runs_on(
+    qt_app: object, tmp_path: Path
+) -> None:
+    # Two claims a released application has to make from inside itself. The
+    # version, because a bug report without one is unusable and the console is
+    # usually installed from a package rather than a checkout. And the notice,
+    # because this MIT program runs on LGPL-3.0 libraries and the user should
+    # not have to find a file in a repository to be told so.
+    import md  # noqa: PLC0415
+    from md.ui.app import Console  # noqa: PLC0415
+
+    window = Console(tmp_path)
+    try:
+        assert window._about.text() == f"v{md.__version__}"
+        shown = window._about_text()
+        assert md.__version__ in shown
+        assert "Jens Köhler" in shown
+        assert "MIT" in shown
+        assert "PySide6" in shown
+        assert "LGPL-3.0-only" in shown
+        assert "THIRD_PARTY_LICENSES.md" in shown
+    finally:
+        window.close()
+
+
 def test_a_protocol_change_starts_a_new_score_curve_and_controls_the_baseline(
     qt_app: object, tmp_path: Path
 ) -> None:

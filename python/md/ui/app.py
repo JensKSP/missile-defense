@@ -55,7 +55,7 @@ from PySide6.QtWidgets import (
 
 from .. import modelcard, paths
 from ..control import Control
-from . import sources, theme
+from . import about, sources, theme
 from .analysis import AnalysisView
 from .charts import CurveView
 from .forms import ParameterDialog
@@ -289,6 +289,18 @@ class Console(QMainWindow):
         row.addLayout(self._controls())
         row.addSpacing(14)
         row.addWidget(self._status)
+        # The version, always on screen rather than behind a menu: "which build
+        # is this?" is the first question of every bug report, and the console is
+        # the half most often installed from a package by someone with no
+        # checkout to read it out of. Pressing it opens the rest — author,
+        # licence, and the LGPL libraries this MIT program runs on, which a user
+        # should be able to learn from the program and not only from a file in a
+        # repository they have never opened.
+        self._about = QPushButton(f"v{about.version()}")
+        self._about.setProperty("role", "version")
+        self._about.setToolTip("About Missile Defense")
+        self._about.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._about.clicked.connect(self._show_about)
         return row
 
     def _controls(self) -> QHBoxLayout:
@@ -306,6 +318,7 @@ class Console(QMainWindow):
         self._stop.clicked.connect(self._stop_pressed)
         self._reset = QPushButton("Reset…")
         self._reset.clicked.connect(self._reset_pressed)
+        row.addWidget(self._about)
         self._log_toggle = QPushButton("Log")
         self._log_toggle.setCheckable(True)
         self._log_toggle.toggled.connect(self._show_log)
@@ -1046,6 +1059,31 @@ class Console(QMainWindow):
             "<br><br>The trainer writes a new episode every --record-every "
             "updates; one from a finished run does not come back.",
             QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+    def _show_about(self) -> None:
+        """Who wrote this, which build it is, and what it is standing on.
+
+        A plain box rather than a designed screen: it is opened once, read once,
+        and closed, so the space it deserves is the space its text takes. The
+        component list is the part that has to be here — the console runs on
+        PySide6 and Qt Charts under the LGPL, and this is where a user meets that
+        fact (:mod:`md.ui.about` has the reasoning).
+        """
+        box = QMessageBox(self)
+        box.setWindowTitle("About Missile Defense")
+        box.setTextFormat(Qt.TextFormat.PlainText)
+        box.setText(self._about_text())
+        box.setIcon(QMessageBox.Icon.NoIcon)
+        box.exec()
+
+    def _about_text(self) -> str:
+        """What the box says — separate from showing it, so it can be asserted.
+
+        `QMessageBox.exec()` blocks until someone closes it, which no test can
+        do, so a test that drove `_show_about` would hang rather than fail. This
+        is the seam: the text is checkable, and what is left is Qt's own job.
+        """
+        return about.summary()
+
             QMessageBox.StandardButton.Cancel,
         )
         if answer != QMessageBox.StandardButton.Ok:

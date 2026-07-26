@@ -201,9 +201,27 @@ accepting them.
       pending. One semaphore where there must be one per frame in flight; it
       happens to work on this driver and is undefined behaviour. Ten occurrences
       in fifteen seconds of play, so it is every frame, not an edge case.
-- [ ] **`VUID-VkShaderModuleCreateInfo-pCode-08740`** — a SPIR-V capability is
+
+      **Investigated 2026-07-26: it is not in this tree.** `vkAcquireNextImageKHR`
+      is called nowhere in `app/`, `core/` or `replay/` — the swapchain and its
+      semaphore belong to Qt's `QVulkanWindow`. The options are a Qt version
+      where it is fixed, or replacing `QVulkanWindow` with a hand-rolled
+      swapchain, which is a renderer rewrite. Neither is a patch, and neither
+      belongs to this program.
+- [x] **`VUID-VkShaderModuleCreateInfo-pCode-08740`** — ~~a SPIR-V capability is
       declared whose environment requirement the instance does not satisfy: the
-      shaders are compiled against a newer target than the instance asks for.
+      shaders are compiled against a newer target than the instance asks for.~~
+
+      **This diagnosis was wrong, and checked on 2026-07-26.** The shaders are
+      SPIR-V **1.0** — `glslangValidator -V` emits module version `0x00010000`,
+      which is the second word of the generated headers — and declare exactly
+      one capability, `Shader`, which is core Vulkan 1.0. Handing both modules
+      to a validating instance created at API 1.0 (what `QVulkanInstance` asks
+      for unless told otherwise) raises nothing. Whatever produced the message,
+      it was not `quad.vert` or `quad.frag`; the likeliest remaining source is
+      another layer in the loader chain creating its own pipelines. Corrected in
+      `harness.KNOWN_VALIDATION_ERRORS`, where the evidence now sits beside the
+      baseline so nobody "fixes" shaders that are already right.
 
 Neither belongs to this program of work — they are renderer bugs, and fixing
 them is a separate change with its own tests. They are recorded here because the
@@ -234,6 +252,33 @@ e2e layer is what surfaced them, on the day it was written.
       Whoever picks this up: reproduce first, with sound, and only then fix. The
       voice-stealing defect is worth correcting either way, but fixing it and
       declaring victory without a repro would very likely leave the real bug in.
+
+      **Both candidates addressed 2026-07-26 — still unconfirmed, so this stays
+      open.** Callback starvation turned out to have a concrete mechanism rather
+      than being a worry: `mix()` ran on the backend's real-time thread and took
+      a *blocking* `std::mutex`, while the game thread acquired and released that
+      same mutex once per event — up to `max_events` of them in the single tick
+      where the game ends, at the moment that thread is also ending the game,
+      testing the high-score table and writing `QSettings`. A real-time callback
+      that waits misses its deadline, and a missed deadline is an underrun where
+      the device replays the buffer it already has: a sound that repeats over and
+      over and never stops on its own, which is the report.
+
+      Three changes, in `app/audio.cpp` and the new `app/voices.hpp`:
+      * the callback now **tries** the lock and mixes music without effects if
+        the game thread holds it — a few inaudible milliseconds of SFX against
+        the stream itself;
+      * `handle_events` takes the lock **once for the whole span** instead of
+        once per event, so the contention window is one short hold rather than a
+        hundred;
+      * the voice bank steals the voice **nearest to finishing** rather than
+        always slot 0, which is what the old comment already claimed it did.
+
+      The bank is now a testable unit (`app/tests/unit/test_voices.cpp`), so the
+      stealing rule and slot release are covered. What is *not* covered is the
+      thing that matters most — nobody has yet reached game over with sound on
+      and heard silence — which is why the box stays unticked. **Human
+      confirmation is the only thing that can close it.**
 
 ### Then: one per task, from here on
 

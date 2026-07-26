@@ -109,8 +109,13 @@ def test_a_probe_that_breaks_mid_run_is_dropped_not_raised() -> None:
 
 
 def test_discovery_returns_nothing_when_no_vendor_package_is_installed() -> None:
-    # The state on this machine, and on most: neither ROCm nor CUDA present.
-    assert find_gpu_probe() is None
+    # Asserted through the backend list rather than against whatever card the
+    # machine happens to have. The original read "the state on this machine, and
+    # on most: neither ROCm nor CUDA present" — which stopped being true the day
+    # this project got a GPU box, and then failed on precisely the machines it
+    # exists for. What is actually being claimed is a property of the discovery
+    # loop: nothing to try means nothing found.
+    assert find_gpu_probe(()) is None
 
 
 def test_an_unimportable_backend_is_skipped_not_fatal() -> None:

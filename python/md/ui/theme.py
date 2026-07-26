@@ -144,6 +144,18 @@ def stylesheet() -> str:
         padding: 2px 9px;
         font-size: 11px;
     }}
+    /* The version stamp beside the title. It is a button because it opens
+       About, and it is styled as a caption because it must not read as one:
+       the control bar is three affordances and this is not a fourth. */
+    QPushButton[role="version"] {{
+        background: transparent;
+        border: none;
+        padding: 0px 4px;
+        color: {MUTED};
+        font-size: 11px;
+        letter-spacing: 1px;
+    }}
+    QPushButton[role="version"]:hover {{ color: {TEXT}; }}
     /* The one button that changes meaning — Start, then Pause, then Resume. */
     QPushButton[role="primary"] {{
         background: {CITY};

@@ -304,12 +304,33 @@ def run_app(
 #:   while a previous signal or wait on it is still pending. The classic
 #:   swapchain synchronisation mistake: one semaphore where there must be one per
 #:   frame in flight. It happens to work on this driver and is undefined.
-#: * `VkShaderModuleCreateInfo-pCode-08740` — a SPIR-V capability is declared
-#:   whose environment requirement is not satisfied, i.e. the shaders are
-#:   compiled against a newer target than the instance asks for.
+#:
+#:   **Not ours to fix in this file's sense of "ours".** Nothing in this tree
+#:   calls `vkAcquireNextImageKHR`: the swapchain, and therefore the semaphore,
+#:   belongs entirely to Qt's `QVulkanWindow`. Fixing it means either a Qt
+#:   version where it is fixed, or abandoning `QVulkanWindow` for a hand-rolled
+#:   swapchain — which is a renderer rewrite, not a patch. Recorded here so the
+#:   next person does not go looking for our semaphore.
+#: * `VkShaderModuleCreateInfo-pCode-08740` — **the note that used to be here was
+#:   wrong** and is corrected rather than deleted, because the wrong version was
+#:   convincing. It said the shaders are compiled against a newer target than the
+#:   instance asks for. They are not: `glslangValidator -V` emits SPIR-V 1.0
+#:   (module version 0x00010000, checkable in `build/*/app/shaders/*.h`, whose
+#:   second word is the version), and both shaders declare exactly one
+#:   capability, `Shader`, which is core Vulkan 1.0. Feeding both modules to a
+#:   validating instance created at API 1.0 — the version `QVulkanInstance` asks
+#:   for by default — produces no diagnostic at all.
+#:
+#:   So whatever raised it, it was not `quad.vert` or `quad.frag` as this build
+#:   compiles them. The remaining candidate is another layer in the loader's
+#:   chain creating its own pipelines (an overlay or screenshot layer, both of
+#:   which are installed on the development machine). It stays baselined because
+#:   it was observed and has not been observed *not* to happen — but it must not
+#:   be repaired by "fixing" shaders that are already correct.
 #:
 #: Finding these was the first thing this layer did, which is roughly the
-#: argument for having it.
+#: argument for having it. Diagnosing them correctly took a second pass, which is
+#: roughly the argument for writing the evidence down beside the baseline.
 KNOWN_VALIDATION_ERRORS = (
     "VUID-vkAcquireNextImageKHR-semaphore-01779",
     "VUID-VkShaderModuleCreateInfo-pCode-08740",

@@ -363,6 +363,14 @@ if(MD_INSTALL_PYTHON_PACKAGE)
                   "${CMAKE_SOURCE_DIR}/THIRD_PARTY_LICENSES.md"
       DESTINATION "${md_console_bundle}/Contents/Resources"
       COMPONENT python)
+    # And the texts those notices point at. The console is its own .app, so it
+    # cannot borrow the game's copy the way the Windows installer can — and it
+    # carries `_md_native`, whose nanobind runtime is BSD-3-Clause: clause 2
+    # requires the notice to travel with the *binary*, which on macOS means
+    # inside this bundle or nowhere.
+    install(DIRECTORY "${CMAKE_SOURCE_DIR}/licenses"
+      DESTINATION "${md_console_bundle}/Contents/Resources"
+      COMPONENT python)
   elseif(WIN32)
     # No .desktop equivalent; the Start-menu shortcut comes from CPack (below).
     install(FILES "${CMAKE_SOURCE_DIR}/LICENSE"
