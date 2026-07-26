@@ -84,6 +84,9 @@ NO_EVALS = (
     "The trainer scores the policy on the 32 canonical seeds every\n"
     "--eval-every updates and appends it to evals.csv."
 )
+#: The compare picker's first entry, and its default. Comparing is something you
+#: ask for; the window's subject is one run.
+NO_COMPARISON = "no comparison"
 
 #: The pill in the corner, by what the run is doing. Read from across the room,
 #: so it is one word and a colour.
@@ -111,7 +114,13 @@ class StatTile(QFrame):
         self._value.setProperty("role", "value")
         self._note = QLabel(note)
         self._note.setProperty("role", "note")
-        for widget in (self._caption, self._value, self._note):
+        # The same number from the run being compared against. A line of its own
+        # and only when comparing, so the tile stays one number the rest of the
+        # time — which is what makes it readable from across the room.
+        self._compare = QLabel()
+        self._compare.setProperty("role", "note")
+        self._compare.setVisible(False)
+        for widget in (self._caption, self._value, self._note, self._compare):
             layout.addWidget(widget)
         self._colour = ""
 
@@ -123,6 +132,11 @@ class StatTile(QFrame):
 
     def set_note(self, text: str) -> None:
         self._note.setText(text)
+
+    def set_compare(self, text: str) -> None:
+        if text != self._compare.text():
+            self._compare.setText(text)
+        self._compare.setVisible(bool(text))
 
 
 class Console(QMainWindow):
@@ -163,6 +177,7 @@ class Console(QMainWindow):
         self._reported_exit = False
         #: What the picker is showing, so it is only rebuilt when it changed.
         self._choices: list[Path] = []
+        self._compare_choices: list[Path] = []
         #: None until the first scan, so "still empty" is distinguishable from
         #: "not looked yet" — otherwise the empty state never gets drawn.
         self._listed: list[Recording] | None = None
@@ -179,6 +194,7 @@ class Console(QMainWindow):
 
         self.setWindowTitle(f"Missile Command — training console · {run_dir}")
         self._refresh_model()  # not on the next rescan: it would be the old run's
+        self._compare_with(None)  # a comparison is against *this* run, not the last
         self._refresh_picker()
         self.statusBar().showMessage(f"watching {run_dir / sources.METRICS_NAME}")
 
@@ -210,11 +226,22 @@ class Console(QMainWindow):
         self._picker = QComboBox()
         self._picker.setMinimumWidth(220)
         self._picker.currentIndexChanged.connect(self._picked)
+        # And which run it is being *held against*. Beside the picker rather than
+        # behind a button: "did that change help?" is asked of the same two runs
+        # repeatedly, and the answer is the two curves on one plot.
+        versus = QLabel("vs")
+        versus.setProperty("role", "caption")
+        self._compare_picker = QComboBox()
+        self._compare_picker.setMinimumWidth(180)
+        self._compare_picker.currentIndexChanged.connect(self._compare_picked)
         self._status = QLabel("NO RUN")
         self._status.setProperty("role", "caption")
         row.addWidget(title)
         row.addSpacing(12)
         row.addWidget(self._picker)
+        row.addSpacing(6)
+        row.addWidget(versus)
+        row.addWidget(self._compare_picker)
         row.addStretch(1)
         row.addLayout(self._controls())
         row.addSpacing(14)
@@ -387,6 +414,7 @@ class Console(QMainWindow):
         self._ticks += 1
         self._read_metrics()
         self._read_evals()
+        self._read_comparison()
         self._read_log()
         self._system.refresh()
         if self._ticks % RESCAN_EVERY == 1:
@@ -487,29 +515,109 @@ class Console(QMainWindow):
         open dropdown is left alone entirely rather than being yanked out from
         under the pointer.
         """
-        if self._picker.view().isVisible():
+        if self._picker.view().isVisible() or self._compare_picker.view().isVisible():
             return
         choices = sources.run_choices(self._run_dir)
-        if choices == self._choices:
-            return
-        self._choices = choices
         current = self._run_dir.resolve()
-        self._picker.blockSignals(True)
-        self._picker.clear()
-        for path in choices:
-            self._picker.addItem(path.name, str(path))
-            self._picker.setItemData(
-                self._picker.count() - 1, str(path), Qt.ItemDataRole.ToolTipRole
+        if choices != self._choices:
+            self._choices = choices
+            self._picker.blockSignals(True)
+            self._picker.clear()
+            for path in choices:
+                self._picker.addItem(path.name, str(path))
+                self._picker.setItemData(
+                    self._picker.count() - 1, str(path), Qt.ItemDataRole.ToolTipRole
+                )
+                if path == current:
+                    self._picker.setCurrentIndex(self._picker.count() - 1)
+            self._picker.setToolTip(str(current))
+            self._picker.blockSignals(False)
+
+        # Everything except the run it would be compared with — a run held
+        # against itself is two identical curves and no information.
+        others = [path for path in choices if path != current]
+        if others == self._compare_choices:
+            return
+        self._compare_choices = others
+        selected = self._compare_dir
+        self._compare_picker.blockSignals(True)
+        self._compare_picker.clear()
+        self._compare_picker.addItem(NO_COMPARISON, "")
+        for path in others:
+            self._compare_picker.addItem(path.name, str(path))
+            self._compare_picker.setItemData(
+                self._compare_picker.count() - 1, str(path), Qt.ItemDataRole.ToolTipRole
             )
-            if path == current:
-                self._picker.setCurrentIndex(self._picker.count() - 1)
-        self._picker.setToolTip(str(current))
-        self._picker.blockSignals(False)
+            if path == selected:
+                self._compare_picker.setCurrentIndex(self._compare_picker.count() - 1)
+        self._compare_picker.setEnabled(bool(others))
+        self._compare_picker.blockSignals(False)
+        if selected is not None and selected not in others:
+            # The run it was being held against is gone, or has become the
+            # attached one. Say so by drawing nothing rather than by leaving a
+            # curve that no longer has a name in the picker.
+            self._compare_with(None)
 
     def _picked(self, index: int) -> None:
         chosen = self._picker.itemData(index)
         if chosen and Path(str(chosen)) != self._run_dir.resolve():
             self._attach(Path(str(chosen)))
+
+    # ---- the other run ------------------------------------------------------
+    def _compare_with(self, run_dir: Path | None) -> None:
+        """Hold the attached run against another one, or against nothing.
+
+        Only the two curve files are read: an experiment is worth comparing on
+        what it *scored* and how it got there, and the rest of the window stays
+        about the run you are actually driving.
+        """
+        self._compare_dir = run_dir
+        self._compare_metrics = None if run_dir is None else sources.metrics_tail(run_dir)
+        self._compare_evals = None if run_dir is None else sources.evals_tail(run_dir)
+        for curve in (self._score, self._return, self._entropy, self._value):
+            if run_dir is None:
+                curve.hide_comparison()
+            else:
+                curve.set_comparison(run_dir.name)
+        for tile in (self._tile_update, self._tile_score, self._tile_return, self._tile_entropy):
+            tile.set_compare("")
+
+    def _compare_picked(self, index: int) -> None:
+        chosen = self._compare_picker.itemData(index)
+        self._compare_with(Path(str(chosen)) if chosen else None)
+
+    def _read_comparison(self) -> None:
+        """Poll the other run — it may be live too, and often is."""
+        if self._compare_metrics is None or self._compare_evals is None:
+            return
+        metrics = self._compare_metrics.poll()
+        if metrics.restarted:
+            for curve in (self._return, self._entropy, self._value):
+                curve.clear_comparison()
+        for row in metrics.rows:
+            self._return.append_comparison(row.update, row.mean_return)
+            self._entropy.append_comparison(row.update, row.entropy)
+            self._value.append_comparison(row.update, row.value_loss)
+        if metrics.rows:
+            last = metrics.rows[-1]
+            self._tile_update.set_compare(f"{self._name()} {last.update:,}")
+            self._tile_return.set_compare(_compare_note(self._name(), last.mean_return, "{:,.1f}"))
+            self._tile_entropy.set_compare(_compare_note(self._name(), last.entropy, "{:.3f}"))
+
+        evals = self._compare_evals.poll()
+        if evals.restarted:
+            self._score.clear_comparison()
+        for row in evals.rows:
+            self._score.append_comparison(row.update, row.mean_score)
+        if evals.rows:
+            # Its *latest* score, not its best: the tile above shows this run's
+            # latest, and two tiles reporting different statistics under the same
+            # caption is a comparison you cannot make.
+            last = evals.rows[-1]
+            self._tile_score.set_compare(f"{self._name()} {last.mean_score:,.0f}")
+
+    def _name(self) -> str:
+        return "—" if self._compare_dir is None else self._compare_dir.name
 
     def _refresh_status(self) -> None:
         modified = sources.last_modified(self._run_dir / sources.METRICS_NAME)
@@ -743,6 +851,11 @@ def _same(left: list[Recording], right: list[Recording]) -> bool:
 def _number(value: float | None, spec: str) -> str:
     """A measurement the trainer has not produced yet is a dash, never a zero."""
     return "—" if value is None else spec.format(value)
+
+
+def _compare_note(name: str, value: float | None, spec: str) -> str:
+    """``runs-2 13.4`` — the other run's value under this one's."""
+    return f"{name} {_number(value, spec)}"
 
 
 def main(argv: list[str] | None = None) -> int:

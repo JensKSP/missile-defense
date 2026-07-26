@@ -416,9 +416,25 @@ job is "this is the model you have" the one that lies about it.
 > vendor-neutral Windows backend over the PDH performance counters would fit the
 > same protocol as one more file in `probes/`.
 
-**Phase 5 — Compare.** Two checkpoints side by side, their eval summaries and
-curves overlaid. The point at which the console starts answering *"did that change
-help?"* rather than only *"what is happening now?"*.
+**Phase 5 — Compare.** ✅ *(implemented — ready for sign-off)* A second picker
+beside the run picker — *this run* **vs** *that one* — and every curve gains the
+other run's line in the same colour at a third of the opacity, with its latest
+value under each stat tile. The point at which the console starts answering
+*"did that change help?"* rather than only *"what is happening now?"*.
+
+Overlaid rather than in a second window beside it. Two plots with independent
+axes make you compare by eye across a gap and do arithmetic between two y-scales;
+one plot answers it by which line is higher. Same hue at lower opacity for the
+same reason a different colour was rejected — it has to read as *this metric,
+the other run*, not as a fourth thing on the chart. The comparison is only ever
+the two curve files: an experiment is worth holding against another on what it
+scored and how it got there, and the rest of the window stays about the run you
+are actually driving.
+
+It came out much smaller than planned, because the run picker had already paid
+for most of it: candidate runs, re-attaching every panel, and a tail that
+survives a file being appended to were all there. What was missing was a second
+series per chart and a second line per tile.
 
 **Not in the plan, but the runs asked for it: a run picker.** Experiments
 accumulate one `--out-dir` each, so `runs/` stopped being a run and became a

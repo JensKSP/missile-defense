@@ -13,6 +13,13 @@ library later touches this file and no other (docs/ROADMAP.md, M8, risk 1).
 The baseline is the reason this is a wrapper and not a bare ``QChartView``: a
 horizontal line at 113,834 is what turns a number going up into "am I winning
 yet", and it has to keep spanning the plot as the run grows.
+
+A curve can carry a **second run** as well (M8 phase 5). Overlaid rather than in
+a second chart beside it: two plots with independent axes make you compare by
+eye across a gap, and the question being asked — "did that change help?" — is
+answered by whether one line is above the other. It is drawn in the same colour
+at a third of the opacity, so it reads as *this metric, the other run* rather
+than as a fourth thing on the plot.
 """
 
 from __future__ import annotations
@@ -26,6 +33,10 @@ from PySide6.QtGui import QColor, QFont, QPainter, QPen, QResizeEvent
 from PySide6.QtWidgets import QLabel, QWidget
 
 from . import theme
+
+#: Out of 255. Enough to follow the line, faint enough that the attached run is
+#: unambiguously the subject.
+COMPARISON_ALPHA = 90
 
 
 class CurveView(QChartView):
@@ -66,6 +77,18 @@ class CurveView(QChartView):
         self._series.setPen(QPen(QColor(colour), 2.0))
         self._series.setPointsVisible(markers)
 
+        # The same metric from another run. Same hue, a third of the opacity: a
+        # different colour would read as a different measurement.
+        faded = QColor(colour)
+        faded.setAlpha(COMPARISON_ALPHA)
+        self._compare = QLineSeries()
+        self._compare.setPen(QPen(faded, 1.6))
+        self._compare.setPointsVisible(markers)
+        self._compare.setVisible(False)
+        self._compare_min = 0.0
+        self._compare_max = 0.0
+        self._compare_count = 0
+
         # Drawn first so the curve sits on top of it, and dashed so it reads as a
         # target rather than as another measurement.
         self._baseline_series = QLineSeries()
@@ -87,15 +110,17 @@ class CurveView(QChartView):
         self._chart.legend().setLabelColor(QColor(theme.MUTED))
         self._chart.legend().setFont(_caption_font())
         self._chart.addSeries(self._baseline_series)
+        self._chart.addSeries(self._compare)  # under the attached run, not over it
         self._chart.addSeries(self._series)
 
         self._x_axis = _axis("%d")
         self._y_axis = _axis(value_format)
         self._chart.addAxis(self._x_axis, Qt.AlignmentFlag.AlignBottom)
         self._chart.addAxis(self._y_axis, Qt.AlignmentFlag.AlignLeft)
-        for series in (self._series, self._baseline_series):
+        for series in (self._series, self._baseline_series, self._compare):
             series.attachAxis(self._x_axis)
             series.attachAxis(self._y_axis)
+        self._show_compare_marker(False)
 
         self.setChart(self._chart)
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -125,6 +150,46 @@ class CurveView(QChartView):
     def extend(self, points: Iterable[tuple[float, float | None]]) -> None:
         for x, y in points:
             self.append(x, y)
+
+    # ---- the other run ------------------------------------------------------
+    def set_comparison(self, name: str) -> None:
+        """Start overlaying a second run's points, labelled ``name``.
+
+        Idempotent on the name so the poll can call it every tick, and it drops
+        whatever was there — choosing a different run to compare against is the
+        same act as choosing none and then that one.
+        """
+        self.clear_comparison()
+        self._compare.setName(name)
+        self._compare.setVisible(True)
+        self._show_compare_marker(True)
+
+    def append_comparison(self, x: float, y: float | None) -> None:
+        if y is None:
+            return
+        self._compare.append(x, y)
+        self._compare_count += 1
+        if self._compare_count == 1:
+            self._compare_min = self._compare_max = y
+        else:
+            self._compare_min = min(self._compare_min, y)
+            self._compare_max = max(self._compare_max, y)
+        self._rescale()
+
+    def clear_comparison(self) -> None:
+        self._compare.clear()
+        self._compare_count = 0
+        self._rescale()
+
+    def hide_comparison(self) -> None:
+        """No second run selected — and no ghost of the last one in the legend."""
+        self.clear_comparison()
+        self._compare.setVisible(False)
+        self._show_compare_marker(False)
+
+    def _show_compare_marker(self, shown: bool) -> None:
+        for marker in self._chart.legend().markers(self._compare):
+            marker.setVisible(shown)
 
     def set_baseline(self, value: float, label: str) -> None:
         """Draw a horizontal reference line — the number the run is chasing."""
@@ -179,6 +244,10 @@ class CurveView(QChartView):
         x_low, x_high = _fit(self._x_axis, x_min, x_max, step_floor=1.0)
 
         seen = [self._y_min, self._y_max] if self._count else []
+        if self._compare_count:
+            # The comparison shares the axis, so a run that went somewhere this
+            # one did not must still fit — that difference is the whole point.
+            seen += [self._compare_min, self._compare_max]
         if self._baseline is not None:
             seen.append(self._baseline)
         if self._from_zero:

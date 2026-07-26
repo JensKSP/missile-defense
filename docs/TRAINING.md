@@ -150,6 +150,11 @@ opened, so `poe ui` on a `runs/` full of experiments is enough: pick one and eve
 panel follows. Which is also how you flip between an experiment and the run it is
 meant to beat.
 
+The **vs** dropdown next to it holds one run against another: every curve gains
+the second run's line in the same colour, faintly, and each headline number gains
+its value underneath. That is the "did that change help?" view — one plot, two
+lines, no arithmetic between two y-scales.
+
 The bar across the top is deliberately small: one button that changes meaning
 (**Start** → **Pause** → **Resume**), **Stop**, and **Reset**, which attaches to a
 fresh run directory and never deletes the old one. **Start** opens the parameter
