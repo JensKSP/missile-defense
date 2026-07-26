@@ -106,7 +106,8 @@ def test_the_real_readme_still_has_a_quick_start_this_can_run() -> None:
     readme = (quickstart.PROJECT_ROOT / quickstart.README).read_text(encoding="utf-8")
     lines = extract(readme)
     assert any(line.strip().startswith("git clone") for line in lines)
-    assert any(line.strip().startswith("cmake --preset") for line in lines)
+    # `in`, not `startswith`: the real line may carry a `CXX=…` prefix.
+    assert any("cmake --preset" in line for line in lines)
     # And both substitutions still find something to substitute.
     _, notes = rewrite(lines, source="/checkout", drop_sudo=False)
     assert len(notes) == 2, notes

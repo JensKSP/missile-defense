@@ -32,21 +32,18 @@ macOS [docs/MACOS.md](docs/MACOS.md), and for other distros adjust the package
 names using [Requirements](#requirements) below:
 
 ```bash
-# 1 — dependencies (a few hundred MB: Qt 6, Vulkan, clang)
-# clang-21 and lld-21 come from trixie-backports on Debian 13; enable it first.
-# signed-by pins Debian's own archive key, so `apt update` can verify the repo
-# on a minimal system that only trusts keys the base sources already name.
-echo 'deb [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] http://deb.debian.org/debian trixie-backports main' \
-  | sudo tee /etc/apt/sources.list.d/backports.list
+# 1 — dependencies (a few hundred MB: Qt 6, Vulkan, a C++23 compiler)
 sudo apt update
-sudo apt install clang-21 lld-21 cmake ninja-build \
+sudo apt install g++-14 cmake ninja-build \
   qt6-base-dev qt6-base-dev-tools \
   libvulkan-dev glslang-tools mesa-vulkan-drivers libminiaudio-dev
 
 # 2 — build (no Python needed, and no install step afterwards)
 git clone https://github.com/JensKSP/missile-defense.git
 cd missile-defense
-cmake --preset release && cmake --build --preset release
+# g++-14 explicitly: it has C++23 <print>, which Ubuntu 24.04's default g++-13
+# does not, and CXX makes CMake use it instead of hunting for clang.
+CXX=g++-14 cmake --preset release && cmake --build --preset release
 
 # 3 — play
 ./build/release/app/md_app
