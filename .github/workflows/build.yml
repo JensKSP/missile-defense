@@ -263,12 +263,19 @@ jobs:
         # already at the top of the file, and dch refuses to go backwards
         # without being told that is deliberate.
         if: inputs.deb-version != ''
-        env:
-          DEBEMAIL: ci@github
-          DEBFULLNAME: Missile Defense CI
         run: |
-          dch --newversion "${{ inputs.deb-version }}-1" --distribution unstable               --force-bad-version "Nightly build from ${GITHUB_SHA}."
-          head -1 debian/changelog
+          set -euo pipefail
+          # The trailer's identity comes from debian/control — the same place
+          # tools/release.py takes it for a real release stanza. Inventing one is
+          # not cosmetic: lintian rejects a mail host with no TLD outright
+          # (bogus-mail-host-in-debian-changelog) and fails the job after the
+          # package has already built and tested clean.
+          maintainer="$(sed -n 's/^Maintainer: //p' debian/control)"
+          DEBFULLNAME="${maintainer%% <*}"
+          DEBEMAIL="${maintainer##*<}"; DEBEMAIL="${DEBEMAIL%>}"
+          export DEBFULLNAME DEBEMAIL
+          dch --newversion "${{ inputs.deb-version }}-1" --distribution unstable --force-bad-version "Nightly build from ${GITHUB_SHA}."
+          head -5 debian/changelog
 
       - name: Build the package
         # Binary-only: the source format is 3.0 (quilt), which wants an orig
