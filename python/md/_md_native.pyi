@@ -138,6 +138,14 @@ class VecEnv:
     def action_masks(self, mask: npt.NDArray[np.bool_]) -> None:
         """Fill ``mask`` with which actions are legal per env."""
 
+    def shot_stats(self, wasted: npt.NDArray[np.int32], multi_kills: npt.NDArray[np.int32]) -> None:
+        """How the last step spent its ammunition, per env.
+
+        ``wasted`` counts blasts that expired having killed nothing; ``multi_kills``
+        counts kills beyond a blast's first. The simulation reports both and prices
+        neither — see :class:`md.env.Shaping`.
+        """
+
     def reset_seeds(self, seeds: list[int], obs: npt.NDArray[np.float32]) -> None:
         """Seed each env explicitly — for evaluating on the canonical seed set."""
 

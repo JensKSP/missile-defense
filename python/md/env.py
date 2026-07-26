@@ -36,23 +36,59 @@ Actions = npt.NDArray[np.int32]
 
 @dataclass(frozen=True)
 class Shaping:
-    """Potential-based reward shaping (Ng, Harada & Russell, 1999).
+    """The training reward: potential-based shaping, plus two priced events.
 
-    ``r' = r + gamma * phi(s') - phi(s)`` with
-    ``phi(s) = city_weight * live_cities + ammo_weight * total_ammo``.
+    ``r' = r + gamma * phi(s') - phi(s) - waste_penalty * wasted
+                                       + multikill_bonus * multi_kills``
+    ``phi(s) = base_weight * live_bases + city_weight * live_cities
+               + ammo_weight * total_ammo``
 
-    The weights are the *same* ones the end-of-wave bonus already pays (100 per
-    surviving city, 5 per unused interceptor); shaping merely delivers them at the
-    moment they are earned. Losing a city costs ~100 immediately instead of at the
-    next wave boundary — which, at 60 Hz, discounting would otherwise render
-    mathematically invisible. Being a potential difference, it provably leaves the
-    optimal policy unchanged.
+    **The two halves behave completely differently, and it matters.**
+
+    The `phi` terms are potential-based (Ng, Harada & Russell, 1999), so they
+    provably leave the optimal policy unchanged — they only change how *fast* it
+    is found. City and ammo use the same weights the end-of-wave bonus already
+    pays, so shaping merely delivers them the moment they are earned rather than
+    at the next wave boundary, where 60 Hz discounting would render them nearly
+    invisible. Batteries are in there for the same reason and were previously
+    missing entirely: losing one costs a third of your firepower for the rest of
+    the wave and used to be worth exactly nothing.
+
+    ``waste_penalty`` and ``multikill_bonus`` are **not** potential terms. They
+    genuinely change the objective, which is the only way to change what the
+    policy converges to — and the reason they must be judged on the 32-seed score
+    rather than on themselves. Neither touches the score, so
+    ``md::agent::evaluate`` and the 18,036 baseline are unaffected.
     """
 
     city_weight: float = 100.0
     ammo_weight: float = 5.0
+    #: A destroyed battery stops firing for the rest of the wave and revives at the
+    #: next one, so unlike a city the loss is temporary — but it was priced at
+    #: *nothing*, which made losing a third of your firepower mid-wave free. The
+    #: weight is above a city's on purpose: protecting the guns is what protects
+    #: the cities. Being a potential term it cannot change the optimal policy, only
+    #: how quickly the loss becomes visible.
+    base_weight: float = 200.0
     gamma: float = 0.997
     enabled: bool = True
+
+    #: Charged when an interceptor's blast expires having destroyed nothing. Unlike
+    #: the terms above this is *not* potential-based, so it genuinely changes the
+    #: objective — which is the point, and the reason to judge it on the 32-seed
+    #: score rather than on itself.
+    #:
+    #: A kill pays `score_per_kill` (25) and firing already costs `ammo_weight` (5),
+    #: so the untouched reward breaks even at 5/25 = 20% accuracy — and the policy
+    #: duly converged to 25%, firing 72% of its interceptors into a zone another
+    #: was already covering. At 10 the break-even moves to 60%.
+    waste_penalty: float = 10.0
+    #: Paid per kill beyond a blast's first. The score already pays 25 for each, so
+    #: this only sharpens an incentive that exists; the scripted baseline reaches
+    #: 1.10 kills per interceptor and that is the headroom. Kept smaller than a
+    #: kill because it is the one term that rewards *waiting*, and an agent that
+    #: overlearns it holds fire for a cluster while the cities burn.
+    multikill_bonus: float = 10.0
 
     @property
     def scale(self) -> float:
@@ -102,6 +138,8 @@ class VecEnv:
         self._truncated: Flags = np.zeros(n, dtype=np.bool_)
         self._mask: Flags = np.zeros((n, self.action_count), dtype=np.bool_)
         self._potential: Rewards = np.zeros(n, dtype=np.float32)
+        self._wasted: npt.NDArray[np.int32] = np.zeros(n, dtype=np.int32)
+        self._multi_kills: npt.NDArray[np.int32] = np.zeros(n, dtype=np.int32)
         self._seed = seed
         self.reset(seed)
 
@@ -162,10 +200,13 @@ class VecEnv:
             self.num_envs, _native.MAX_CITIES, 2
         )
         live_cities = cities[:, :, 0].sum(axis=1)
+        # Feature 0 of a battery is its alive flag; a battery knocked out mid-wave
+        # reads zero here and revives at the next wave start.
+        live_bases = bases[:, :, 0].sum(axis=1)
         # ammo is stored as a fraction of a full battery
         ammo = (bases[:, :, 2] * float(self._config.ammo_per_base)).sum(axis=1)
         s = self._shaping
-        phi = (s.city_weight * live_cities) + (s.ammo_weight * ammo)
+        phi = (s.base_weight * live_bases) + (s.city_weight * live_cities) + (s.ammo_weight * ammo)
         # NumPy's reductions above are typed loosely enough that the sum comes back
         # as Any; the cast states the dtype astype() has actually produced.
         return cast(Rewards, phi.astype(np.float32))
@@ -269,6 +310,17 @@ class VecEnv:
             delta = np.where(self._terminated, -self._potential, delta).astype(np.float32)
             reward = (reward + delta).astype(np.float32)
             self._potential = phi_next
+
+            # Not potential terms, and deliberately so: these are the two that
+            # actually move the objective. Everything above is optimality-neutral
+            # and only changes how fast the policy gets where it was already going.
+            if self._shaping.waste_penalty or self._shaping.multikill_bonus:
+                self._native.shot_stats(self._wasted, self._multi_kills)
+                reward = (
+                    reward
+                    - (self._shaping.waste_penalty * self._wasted)
+                    + (self._shaping.multikill_bonus * self._multi_kills)
+                ).astype(np.float32)
         scaled: Rewards = (reward / self._shaping.scale).astype(np.float32)
         info: dict[str, Observations] = {"final_observation": self._final_obs}
         return (self._obs, scaled, self._terminated, self._truncated, info)

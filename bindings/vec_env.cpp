@@ -29,6 +29,8 @@ VecEnv::VecEnv(std::size_t num_envs, const Config& config, const ObsSpec& spec, 
         sims_.emplace_back(config_);
     }
     episode_ticks_.assign(num_envs, 0);
+    wasted_.assign(num_envs, 0);
+    multi_kills_.assign(num_envs, 0);
     recording_on_.assign(num_envs, 0);
     episode_seed_.assign(num_envs, 0);
     live_log_.resize(num_envs);
@@ -149,6 +151,11 @@ void VecEnv::reset(std::span<const std::uint64_t> seeds, float* obs) {
     next_seed_ = highest + 1;
 }
 
+void VecEnv::shot_stats(std::int32_t* wasted, std::int32_t* multi_kills) const {
+    std::ranges::copy(wasted_, wasted);
+    std::ranges::copy(multi_kills_, multi_kills);
+}
+
 void VecEnv::run_range(std::size_t begin, std::size_t end, const std::int32_t* actions, float* obs,
                        float* final_obs, float* rewards, bool* terminated, bool* truncated) {
     const std::size_t stride = spec_.size();
@@ -162,12 +169,16 @@ void VecEnv::run_range(std::size_t begin, std::size_t end, const std::int32_t* a
 
         float reward = 0.0f;
         bool done = false;
+        wasted_[i] = 0;
+        multi_kills_[i] = 0;
         for (unsigned k = 0; k < frame_skip_ && !done; ++k) {
             // Re-decode each tick: an engagement is a steer-then-fire macro, so
             // holding the index means "keep pursuing that target".
             const Action action = decode_action(sim, spec_, index);
             const StepResult result = sim.step(action);
             reward += static_cast<float>(result.reward);
+            wasted_[i] += result.wasted;
+            multi_kills_[i] += result.multi_kills;
             done = result.terminated;
             ++episode_ticks_[i];
             // Same tallies, off the same event stream, as md::agent::run_episode.

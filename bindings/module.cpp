@@ -34,6 +34,7 @@ namespace {
 using FloatArray = nb::ndarray<float, nb::numpy, nb::c_contig>;
 using IntArray = nb::ndarray<const std::int32_t, nb::numpy, nb::c_contig>;
 using BoolArray = nb::ndarray<bool, nb::numpy, nb::c_contig>;
+using OutIntArray = nb::ndarray<std::int32_t, nb::numpy, nb::c_contig>;
 
 void require(bool ok, const char* what) {
     if (!ok) {
@@ -173,6 +174,19 @@ allocated per step. `step` releases the GIL, so the worker pool runs in parallel
             nb::arg("actions"), nb::arg("obs"), nb::arg("final_obs"), nb::arg("rewards"),
             nb::arg("terminated"), nb::arg("truncated"),
             "Advance every env by frame_skip ticks, writing all outputs in place.")
+        .def(
+            "shot_stats",
+            [](const md::rl::VecEnv& env, OutIntArray wasted, OutIntArray multi_kills) {
+                require(wasted.size() == env.num_envs(), "wasted must be (num_envs,)");
+                require(multi_kills.size() == env.num_envs(), "multi_kills must be (num_envs,)");
+                std::int32_t* w = wasted.data();
+                std::int32_t* m = multi_kills.data();
+                nb::gil_scoped_release release;
+                env.shot_stats(w, m);
+            },
+            nb::arg("wasted"), nb::arg("multi_kills"),
+            "How the last step spent its ammunition: blasts that killed nothing, "
+            "and kills beyond a blast's first.")
         .def(
             "action_masks",
             [](const md::rl::VecEnv& env, BoolArray mask) {

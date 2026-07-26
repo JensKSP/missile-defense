@@ -79,15 +79,21 @@ def test_masked_sampling_drives_a_rollout(env: VecEnv) -> None:
         assert np.isfinite(reward).all()
 
 
-def test_shaping_reads_cities_and_ammo_from_the_observation() -> None:
+def test_shaping_reads_bases_cities_and_ammo_from_the_observation() -> None:
     # `_phi` locates the battery/city block by hand-computed offsets. At reset the
-    # potential must equal a full board: six cities plus every battery's ammo.
+    # potential must equal a full board: three live batteries, six cities, and
+    # every battery's ammo.
     env = VecEnv(num_envs=4, threads=1, shaping=Shaping(), seed=0)
     env.reset(0)
     phi = env._phi()
 
     config = env._config
-    expected = (100.0 * 6) + (5.0 * 3 * config.ammo_per_base)
+    shaping = Shaping()
+    expected = (
+        (shaping.base_weight * 3)
+        + (shaping.city_weight * 6)
+        + (shaping.ammo_weight * 3 * config.ammo_per_base)
+    )
     assert phi.shape == (env.num_envs,)
     np.testing.assert_allclose(phi, expected, rtol=1e-4)
 
@@ -163,8 +169,92 @@ def test_shaping_telescopes_to_minus_the_initial_potential() -> None:
         (shaping.gamma**t) * (s - p) * shaping.scale
         for t, (s, p) in enumerate(zip(shaped, plain, strict=True))
     )
-    phi_start = (100.0 * 6) + (5.0 * 3 * env._config.ammo_per_base)
+    phi_start = (
+        (shaping.base_weight * 3)
+        + (shaping.city_weight * 6)
+        + (shaping.ammo_weight * 3 * env._config.ammo_per_base)
+    )
     assert total == pytest.approx(-phi_start, rel=1e-3)
+
+
+def test_a_shot_that_kills_nothing_is_charged_the_waste_penalty() -> None:
+    # The measured failure this exists for: 72% of the learned policy's
+    # interceptors detonated in a zone something else already covered. Firing at
+    # an empty sky is the cleanest instance — nothing can die, so the blast is
+    # wasted by construction and the penalty must land exactly once per blast.
+    # Two envs, same seed and same actions, differing only in the penalty: the
+    # reward gap is then exactly the penalty term, with no need to model the score
+    # delta or the potential difference.
+    penalty = 10.0
+    plain = VecEnv(num_envs=1, threads=1, frame_skip=4, seed=0, shaping=Shaping(waste_penalty=0.0))
+    priced = VecEnv(
+        num_envs=1, threads=1, frame_skip=4, seed=0, shaping=Shaping(waste_penalty=penalty)
+    )
+    plain.reset(0)
+    priced.reset(0)
+
+    seen = 0
+    for _ in range(400):
+        mask = plain.action_masks()
+        legal = np.flatnonzero(mask[0])
+        # Fire whenever anything is legal; early shots mostly hit empty sky.
+        action = np.array([legal[-1] if len(legal) > 1 else 0], dtype=np.int32)
+        _, without, terminated, truncated, _ = plain.step(action)
+        _, priced_reward, _, _, _ = priced.step(action)
+
+        wasted = int(priced._wasted[0])
+        seen += wasted
+        charged = (float(priced_reward[0]) - float(without[0])) * Shaping().scale
+        assert charged == pytest.approx(-penalty * wasted, abs=1e-2)
+        if terminated[0] or truncated[0]:
+            break
+
+    assert seen > 0, "no blast expired without a kill — the test never exercised the penalty"
+
+
+def test_the_counters_are_zero_when_nothing_is_fired() -> None:
+    # NoOp cannot detonate anything, so neither counter may ever tick — otherwise
+    # the penalty would be charged against episodes that never took a shot.
+    env = VecEnv(num_envs=4, threads=1, frame_skip=4, seed=0)
+    env.reset(0)
+    for _ in range(200):
+        env.step(np.zeros(4, dtype=np.int32))
+        assert int(env._wasted.sum()) == 0
+        assert int(env._multi_kills.sum()) == 0
+
+
+def test_the_event_terms_are_off_when_their_weights_are_zero() -> None:
+    # With both weights zero the reward must be exactly the potential-shaped one,
+    # so the two arms of an experiment differ only by what they are meant to.
+    rng = np.random.default_rng(0)
+    plain = VecEnv(
+        num_envs=2,
+        threads=1,
+        frame_skip=4,
+        seed=0,
+        shaping=Shaping(waste_penalty=0.0, multikill_bonus=0.0),
+    )
+    priced = VecEnv(
+        num_envs=2,
+        threads=1,
+        frame_skip=4,
+        seed=0,
+        shaping=Shaping(waste_penalty=25.0, multikill_bonus=25.0),
+    )
+    plain.reset(0)
+    priced.reset(0)
+
+    differed = False
+    for _ in range(300):
+        mask = plain.action_masks()
+        actions = np.array([rng.choice(np.flatnonzero(row)) for row in mask], dtype=np.int32)
+        _, a, _, _, _ = plain.step(actions)
+        _, b, _, _, _ = priced.step(actions)
+        if int(priced._wasted.sum()) or int(priced._multi_kills.sum()):
+            differed = True
+        else:
+            np.testing.assert_allclose(a, b, rtol=1e-5)
+    assert differed, "the priced env never fired, so the comparison proved nothing"
 
 
 def test_shaping_is_off_when_disabled() -> None:
