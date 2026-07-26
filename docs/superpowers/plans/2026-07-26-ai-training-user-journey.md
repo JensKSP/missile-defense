@@ -175,18 +175,28 @@ stack.
 Before Task 6, and independently of it — these test code that is already written,
 so they are pure additions and can land at once:
 
-- [ ] **The game boots and exits cleanly** — `--frames`, menu, `--play`,
+- [x] **The game boots and exits cleanly** — `--frames`, menu, `--play`,
       `--watch`; exit 0, no `VUID`, a report showing it advanced.
-- [ ] **A recording plays back to the state it was recorded in** — the strongest
+      *(`test_game.py`, 6 tests.)*
+- [x] **A recording plays back to the state it was recorded in** — the strongest
       single assertion in the suite, because it crosses every boundary in the
       project: a Python trainer wrote it, C++ replays it, and the score has to
       match what the trainer said. `--replay X --until-done --report`.
-- [ ] **A short real training run writes every artifact** — and each is readable
-      by the thing that consumes it.
-- [ ] **The console attaches to that directory** and shows the run: curves
+      *(`test_training.py`.)*
+- [x] **A short real training run writes every artifact** — and each is readable
+      by the thing that consumes it. *(`test_training.py`, 12 tests.)*
+- [x] **The console attaches to that directory** and shows the run: curves
       populated, recordings listed, model panel filled, Start enabled.
+      *(`test_console.py`, 15 tests.)*
 - [ ] **Runtime setup installs, health-checks and is then used** — against a
       local wheel directory rather than the network, so the test is hermetic.
+      **Still the one missing e2e.** `harness.build_wheel()` exists for exactly
+      this and no test drives a real install yet.
+
+The suite is **54 tests** across eight files as of 2026-07-26: the four above
+plus `test_journey.py` (6), `test_packages.py` (8 — the two products, and both
+bundled agents), `test_parity.py` (3 — the same `.mdp` in two languages) and
+`test_analysis.py` (4 — the statistics screen against a real run).
 
 ### What the first run of this layer found
 
