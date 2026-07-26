@@ -130,8 +130,10 @@ class RunTable(QWidget):
             for index, text in enumerate(self._cells(run)):
                 item = QTableWidgetItem(text)
                 if index in (2, 3, 5):  # the numbers, right-aligned to compare
+                    # The flag itself, not `int(...)`: the integer overload is
+                    # deprecated in Qt 6 and warns on every cell.
                     item.setTextAlignment(
-                        int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                        Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
                     )
                 if index == 1:
                     # The one coloured cell: "is this still going" is the thing

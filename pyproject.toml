@@ -177,6 +177,24 @@ strict = true
 module = ["torch", "torch.*"]
 ignore_missing_imports = true
 
+# Pillow is a build-time dependency of one icon script and of nothing that ships,
+# so it is not installed on every machine that runs the gate — the same treatment
+# torch and PySide6 get above, and for the same reason.
+[[tool.mypy.overrides]]
+module = ["PIL", "PIL.*"]
+ignore_missing_imports = true
+
+# numpy is deliberately *not* overridden here. `md.env` types its buffer
+# contract with `numpy.typing`, and waving that through would silently drop the
+# checking this project most depends on.
+#
+# It does constrain the environment: numpy >= 2.5 dropped Python 3.11 and writes
+# PEP 695 `type` statements in its own stubs, which mypy parses only when
+# targeting 3.12+ — so `python_version = "3.11"` above and a 2.5 numpy in the
+# same virtualenv fail inside a stub file nothing here can edit. `numpy<2.5` is
+# therefore a *typing* requirement, not only a runtime one, and
+# `tools/bootstrap.py` and CI both install it.
+
 [[tool.mypy.overrides]]
 module = ["md.auxiliary", "md.ppo", "md.train"]
 ignore_errors = true

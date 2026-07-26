@@ -222,9 +222,12 @@ def _entity_forward(policy: NativePolicy, observation: Weights) -> tuple[Weights
     def encode(block: Weights, prefix: str) -> Weights:
         """Two tanh layers over every slot at once — rows are slots."""
         hidden = np.tanh(block @ tensor(f"{prefix}.0.weight").T + tensor(f"{prefix}.0.bias"))
-        return np.tanh(hidden @ tensor(f"{prefix}.2.weight").T + tensor(f"{prefix}.2.bias")).astype(
-            np.float32
-        )
+        # Annotated rather than returned directly: numpy's `tanh` is typed to
+        # return Any, and a function that claims float32 should be held to it.
+        out: Weights = np.tanh(
+            hidden @ tensor(f"{prefix}.2.weight").T + tensor(f"{prefix}.2.bias")
+        ).astype(np.float32)
+        return out
 
     at_interceptors = threats * threat_features
     at_blasts = at_interceptors + (interceptors * interceptor_features)
@@ -280,9 +283,10 @@ def _entity_forward(policy: NativePolicy, observation: Weights) -> tuple[Weights
         weights = np.exp(scores)
         weights = weights / weights.sum(axis=1, keepdims=True)
         attended = (weights @ value).astype(np.float32)
-        return (
+        out: Weights = (
             attended @ tensor(f"{prefix}.output.weight").T + tensor(f"{prefix}.output.bias")
         ).astype(np.float32)
+        return out
 
     related_i = attend("interceptor_attention", encoded_i, interceptor_present)
     related_b = attend("blast_attention", encoded_b, blast_present)

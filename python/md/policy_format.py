@@ -273,9 +273,10 @@ def validate(policy: NativePolicy, *, what: str = "policy") -> None:
             "checkpoint against this build."
         )
     if policy.architecture not in ARCHITECTURES:
-        known = ", ".join(sorted(ARCHITECTURES))
+        runnable = ", ".join(sorted(ARCHITECTURES))
         raise PolicyFormatError(
-            f"{what}: architecture {policy.architecture!r} is not one this build can run ({known})"
+            f"{what}: architecture {policy.architecture!r} is not one this build "
+            f"can run ({runnable})"
         )
     if policy.observation_size <= 0 or policy.action_count <= 0:
         raise PolicyFormatError(

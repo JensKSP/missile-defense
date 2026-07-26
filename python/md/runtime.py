@@ -543,7 +543,9 @@ class Runtime:
         """
         check_index(plan.index_url)
         emit = _silent if on_output is None else on_output
-        stop = (lambda: False) if cancel is None else cancel
+        # Annotated, or mypy reads the bare lambda as untyped and every call
+        # through it becomes an untyped call in a typed context.
+        stop: Callable[[], bool] = (lambda: False) if cancel is None else cancel
         interpreter = venv_python(plan.target, platform=self._platform)
 
         self._root.mkdir(parents=True, exist_ok=True)

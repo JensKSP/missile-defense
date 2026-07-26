@@ -242,8 +242,10 @@ class LeagueView(QWidget):
             for index, text in enumerate(cells):
                 item = QTableWidgetItem(text)
                 if index in (2, 3, 4):
+                    # The flag itself, not `int(...)`: the integer overload is
+                    # deprecated in Qt 6 and warns on every cell.
                     item.setTextAlignment(
-                        int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                        Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
                     )
                 self._table.setItem(row, index, item)
             if chosen is not None and model.path == chosen.path:

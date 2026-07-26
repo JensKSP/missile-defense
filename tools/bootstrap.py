@@ -22,6 +22,20 @@ from ._util import PROJECT_ROOT
 
 DEV_TOOLS = ("poethepoet", "ruff", "pytest", "mypy", "pyright")
 
+#: Constraints the *gate* needs, over and above what the package needs to run.
+#:
+#: `numpy<2.5` is a typing requirement rather than a runtime one. numpy 2.5
+#: dropped Python 3.11 and writes PEP 695 `type` statements in its own stubs,
+#: which mypy parses only when targeting 3.12+ — so a 2.5 numpy beside
+#: `python_version = "3.11"` fails inside a stub file nothing in this repository
+#: can edit. CI pins the same bound for the same reason; pinning it here means a
+#: freshly bootstrapped venv passes `poe check` instead of failing on somebody
+#: else's file.
+#:
+#: Pillow is what `tools/make_icon.py` needs, and installing it is the difference
+#: between that script being type-checked and being waved through.
+GATE_PINS = ("numpy<2.5", "pillow")
+
 
 def venv_python(venv: Path, *, platform: str = sys.platform) -> Path:
     """The interpreter a venv creates on this platform."""
@@ -38,6 +52,7 @@ def install_command(venv: Path, *, root: Path = PROJECT_ROOT) -> list[str]:
         "--editable",
         f"{root}[console]",
         *DEV_TOOLS,
+        *GATE_PINS,
     ]
 
 

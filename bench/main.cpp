@@ -27,11 +27,11 @@ namespace {
 using Clock = std::chrono::steady_clock;
 
 struct Options {
-    int episodes = 24;     // episodes per single-threaded measurement
-    int repeat = 3;        // best-of, to shake out scheduler noise
-    unsigned threads = 0;  // 0 = detect
-    bool sample = false;   // run a long workload for an external sampler
-    bool csv = false;      // machine-readable
+    int episodes = 24;    // episodes per single-threaded measurement
+    int repeat = 3;       // best-of, to shake out scheduler noise
+    unsigned threads = 0; // 0 = detect
+    bool sample = false;  // run a long workload for an external sampler
+    bool csv = false;     // machine-readable
 };
 
 template <class Fn> double time_it(Fn&& fn) {
@@ -99,9 +99,8 @@ int main(int argc, char** argv) {
         } else if (arg == "--threads" && (i + 1) < argc) {
             opt.threads = static_cast<unsigned>(parse_u64(argv[++i], 0));
         } else {
-            std::fprintf(stderr,
-                         "usage: md_bench [--episodes N] [--repeat N] [--threads N] "
-                         "[--sample] [--csv]\n");
+            std::fprintf(stderr, "usage: md_bench [--episodes N] [--repeat N] [--threads N] "
+                                 "[--sample] [--csv]\n");
             return 2;
         }
     }
@@ -272,8 +271,7 @@ int main(int argc, char** argv) {
     }
 
     if (opt.sample) {
-        run_profiling_workload(config, agent,
-                               static_cast<std::size_t>(opt.episodes) * 4u);
+        run_profiling_workload(config, agent, static_cast<std::size_t>(opt.episodes) * 4u);
     }
     if (!opt.csv) {
         std::printf("\n(checksum %llu — printed so nothing measured is optimised away)\n",
