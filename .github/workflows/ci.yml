@@ -157,9 +157,11 @@ jobs:
         with:
           msystem: CLANG64
           update: true
-          # No vulkan-validation-layers: they are a runtime debugging aid and CI
-          # never opens a window. miniaudio has no MSYS2 package, so CMake
-          # fetches it (MD_FETCH_MINIAUDIO) exactly as it does for a developer.
+          # Neither Catch2 nor miniaudio is packaged for MSYS2 at all, so CMake
+          # fetches both — which is what it already does on a developer's machine
+          # here, so CI is not taking a different path to get them.
+          # No vulkan-validation-layers either: a runtime debugging aid, and CI
+          # never opens a window.
           install: >-
             mingw-w64-clang-x86_64-clang
             mingw-w64-clang-x86_64-lld
@@ -169,7 +171,6 @@ jobs:
             mingw-w64-clang-x86_64-vulkan-headers
             mingw-w64-clang-x86_64-vulkan-loader
             mingw-w64-clang-x86_64-glslang
-            mingw-w64-clang-x86_64-catch2
             mingw-w64-clang-x86_64-nsis
 
       - name: Report the toolchain
