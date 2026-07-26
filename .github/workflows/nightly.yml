@@ -103,6 +103,16 @@ jobs:
           done
           find incoming -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.exe' \) \
             -exec cp {} dist/ \;
+          # GitHub rewrites `~` in a release asset's name to `.`, so do it here
+          # instead of letting it happen after the checksums are taken: otherwise
+          # SHA256SUMS lists filenames that do not exist once downloaded and
+          # `sha256sum -c` fails on every .deb. Only nightlies contain a `~`. The
+          # version *inside* the package keeps its tilde either way, and that is
+          # the one apt sorts on.
+          for f in dist/*'~'*; do
+            [ -e "$f" ] || continue
+            mv "$f" "$(printf '%s' "$f" | tr '~' '.')"
+          done
           cd dist && sha256sum * > SHA256SUMS
           ls -l
 
