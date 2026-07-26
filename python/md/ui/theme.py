@@ -238,26 +238,36 @@ def stylesheet() -> str:
         border-top: 1px solid {EDGE};
         font-size: 11px;
     }}
-    /* The two views of one run (training curves, statistics). Flat and quiet:
-       the tab bar is navigation, not content, so it gets an underline on the
-       selected tab and nothing else — a raised, bordered tab would be the
-       loudest chrome in a window whose subject is a curve. */
+    /* The two views of one run (training curves, statistics).
+       Quiet, but *findable*: the first attempt used caption type on a
+       transparent strip and it read as a heading rather than a control — the
+       human's first reaction to it was "where is the statistics tab?", which is
+       the whole review this needed. So the unselected tab now carries the same
+       panel fill as every other pressable thing in the window, and the selected
+       one is lit from below in the accent. Still flat, still no raised borders;
+       it just no longer disappears into the background it sits on. */
     QTabWidget::pane {{ border: none; }}
+    QTabBar {{ background: transparent; }}
     QTabBar::tab {{
-        background: transparent;
+        background: {PANEL};
         color: {MUTED};
-        border: none;
-        border-bottom: 2px solid transparent;
-        padding: 5px 14px 4px 0;
-        margin-right: 8px;
-        font-size: 11px;
+        border: 1px solid {EDGE};
+        border-bottom: 2px solid {EDGE};
+        border-top-left-radius: 6px;
+        border-top-right-radius: 6px;
+        padding: 7px 18px 5px 18px;
+        margin-right: 4px;
+        font-size: 12px;
+        font-weight: 600;
         letter-spacing: 1px;
     }}
     QTabBar::tab:selected {{
         color: {TEXT};
-        border-bottom-color: {CITY};
+        background: {GRID};
+        border-color: {EDGE};
+        border-bottom: 2px solid {CITY};
     }}
-    QTabBar::tab:hover:!selected {{ color: {TEXT}; }}
+    QTabBar::tab:hover:!selected {{ color: {TEXT}; background: {GRID}; }}
     QSplitter::handle {{ background: transparent; width: 10px; }}
     QToolTip {{
         background: {PANEL};
