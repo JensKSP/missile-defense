@@ -100,7 +100,24 @@ std::vector<std::filesystem::path> GameWindow::bundled_models() {
             }
         }
         if (!found.empty()) {
-            std::ranges::sort(found);
+            // Ladder order, not alphabetical — which would read high, low,
+            // medium and make a progression look like a shuffle. The suffix is
+            // the rung; anything without one sorts after, by name.
+            static constexpr std::array<std::string_view, 3> rungs{"-low", "-medium", "-high"};
+            const auto rank = [](const std::filesystem::path& path) {
+                const std::string stem = path.stem().string();
+                for (std::size_t i = 0; i < rungs.size(); ++i) {
+                    if (stem.ends_with(rungs[i])) {
+                        return i;
+                    }
+                }
+                return rungs.size();
+            };
+            std::ranges::sort(found, [&rank](const auto& a, const auto& b) {
+                const std::size_t ra = rank(a);
+                const std::size_t rb = rank(b);
+                return ra != rb ? ra < rb : a < b;
+            });
             return found;
         }
     }
@@ -800,9 +817,16 @@ static std::vector<std::pair<std::string, std::string>> installed_models() {
                              path.string(), described.observation_size, expected);
                 return;
             }
-            std::string name = described.display_name.empty()
-                                   ? path.parent_path().filename().string()
-                                   : described.display_name;
+            // Two layouts, and the fallback has to tell them apart. A promoted
+            // model is `models/<name>/policy.mdp`, where the *directory* is the
+            // name; a bundled one is `models/<name>.mdp`, where the file is. Using
+            // the parent for both listed every bundled model as `MODELS`, because
+            // that is what their shared directory is called.
+            std::string name =
+                described.display_name.empty()
+                    ? (path.filename() == "policy.mdp" ? path.parent_path().filename().string()
+                                                       : path.stem().string())
+                    : described.display_name;
             found.emplace_back(path.string(), menu_label(std::move(name)));
         } catch (const agent::Policy::Error& error) {
             // Not this build's, or not a policy. Absent from the list rather
