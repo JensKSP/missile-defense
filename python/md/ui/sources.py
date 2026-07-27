@@ -112,6 +112,11 @@ class EvalRow:
     frame_skip: int | None = None
     max_ticks: int | None = None
     inference_device: str | None = None
+    #: The human handicap this score was earned under. `None` for every row
+    #: written before it existed — and `None` is not "probably canonical": those
+    #: runs faced an agent that never mis-clicked, so their numbers answer a
+    #: different question and must not be ranked beside these.
+    aim_trail: float | None = None
     # The full per-episode statistics (the plan's Task 11). Every one is
     # optional for the same reason the rest are: a run written by an older
     # trainer simply has no such column, and the console has to keep reading it.
@@ -148,6 +153,7 @@ def is_canonical_benchmark(row: EvalRow) -> bool:
         frame_skip=row.frame_skip,
         max_ticks=row.max_ticks,
         inference_device=row.inference_device,
+        aim_trail=row.aim_trail,
     )
 
 
@@ -225,6 +231,7 @@ def row_ladder(row: EvalRow) -> Ladder:
         frame_skip=row.frame_skip,
         max_ticks=row.max_ticks,
         inference_device=row.inference_device,
+        aim_trail=row.aim_trail,
     )
 
 

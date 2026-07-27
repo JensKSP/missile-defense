@@ -37,13 +37,16 @@ import sys
 from collections.abc import Mapping
 from pathlib import Path
 
+from ._protocol import MODELS_DIR, RUNS_DIR
+
 #: Mirrors ``QGuiApplication::setApplicationName`` in ``app/main.cpp``. The game
 #: already keeps its high scores under this name; runs join them rather than
 #: inventing a second directory and a migration for the first.
 APP_NAME = "MissileDefense"
 
 #: The directory a run writes into, under whichever root wins below.
-RUNS_NAME = "runs"
+#: From `protocol.toml`; the game looks in the same place.
+RUNS_NAME = RUNS_DIR
 
 #: One override for "put the runs somewhere else entirely".
 RUNS_ENV = "MD_RUNS_DIR"
@@ -52,7 +55,7 @@ RUNS_ENV = "MD_RUNS_DIR"
 #: than inside one. A promoted model has to *outlive* the run that produced it —
 #: that is the whole point of promoting rather than pointing at a checkpoint —
 #: and a run directory is the thing cleanup and archiving delete.
-MODELS_NAME = "models"
+MODELS_NAME = MODELS_DIR
 
 #: One override, mirroring the runs one. A shared box wants a shared league.
 MODELS_ENV = "MD_MODELS_DIR"

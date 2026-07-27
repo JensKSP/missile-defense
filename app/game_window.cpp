@@ -3,6 +3,7 @@
 // Assisted-by: Claude Code (Anthropic)
 #include "game_window.hpp"
 
+#include "md/protocol.hpp"
 #include "projection.hpp"
 #include "renderer.hpp"
 
@@ -664,11 +665,12 @@ static std::filesystem::path runs_directory() {
         return std::filesystem::path{override_dir};
     }
     std::error_code ec;
-    if (const std::filesystem::path local{"runs"}; std::filesystem::is_directory(local, ec)) {
+    if (const std::filesystem::path local{protocol::runs_dir};
+        std::filesystem::is_directory(local, ec)) {
         return local; // a checkout keeps behaving exactly as it did
     }
     const QString data = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
-    return std::filesystem::path{data.toStdString()} / "runs";
+    return std::filesystem::path{data.toStdString()} / protocol::runs_dir;
 }
 
 /// Where the console installs models, by the rule in `md/paths.py`:
@@ -681,7 +683,7 @@ static std::filesystem::path models_directory() {
     if (const char* override_dir = std::getenv("MD_MODELS_DIR"); override_dir != nullptr) {
         return std::filesystem::path{override_dir};
     }
-    return runs_directory().parent_path() / "models";
+    return runs_directory().parent_path() / protocol::models_dir;
 }
 
 /// A name as this menu can draw it: the pixel font has no lower case, and no

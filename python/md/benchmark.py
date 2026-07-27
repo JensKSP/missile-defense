@@ -12,21 +12,36 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-CANONICAL_SPLIT = "canonical"
-VALIDATION_SPLIT = "validation"
+from ._protocol import (
+    AIM_TRAIL,
+    CANONICAL_OFFSET,
+    DECISION_INTERVAL,
+    INFERENCE_DEVICE,
+    MAX_TICKS,
+    PER_SPLIT,
+    VALIDATION_OFFSET,
+)
+from ._protocol import CANONICAL_SPLIT as CANONICAL_SPLIT
+from ._protocol import VALIDATION_SPLIT as VALIDATION_SPLIT
 
+# These names are the protocol's vocabulary in Python; `md/_protocol.py` is
+# generated from `protocol.toml` and is where the values live. Re-exported under
+# the names this package has always used, so the single source of truth did not
+# cost every caller a rename.
+#
 # The prefix was historically used for routine checkpoint selection, so it is
 # validation data, not honestly held out. The following untouched block is the
 # canonical benchmark.
-SEEDS_PER_SPLIT = 32
-VALIDATION_SEED_OFFSET = 0
-CANONICAL_SEED_OFFSET = SEEDS_PER_SPLIT
+SEEDS_PER_SPLIT = PER_SPLIT
+VALIDATION_SEED_OFFSET = VALIDATION_OFFSET
+CANONICAL_SEED_OFFSET = CANONICAL_OFFSET
 
 # Final checkpoint scoring is pinned to this protocol. Training-time validation
 # records its own cadence and tick cap because users may deliberately change them.
-CANONICAL_FRAME_SKIP = 4
-CANONICAL_MAX_TICKS = 120_000
-CANONICAL_INFERENCE_DEVICE = "cpu"
+CANONICAL_FRAME_SKIP = DECISION_INTERVAL
+CANONICAL_MAX_TICKS = MAX_TICKS
+CANONICAL_INFERENCE_DEVICE = INFERENCE_DEVICE
+CANONICAL_AIM_TRAIL = AIM_TRAIL
 
 
 @dataclass(frozen=True)
@@ -84,9 +99,9 @@ class Ladder:
 CANONICAL_LADDER = Ladder(
     CANONICAL_SPLIT,
     (
-        Baseline("low", 19_585.46875),
-        Baseline("medium", 63_295.625),
-        Baseline("high", 98_542.34375),
+        Baseline("low", 5_797.5),
+        Baseline("medium", 9_162.28125),
+        Baseline("high", 15_547.1875),
     ),
 )
 
@@ -99,9 +114,9 @@ CANONICAL_LADDER = Ladder(
 VALIDATION_LADDER = Ladder(
     VALIDATION_SPLIT,
     (
-        Baseline("low", 19_049.6875),
-        Baseline("medium", 60_339.0625),
-        Baseline("high", 98_170.15625),
+        Baseline("low", 6_205.0),
+        Baseline("medium", 8_569.84375),
+        Baseline("high", 15_135.78125),
     ),
 )
 
@@ -137,8 +152,16 @@ def canonical_baseline_comparable(
     frame_skip: int | None,
     max_ticks: int | None,
     inference_device: str | None,
+    aim_trail: float | None = None,
 ) -> bool:
-    """Whether a learned-policy row used the published canonical protocol."""
+    """Whether a learned-policy row used the published canonical protocol.
+
+    ``aim_trail`` defaults to ``None`` for rows written before the handicap
+    existed, and ``None`` is **not** treated as "presumably canonical": those
+    runs were scored against an agent that never mis-clicked, and a score from
+    then is not comparable with one from now. An unknown protocol is an
+    uncomparable one.
+    """
 
     return (
         seed_split == CANONICAL_SPLIT
@@ -147,6 +170,7 @@ def canonical_baseline_comparable(
         and frame_skip == CANONICAL_FRAME_SKIP
         and max_ticks == CANONICAL_MAX_TICKS
         and inference_device == CANONICAL_INFERENCE_DEVICE
+        and aim_trail == CANONICAL_AIM_TRAIL
     )
 
 
@@ -187,6 +211,7 @@ def ladder_for(
     frame_skip: int | None,
     max_ticks: int | None,
     inference_device: str | None,
+    aim_trail: float | None = None,
 ) -> Ladder:
     """The ladder a row scored under this protocol may be read against.
 
@@ -202,6 +227,7 @@ def ladder_for(
         frame_skip=frame_skip,
         max_ticks=max_ticks,
         inference_device=inference_device,
+        aim_trail=aim_trail,
     ):
         return CANONICAL_LADDER
     if validation_ladder_comparable(

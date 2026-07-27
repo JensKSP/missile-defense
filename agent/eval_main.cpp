@@ -13,6 +13,7 @@
 // tallying and the same `summarize` — which is the whole reason "beat the
 // baseline" is a claim rather than two numbers from two programs.
 #include "md/agent/eval.hpp"
+#include "md/agent/handicap.hpp"
 #include "md/agent/heuristic.hpp"
 #include "md/agent/policy.hpp"
 #include "md/config.hpp"
@@ -22,6 +23,7 @@
 #include <charconv>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <exception>
 #include <fstream>
 #include <limits>
@@ -62,6 +64,9 @@ int run(int argc, char** argv) {
     // The published baseline unless asked otherwise, so an unqualified run is
     // always the number docs/TRAINING.md quotes.
     md::agent::Skill skill = md::agent::Skill::high;
+    // The published handicap is the default: an evaluation without it is not a
+    // comparable one, so opting out has to be typed (`--aim-trail 0`).
+    md::agent::Handicap handicap = md::agent::canonical_handicap;
     std::string action_log_path;
     md::Config config{}; // defaults, including the 15 Hz decision cadence and 3/s fire
 
@@ -112,6 +117,15 @@ int run(int argc, char** argv) {
                 std::println(stderr, "unknown --skill '{}' (low, medium, high)", value);
                 return 2;
             }
+        } else if (arg == "--react-delay" && (i + 1) < argc) {
+            // Milliseconds in, ticks out: a person thinks in the former and the
+            // simulation only steps in the latter, so the rounding is stated
+            // rather than hidden — 75 ms is 4.5 ticks and cannot be had.
+            const double ms = std::atof(argv[++i]);
+            handicap.reaction_delay =
+                static_cast<std::uint32_t>((ms / 1000.0 / static_cast<double>(config.dt)) + 0.5);
+        } else if (arg == "--aim-trail" && (i + 1) < argc) {
+            handicap.aim_trail = static_cast<float>(std::atof(argv[++i]));
         } else if (arg == "--policy" && (i + 1) < argc) {
             policy_path = argv[++i];
         } else if (arg == "--action-log" && (i + 1) < argc) {
@@ -138,12 +152,17 @@ int run(int argc, char** argv) {
         loaded = md::agent::Policy::load(policy_path);
         driver = std::make_unique<md::agent::PolicyDriver>(*loaded, spec);
     }
+    std::unique_ptr<md::agent::Driver> handicapped;
+    if (handicap.active()) {
+        handicapped = std::make_unique<md::agent::HandicappedDriver>(*driver, handicap);
+    }
+    md::agent::Driver& contestant = handicap.active() ? *handicapped : *driver;
 
     const std::vector<std::uint64_t> stream = md::agent::default_seeds(seed_offset + seed_count);
     const std::vector<std::uint64_t> seeds(
         stream.begin() + static_cast<std::ptrdiff_t>(seed_offset), stream.end());
 
-    std::println("missile-defense {} — {}", md::version(), driver->name());
+    std::println("missile-defense {} — {}", md::version(), contestant.name());
     std::println("{} episodes, cap {} ticks ({:.0f} s of play)", seeds.size(), max_ticks,
                  static_cast<double>(max_ticks) * static_cast<double>(config.dt));
     std::println("seed stream offset {}", seed_offset);
@@ -164,7 +183,7 @@ int run(int argc, char** argv) {
     }
     for (const std::uint64_t seed : seeds) {
         const md::agent::EpisodeResult r = md::agent::run_episode(
-            config, seed, *driver, max_ticks, action_log_path.empty() ? nullptr : &action_log);
+            config, seed, contestant, max_ticks, action_log_path.empty() ? nullptr : &action_log);
         if (per_episode) {
             std::println("{:<20} {:>8} {:>5} {:>5} {:>8} {:>7} {:>7} {:>6} {:>6} {:>6}", r.seed,
                          r.score, r.wave_reached, r.waves_cleared, r.ticks, r.cities_lost,

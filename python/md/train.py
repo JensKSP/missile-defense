@@ -67,6 +67,7 @@ from torch import nn
 
 from . import footprint, modelcard, paths, runconfig, runlog
 from .benchmark import (
+    CANONICAL_AIM_TRAIL,
     CANONICAL_BASELINE_MEAN_SCORE,
     CANONICAL_FRAME_SKIP,
     CANONICAL_INFERENCE_DEVICE,
@@ -116,6 +117,13 @@ class TrainConfig:
     frame_skip: int = 4
     #: Episode length cap, in ticks. 120k is ~33 minutes of play.
     max_ticks: int = 120_000
+    #: Ticks between the policy deciding and the simulation acting — the human
+    #: handicap (`md::agent::Handicap`). **Train under it or do not use it**: a
+    #: policy is a closed loop, and `models/pretrained.mdp` drops from 90,866 to
+    #: 320 when a delay it never saw is switched on at evaluation time.
+    #: Defaults to the published protocol so a run is comparable by default;
+    #: `--reaction-delay 0` opts out and marks the run as non-canonical.
+    aim_trail: float = CANONICAL_AIM_TRAIL
     #: Score the policy on the fixed validation seeds this often (0 disables).
     #: An eval costs most of an update early on and rather more once episodes
     #: run long, so this is the knob a run changes mid-flight: it is published to
@@ -225,6 +233,7 @@ def train(
         num_envs=config.envs,
         frame_skip=config.frame_skip,
         max_ticks=config.max_ticks,
+        aim_trail=config.aim_trail,
         shaping=shaping,
         seed=config.seed,
     )
@@ -481,6 +490,7 @@ def train(
                 device,
                 frame_skip=config.frame_skip,
                 max_ticks=config.max_ticks,
+                aim_trail=config.aim_trail,
             )
             _log_eval(
                 out_dir / "evals.csv",
@@ -1251,6 +1261,7 @@ def _score(
     *,
     frame_skip: int,
     max_ticks: int,
+    aim_trail: float = 0.0,
 ) -> object:
     """Score the current policy on the fixed validation split, greedily.
 
@@ -1269,6 +1280,7 @@ def _score(
         seeds=validation_seeds(),
         frame_skip=frame_skip,
         max_ticks=max_ticks,
+        aim_trail=aim_trail,
     )
 
 
@@ -1560,6 +1572,17 @@ def main(argv: list[str] | None = None) -> int:
     # one more reason than they have: a `--resume` fills the gaps from the run it
     # continues, and a flag that had already been given its dataclass default
     # here would be indistinguishable from one somebody typed.
+    parser.add_argument(
+        "--aim-trail",
+        type=float,
+        default=None,
+        help=(
+            "how far the crosshair lags behind the chosen aim point — the human "
+            "handicap. Applied to training AND to the validation eval, because a "
+            "policy is a closed loop: one trained without it and scored with it "
+            "collapses rather than merely doing worse"
+        ),
+    )
     parser.add_argument("--envs", type=int, default=None)
     parser.add_argument("--steps", type=int, default=None)
     parser.add_argument(

@@ -68,13 +68,16 @@ from pathlib import Path
 import numpy as np
 import numpy.typing as npt
 
+from ._protocol import POLICY_CONTAINER_VERSION, POLICY_MAGIC
+
 #: First eight bytes of every `.mdp`. Long enough that `file` can be taught it
 #: and that a truncated download is not mistaken for a short valid one.
-MAGIC = b"MDPOLICY"
+#: From `protocol.toml`; `agent/src/policy.cpp` reads the same value.
+MAGIC = POLICY_MAGIC.encode("ascii")
 
 #: How to parse the header. Bumped only if the framing above changes, which is
 #: not the same event as the numbers meaning something new.
-CONTAINER_VERSION = 1
+CONTAINER_VERSION = POLICY_CONTAINER_VERSION
 
 #: What the numbers *mean*: the observation encoding and the action space. This
 #: moves when `md::encode` does, and a policy from a different schema is not

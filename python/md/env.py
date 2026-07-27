@@ -125,6 +125,7 @@ class VecEnv:
         threads: int = 0,
         frame_skip: int = 4,
         max_ticks: int = 120_000,
+        aim_trail: float = 0.0,
         shaping: Shaping | None = None,
         seed: int = 0,
     ) -> None:
@@ -138,6 +139,7 @@ class VecEnv:
             threads=threads,
             frame_skip=frame_skip,
             max_ticks=max_ticks,
+            aim_trail=aim_trail,
         )
         n, k = self.num_envs, self.obs_size
         # Allocated once; C++ writes into these in place, for the process lifetime.
@@ -169,6 +171,16 @@ class VecEnv:
     @property
     def frame_skip(self) -> int:
         return int(self._native.frame_skip)
+
+    @property
+    def aim_trail(self) -> float:
+        """How far the crosshair lags behind the policy's chosen aim point.
+
+        A handicap, and one that has to be *trained* under rather than only
+        evaluated under: `models/pretrained.mdp` scores 90,866 without it and
+        320 with it, because a policy is a closed loop and a delay opens it.
+        """
+        return float(self._native.aim_trail)
 
     @property
     def threads(self) -> int:

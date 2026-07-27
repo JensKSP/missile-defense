@@ -1,0 +1,81 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Jens Köhler
+# Assisted-by: Claude Code (Anthropic)
+#
+# The evaluation protocol, defined once.
+#
+# Everything that plays or scores this game needs these numbers, and the two
+# halves of the project cannot share a variable: the game is C++ and never loads
+# Python, while `md.benchmark` is deliberately pure Python so the console can
+# read it without the native extension built. So both sides get a *generated*
+# copy of this file and neither is written by hand:
+#
+#     core/include/md/protocol.hpp   (constexpr, compiled in)
+#     python/md/_protocol.py         (plain module constants)
+#
+# Regenerate with `poe protocol`. `poe check` regenerates into a temporary
+# directory and fails if the result differs from what is committed, so the
+# generated files cannot drift from this one — the duplication is mechanical and
+# checked rather than remembered.
+#
+# **Change a number here and every consumer moves together.** That is the point:
+# these values are a contract between the game, the trainer, the console and
+# every score anyone has ever recorded, and a copy that moved alone would make
+# two runs incomparable without saying so.
+
+[timing]
+# Ticks between the player model's decisions — the shared reaction-rate limit.
+# `md::Config::decision_interval` and the trainer's frame skip are the same
+# quantity seen from two sides, which is why they are one entry.
+decision_interval = 4
+
+# Episode length cap, in ticks. 120k is about 33 minutes of play at 60 Hz.
+max_ticks = 120000
+
+# The human handicap: how far the crosshair lags behind where the agent wants
+# it, per decision, as a fraction in [0, 1).
+#
+# The agents were never superhuman at *seeing* — they were superhuman at never
+# mis-clicking. Without this the scripted ladder starts at 19,585, twice what a
+# person scores, so its bottom rung was a first target for nobody.
+#
+# 0.875 was chosen by measurement over 128 seeds and puts the ladder at
+# 5,797 / 9,162 / 15,547 on the canonical block. Two rejected alternatives are
+# recorded in md/agent/handicap.hpp, both for the same reason: a handicap that
+# makes shots miss also destroys the value of ammunition discipline, which is
+# the very thing the ladder measures. A reaction delay reached the same MEDIUM
+# but left HIGH only 1.4 sigma above it — indistinguishable over 32 seeds.
+# This one leaves 16.9 sigma.
+aim_trail = 0.875
+
+[seeds]
+# Episodes per evaluation block.
+per_split = 32
+# The prefix was historically used for routine checkpoint selection, so it is
+# validation data and not honestly held out.
+validation_offset = 0
+# The untouched block after it: the canonical benchmark.
+canonical_offset = 32
+
+[names]
+canonical_split = "canonical"
+validation_split = "validation"
+# Where a published score is computed. CPU, so the number does not depend on
+# whose accelerator produced it.
+inference_device = "cpu"
+
+[format]
+# The `.mdp` policy container. **The dangerous pair**: these two decide whether
+# a file the trainer wrote is one the game will read, and they live in two
+# languages. Bumped on one side only, the trainer writes files the game rejects
+# — or, worse, the game reads a new layout as though it were the old one.
+policy_magic = "MDPOLICY"
+policy_container_version = 1
+
+[paths]
+# What the run library is called on disk. The console creates these and the game
+# goes looking in them, so a literal in one of the two is a game that quietly
+# finds no recordings.
+runs_dir = "runs"
+models_dir = "models"
+matches_dir = "matches"

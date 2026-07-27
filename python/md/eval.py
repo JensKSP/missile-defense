@@ -27,7 +27,12 @@ from collections.abc import Callable, Sequence
 import numpy as np
 
 from . import _md_native as _native
-from .benchmark import CANONICAL_SEED_OFFSET, SEEDS_PER_SPLIT, VALIDATION_SEED_OFFSET
+from .benchmark import (
+    CANONICAL_AIM_TRAIL,
+    CANONICAL_SEED_OFFSET,
+    SEEDS_PER_SPLIT,
+    VALIDATION_SEED_OFFSET,
+)
 from .env import Actions, Flags, Observations, ObsSpec, VecEnv
 
 EpisodeResult = _native.EpisodeResult
@@ -61,6 +66,7 @@ def evaluate(
     obs_spec: ObsSpec | None = None,
     frame_skip: int = 4,
     max_ticks: int = 120_000,
+    aim_trail: float = CANONICAL_AIM_TRAIL,
     threads: int = 0,
 ) -> Summary:
     """Play every seed once under `policy` and aggregate.
@@ -99,6 +105,7 @@ def evaluate(
         threads=threads,
         frame_skip=frame_skip,
         max_ticks=max_ticks,
+        aim_trail=aim_trail,
         shaping=None,
         seed=seed_list[0],
     )

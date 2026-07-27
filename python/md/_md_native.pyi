@@ -196,6 +196,7 @@ class VecEnv:
         threads: int = ...,
         frame_skip: int = ...,
         max_ticks: int = ...,
+        aim_trail: float = ...,
     ) -> None: ...
     @property
     def num_envs(self) -> int: ...
@@ -207,6 +208,8 @@ class VecEnv:
     def threads(self) -> int: ...
     @property
     def frame_skip(self) -> int: ...
+    @property
+    def aim_trail(self) -> float: ...
     def reset(self, seed: int, obs: npt.NDArray[np.float32]) -> None:
         """Seed every env and fill ``obs`` in place."""
 

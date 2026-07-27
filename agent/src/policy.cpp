@@ -3,6 +3,8 @@
 // Assisted-by: Claude Code (Anthropic)
 #include "md/agent/policy.hpp"
 
+#include "md/protocol.hpp"
+
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -29,8 +31,10 @@ using json = nlohmann::json;
 
 /// Mirrors `md.policy_format`. Any disagreement here is a file one side writes
 /// and the other refuses, so the constants are stated rather than derived.
-constexpr std::string_view magic = "MDPOLICY";
-constexpr std::uint32_t container_version = 1;
+// Both from protocol.toml: the trainer writes this container and this
+// reads it, in two languages that cannot share a constant.
+constexpr std::string_view magic = protocol::policy_magic;
+constexpr std::uint32_t container_version = protocol::policy_container_version;
 constexpr std::uint32_t supported_schema = 1;
 constexpr std::string_view dtype = "<f4";
 constexpr std::size_t itemsize = 4;

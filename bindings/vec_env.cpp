@@ -40,9 +40,11 @@ void accumulate_events(std::array<float, ObsSpec::event_features>& out,
 } // namespace
 
 VecEnv::VecEnv(std::size_t num_envs, const Config& config, const ObsSpec& spec, unsigned threads,
-               unsigned frame_skip, std::uint64_t max_ticks)
+               unsigned frame_skip, std::uint64_t max_ticks, float aim_trail)
     : config_{config}, spec_{spec}, threads_{threads == 0u ? VecSim::hardware_threads() : threads},
-      frame_skip_{frame_skip == 0u ? 1u : frame_skip}, max_ticks_{max_ticks} {
+      frame_skip_{frame_skip == 0u ? 1u : frame_skip}, max_ticks_{max_ticks},
+      aim_trail_{aim_trail} {
+    crosshair_.resize(num_envs);
     // `frame_skip` is the policy's decision cadence, not only a batching
     // optimization. Keep the core player-model limit in lockstep so changing the
     // trainer's cadence cannot quietly give it faster reactions than evaluation.
@@ -189,6 +191,7 @@ void VecEnv::reset(std::uint64_t seed, float* obs) {
     const std::size_t stride = spec_.size();
     for (std::size_t i = 0; i < sims_.size(); ++i) {
         sims_[i].reset(seed + static_cast<std::uint64_t>(i));
+        crosshair_[i] = {}; // a hand that has not moved yet
         episode_ticks_[i] = 0;
         episode_seed_[i] = seed + static_cast<std::uint64_t>(i);
         live_log_[i].clear();
@@ -210,6 +213,7 @@ void VecEnv::reset(std::span<const std::uint64_t> seeds, float* obs) {
         // deliberately only when the caller has given us nothing else to use.
         const std::uint64_t seed = seeds.empty() ? 0 : seeds[i % seeds.size()];
         sims_[i].reset(seed);
+        crosshair_[i] = {};
         episode_ticks_[i] = 0;
         episode_seed_[i] = seed;
         live_log_[i].clear();
@@ -249,7 +253,16 @@ void VecEnv::run_range(std::size_t begin, std::size_t end, const std::int32_t* a
              ++k) {
             // Re-decode each tick: an engagement is a steer-then-fire macro, so
             // holding the index means "keep pursuing that target".
-            const Action action = decode_action(sim, spec_, index);
+            Action action = decode_action(sim, spec_, index);
+            if (aim_trail_ > 0.0f) {
+                // The same easing `HandicappedDriver` applies to every other
+                // contestant, so a policy trains against the limit it is scored
+                // under rather than meeting it for the first time at evaluation.
+                Vec2& at = crosshair_[i];
+                at.x += (action.aim.x - at.x) * (1.0f - aim_trail_);
+                at.y += (action.aim.y - at.y) * (1.0f - aim_trail_);
+                action.aim = at;
+            }
             const StepResult result = sim.step(action);
             reward += static_cast<float>(result.reward);
             wasted_[i] += result.wasted;
@@ -283,6 +296,7 @@ void VecEnv::run_range(std::size_t begin, std::size_t end, const std::int32_t* a
                 finish_recording(i, next);
             }
             sim.reset(next);
+            crosshair_[i] = {}; // the next episode starts with an empty hand
             episode_ticks_[i] = 0;
             begin_episode(i, next);
             encode_into(i, obs + (i * stride));

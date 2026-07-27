@@ -135,6 +135,8 @@ coverage     = { cmd = "python -m tools.coverage 80", help = "Measure md::core l
 # GPU, display or build and runs in `check`; `vulkan-runtime` starts the debug
 # game under the validation layer across every rendering scenario and runs in
 # `check-all`. There is no allow-list behind either (docs/TESTING.md).
+protocol       = { cmd = "python -m tools.protocol", help = "Regenerate the C++/Python copies of protocol.toml" }
+protocol-check = { cmd = "python -m tools.protocol --check", help = "Fail if a generated protocol copy drifted from protocol.toml" }
 vulkan-shaders = { cmd = "python -m tools.vulkan_check shaders", help = "spirv-val every embedded shader against the declared Vulkan target" }
 vulkan-runtime = { cmd = "python -m tools.vulkan_check runtime", deps = ["build"], help = "Run the game under VK_LAYER_KHRONOS_validation + sync validation; any message fails" }
 vulkan-check   = { sequence = ["vulkan-shaders", "vulkan-runtime"], help = "Both Vulkan gates (docs/TESTING.md)" }
@@ -154,7 +156,7 @@ typecheck  = { sequence = ["mypy", "pyright"], help = "Static type-check (mypy +
 # --- Aggregate gates ---
 check = { sequence = [
   "format-check", "fmt-py-chk", "lint", "typecheck",
-  "tidy", "vulkan-shaders", "test", "test-release", "pytest", "coverage",
+  "tidy", "protocol-check", "vulkan-shaders", "test", "test-release", "pytest", "coverage",
 ], help = "Full local CI gate — Debug + Release, tests, coverage ≥80%, zero warnings" }
 
 # The gate plus the application end-to-end suite. Separate from `check` because

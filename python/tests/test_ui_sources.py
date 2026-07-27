@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 
 from md.benchmark import (
+    CANONICAL_AIM_TRAIL,
     CANONICAL_FRAME_SKIP,
     CANONICAL_INFERENCE_DEVICE,
     CANONICAL_LADDER,
@@ -411,6 +412,7 @@ def test_the_model_note_scores_the_checkpoint_by_its_own_update(tmp_path: Path) 
             frame_skip=CANONICAL_FRAME_SKIP,
             max_ticks=CANONICAL_MAX_TICKS,
             inference_device=CANONICAL_INFERENCE_DEVICE,
+            aim_trail=CANONICAL_AIM_TRAIL,
         ),
         250: EvalRow(
             250,
@@ -428,6 +430,7 @@ def test_the_model_note_scores_the_checkpoint_by_its_own_update(tmp_path: Path) 
             frame_skip=CANONICAL_FRAME_SKIP,
             max_ticks=CANONICAL_MAX_TICKS,
             inference_device=CANONICAL_INFERENCE_DEVICE,
+            aim_trail=CANONICAL_AIM_TRAIL,
         ),
     }
     note = checkpoint_note(list_checkpoints(tmp_path), evals)
@@ -454,15 +457,20 @@ def test_validation_checkpoint_note_never_claims_a_baseline_delta(tmp_path: Path
         frame_skip=CANONICAL_FRAME_SKIP,
         max_ticks=CANONICAL_MAX_TICKS,
         inference_device=CANONICAL_INFERENCE_DEVICE,
+        aim_trail=CANONICAL_AIM_TRAIL,
     )
     note = checkpoint_note(list_checkpoints(tmp_path), {200: row})
     assert f"validation score {row.mean_score:,.0f}" in note
     assert "baseline" not in note
-    # It is placed on a ladder — the one its own block was measured on. Ten
-    # thousand above canonical HIGH is 10,372 above validation HIGH, and that
-    # difference is exactly what makes the wrong ladder a lie worth catching.
-    assert "beats HIGH by 10,372" in note
-    assert "beats HIGH by 10,000" not in note, "a validation score got the canonical ladder"
+    # It is placed on a ladder — the one its own block was measured on. The two
+    # ladders' top rungs differ, so the delta names which one was used, and that
+    # is exactly what makes the wrong ladder a lie worth catching.
+    over_validation = row.mean_score - VALIDATION_LADDER.rungs[-1].mean_score
+    over_canonical = row.mean_score - CANONICAL_LADDER.rungs[-1].mean_score
+    assert f"beats HIGH by {over_validation:,.0f}" in note
+    assert f"beats HIGH by {over_canonical:,.0f}" not in note, (
+        "a validation score got the canonical ladder"
+    )
 
 
 def _eval_row(update: int, split: str, offset: int, device: str) -> EvalRow:
@@ -494,10 +502,12 @@ def test_the_ladder_is_three_ascending_rungs_topped_by_the_published_baseline() 
     assert [value for value, _ in lines] == sorted(value for value, _ in lines)
     assert [value for value, _ in lines] == [rung.mean_score for rung in CANONICAL_LADDER.rungs]
     assert lines[-1][0] == BASELINE_MEAN_SCORE
+    # Built from the ladder rather than written out: these numbers move whenever
+    # the handicap is retuned, and a test that pinned them would have to be
+    # edited every time without ever having checked anything but itself.
     assert [label for _, label in lines] == [
-        "scripted low 19,585 · canonical",
-        "scripted medium 63,296 · canonical",
-        "scripted high 98,542 · canonical",
+        f"scripted {rung.skill} {rung.mean_score:,.0f} · canonical"
+        for rung in CANONICAL_LADDER.rungs
     ]
 
 
@@ -507,9 +517,8 @@ def test_every_line_says_which_block_it_was_measured_on() -> None:
     # benchmark — the one confusion this whole protocol machinery exists to stop.
     labels = [label for _, label in baseline_lines(VALIDATION_LADDER)]
     assert labels == [
-        "scripted low 19,050 · validation",
-        "scripted medium 60,339 · validation",
-        "scripted high 98,170 · validation",
+        f"scripted {rung.skill} {rung.mean_score:,.0f} · validation"
+        for rung in VALIDATION_LADDER.rungs
     ]
     assert baseline_lines(NO_LADDER) == ()
 
@@ -522,18 +531,26 @@ def test_the_ladder_note_says_what_is_beaten_and_what_is_left() -> None:
     # In the middle, both halves: a run 2,000 short of MEDIUM has still learned
     # something, and "behind the baseline" would have said only that it had not.
     assert ladder_note(medium - 2_000, CANONICAL_LADDER) == "beats LOW · 2,000 to MEDIUM"
-    assert ladder_note(medium, CANONICAL_LADDER) == "beats MEDIUM · 35,247 to HIGH"
+    assert ladder_note(medium, CANONICAL_LADDER) == f"beats MEDIUM · {high - medium:,.0f} to HIGH"
     # And past the top, the one claim the project makes.
     assert ladder_note(high + 1_457.65625, CANONICAL_LADDER) == "beats HIGH by 1,458"
     assert ladder_note(high, CANONICAL_LADDER) == "beats HIGH by 0"
 
 
 def test_a_score_is_measured_against_its_own_block_and_no_other() -> None:
-    # 98,400 beats HIGH on the validation block and does not on the canonical
-    # one. Reading it against the wrong ladder is not a rounding difference; it
+    # A score between the two blocks' top rungs beats HIGH on one and not on the
+    # other. Reading it against the wrong ladder is not a rounding difference; it
     # is the opposite verdict, which is why the ladder comes from the row.
-    assert ladder_note(98_400, VALIDATION_LADDER) == "beats HIGH by 230"
-    assert ladder_note(98_400, CANONICAL_LADDER) == "beats MEDIUM · 142 to HIGH"
+    lower, higher = sorted(
+        ladder.rungs[-1].mean_score for ladder in (VALIDATION_LADDER, CANONICAL_LADDER)
+    )
+    between = (lower + higher) / 2
+    beaten = (
+        VALIDATION_LADDER if VALIDATION_LADDER.rungs[-1].mean_score == lower else CANONICAL_LADDER
+    )
+    not_beaten = CANONICAL_LADDER if beaten is VALIDATION_LADDER else VALIDATION_LADDER
+    assert ladder_note(between, beaten).startswith("beats HIGH by")
+    assert "to HIGH" in ladder_note(between, not_beaten)
 
 
 def test_a_run_scoring_itself_on_validation_gets_the_validation_ladder() -> None:

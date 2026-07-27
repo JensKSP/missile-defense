@@ -94,6 +94,11 @@ class Protocol:
     frame_skip: int
     max_ticks: int
     inference_device: str = benchmark.CANONICAL_INFERENCE_DEVICE
+    #: The human handicap in force. Part of the protocol because a score earned
+    #: against an agent that never mis-clicks is not the same claim as one
+    #: earned against a handicapped one, and a table that mixed them would be
+    #: comparing two different games.
+    aim_trail: float = benchmark.CANONICAL_AIM_TRAIL
 
     @property
     def canonical(self) -> bool:
@@ -103,6 +108,7 @@ class Protocol:
             seed_offset=self.seed_offset,
             seed_count=self.seed_count,
             frame_skip=self.frame_skip,
+            aim_trail=self.aim_trail,
             max_ticks=self.max_ticks,
             inference_device=self.inference_device,
         )

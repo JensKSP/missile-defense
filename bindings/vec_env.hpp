@@ -34,7 +34,20 @@ namespace md::rl {
 class VecEnv {
   public:
     VecEnv(std::size_t num_envs, const Config& config, const ObsSpec& spec, unsigned threads,
-           unsigned frame_skip, std::uint64_t max_ticks);
+           unsigned frame_skip, std::uint64_t max_ticks, float aim_trail = 0.0f);
+
+    /// How far the crosshair lags behind the policy's chosen aim point —
+    /// `md::agent::Handicap::aim_trail`, applied here so a policy *trains* under
+    /// the same limit it is judged by. A policy trained without it and evaluated
+    /// with it is not merely worse: it is a closed loop with a delay inserted,
+    /// and it falls apart.
+    ///
+    /// The decoded `Action` is eased, not the action index. The index is
+    /// re-decoded every tick and means "keep pursuing that target", so easing it
+    /// would do nothing; it is the aim *point* that a hand cannot place
+    /// instantly, and that is what `HandicappedDriver` eases for every other
+    /// contestant.
+    [[nodiscard]] float aim_trail() const noexcept { return aim_trail_; }
 
     [[nodiscard]] std::size_t num_envs() const noexcept { return sims_.size(); }
 
@@ -142,7 +155,11 @@ class VecEnv {
     ObsSpec spec_{};
     unsigned threads_ = 1;
     unsigned frame_skip_ = 1;
+    //: Per-env queue of decoded actions still on their way to the simulation.
+    //: Where each env's crosshair actually is, as the trail leaves it.
+    std::vector<Vec2> crosshair_;
     std::uint64_t max_ticks_ = 0;
+    float aim_trail_ = 0.0f;
     std::uint64_t next_seed_ = 0;
 };
 
