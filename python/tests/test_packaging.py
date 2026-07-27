@@ -339,12 +339,13 @@ def test_a_bundled_model_would_ship_with_the_game_and_not_with_the_console() -> 
     encoding's last change. This is the rule waiting for its payload.
     """
     cmake = (ROOT / "app" / "CMakeLists.txt").read_text(encoding="utf-8")
-    block = cmake[cmake.index("MD_PRETRAINED") : cmake.index("# ---- Install / packaging")]
-    assert "models/pretrained.mdp" in block
+    block = cmake[cmake.index("file(GLOB MD_MODELS") : cmake.index("# ---- Install / packaging")]
+    assert "models/*.mdp" in block, "every bundled model, not one named file"
     assert block.count("COMPONENT game") == 3, "one install rule per platform, all `game`"
     assert "COMPONENT python" not in block
-    # Optional, or a checkout with no model would fail to configure.
-    assert "if(EXISTS" in block
+    # Optional, or a checkout with no models would fail to configure. The guard
+    # is the glob's own result rather than a file test now that there are three.
+    assert "if(MD_MODELS)" in block
 
 
 def test_the_console_has_a_desktop_entry_of_its_own() -> None:

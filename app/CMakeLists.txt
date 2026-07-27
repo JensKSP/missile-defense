@@ -188,7 +188,7 @@ if(MD_MODELS)
       DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/missile-defense/models" COMPONENT game)
   endif()
 else()
-  message(STATUS "md_app: no models/pretrained.mdp — the game ships the scripted agent only")
+  message(STATUS "md_app: no models/*.mdp — the game ships the scripted agent only")
 endif()
 
 # ---- Install / packaging -----------------------------------------------------
