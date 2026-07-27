@@ -33,20 +33,6 @@
 namespace {
 
 #ifdef Q_OS_WIN
-/// Print into the terminal that started us, when there is one.
-///
-/// The game is linked for the GUI subsystem (app/CMakeLists.txt), which is what
-/// stops Windows opening a console window behind it. The cost is that a
-/// GUI-subsystem process starts with no standard streams at all, so every
-/// `--report` line, every `--help` and every error message below would be
-/// written into nothing — including the ones an e2e reads back.
-///
-/// Attaching to the parent's console gets them back for the case that wants
-/// them, and does nothing at all when there is no parent console to attach to:
-/// launched from Explorer, a shortcut or the installer, this returns
-/// immediately. The shell's prompt has already returned by then, so output
-/// arrives underneath it — the accepted shape of this on Windows, and still
-/// infinitely better than a window that is always there.
 /// Whether a standard stream already leads somewhere.
 ///
 /// A process started with `> file` or into a pipe inherits a working handle for
@@ -62,6 +48,20 @@ bool stream_already_connected(DWORD stream) {
     return GetFileType(handle) != FILE_TYPE_UNKNOWN;
 }
 
+/// Print into the terminal that started us, when there is one.
+///
+/// The game is linked for the GUI subsystem (app/CMakeLists.txt), which is what
+/// stops Windows opening a console window behind it. The cost is that a
+/// GUI-subsystem process starts with no standard streams at all, so every
+/// `--report` line, every `--help` and every error message below would be
+/// written into nothing — including the ones an e2e reads back.
+///
+/// Attaching to the parent's console gets them back for the case that wants
+/// them, and does nothing at all when there is no parent console to attach to:
+/// launched from Explorer, a shortcut or the installer, this returns
+/// immediately. The shell's prompt has already returned by then, so output
+/// arrives underneath it — the accepted shape of this on Windows, and still
+/// infinitely better than a window that is always there.
 void attach_parent_console() {
     if (AttachConsole(ATTACH_PARENT_PROCESS) == 0) {
         return;
@@ -71,10 +71,10 @@ void attach_parent_console() {
     // not inherited have to be pointed at it by hand — and the ones that were
     // must be left exactly alone.
     if (!stream_already_connected(STD_OUTPUT_HANDLE)) {
-        (void)std::freopen("CONOUT$", "w", stdout);
+        (void) std::freopen("CONOUT$", "w", stdout);
     }
     if (!stream_already_connected(STD_ERROR_HANDLE)) {
-        (void)std::freopen("CONOUT$", "w", stderr);
+        (void) std::freopen("CONOUT$", "w", stderr);
     }
 }
 #endif
