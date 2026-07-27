@@ -17,11 +17,14 @@ def main(argv: list[str] | None = None) -> int:
     binary = _util.app_binary()
     if not binary.exists():
         _util.run(["cmake", "--build", "--preset", "release"])
-    env = dict(os.environ)
-    if sys.platform == "linux":
-        # Force Qt's xcb platform so the window is an X11 window (screenshot-able).
-        env.setdefault("QT_QPA_PLATFORM", "xcb")
-    return subprocess.call([str(binary), *args], env=env)
+    # No platform is imposed: `poe app` should start the game the way installing
+    # it does, on the session the developer is actually running. It used to force
+    # xcb, which made every local run an XWayland run and hid how the shipped
+    # game behaves from the person most likely to notice.
+    #
+    # Screenshots are the one case that still needs an X11 window — `tools/capture`
+    # asks for xcb itself, where the requirement belongs.
+    return subprocess.call([str(binary), *args], env=dict(os.environ))
 
 
 if __name__ == "__main__":

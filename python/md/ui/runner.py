@@ -216,16 +216,19 @@ def console_command(
 def launch_environ(
     environ: Mapping[str, str] | None = None, *, platform: str = sys.platform
 ) -> dict[str, str]:
-    """The environment the game is started in — the two platform quirks, once.
+    """The environment the game is started in — the platform quirks, once.
 
     ``platform`` is a parameter so both branches are testable from either OS;
     a quirk that only one machine can check is a quirk that rots.
+
+    Linux imposes nothing. A game launched from the console should look exactly
+    like the same game launched from the desktop, and on a Wayland session that
+    means a Wayland window. This used to force xcb, from the days when
+    ``QVulkanWindow`` could not survive Qt's teardown there; ``GameWindow::event``
+    handles that now, and ``test_wayland_teardown.py`` says so out loud.
     """
     env = dict(os.environ if environ is None else environ)
-    if platform == "linux":
-        # An X11 window, so the result is screenshot-able — as tools/run_app does.
-        env.setdefault("QT_QPA_PLATFORM", "xcb")
-    elif platform == "win32":
+    if platform == "win32":
         msys = Path(env.get("MSYS2_ROOT", "C:/msys64")) / MSYS2_BIN
         if msys.is_dir():
             env["PATH"] = f"{msys}{os.pathsep}{env.get('PATH', '')}"

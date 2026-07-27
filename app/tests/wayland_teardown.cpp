@@ -2,21 +2,26 @@
 // Copyright (c) 2026 Jens Köhler
 // Assisted-by: Claude Code (Anthropic)
 //
-// A bare `QVulkanWindow` that renders nothing and then closes, used to answer
-// one question: when this game segfaults on exit under Wayland, is it us?
+// A bare `QVulkanWindow` that renders nothing and then closes, run twice: once
+// as Qt would have it, and once the way `GameWindow::event` does it. Between
+// them they hold the Wayland workaround to two claims that can each be wrong.
 //
-// `app/main.cpp` asks for the xcb platform on Wayland sessions. That is a
-// workaround, and workarounds outlive their cause unless something fails the
-// day the cause goes away. This program is that something.
+//   `--plain`  Qt's own teardown. Expected to die. This is the evidence that
+//              the workaround has a cause: the crash needs no swapchain of ours,
+//              no renderer of ours, no line of this project at all. When it
+//              stops dying, Qt has been fixed (QTBUG-123214) and
+//              `GameWindow::event` can go back to doing nothing.
 //
-// What it demonstrates, run under `QT_QPA_PLATFORM=wayland`: the crash needs no
-// swapchain of ours, no renderer of ours, no line of this project at all. It
-// happens inside `QWindowPrivate::destroy()`, which frees the `wl_surface` in
-// `setVisible(false)` and only afterwards sends the event on which
-// `QVulkanWindow` releases the swapchain built on it. The application never
-// gets between the two; see the long note in `app/main.cpp`.
+//   `--detach` the same program, releasing the Vulkan instance on `Close`.
+//              Expected to survive. This is the evidence that the workaround
+//              works for a reason rather than by luck — and it is the smallest
+//              possible statement of it, with the game held out of the picture.
 //
-// Two things must be said about how it is built, because both can turn a
+// Measured across 24 runs per mode, on the NVIDIA driver and on lavapipe: plain
+// died 24/24 on both, detach survived 24/24 on both. Two implementations sharing
+// no code do not agree by coincidence.
+//
+// Two things must be said about how this is built, because both can turn a
 // crashing program into a passing one and neither is visible from the output:
 //
 //   * ASan's quarantine keeps freed blocks mapped, so an instrumented build
@@ -29,11 +34,13 @@
 //
 // Never installed. `python/tests/e2e/test_wayland_teardown.py` runs it.
 
+#include <QEvent>
 #include <QGuiApplication>
 #include <QVersionNumber>
 #include <QVulkanInstance>
 #include <QVulkanWindow>
 #include <cstdio>
+#include <cstring>
 
 namespace {
 
@@ -65,6 +72,9 @@ class Renderer : public QVulkanWindowRenderer {
                         "\n",
                         kSanitized ? "true" : "false");
             std::fflush(stdout);
+            // `close()` rather than `quit()`, because `Close` is the event the
+            // workaround hangs off and the game's own EXIT goes through it too.
+            window_->close();
             QGuiApplication::quit();
             return;
         }
@@ -79,13 +89,35 @@ class Renderer : public QVulkanWindowRenderer {
 
 class Window : public QVulkanWindow {
   public:
+    explicit Window(bool detach) : detach_(detach) {}
+
     QVulkanWindowRenderer* createRenderer() override { return new Renderer(this); }
+
+    bool event(QEvent* event) override {
+        // The one line under test. `GameWindow::event` does exactly this and
+        // nothing else; keeping the witness's copy this small is what lets a
+        // result here be read as a statement about that line.
+        if (detach_ && event->type() == QEvent::Close) {
+            setVulkanInstance(nullptr);
+        }
+        return QVulkanWindow::event(event);
+    }
+
+  private:
+    bool detach_;
 };
 
 } // namespace
 
 int main(int argc, char** argv) {
     QGuiApplication app(argc, argv);
+
+    bool detach = false;
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--detach") == 0) {
+            detach = true;
+        }
+    }
 
     QVulkanInstance instance;
     instance.setApiVersion(QVersionNumber(1, 0)); // as app/main.cpp does; see the note there
@@ -94,14 +126,15 @@ int main(int argc, char** argv) {
         return 2;
     }
 
-    Window window;
+    Window window(detach);
     window.setVulkanInstance(&instance);
     window.resize(640, 480);
     window.show();
     const int code = QGuiApplication::exec();
 
-    // Reached only if the window came apart without faulting. On Wayland it is
-    // not reached; on xcb it is. That difference is the whole test.
+    // Reached only if the window came apart without faulting. Without `--detach`
+    // on Wayland it is not reached; with it, and on xcb either way, it is. That
+    // difference is the whole test.
     std::puts(R"({"survived_teardown": true})");
     std::fflush(stdout);
     return code;

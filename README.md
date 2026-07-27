@@ -69,8 +69,8 @@ macOS disk image. Installing the game never brings any of it with it.
 | **Network** | Only to install the training runtime. Nothing else phones anywhere. |
 
 Details per platform: [docs/NVIDIA.md](docs/NVIDIA.md) ·
-[docs/WINDOWS.md](docs/WINDOWS.md) · [docs/MACOS.md](docs/MACOS.md) ·
-[docs/PACKAGING.md](docs/PACKAGING.md).
+[docs/WAYLAND.md](docs/WAYLAND.md) · [docs/WINDOWS.md](docs/WINDOWS.md) ·
+[docs/MACOS.md](docs/MACOS.md) · [docs/PACKAGING.md](docs/PACKAGING.md).
 
 ## Quick start
 
@@ -129,6 +129,7 @@ Deeper reading: [design & reward spec](docs/DESIGN.md) ·
 [testing & quality gate](docs/TESTING.md) ·
 [simulation throughput](docs/PERFORMANCE.md) ·
 [training on an NVIDIA GPU](docs/NVIDIA.md) ·
+[running on Wayland](docs/WAYLAND.md) ·
 [packaging & file locations](docs/PACKAGING.md)
 
 ## Features

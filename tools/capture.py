@@ -453,7 +453,11 @@ def _launch_environ() -> dict[str, str]:
     """
     env = dict(os.environ)
     if sys.platform == "linux":
-        env.setdefault("QT_QPA_PLATFORM", "xcb")  # an X11 window, so it is grabbable
+        # The one place that still pins a platform, and the only one with a
+        # reason to: a Wayland client cannot have its window grabbed by another
+        # process, so a screenshot needs an X11 window. `poe app` and the console
+        # deliberately impose nothing and follow the session instead.
+        env.setdefault("QT_QPA_PLATFORM", "xcb")
     elif sys.platform == "win32":
         msys = Path(env.get("MSYS2_ROOT", "C:/msys64")) / "clang64/bin"
         if msys.is_dir():

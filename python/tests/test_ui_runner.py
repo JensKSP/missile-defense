@@ -302,10 +302,16 @@ def test_finished_windows_stop_being_counted(tmp_path: Path) -> None:
     assert launcher.running == 1
 
 
-def test_linux_gets_an_x11_window_so_it_can_be_screenshot() -> None:
+def test_linux_lets_the_session_choose_the_window_system() -> None:
+    """A game started from the console is the game started from the desktop.
+
+    The console used to force xcb here, so a Wayland user got an XWayland window
+    from the console and a Wayland one from the menu — the same binary behaving
+    two ways, and the tearing only in the path a developer uses least.
+    """
     env = launch_environ({"PATH": "/usr/bin"}, platform="linux")
-    assert env["QT_QPA_PLATFORM"] == "xcb"
-    # …unless the caller has already chosen, e.g. a Wayland-only session.
+    assert "QT_QPA_PLATFORM" not in env
+    # And a caller who has chosen still gets what they chose.
     chosen = launch_environ({"QT_QPA_PLATFORM": "wayland"}, platform="linux")
     assert chosen["QT_QPA_PLATFORM"] == "wayland"
 

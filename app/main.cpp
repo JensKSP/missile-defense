@@ -253,56 +253,19 @@ void write_report(const md::GameWindow& window) {
 }
 
 int run(int argc, char** argv) {
-#ifdef Q_OS_LINUX
-    // Ask for X11 on a Wayland session, unless the user has already chosen.
+    // No platform is chosen here. The session picks: Wayland where the user runs
+    // Wayland, X11 where they run X11, which is what anyone would expect and for
+    // a while was not what they got.
     //
-    // Not a preference, and not this program's bug: `QVulkanWindow` segfaults on
-    // Wayland while Qt tears the window down. `QWindowPrivate::destroy()` runs
+    // This used to force xcb on Wayland sessions, because `QVulkanWindow` cannot
+    // survive Qt's own window teardown there — QTBUG-123214, still untriaged, and
+    // `QWindowPrivate::destroy()` is byte-identical through Qt's dev branch, so no
+    // release available today changes it. That fallback cost every Wayland user a
+    // tearing window, NVIDIA implementing no implicit sync under XWayland.
     //
-    //     q->setVisible(false);                              // 1
-    //     QPlatformSurfaceEvent e(SurfaceAboutToBeDestroyed);
-    //     QGuiApplication::sendEvent(q, &e);                 // 2
-    //     delete std::exchange(platformWindow, nullptr);     // 3
-    //
-    // Step 1 reaches `QWaylandWindow::reset()`, which tears down the
-    // `wl_surface` the driver's swapchain is still built on. Step 2 is where
-    // `QVulkanWindow` releases that swapchain — reading, on this machine, 40
-    // bytes inside a block step 1 already freed. Valgrind names both stacks;
-    // neither contains a line of this project. The validation layer sees the
-    // same ordering from the other side and reports
-    // `VUID-vkDestroySurfaceKHR-surface-01266`, and libwayland prints the
-    // matching `wl_buffer still attached` warnings.
-    //
-    // Not one vendor's bug: the witness below dies identically under lavapipe,
-    // a software rasteriser sharing no code with the NVIDIA driver, and exits 0
-    // under both on xcb. The surface is destroyed too early regardless of who
-    // owns the swapchain.
-    //
-    // The application cannot get in front of it. Six placements were tried —
-    // device-wait before `close()`, device-wait in `releaseSwapChainResources()`,
-    // `quit()` instead of `close()`, a queued close, `hide()` first, and
-    // minimise-to-unexpose — and all six still crashed, because the free happens
-    // *inside* step 1, which every one of those paths goes through.
-    //
-    // Upstream: QTBUG-123214, reported 2024-03-12 against 6.6.2, still untriaged
-    // with no fix version. `QWindowPrivate::destroy()` is byte-identical in 6.9,
-    // 6.10 and dev, so no Qt release available today changes this. The witness is
-    // `app/tests/wayland_teardown.cpp`: a bare `QVulkanWindow` that renders
-    // nothing, contains no project code, and still dies 3/3 on Wayland while
-    // exiting 0 on xcb. When that stops being true, delete this block.
-    //
-    // Since the desktop entry runs `missile-defense` with no environment at all,
-    // every Wayland user would otherwise meet the crash instead of the game, and
-    // Wayland is the default session on current KDE and GNOME. XWayland has its
-    // own cost — NVIDIA implements no implicit sync, so those windows can tear —
-    // but a game that tears is a game, and one that segfaults is not. Setting it
-    // rather than forcing it leaves `QT_QPA_PLATFORM=wayland` working for anyone
-    // testing whether this is still necessary.
-    if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM") &&
-        !qEnvironmentVariableIsEmpty("WAYLAND_DISPLAY")) {
-        qputenv("QT_QPA_PLATFORM", "xcb");
-    }
-#endif
+    // `GameWindow::event` now steps out of the way of the defect instead; the long
+    // note there explains how, and `app/tests/wayland_teardown.cpp` holds both
+    // halves of the claim to evidence.
     QGuiApplication app(argc, argv);
     QGuiApplication::setOrganizationName("MissileDefense");
     QGuiApplication::setApplicationName("MissileDefense"); // stable app-data path for highscores

@@ -822,11 +822,11 @@ static std::vector<std::pair<std::string, std::string>> installed_models() {
             // name; a bundled one is `models/<name>.mdp`, where the file is. Using
             // the parent for both listed every bundled model as `MODELS`, because
             // that is what their shared directory is called.
-            std::string name =
-                described.display_name.empty()
-                    ? (path.filename() == "policy.mdp" ? path.parent_path().filename().string()
-                                                       : path.stem().string())
-                    : described.display_name;
+            std::string name = described.display_name;
+            if (name.empty()) {
+                name = path.filename() == "policy.mdp" ? path.parent_path().filename().string()
+                                                       : path.stem().string();
+            }
             found.emplace_back(path.string(), menu_label(std::move(name)));
         } catch (const agent::Policy::Error& error) {
             // Not this build's, or not a policy. Absent from the list rather
@@ -1373,6 +1373,52 @@ void GameWindow::mousePressEvent(QMouseEvent* event) {
     case State::EnterScore:
         break; // initials entry is keyboard-only
     }
+}
+
+/// Lets go of the Vulkan instance before Qt takes the window apart.
+///
+/// One line, and without it this game cannot run on Wayland at all — which is
+/// the default session on current KDE and GNOME, so it is most of the desktop.
+///
+/// The defect is Qt's, upstream as QTBUG-123214, and it is a destruction order.
+/// `QWindowPrivate::destroy()` runs
+///
+///     q->setVisible(false);                              // 1
+///     QPlatformSurfaceEvent e(SurfaceAboutToBeDestroyed);
+///     QGuiApplication::sendEvent(q, &e);                 // 2
+///     delete std::exchange(platformWindow, nullptr);     // 3
+///
+/// Step 1 reaches `QWaylandWindow::reset()`, which tears down the `wl_surface`.
+/// Step 2 is where `QVulkanWindow` destroys the swapchain built on that surface,
+/// and the driver reads memory step 1 already freed. Qt's own source comments on
+/// exactly this hazard — "the surface is managed by the QPlatformWindow which may
+/// be gone already when the unexpose comes" — and believes listening for the
+/// surface event fixes it. On Wayland it does not, because the surface dies one
+/// step earlier than Qt assumes.
+///
+/// Detaching here, while the window is still whole, is what makes the teardown
+/// finish. What that buys is not a skipped cleanup: with it, Qt calls
+/// `releaseSwapChainResources()` **and** `releaseResources()` and the process
+/// exits 0 — the same callback sequence the working X11 path produces, and
+/// Valgrind reports no invalid read, write or free anywhere in it.
+///
+/// Honesty about how well this is understood: the effect is measured, not
+/// derived. Nothing in `QVulkanWindowPrivate::releaseSwapChain()` reads the
+/// instance, so the source does not explain why detaching changes its outcome.
+/// What is not in doubt is the size of the effect — a bare `QVulkanWindow`
+/// crashes 24 of 24 runs without this and 24 of 24 survive with it, on the
+/// NVIDIA driver and on lavapipe, two implementations sharing no code. That is
+/// not a timing coincidence. `app/tests/wayland_teardown.cpp` measures both
+/// halves so a future Qt cannot quietly invalidate either.
+///
+/// `Close` is the right moment because every way out of this game reaches it —
+/// the menu's EXIT, the compositor's close button, a window manager asking — and
+/// it is delivered immediately before `destroy()`, so nothing renders after it.
+bool GameWindow::event(QEvent* event) {
+    if (event->type() == QEvent::Close) {
+        setVulkanInstance(nullptr);
+    }
+    return QVulkanWindow::event(event);
 }
 
 void GameWindow::keyPressEvent(QKeyEvent* event) {

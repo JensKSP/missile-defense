@@ -287,6 +287,11 @@ class GameWindow : public QVulkanWindow {
     void mousePressEvent(QMouseEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
 
+    /// Detaches from the Vulkan instance on `Close`, which is what lets this
+    /// window come apart on Wayland instead of segfaulting. See the long note on
+    /// the definition; it is the whole reason the game can run natively there.
+    bool event(QEvent* event) override;
+
   private:
     enum class MenuAction : std::uint8_t {
         Resume,
