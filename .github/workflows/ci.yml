@@ -78,12 +78,18 @@ jobs:
             qt6-base-dev qt6-base-dev-tools \
             libvulkan-dev glslang-tools mesa-vulkan-drivers \
             libminiaudio-dev catch2 nlohmann-json3-dev \
-            xvfb vulkan-tools python3 python3-pip
+            xvfb vulkan-tools python3 python3-dev python3-pip
 
       - name: Install the Python halves
         # The CPU torch build: this job trains for seconds on four environments,
         # so a CUDA wheel would be gigabytes downloaded to be ignored.
         run: |
+          # `python3-dev` is in the apt list above for the same reason: without
+          # the development headers `find_package(Python COMPONENTS
+          # Development.Module)` fails outright, `Python_EXECUTABLE` comes back
+          # empty and the extension is skipped however many nanobinds are
+          # installed. That is what "*this* interpreter ()" in the error meant.
+          #
           # nanobind because `test_packages.py` stages the *full* install tree —
           # a second configure with MD_INSTALL_PYTHON_PACKAGE=ON — and a console
           # payload without the binding is the thing those tests exist to catch.

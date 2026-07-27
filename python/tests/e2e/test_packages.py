@@ -194,28 +194,40 @@ def exported_policy(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return torch_free.write(destination, policy)
 
 
-#: What `xvfb-run` shells out to by bare name: the display, its cookie, and the
-#: two coreutils it uses to make one. All live in `/usr/bin`, which the
-#: environment below deliberately removes.
-GRAPHICS_TOOLS = ("Xvfb", "xauth", "mcookie", "mktemp", "awk")
+#: What the game must not be able to reach through `PATH`: an interpreter (which
+#: is how a *checkout* offers a console) and either installed launcher. Matched
+#: as prefixes, so `python3.12` and `python3-config` go too.
+FORBIDDEN_ON_PATH = ("python", "md-console", "md-train")
 
 
 def _graphics_shim(sandbox: Path) -> Path:
-    """A PATH entry holding only what starting a display needs.
+    """`/usr/bin` mirrored, minus anything that would defeat the test.
 
-    The promise these tests check is that the *game* cannot find an interpreter,
-    so `/usr/bin` is out — and `xvfb-run` lives on the far side of that line,
-    calling Xvfb and friends by bare name. Symlinking exactly those keeps the
-    display working without putting `python3` back within the game's reach,
-    which stripping a directory and hoping was never going to manage.
+    The promise here is that the *game* cannot find an interpreter, so
+    `/usr/bin` cannot be on `PATH` — and `xvfb-run` lives on the far side of
+    that line, shelling out by bare name to start a display.
+
+    Mirrored rather than hand-listed. The first attempt symlinked the five
+    tools I had found by reading the script, and CI came back with
+    `xvfb-run: 96: getopt: not found` — a sixth. A list of "the commands some
+    shell script happens to call today" is not something to maintain by hand,
+    and being wrong about it fails a test for a reason that has nothing to do
+    with what the test is for. Excluding what must not be reachable is a rule
+    that stays true no matter what else the script grows.
     """
     shim = sandbox / "graphics-bin"
-    shim.mkdir(parents=True, exist_ok=True)
-    for tool in GRAPHICS_TOOLS:
-        found = shutil.which(tool)
-        link = shim / tool
-        if found and not link.exists():
-            link.symlink_to(found)
+    if shim.exists():
+        return shim
+    shim.mkdir(parents=True)
+    for source in (Path("/usr/bin"), Path("/bin")):
+        if not source.is_dir():
+            continue
+        for entry in source.iterdir():
+            if entry.name.startswith(FORBIDDEN_ON_PATH):
+                continue
+            link = shim / entry.name
+            if not link.exists():
+                link.symlink_to(entry)
     return shim
 
 
