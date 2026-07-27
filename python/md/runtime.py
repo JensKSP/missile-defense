@@ -21,8 +21,8 @@ is downloaded. :class:`Runtime` does the effects, and takes its subprocess runne
 as an argument.
 
 **Installing is transactional.** Each install goes into its own new directory,
-is health-checked by actually importing torch *and* the native binding in it, and
-only then becomes current — by replacing a small marker file. Nothing mutates an
+is health-checked by importing everything a run imports (:data:`IMPORT_ADVICE`),
+and only then becomes current — by replacing a small marker file. Nothing mutates an
 existing runtime, so a failed, cancelled or half-downloaded install cannot leave
 the working one worse than it found it. Cancelling deletes only the directory it
 was filling.
@@ -99,6 +99,49 @@ class Backend:
     gigabytes: float
 
 
+#: What a training run imports before it does anything, in the order the health
+#: check imports them, paired with what a person should do when that import is
+#: the one that failed. Order matters twice: the binding is imported first
+#: precisely so an ABI mismatch is not mistaken for a torch problem, and
+#: :func:`_why_unhealthy` reads this top to bottom to name the culprit.
+#:
+#: **This list is the definition of a working runtime.** It drives the health
+#: script below, and :data:`PACKAGES` exists to satisfy it — a module that a run
+#: needs and this does not name is a runtime that installs, passes, and then
+#: cannot train.
+IMPORT_ADVICE = (
+    (
+        "md._md_native",
+        "the simulation binding is missing or does not match this interpreter. "
+        "pip cannot supply it — it is compiled from this checkout. Build it with "
+        "`poe bindings`, then verify the runtime again.",
+    ),
+    (
+        "torch",
+        "torch installed but will not import. The usual cause is a wheel built "
+        "for a different CUDA or Python version — see the log for the traceback.",
+    ),
+    (
+        "numpy",
+        "the runtime has torch but not numpy, which every run needs before it "
+        "reaches the first update — repair it from this dialog, which reinstalls "
+        "both.",
+    ),
+)
+
+#: What pip is asked for. `md._md_native` is deliberately absent: it is compiled
+#: from this checkout and no index has it.
+#:
+#: numpy is not incidental and not torch's problem. `md.env` types its buffer
+#: contract with `numpy.typing` and the trainer imports it on its first line, but
+#: torch declares numpy *optional* — so `pip install torch` alone produced a
+#: runtime that imported torch happily, passed a health check that asked no more
+#: than that, and then died on `import numpy` in a subprocess whose output the
+#: console had already moved on from. Every backend gets the same list, because
+#: the requirement is the trainer's rather than the accelerator's.
+PACKAGES = ("torch", "numpy")
+
+
 #: cu130 because that is what this project's development box runs and documents
 #: (docs/NVIDIA.md): the driver exposes a maximum CUDA version and the wheel must
 #: not exceed it, and a Blackwell card needs cu128 or newer to have any kernel at
@@ -109,7 +152,7 @@ CUDA = Backend(
     label="NVIDIA (CUDA)",
     detail="Uses the GPU. This project is optimizer-bound, so it is the whole win.",
     index_url="https://download.pytorch.org/whl/cu130",
-    packages=("torch",),
+    packages=PACKAGES,
     platforms=("linux", "win32"),
     gigabytes=4.5,
 )
@@ -122,7 +165,7 @@ ROCM = Backend(
     label="AMD (ROCm)",
     detail="Uses the GPU on Linux. RDNA 2 may need HSA_OVERRIDE_GFX_VERSION.",
     index_url="https://download.pytorch.org/whl/rocm6.4",
-    packages=("torch",),
+    packages=PACKAGES,
     platforms=("linux",),
     gigabytes=5.0,
 )
@@ -134,7 +177,7 @@ CPU = Backend(
     label="CPU only",
     detail="Works everywhere. Training is far slower — hours become days.",
     index_url="https://pypi.org/simple",
-    packages=("torch",),
+    packages=PACKAGES,
     platforms=("linux", "win32", "darwin"),
     gigabytes=1.0,
 )
@@ -143,16 +186,16 @@ CPU = Backend(
 BACKENDS = (CUDA, ROCM, CPU)
 
 #: Run inside the candidate runtime, and the only thing that decides whether an
-#: install counts. It imports the native binding *before* torch on purpose: an
-#: ABI mismatch is the failure most likely to be mistaken for a torch problem,
-#: and it should be the first line of the traceback rather than the last.
+#: install counts. Its imports are :data:`IMPORT_ADVICE`'s, generated rather than
+#: restated: a list of what a run needs and a list of what is checked, kept side
+#: by side and edited by hand, is two lists that will disagree — and the way they
+#: disagree is a runtime that passes and cannot train.
 HEALTH_SCRIPT = (
     "import json, sys\n"
-    "import md._md_native as native\n"
-    "import torch\n"
-    "print(json.dumps({\n"
+    + "".join(f"import {module}\n" for module, _ in IMPORT_ADVICE)
+    + "print(json.dumps({\n"
     "    'python': '.'.join(str(v) for v in sys.version_info[:3]),\n"
-    "    'native': hasattr(native, 'VecEnv'),\n"
+    "    'native': hasattr(md._md_native, 'VecEnv'),\n"
     "    'torch': torch.__version__,\n"
     "    'device': 'cuda' if torch.cuda.is_available() else 'cpu',\n"
     "}))\n"
@@ -425,24 +468,6 @@ def _last_json(lines: Iterable[str]) -> dict[str, object] | None:
     return None
 
 
-#: What `HEALTH_SCRIPT` imports, in the order it imports them, paired with what
-#: a person should do when that import is the one that failed. Order matters:
-#: the binding is imported first precisely so an ABI mismatch is not mistaken for
-#: a torch problem, and this is where that intent survives into the message.
-IMPORT_ADVICE = (
-    (
-        "md._md_native",
-        "the simulation binding is missing or does not match this interpreter. "
-        "pip cannot supply it — it is compiled from this checkout. Build it with "
-        "`poe bindings`, then verify the runtime again.",
-    ),
-    (
-        "torch",
-        "torch installed but will not import. The usual cause is a wheel built "
-        "for a different CUDA or Python version — see the log for the traceback.",
-    ),
-)
-
 UNHEALTHY = "the installed runtime failed its check — see the log"
 
 #: What :meth:`Runtime.install` says when it declines to start. Names the command
@@ -626,12 +651,8 @@ class Runtime:
         status = self.status()
         if not status.ready or status.python is None:
             return status
-        manifest = self._current()
-        stamp = (
-            str(status.python),
-            _mtime(None if manifest is None else manifest / MANIFEST_NAME),
-        )
-        if not force and self._verified == stamp:
+        stamp = self._stamp(status)
+        if not force and stamp is not None and self._verified == stamp:
             return status
         health = self._health(status.python, _silent)
         if not health.ok:
@@ -639,6 +660,21 @@ class Runtime:
             return replace(status, state=BROKEN, detail=health.detail, python=None)
         self._verified = stamp
         return status
+
+    def _stamp(self, status: RuntimeStatus) -> tuple[str, float] | None:
+        """What a verification is remembered against, or ``None`` if nothing is.
+
+        The interpreter it proved and the modification time of the manifest it
+        was measured on — so installing, repairing or removing a runtime
+        invalidates the result without anyone having to remember to say so.
+        """
+        if status.python is None:
+            return None
+        current = self._current()
+        return (
+            str(status.python),
+            _mtime(None if current is None else current / MANIFEST_NAME),
+        )
 
     # -- writing ---------------------------------------------------------------
 
@@ -708,7 +744,14 @@ class Runtime:
 
         self._write_manifest(plan, health)
         self._switch(plan.target)
-        return self.status()
+        installed = self.status()
+        # An install *is* a verification — a fresher one than :meth:`verify`
+        # could produce, having just run the same script on the same
+        # interpreter. Recorded so the dialog can ask what it now offers without
+        # a second cold CUDA start, which after a five-minute download reads as
+        # the window having hung at the finish line.
+        self._verified = self._stamp(installed)
+        return installed
 
     def repair(self) -> None:
         """Clear whatever is in the way, so an install can be tried again.
@@ -726,6 +769,7 @@ class Runtime:
         self._marker().unlink(missing_ok=True)
         for directory in self._installed():
             shutil.rmtree(directory, ignore_errors=True)
+        self._verified = None  # there is nothing left that it was about
 
     # -- internals -------------------------------------------------------------
 

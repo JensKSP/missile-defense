@@ -22,6 +22,7 @@ from pathlib import Path
 import pytest
 from md import runtime
 from md.runtime import (
+    ABSENT,
     ALLOWED_INDEX_HOSTS,
     BROKEN,
     READY,
@@ -114,7 +115,11 @@ def test_an_nvidia_machine_is_offered_the_cuda_build(tmp_path: Path) -> None:
     plan = recommend(_system(), [FakeProbe("cuda", True)], root=tmp_path)
     assert plan.backend == "cuda"
     assert "download.pytorch.org" in plan.index_url
-    assert plan.packages == ("torch",)
+    # numpy with it, on every backend. torch treats numpy as optional and this
+    # project does not: `md.env` types its buffer contract with `numpy.typing`
+    # and the trainer imports it on its first line, so a torch-only install is a
+    # runtime that passes its check and then cannot run a single update.
+    assert plan.packages == ("torch", "numpy")
 
 
 def test_a_machine_with_no_accelerator_is_offered_the_cpu_build(tmp_path: Path) -> None:
@@ -379,6 +384,36 @@ def test_a_failed_check_names_the_import_that_failed() -> None:
     # Something else entirely stays honest rather than picking a module.
     assert runtime._why_unhealthy(["killed by the OOM killer"]) == runtime.UNHEALTHY
 
+    # And the one that shipped: torch imports, the run does not.
+    missing_numpy = [
+        "Traceback (most recent call last):",
+        '  File "<string>", line 4, in <module>',
+        "    import numpy",
+        "ModuleNotFoundError: No module named 'numpy'",
+    ]
+    assert "numpy" in runtime._why_unhealthy(missing_numpy)
+
+
+def test_the_runtime_installs_everything_its_health_check_demands() -> None:
+    """The two lists that must not drift, held together here.
+
+    They did drift, and it was invisible from both sides: the check imported
+    torch and the binding, the install fetched torch, and numpy — which the
+    trainer imports on its first line and torch declares optional — was in
+    neither. The result was a runtime that installed cleanly, reported itself
+    healthy, and killed every run it was asked to start, in a subprocess whose
+    output the console had already scrolled past.
+
+    A check demanding more than the install provides could never pass; an
+    install providing less than a run needs is the bug above. So: the same set,
+    minus the binding, which is compiled from this checkout and is on no index.
+    """
+    checked = {module for module, _ in runtime.IMPORT_ADVICE}
+    assert "numpy" in checked
+    for module in checked:
+        assert f"import {module}\n" in runtime.HEALTH_SCRIPT, f"{module} is advised but unchecked"
+    assert checked - {"md._md_native"} == set(runtime.PACKAGES)
+
 
 @pytest.fixture(autouse=True)
 def _binding_is_present(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -394,18 +429,24 @@ def _binding_is_present(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _ready_store(tmp_path: Path) -> tuple[Runtime, FakeRunner]:
-    """A store with one installed, healthy runtime — the state before a doubt."""
-    runner = FakeRunner()
-    store = Runtime(tmp_path / "store", runner=runner, platform="linux")
+    """A store with one installed, healthy runtime — the state before a doubt.
+
+    Handed back as a *fresh* store over the same directory, because that is what
+    a console meets when it opens: the install that filled it happened in another
+    process and left nothing behind in memory. A store that has just installed is
+    a different situation, and has its own test — it remembers the check it ran.
+    """
+    root = tmp_path / "store"
     plan = RuntimePlan(
         backend="cpu",
         python=Path("/usr/bin/python3"),
-        target=tmp_path / "store" / "cpu-py3.13-1",
-        packages=("torch",),
+        target=root / "cpu-py3.13-1",
+        packages=("torch", "numpy"),
         index_url="https://pypi.org/simple",
     )
-    assert store.install(plan).state == READY
-    return store, runner
+    assert Runtime(root, runner=FakeRunner(), platform="linux").install(plan).state == READY
+    runner = FakeRunner()
+    return Runtime(root, runner=runner, platform="linux"), runner
 
 
 def test_an_install_refuses_before_downloading_when_the_binding_is_absent(
@@ -467,6 +508,40 @@ def test_a_verified_runtime_is_not_re_verified_on_every_ask(tmp_path: Path) -> N
     assert len(calls) == first, "verification repeated with nothing having changed"
     assert store.verify(force=True).state == READY
     assert len(calls) > first, "force did not re-check"
+
+
+def test_an_install_counts_as_the_verification_it_has_just_run(tmp_path: Path) -> None:
+    """The health check at the end of an install is a verification, so say so.
+
+    The dialog asks `verify()` to decide what it offers, and it asks immediately
+    after an install finishes. Without this the answer is a second health check
+    on the UI thread — and the first `torch.cuda.is_available()` of a fresh CUDA
+    install takes minutes while the driver builds its caches, which after a
+    five-minute download reads as a window that has hung at the finish line.
+    """
+    root = tmp_path / "store"
+    plan = RuntimePlan(
+        backend="cpu",
+        python=Path("/usr/bin/python3"),
+        target=root / "cpu-py3.13-1",
+        packages=("torch", "numpy"),
+        index_url="https://pypi.org/simple",
+    )
+    store = Runtime(root, runner=FakeRunner(), platform="linux")
+    assert store.install(plan).state == READY
+
+    calls: list[list[str]] = []
+    store._runner = FakeRunner(on_command=calls.append)  # noqa: SLF001 — the seam
+    assert store.verify().state == READY
+    assert calls == [], "the runtime was asked to prove what it had just proved"
+
+
+def test_removing_a_runtime_forgets_that_it_was_verified(tmp_path: Path) -> None:
+    """Otherwise the next install inherits a verdict about a deleted directory."""
+    store, _ = _ready_store(tmp_path)
+    assert store.verify().state == READY
+    store.remove()
+    assert store.verify().state == ABSENT
 
 
 def test_a_failed_verification_is_not_remembered(tmp_path: Path) -> None:

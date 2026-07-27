@@ -89,6 +89,43 @@ def test_no_trainer_beside_the_console_is_not_an_error(tmp_path: Path) -> None:
     assert read_params(tmp_path / "nothing-here") == []
 
 
+def test_a_default_that_names_a_constant_shows_the_number_it_stands_for(tmp_path: Path) -> None:
+    # `reaction_delay: int = CANONICAL_REACTION_DELAY` is the trainer refusing to
+    # retype the published protocol, and it is two modules away from the number.
+    # The form still has to show a number: a spin box cannot hold a name, and one
+    # that was handed one took the whole parameter dialog down with it.
+    (tmp_path / "train.py").write_text(
+        "from dataclasses import dataclass\n"
+        "from .benchmark import CANONICAL_REACTION_DELAY\n\n\n"
+        "@dataclass\n"
+        "class TrainConfig:\n"
+        "    reaction_delay: int = CANONICAL_REACTION_DELAY\n"
+        "    nowhere: int = MISSING\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "benchmark.py").write_text(
+        "from ._protocol import REACTION_DELAY\n\nCANONICAL_REACTION_DELAY = REACTION_DELAY\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "_protocol.py").write_text("REACTION_DELAY: int = 3\n", encoding="utf-8")
+
+    fields = {field.name: field for field in read_params(tmp_path)}
+    assert fields["reaction_delay"].default == "3"
+    # And a name that leads nowhere is left as it is written rather than guessed
+    # at: wrong is worse than unresolved, and the form falls back on its own.
+    assert fields["nowhere"].default == "MISSING"
+
+
+def test_the_handicap_the_real_trainer_defaults_to_reads_as_its_value() -> None:
+    # The chain that actually matters: `md.train` → `md.benchmark` → the
+    # generated `md._protocol`, followed without importing any of them.
+    from md.benchmark import CANONICAL_AIM_TRAIL, CANONICAL_REACTION_DELAY  # noqa: PLC0415
+
+    fields = {field.name: field for field in read_params(TRAINER)}
+    assert float(fields["aim_trail"].default) == CANONICAL_AIM_TRAIL
+    assert int(fields["reaction_delay"].default) == CANONICAL_REACTION_DELAY
+
+
 def test_the_real_trainer_still_has_the_headline_four() -> None:
     # The four the form promotes are named by string; if one is renamed in the
     # trainer, this is where it is noticed.

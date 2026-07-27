@@ -31,7 +31,9 @@ import argparse
 import json
 import sys
 import time
+import traceback
 from pathlib import Path
+from types import TracebackType
 
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QCloseEvent, QKeyEvent
@@ -258,6 +260,12 @@ class Console(QMainWindow):
         self._runtime_ok: bool | None = None
         self._runtime_detail = ""
         self._verifier: _VerifyRuntime | None = None
+        #: One store for the window's life, shared with the dialog that repairs
+        #: it. Not a fresh `Runtime()` per check: it remembers what it verified,
+        #: against the manifest it verified — a new one every time throws that
+        #: away and pays for a cold CUDA start again, and worse, lets the dialog
+        #: reach a different verdict than the button beside it.
+        self._store = runtime.Runtime()
 
         self.setCentralWidget(self._build())
         self._attach(run_dir)
@@ -295,7 +303,7 @@ class Console(QMainWindow):
         """
         if self._verifier is not None and self._verifier.isRunning():
             return
-        self._verifier = _VerifyRuntime(runtime.Runtime(), self)
+        self._verifier = _VerifyRuntime(self._store, self)
         self._verifier.done.connect(self._runtime_verified)
         self._verifier.start()
 
@@ -303,6 +311,28 @@ class Console(QMainWindow):
         self._runtime_ok = ok
         self._runtime_detail = detail
         self._refresh_status()  # the button's meaning may have just changed
+
+    def _needs_setup(self) -> bool:
+        """Whether the button offers setup rather than a run.
+
+        **One answer, asked by both the label and the press.** They were two
+        conditions once, and they disagreed exactly where it mattered: the label
+        asked whether the runtime could *prove* itself and said *Set up
+        training…*, while the press asked only whether an interpreter existed —
+        which it did, since a runtime missing numpy still has one. So the button
+        that offered to fix the installation opened the parameter dialog
+        instead, and the run it started died on its first import.
+
+        `can_train` is the cheap half and stays pollable: a manifest and a file
+        that exists. `_runtime_ok` is the same question actually put to the
+        runtime, answered in the background, and it is the one that catches a
+        runtime that has stopped working since it was installed.
+        """
+        return not can_train(store=self._store) or self._runtime_ok is False
+
+    def _idle_label(self) -> str:
+        """What the button says when a run could be started here."""
+        return "Continue" if self._checkpoints else "Start"
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 — Qt's spelling
         """Wait for the runtime check before letting the window go.
@@ -322,6 +352,38 @@ class Console(QMainWindow):
         if verifier is not None and verifier.isRunning():
             verifier.wait(VERIFY_WAIT_MS)
         super().closeEvent(event)
+
+    def report_unexpected(
+        self,
+        kind: type[BaseException],
+        value: BaseException,
+        tb: TracebackType | None,
+    ) -> None:
+        """Say that something failed, instead of appearing to do nothing.
+
+        Installed as ``sys.excepthook`` by :func:`main`, which is what PySide6
+        consults for an exception raised inside a slot. It prints one and returns
+        to the event loop — so the console already survives its own bugs, but
+        *silently*: the button that raised looks exactly like a button that does
+        nothing, and the traceback goes to a terminal an installed copy was never
+        started from. That is the difference between a console that is stuck and
+        one that is merely wrong about something.
+
+        The log pane rather than a dialog, and deliberately. `_tick` runs every
+        second, so a fault in it would be an unclosable stack of message boxes —
+        the one outcome worse than the silence this replaces.
+        """
+        traceback.print_exception(kind, value, tb)
+        try:
+            self._append_log(f"— {kind.__name__}: {value} —")
+            self._append_log("".join(traceback.format_exception(kind, value, tb)).rstrip())
+            self._log_toggle.setChecked(True)
+            self.statusBar().showMessage(f"something went wrong — {kind.__name__}: {value}")
+        except RuntimeError:
+            # The window is already gone — Qt deletes the C++ side first, and an
+            # exception during teardown must not become a second one here. It has
+            # been printed; that is all this could have done anyway.
+            pass
 
     def _attach(self, run_dir: Path) -> None:
         """Point the whole window at a run directory — including a fresh one.
@@ -1330,16 +1392,7 @@ class Console(QMainWindow):
         # rather than being a dead control with an explanation on it; watching a
         # run from a machine with no torch stays a supported way to use this, and
         # only starting one was ever gated.
-        idle_label = "Continue" if self._checkpoints else "Start"
-        # `can_train` answers cheaply enough to poll: a manifest and a file that
-        # exists. `_runtime_ok` is the same question actually put to the runtime,
-        # answered in the background, and it is the one that catches a runtime
-        # that has stopped working since it was installed. Offering Start for
-        # something that cannot run is the failure this pair exists to prevent —
-        # a button that appears to do nothing is worse than one that says what
-        # to do instead.
-        if not can_train() or self._runtime_ok is False:
-            idle_label = "Set up training…"
+        idle_label = "Set up training…" if self._needs_setup() else self._idle_label()
         self._primary.setText({"paused": "Resume", "live": "Pause"}.get(state, idle_label))
         self._primary.setEnabled(state != "stopping")
         self._stop.setEnabled(state in ("live", "paused"))
@@ -1375,7 +1428,7 @@ class Console(QMainWindow):
             # to start one *with*; the button says so too, and the two must agree.
             next_step = (
                 "press Start, or run `poe train` in a terminal"
-                if can_train()
+                if can_train(store=self._store)
                 else "press Set up training to install PyTorch"
             )
             return f"no {sources.METRICS_NAME} in {self._run_dir} yet — {next_step}"
@@ -1445,7 +1498,7 @@ class Console(QMainWindow):
             self.statusBar().showMessage(
                 f"pausing after the current update — {self._control.pause_file}"
             )
-        elif not can_train():
+        elif self._needs_setup():
             self._set_up_runtime()
         else:
             self._start()
@@ -1458,16 +1511,19 @@ class Console(QMainWindow):
         actually after rather than returning them to a window with a new button
         on it.
         """
-        dialog = RuntimeDialog(parent=self)
+        dialog = RuntimeDialog(self._store, parent=self)
         accepted = dialog.exec() == QDialog.DialogCode.Accepted
-        # A fresh install has already proved itself — that is what the install's
-        # own health check is — so trust it here rather than making the person
-        # wait through a cold CUDA start a second time. The background check
-        # runs anyway and will correct this if it disagrees.
-        self._runtime_ok = None
+        # Accepted means the dialog's own check said ready — a fresh install has
+        # proved itself, and that is what the install's health check *is*, so the
+        # old verdict is dropped rather than making the person wait through a
+        # cold CUDA start to hear the same answer twice. A dialog that was closed
+        # instead proved nothing, and its verdict stands: forgetting it here
+        # would put Start back on a button whose press dies in a subprocess.
+        if accepted:
+            self._runtime_ok = None
         self._verify_runtime()
         self._refresh_status()  # the button's meaning has probably just changed
-        if accepted and can_train():
+        if accepted and can_train(store=self._store):
             self._start()
 
     def _start(self) -> None:
@@ -1478,7 +1534,7 @@ class Console(QMainWindow):
         checkpoints = sources.list_checkpoints(out_dir)
         dialog = ParameterDialog(
             read_params(TRAINER_SOURCES),
-            python=training_python(),
+            python=training_python(store=self._store),
             out_dir=out_dir,
             checkpoints=checkpoints,
             # A run in this directory already answered every one of these
@@ -1769,6 +1825,11 @@ def main(argv: list[str] | None = None) -> int:
         window._tick()
         print(json.dumps({"ok": True, "run_dir": str(window._run_dir), "updates": window._updates}))
         return 0
+    # From here on the window is the place a failure is reported, because from
+    # here on there is a window to report it in. Not before: `--self-test` is a
+    # packaging check, and it wants an exception to be an exit code rather than a
+    # line in a log pane nobody is looking at (python/tests/e2e/test_packages.py).
+    sys.excepthook = window.report_unexpected
     # Roomy, but never bigger than the desktop it opens on — a window whose
     # status line is off-screen is a window with a bug in it.
     available = app.primaryScreen().availableSize()

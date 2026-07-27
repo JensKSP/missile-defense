@@ -168,6 +168,26 @@ def _write(editor: QWidget, value: str) -> None:
         editor.setText(value)
 
 
+def _shown(field: Param) -> str:
+    """A field's default as a box can show it, or "" when it cannot show it.
+
+    Empty means the trainer's own default stands, which the placeholder reads as
+    *auto* — and that is the truth about a numeric default this console failed to
+    read. `md.ui.params` follows a named constant to its value, so the usual
+    answer is the number; this is what is left when a default is an expression
+    nothing here can evaluate. Showing the expression instead would offer
+    ``--aim-trail CANONICAL_AIM_TRAIL`` to anyone who then edited the field, and
+    the trainer rejects that at the point where it has already been started.
+    """
+    if field.kind not in ("int", "float"):
+        return field.default
+    try:
+        float(field.default)
+    except ValueError:
+        return ""
+    return field.default
+
+
 class ParameterDialog(QDialog):
     """Configure a run, then start it."""
 
@@ -551,10 +571,18 @@ class ParameterDialog(QDialog):
             # next to a command line reading `--envs 1024` is a puzzle.
             spin.setLocale(QLocale("en_US"))
             spin.setGroupSeparatorShown(True)
-            spin.setValue(int(field.default or 0))
+            # Through `_write`, which drops what it cannot hold, rather than
+            # `int(...)`, which raised. `md.ui.params` follows a named default to
+            # its value, so this should not happen — but when it does, it happens
+            # in a Qt slot, and PySide6 prints the traceback and carries on. That
+            # is a Start button that does nothing, with the reason on a terminal
+            # nobody has open. A box showing the wrong number is recoverable;
+            # `values()` compares against what the editor was built showing, so
+            # an untouched field is still not passed to the trainer.
+            _write(spin, field.default)
             spin.valueChanged.connect(self._edited)
             return spin
-        edit = QLineEdit(field.default)
+        edit = QLineEdit(_shown(field))
         if field.kind == "float":
             # Scientific notation on purpose: 3e-4 is how a learning rate is
             # written and read; 0.000300 in a spin box is neither. So a
@@ -565,7 +593,8 @@ class ParameterDialog(QDialog):
             if field.bounds is not None:
                 validator.setRange(field.bounds[0], field.bounds[1], 12)
             edit.setValidator(validator)
-        edit.setPlaceholderText("auto" if not field.default else field.default)
+        placeholder = _shown(field)
+        edit.setPlaceholderText(placeholder or "auto")
         edit.textChanged.connect(self._edited)
         return edit
 

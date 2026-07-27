@@ -239,8 +239,16 @@ class RuntimeDialog(QDialog):
         or cancelled install the store is back to ``absent``, and "Not installed
         yet." — true, but the reason thrown away — is the wrong thing to say to
         someone who just watched it try.
+
+        `verify`, not `status`. This dialog is the only way out of a runtime that
+        has stopped working, so it is the last place that may believe a manifest:
+        a store that says ready while the console's own background check says
+        otherwise is a window offering *Start a run* beside a button that says
+        *Set up training*, and no way to reconcile them. The result is cached
+        against that manifest and the console has usually paid for it already, so
+        agreeing with it costs nothing.
         """
-        status = self._store.status()
+        status = self._store.verify()
         self._status_label.setText(note or self._headline(status))
         self._remove.setEnabled(status.removable)
 
@@ -282,7 +290,7 @@ class RuntimeDialog(QDialog):
             self._primary.setEnabled(False)
             self._primary.setText("Cancelling…")
             return
-        status = self._store.status()
+        status = self._store.verify()  # what the label was drawn from, cached
         if status.ready:
             self.accept()  # straight on to the new-run dialog
             return

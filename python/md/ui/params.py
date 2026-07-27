@@ -15,6 +15,11 @@ Reading the *source* rather than importing the dataclasses is not stubbornness �
 lives in ``#:`` comments, which are comments and therefore not in the tree at
 all, so `tokenize` collects those separately and they are matched back by line.
 
+The price of reading source is that a default can be a *name*: the trainer writes
+``aim_trail: float = CANONICAL_AIM_TRAIL`` rather than repeating ``0.84`` in two
+places that could drift. So a name is followed to what it stands for, across
+modules, before it is offered to a form — see :func:`_constant`.
+
 If the trainer is not beside the console — an installed console watching a synced
 directory — nothing here throws. There are simply no fields, and the form says
 so.
@@ -25,7 +30,7 @@ from __future__ import annotations
 import ast
 import io
 import tokenize
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -172,11 +177,11 @@ def read_params(package_dir: Path) -> list[Param]:
             source = (package_dir / filename).read_text(encoding="utf-8")
         except OSError:
             continue  # no trainer beside this console; the form says so
-        found.extend(_fields_of(source, class_name))
+        found.extend(_fields_of(source, class_name, package_dir))
     return found
 
 
-def _fields_of(source: str, class_name: str) -> list[Param]:
+def _fields_of(source: str, class_name: str, package_dir: Path) -> list[Param]:
     comments = _doc_comments(source)
     tree = ast.parse(source)
     fields: list[Param] = []
@@ -191,7 +196,7 @@ def _fields_of(source: str, class_name: str) -> list[Param]:
             name = statement.target.id
             if name in HIDDEN:
                 continue
-            default = ast.unparse(statement.value) if statement.value is not None else ""
+            default = _default_of(statement.value, tree, package_dir)
             fields.append(
                 Param(
                     name=name,
@@ -202,6 +207,121 @@ def _fields_of(source: str, class_name: str) -> list[Param]:
                 )
             )
     return fields
+
+
+# ---- defaults that are names -------------------------------------------------
+
+#: How many times a name is followed before this gives up. The real chain is
+#: three links across three modules — ``aim_trail`` is ``CANONICAL_AIM_TRAIL`` is
+#: ``AIM_TRAIL`` is ``0.84`` — and the bound is here so a constant that (wrongly)
+#: names itself is a field with an odd default rather than a form that hangs.
+NAME_HOPS = 8
+
+
+def _default_of(value: ast.expr | None, tree: ast.Module, package_dir: Path) -> str:
+    """A field's default as source text, with a bare name followed to its value.
+
+    The trainer names its constants rather than writing ``0.84`` in the two
+    places that would then have to agree, so ``aim_trail: float =
+    CANONICAL_AIM_TRAIL`` is the shape this has to cope with. Handing the *name*
+    to the form is what a spin box cannot do anything with: ``int(...)`` on it
+    raised out of a Qt slot, where an exception is printed and stepped over
+    rather than being fatal — so Start silently did nothing, for ever, with the
+    explanation on a terminal nobody was looking at.
+
+    Anything that is not a bare name is left exactly as written. A default is a
+    literal in every other case, and guessing at an expression would be inventing
+    a value the trainer never had.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, ast.Name):
+        found = _constant(value.id, tree, package_dir, frozenset())
+        if found is not None:
+            return found
+    return ast.unparse(value)
+
+
+def _constant(name: str, tree: ast.Module, package_dir: Path, seen: frozenset[str]) -> str | None:
+    """What ``name`` stands for, or ``None`` if it cannot be followed to a value.
+
+    Two ways a module can answer: it binds the name itself, or it imported it
+    from a sibling — and the real chain uses both, since ``md.benchmark`` binds
+    ``CANONICAL_AIM_TRAIL`` to a name it imported from ``md._protocol``.
+
+    Deliberately lazy. Only a default that *is* a name asks anything of this, so
+    a trainer that spells all of its defaults out costs nothing, and one that
+    does not costs the two sibling modules actually involved rather than a walk
+    of the whole package.
+    """
+    bindings = _bindings(tree)
+    for _ in range(NAME_HOPS):
+        bound = bindings.get(name)
+        if bound is None:
+            break
+        if not isinstance(bound, ast.Name):
+            return ast.unparse(bound)
+        name = bound.id
+    for module, original in _imports_of(tree, name):
+        if module in seen:
+            continue  # a cycle between two modules is not a reason to stop working
+        sibling = _parsed(package_dir / f"{module}.py")
+        if sibling is None:
+            continue
+        found = _constant(original, sibling, package_dir, seen | {module})
+        if found is not None:
+            return found
+    return None
+
+
+def _bindings(tree: ast.Module) -> dict[str, ast.expr]:
+    """Module-level ``NAME = <literal or name>``, and nothing more adventurous.
+
+    A default that resolves to a call or a dict would be a value this form could
+    not show and must not invent, so those are simply not collected: the name
+    survives to the form as the trainer wrote it.
+    """
+    found: dict[str, ast.expr] = {}
+    for node in tree.body:
+        target: ast.expr | None = None
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            target = node.targets[0]
+        elif isinstance(node, ast.AnnAssign) and node.value is not None:
+            target = node.target
+        else:
+            continue
+        value = node.value
+        if isinstance(target, ast.Name) and isinstance(value, ast.Constant | ast.Name):
+            found[target.id] = value
+    return found
+
+
+def _imports_of(tree: ast.Module, name: str) -> Iterator[tuple[str, str]]:
+    """Sibling modules this one imports ``name`` from, as (module, its name there).
+
+    Relative single-name imports only — ``from .benchmark import X``. An absolute
+    import is a package this console cannot assume is beside it, and a
+    ``from . import benchmark`` binds a module rather than a value.
+    """
+    for node in tree.body:
+        if not isinstance(node, ast.ImportFrom) or node.level != 1 or not node.module:
+            continue
+        for alias in node.names:
+            if (alias.asname or alias.name) == name:
+                yield node.module, alias.name
+
+
+def _parsed(path: Path) -> ast.Module | None:
+    """``path`` as a syntax tree, or ``None`` when it is missing or unparseable.
+
+    Neither is worth raising over: this runs to make a form's default prettier,
+    and a console that refuses to open a dialog because a module it was only
+    curious about has a syntax error has made things worse.
+    """
+    try:
+        return ast.parse(path.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError, ValueError):
+        return None
 
 
 def _kind(annotation: str, name: str = "") -> str:
