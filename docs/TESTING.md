@@ -147,12 +147,35 @@ Tests and glue code share the same warnings but are not held to clang-tidy.
 | Python format | `poe fmt-py-chk` | ruff format `--check` |
 | Python lint | `poe lint` | ruff check |
 | Python types | `poe typecheck` | mypy `--strict` |
+| Shader validity | `poe vulkan-shaders` | `spirv-val` against `vulkan1.0`, the version the instance asks for |
+| Renderer validity | `poe vulkan-runtime` | the game under `VK_LAYER_KHRONOS_validation` + synchronization validation; any message fails |
 
 Run **everything** with:
 
 ```bash
-poe check     # format + lint + types + tidy + tests (Debug AND Release) — full local CI
+poe check     # format + lint + types + tidy + shaders + tests (Debug AND Release)
+poe check-all # the above, plus Vulkan runtime validation and the application e2e suite
 ```
+
+### What the Vulkan gates need
+
+```bash
+sudo apt install spirv-tools   # provides spirv-val, which `poe check` now runs
+```
+
+`poe vulkan-shaders` is in `poe check` because it costs a second and needs no
+GPU, display or build. `poe vulkan-runtime` is in `poe check-all` because it
+starts the real game once per rendering scenario.
+
+Neither skips quietly when its tools are missing — they exit with the package to
+install. A check that silently does nothing reports green, which is precisely how
+the validation gate here sat inert for weeks.
+
+`poe vulkan-runtime --best-practices` additionally runs the best-practices layer.
+Its findings are **printed and do not fail the gate**: what it currently reports
+is that `VK_EXT_debug_utils` is a debugging extension (enabled because we are
+debugging) and that a few buffers are small enough to be worth sub-allocating.
+Correctness and synchronization hazards gate; performance advice is printed.
 
 Both configurations are built and tested: **Debug** (`-O0`, ASan/UBSan) and **Release**
 (`-O2`, `NDEBUG`). This matters because `-Werror` is on in both and several warnings are

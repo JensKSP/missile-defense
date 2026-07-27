@@ -131,6 +131,13 @@ format       = { cmd = "python -m tools.quality format", help = "clang-format al
 format-check = { cmd = "python -m tools.quality format-check", help = "Fail if any C++ is unformatted" }
 tidy         = { cmd = "python -m tools.quality tidy", deps = ["build"], help = "clang-tidy core + app (warnings = errors)" }
 coverage     = { cmd = "python -m tools.coverage 80", help = "Measure md::core line coverage; fail if below 80%" }
+# Vulkan correctness, split by what it costs to ask. `vulkan-shaders` needs no
+# GPU, display or build and runs in `check`; `vulkan-runtime` starts the debug
+# game under the validation layer across every rendering scenario and runs in
+# `check-all`. There is no allow-list behind either (docs/TESTING.md).
+vulkan-shaders = { cmd = "python -m tools.vulkan_check shaders", help = "spirv-val every embedded shader against the declared Vulkan target" }
+vulkan-runtime = { cmd = "python -m tools.vulkan_check runtime", deps = ["build"], help = "Run the game under VK_LAYER_KHRONOS_validation + sync validation; any message fails" }
+vulkan-check   = { sequence = ["vulkan-shaders", "vulkan-runtime"], help = "Both Vulkan gates (docs/TESTING.md)" }
 deb          = { cmd = "cpack --config build/release/CPackConfig.cmake -B build/release -G DEB", deps = ["release"], help = "Build a .deb into build/release/ (needs dpkg-dev)" }
 dmg          = { cmd = "cpack --config build/release/CPackConfig.cmake -B build/release -G DragNDrop", deps = ["release"], help = "Build a .dmg into build/release/ (macOS; needs macdeployqt)" }
 version      = { cmd = "python -m tools.version", help = "Check CMakeLists/pyproject/changelog agree; `--dev semver|pep440|debian|filename` prints the nightly version" }
@@ -147,13 +154,13 @@ typecheck  = { sequence = ["mypy", "pyright"], help = "Static type-check (mypy +
 # --- Aggregate gates ---
 check = { sequence = [
   "format-check", "fmt-py-chk", "lint", "typecheck",
-  "tidy", "test", "test-release", "pytest", "coverage",
+  "tidy", "vulkan-shaders", "test", "test-release", "pytest", "coverage",
 ], help = "Full local CI gate — Debug + Release, tests, coverage ≥80%, zero warnings" }
 
 # The gate plus the application end-to-end suite. Separate from `check` because
 # it is minutes rather than seconds and because the game half needs a virtual X
 # server; CI runs this one, and it is what to run before a release.
-check-all = { sequence = ["check", "test-app"], help = "The full gate plus the application e2e suite" }
+check-all = { sequence = ["check", "vulkan-runtime", "test-app"], help = "The full gate plus Vulkan runtime validation and the application e2e suite" }
 
 install-hooks = { cmd = "python -m tools.hooks install", help = "Install the git pre-commit quality hook" }
 
