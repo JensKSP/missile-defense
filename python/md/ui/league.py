@@ -50,7 +50,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import league, library
+from .. import league, library, policy_format
 from . import sources
 
 NOTHING_PROMOTED = (
@@ -228,7 +228,13 @@ class LeagueView(QWidget):
         self._versus.clicked.connect(self._head_to_head)
         self._rename = QPushButton("Re&name…")
         self._rename.clicked.connect(self._rename_selected)
-        for button in (self._watch, self._evaluate, self._versus, self._rename):
+        self._export = QPushButton("E&xport…")
+        self._export.setToolTip(
+            "Save this model as a .mdp somebody else can import — or the game "
+            "can play with no Python anywhere"
+        )
+        self._export.clicked.connect(self._export_selected)
+        for button in (self._watch, self._evaluate, self._versus, self._rename, self._export):
             actions.addWidget(button)
         actions.addStretch(1)
         column.addLayout(actions)
@@ -281,7 +287,7 @@ class LeagueView(QWidget):
 
     def _selection_changed(self) -> None:
         model = self.selected()
-        for button in (self._watch, self._evaluate, self._rename):
+        for button in (self._watch, self._evaluate, self._rename, self._export):
             button.setEnabled(model is not None)
         # A contest needs an opponent, and a league of one has none. Disabled
         # with the reason in the tooltip rather than hidden: a button that
@@ -377,6 +383,40 @@ class LeagueView(QWidget):
             league.rename(model, name)
             self.refresh()
 
+    def _export_selected(self) -> None:
+        """Copy a model out of the league, byte for byte.
+
+        The other half of Import, and it was missing — you could take a `.mdp`
+        in and never get one out, which makes the league a place models go to
+        rather than a place they live. A copy and not a re-export: the file in
+        the league is already the portable format, and rewriting it would risk
+        producing something subtly different from the thing that was scored.
+        """
+        import shutil  # noqa: PLC0415 — only this path
+
+        from PySide6.QtWidgets import QFileDialog  # noqa: PLC0415 — only this path
+
+        model = self.selected()
+        if model is None:
+            return
+        suggested = str(Path.home() / f"{_file_stem(model.name)}.mdp")
+        chosen, _ = QFileDialog.getSaveFileName(
+            self, "Export this model", suggested, "Missile Defense policy (*.mdp)"
+        )
+        if not chosen:
+            return
+        destination = Path(chosen)
+        try:
+            shutil.copyfile(model.policy, destination)
+            # Read back before claiming success. A full disk truncates happily,
+            # and a `.mdp` that only *looks* written is the one failure that
+            # surfaces on somebody else's machine rather than this one.
+            policy_format.read(destination)
+        except (OSError, policy_format.PolicyFormatError) as error:
+            QMessageBox.warning(self, "Could not export", str(error))
+            return
+        QMessageBox.information(self, "Exported", f"{model.name} written to {destination}.")
+
     def _import_policy(self) -> None:
         from PySide6.QtWidgets import QFileDialog  # noqa: PLC0415 — only this path
 
@@ -392,6 +432,19 @@ class LeagueView(QWidget):
             QMessageBox.warning(self, "Could not import", str(error))
             return
         self.refresh()
+
+
+def _file_stem(name: str) -> str:
+    """A display name as a filename: spaces to dashes, nothing exotic kept.
+
+    Only a *suggestion* in a save dialog — the person can type whatever they
+    like — but a default containing a slash is one that fails on Enter.
+    """
+    kept = [c if c.isalnum() else "-" for c in name.strip().lower()]
+    stem = "".join(kept).strip("-")
+    while "--" in stem:
+        stem = stem.replace("--", "-")
+    return stem or "policy"
 
 
 def _score_text(best: Mapping[str, object] | None) -> str:

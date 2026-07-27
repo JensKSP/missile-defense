@@ -158,3 +158,69 @@ def test_restoring_over_an_existing_run_is_refused(
     assert storage.restore(library_copy, None) is None
     assert warned, "restoring over an existing run said nothing"
     assert "already exists" in warned[0]
+
+
+def test_a_model_can_be_exported_and_imported_back(
+    qt_app: object,  # noqa: ARG001 — the QApplication has to exist
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The round trip Import implied and Export did not exist for.
+
+    A league you can put models into and never get one out of is a place they
+    go rather than a place they live — and the whole point of `.mdp` is that it
+    travels. Byte-for-byte, because the file in the league already *is* the
+    portable format and re-exporting it could produce something subtly other
+    than the thing that was scored.
+    """
+    import numpy as np
+    from md import league, policy_format
+    from md.ui.league import LeagueView
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+    rng = np.random.default_rng(4)
+
+    def normal(*shape: int) -> np.ndarray:
+        return (rng.standard_normal(shape) * 0.1).astype(np.float32)
+
+    policy = policy_format.NativePolicy(
+        schema=policy_format.SCHEMA,
+        observation_size=6,
+        action_count=4,
+        architecture="mlp",
+        tensors=(
+            policy_format.Tensor("trunk.0.weight", (3, 6), normal(3, 6)),
+            policy_format.Tensor("trunk.0.bias", (3,), normal(3)),
+            policy_format.Tensor("trunk.2.weight", (3, 3), normal(3, 3)),
+            policy_format.Tensor("trunk.2.bias", (3,), normal(3)),
+            policy_format.Tensor("policy_head.weight", (4, 3), normal(4, 3)),
+            policy_format.Tensor("policy_head.bias", (4,), normal(4)),
+            policy_format.Tensor("value_head.weight", (1, 3), normal(1, 3)),
+            policy_format.Tensor("value_head.bias", (1,), normal(1)),
+        ),
+        metadata={"display_name": "Amber Anvil"},
+    )
+    root = tmp_path / "models"
+    (root / "aaaa").mkdir(parents=True)
+    policy_format.write(root / "aaaa" / league.POLICY_NAME, policy)
+
+    out = tmp_path / "shared" / "amber.mdp"
+    out.parent.mkdir()
+    monkeypatch.setattr(
+        QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (str(out), ""))
+    )
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a, **k: None))
+
+    view = LeagueView()
+    try:
+        view.show_models(league.models(root))
+        assert view.selected() is None
+        view._table.selectRow(0)
+        view._export_selected()
+    finally:
+        view.close()
+
+    assert out.is_file(), "nothing was exported"
+    # Byte for byte, and still a policy this build would run.
+    assert out.read_bytes() == (root / "aaaa" / league.POLICY_NAME).read_bytes()
+    assert policy_format.read(out) == policy
