@@ -319,31 +319,25 @@ def run_app(
 #:   belongs entirely to Qt's `QVulkanWindow`. Fixing it means either a Qt
 #:   version where it is fixed, or abandoning `QVulkanWindow` for a hand-rolled
 #:   swapchain — which is a renderer rewrite, not a patch. Recorded here so the
-#:   next person does not go looking for our semaphore.
-#: * `VkShaderModuleCreateInfo-pCode-08740` — **the note that used to be here was
-#:   wrong** and is corrected rather than deleted, because the wrong version was
-#:   convincing. It said the shaders are compiled against a newer target than the
-#:   instance asks for. They are not: `glslangValidator -V` emits SPIR-V 1.0
-#:   (module version 0x00010000, checkable in `build/*/app/shaders/*.h`, whose
-#:   second word is the version), and both shaders declare exactly one
-#:   capability, `Shader`, which is core Vulkan 1.0. Feeding both modules to a
-#:   validating instance created at API 1.0 — the version `QVulkanInstance` asks
-#:   for by default — produces no diagnostic at all.
+#:   next person does not go looking for our semaphore. Observed on Qt 6.8.2.
 #:
-#:   So whatever raised it, it was not `quad.vert` or `quad.frag` as this build
-#:   compiles them. The remaining candidate is another layer in the loader's
-#:   chain creating its own pipelines (an overlay or screenshot layer, both of
-#:   which are installed on the development machine). It stays baselined because
-#:   it was observed and has not been observed *not* to happen — but it must not
-#:   be repaired by "fixing" shaders that are already correct.
+#: `VkShaderModuleCreateInfo-pCode-08740` **was** here and is fixed, in
+#: `app/main.cpp`. Two successive notes in this spot diagnosed it wrongly — the
+#: first blamed the shaders' SPIR-V target, the second blamed another loader
+#: layer — and both were confident. The actual cause: `QVulkanInstance` does not
+#: fill in `VkApplicationInfo::apiVersion` unless it is told to, so the instance
+#: declared version 0, and the layer correctly reported every shader module as
+#: declaring the `Shader` capability with nothing that satisfies it. One
+#: `setApiVersion(QVersionNumber(1, 0))` and it is gone.
+#:
+#: The lesson is kept because it cost two passes: a validation message about a
+#: shader was not about the shaders. Before rewriting anything the layer
+#: complains about, check what the instance actually asked for.
 #:
 #: Finding these was the first thing this layer did, which is roughly the
 #: argument for having it. Diagnosing them correctly took a second pass, which is
 #: roughly the argument for writing the evidence down beside the baseline.
-KNOWN_VALIDATION_ERRORS = (
-    "VUID-vkAcquireNextImageKHR-semaphore-01779",
-    "VUID-VkShaderModuleCreateInfo-pCode-08740",
-)
+KNOWN_VALIDATION_ERRORS = ("VUID-vkAcquireNextImageKHR-semaphore-01779",)
 
 
 def validation_errors(run: AppRun, *, include_known: bool = False) -> list[str]:
@@ -413,19 +407,51 @@ def train(
     read were written by the actual trainer, through the actual bindings, in a
     separate process — which is where the integration failures live.
     """
-    settings = dict(TINY_RUN)
-    settings.update(overrides or {})
-    command: list[str] = [python or sys.executable, "-m", "md.train", "--out-dir", str(out_dir)]
-    for flag, value in settings.items():
-        command += [flag, value]
     return subprocess.run(
-        command,
+        train_command(out_dir, overrides=overrides, python=python),
         capture_output=True,
         text=True,
         timeout=timeout,
         env=train_environ(),
         cwd=str(PROJECT_ROOT),
         check=False,
+    )
+
+
+def train_command(
+    out_dir: Path,
+    *,
+    overrides: Mapping[str, str] | None = None,
+    python: str | None = None,
+) -> list[str]:
+    """The command line a tiny run is started with."""
+    settings = dict(TINY_RUN)
+    settings.update(overrides or {})
+    command: list[str] = [python or sys.executable, "-m", "md.train", "--out-dir", str(out_dir)]
+    for flag, value in settings.items():
+        command += [flag, value]
+    return command
+
+
+def start_training(
+    out_dir: Path,
+    *,
+    overrides: Mapping[str, str] | None = None,
+    python: str | None = None,
+) -> subprocess.Popen[str]:
+    """The same run, handed back while it is still going.
+
+    For the tests that have something to say to a *live* trainer — the control
+    files (:mod:`md.control`) are answers to questions asked mid-run, and a
+    finished run cannot be asked.
+    """
+    return subprocess.Popen(  # noqa: S603 — our own command line, built above
+        train_command(out_dir, overrides=overrides, python=python),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        env=train_environ(),
+        cwd=str(PROJECT_ROOT),
     )
 
 

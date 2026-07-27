@@ -4,6 +4,7 @@
 #include "game_window.hpp"
 
 #include <QGuiApplication>
+#include <QVersionNumber>
 #include <QVulkanInstance>
 #include <algorithm>
 #include <cstdio>
@@ -231,6 +232,16 @@ int run(int argc, char** argv) {
 #endif
 
     QVulkanInstance instance;
+    // Say which Vulkan this program is written against. Left unset, Qt sends
+    // `VkApplicationInfo::apiVersion = 0`, and the validation layer then reports
+    // every shader module as declaring the `Shader` capability without the
+    // VK_VERSION_1_0 that satisfies it — a real complaint about a real omission,
+    // however harmless the driver's behaviour happens to be.
+    //
+    // 1.0 and not something newer: this renderer is instanced quads under an
+    // orthographic transform and uses nothing above the base feature set, and
+    // asking for more would refuse to start on hardware that can run the game.
+    instance.setApiVersion(QVersionNumber(1, 0));
 #ifdef MD_VULKAN_VALIDATION
     instance.setLayers({"VK_LAYER_KHRONOS_validation"}); // dev builds only (opt-in)
 #endif
