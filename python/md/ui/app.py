@@ -292,6 +292,7 @@ class Console(QMainWindow):
         #: so they are made here with everything else that re-attaching resets.
         self._peak_score = sources.Peak()
         self._peak_return = sources.Peak()
+        self._last_return = sources.Latest()
         self._peak_entropy = sources.Peak()
         #: Every eval, by the update it scored. A checkpoint is described by the
         #: evaluation at *its* update, which is not always the newest one.
@@ -855,6 +856,7 @@ class Console(QMainWindow):
             self._updates = 0
             self._last_metric = None
             self._peak_return.clear()
+            self._last_return.clear()
             self._peak_entropy.clear()
             # A different run writes into the same file, so where it starts
             # counting and how far it means to go are both somebody else's now.
@@ -871,6 +873,7 @@ class Console(QMainWindow):
             # Every row, not only the last of the batch: a poll can carry a
             # hundred updates, and the peak is often not in the newest one.
             self._peak_return.offer(row.update, row.mean_return)
+            self._last_return.offer(row.update, row.mean_return)
             self._peak_entropy.offer(row.update, row.entropy)
             self._updates += 1
         if not batch.rows:
@@ -879,7 +882,15 @@ class Console(QMainWindow):
         self._score.set_x_extent(row.update)  # the eval chart spans the run too
         self._tile_update.set_value(f"{row.update:,}")
         self._tile_update.set_note(self._progress_note(row))
-        self._tile_return.set_value(_number(row.mean_return, "{:,.1f}"))
+        # `mean_return` is `nan` until the first episodes of a run finish, and
+        # they are thousands of ticks long — so after a `--resume` this tile
+        # showed a bare dash for minutes while the chart under it was drawing a
+        # curve. A dash means "no measurement exists"; one does, it is just not
+        # from this update, so show it and say which update it is from.
+        self._tile_return.set_value(_number(self._last_return.value, "{:,.1f}"))
+        self._tile_return.set_note(
+            self._last_return.note("shaped, scaled — not a score", current_update=row.update)
+        )
         self._tile_entropy.set_value(_number(row.entropy, "{:.3f}"))
         self._tile_return.set_peak(sources.peak_note(self._peak_return, "{:,.1f}"))
         self._tile_entropy.set_peak(sources.peak_note(self._peak_entropy, "{:.3f}"))

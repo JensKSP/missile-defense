@@ -590,6 +590,43 @@ class Peak:
         self.update = None
 
 
+class Latest:
+    """The newest measurement that actually exists, and when it was taken.
+
+    Not the same question as :class:`Peak`, and not the same as "the newest row".
+    The trainer writes ``nan`` for the mean return until a run's first episodes
+    finish — thousands of ticks — so straight after a start or a ``--resume``
+    the newest row genuinely has no return in it. A tile fed from that row alone
+    shows a dash, which claims no measurement exists when one does.
+
+    So this keeps the last real one and the update it came from. Showing it
+    without saying *when* would be the opposite error: a stale number presented
+    as current. :meth:`note` is what stops that, and it is why the update is
+    kept here rather than only the value.
+    """
+
+    def __init__(self) -> None:
+        self.value: float | None = None
+        self.update: int | None = None
+
+    def offer(self, update: int, value: float | None) -> None:
+        if value is not None:
+            self.value = value
+            self.update = update
+
+    def note(self, meaning: str, *, current_update: int | None = None) -> str:
+        """``shaped, scaled — not a score`` while current; adds the age when not."""
+        if self.value is None or self.update is None:
+            return meaning
+        if current_update is None or current_update == self.update:
+            return meaning
+        return f"{meaning} · last at update {self.update:,}"
+
+    def clear(self) -> None:
+        self.value = None
+        self.update = None
+
+
 # ---- recordings -------------------------------------------------------------
 
 

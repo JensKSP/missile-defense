@@ -114,6 +114,9 @@ class CurveView(QChartView):
         # and what a hover is snapped to, and both want plain floats.
         self._xs: list[float] = []
         self._ys: list[float] = []
+        #: Where a resumed run rewound the update counter. Kept so the seam can
+        #: be shown rather than quietly closed over — see :meth:`_rewind_to`.
+        self._resumes: list[float] = []
         self._compare_xs: list[float] = []
         self._compare_ys: list[float] = []
         #: The footnote at full length, before it is trimmed to the chart's width.
@@ -214,6 +217,8 @@ class CurveView(QChartView):
     def append(self, x: float, y: float | None) -> None:
         if y is None:
             return
+        if self._xs and x <= self._xs[-1]:
+            self._rewind_to(x)
         self._series.append(x, y)
         self._xs.append(x)
         self._ys.append(y)
@@ -227,6 +232,59 @@ class CurveView(QChartView):
             self._y_min, self._y_max = min(self._y_min, y), max(self._y_max, y)
         self._rescale()
         self._refresh_stats()
+
+    def _rewind_to(self, x: float) -> None:
+        """Drop the points a resumed run has superseded, and mark where.
+
+        `--resume` restarts from a checkpoint, so the trainer writes update 651
+        again after having already written up to 661. Those later rows describe a
+        branch the resume abandoned; appending the new ones after them draws a
+        line running *backwards* across the plot, which is what this looked like
+        before — a straight segment from the newest point back to where the
+        resume began, in every curve at once.
+
+        Sorting would not fix it: both branches are real, they disagree, and one
+        of them is over. So the superseded tail is removed and the seam recorded,
+        because a curve that silently swallowed a discarded branch would be no
+        more honest than one that drew a line backwards through it.
+
+        Removal from the tail forwards: `QLineSeries.removePoints` takes an index
+        and a count, and the points are in insertion order, which after this
+        method is also x order.
+        """
+        keep = bisect.bisect_left(self._xs, x)
+        if keep >= len(self._xs):
+            return
+        self._series.removePoints(keep, len(self._xs) - keep)
+        del self._xs[keep:]
+        del self._ys[keep:]
+        self._count = len(self._xs)
+        self._resumes.append(x)
+        # The extents were computed over points that are gone. Recompute rather
+        # than adjust: a discarded branch may well have held the maximum, and a
+        # y-axis still scaled to it would leave the live curve flat at the bottom.
+        if self._xs:
+            self._x_min, self._x_max = min(self._xs), max(self._xs)
+            self._y_min, self._y_max = min(self._ys), max(self._ys)
+            self._last = self._ys[-1]
+        else:
+            self._x_min = self._x_max = self._y_min = self._y_max = 0.0
+            self._last = None
+
+    @property
+    def resumes(self) -> tuple[float, ...]:
+        """The x positions where a resume discarded a later branch."""
+        return tuple(self._resumes)
+
+    @property
+    def points(self) -> tuple[tuple[float, float], ...]:
+        """What is currently drawn, in x order. Read-only, and a copy."""
+        return tuple(zip(self._xs, self._ys, strict=True))
+
+    @property
+    def y_range(self) -> tuple[float, float]:
+        """The value extent the axis is scaled to, low first."""
+        return (self._y_min, self._y_max)
 
     def extend(self, points: Iterable[tuple[float, float | None]]) -> None:
         for x, y in points:
@@ -323,6 +381,7 @@ class CurveView(QChartView):
         self._series.clear()
         self._xs.clear()
         self._ys.clear()
+        self._resumes.clear()
         self._count = 0
         self._last = None
         self._hide_readout()
