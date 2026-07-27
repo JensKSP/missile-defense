@@ -162,6 +162,30 @@ non-MSYS2 process, so the console puts `<msys2>\clang64\bin` back on `PATH` for
 the child — otherwise it dies looking for `libc++.dll` with no window to say so.
 Set `MSYS2_ROOT` if MSYS2 is not at `C:\msys64`.
 
+### Reaching the console from an installed game
+
+**TRAIN AI in the game's menu is the way in.** The installer and the portable
+ZIP both put the console's payload — `md\ui\` — beside `md_app.exe`, and the
+game looks there: with a usable `python` on `PATH` the entry appears, and
+choosing it runs `python -m md.ui` with that directory on the import path.
+
+What the game deliberately does *not* use is the `md-console.cmd` sitting in
+the same folder. **Smart App Control blocks unsigned scripts** on a stock
+Windows 11, so where that policy is on, the `.cmd` cannot be run at all —
+neither by the game nor by anyone double-clicking it. It stays for machines
+without the policy; nothing depends on it.
+
+Until 2026-07-27 there was no way in at all. The lookup asked for
+`md-console.exe` — the wrong extension for a file called `md-console.cmd` — and
+searched `PATH` plus two Unix directories, never the one the installer actually
+writes to. Every Windows install resolved to nothing and the menu offered no
+training, with the console unreachable in the same folder as the binary that
+could not find it.
+
+**Nothing is written into the install directory.** The managed PyTorch runtime,
+the runs and the models all live under `%LOCALAPPDATA%\MissileDefense`, so an
+install in `C:\Program Files` never needs write access of its own.
+
 ## Screenshots
 
 `poe shot` and `poe rec` work here — the backend is PowerShell plus

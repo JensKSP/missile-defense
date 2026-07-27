@@ -32,6 +32,53 @@
 
 namespace {
 
+#ifdef Q_OS_WIN
+/// Print into the terminal that started us, when there is one.
+///
+/// The game is linked for the GUI subsystem (app/CMakeLists.txt), which is what
+/// stops Windows opening a console window behind it. The cost is that a
+/// GUI-subsystem process starts with no standard streams at all, so every
+/// `--report` line, every `--help` and every error message below would be
+/// written into nothing — including the ones an e2e reads back.
+///
+/// Attaching to the parent's console gets them back for the case that wants
+/// them, and does nothing at all when there is no parent console to attach to:
+/// launched from Explorer, a shortcut or the installer, this returns
+/// immediately. The shell's prompt has already returned by then, so output
+/// arrives underneath it — the accepted shape of this on Windows, and still
+/// infinitely better than a window that is always there.
+/// Whether a standard stream already leads somewhere.
+///
+/// A process started with `> file` or into a pipe inherits a working handle for
+/// it whatever subsystem it was linked for. Re-pointing *that* at the console
+/// sends the output to the terminal instead of to whoever asked for it, which
+/// is not a theory: the first version of this did it unconditionally, and
+/// `--report` piped into a reader came back empty every time.
+bool stream_already_connected(DWORD stream) {
+    const HANDLE handle = GetStdHandle(stream);
+    if (handle == nullptr || handle == INVALID_HANDLE_VALUE) {
+        return false;
+    }
+    return GetFileType(handle) != FILE_TYPE_UNKNOWN;
+}
+
+void attach_parent_console() {
+    if (AttachConsole(ATTACH_PARENT_PROCESS) == 0) {
+        return;
+    }
+    // Only the streams that have nowhere to go. AttachConsole hands the process
+    // a console but does not connect the C streams to it, so the ones that were
+    // not inherited have to be pointed at it by hand — and the ones that were
+    // must be left exactly alone.
+    if (!stream_already_connected(STD_OUTPUT_HANDLE)) {
+        (void)std::freopen("CONOUT$", "w", stdout);
+    }
+    if (!stream_already_connected(STD_ERROR_HANDLE)) {
+        (void)std::freopen("CONOUT$", "w", stderr);
+    }
+}
+#endif
+
 #ifdef Q_OS_MACOS
 /// Point the Vulkan loader at the MoltenVK the bundle carries, if it carries one.
 ///
@@ -388,6 +435,10 @@ int run(int argc, char** argv) {
 } // namespace
 
 int main(int argc, char** argv) {
+#ifdef Q_OS_WIN
+    // Before anything can want to print — including the catch blocks below.
+    attach_parent_console();
+#endif
     // Reading a recording touches the filesystem, so main can now be reached by an
     // exception; it must not escape (bugprone-exception-escape). fputs, not
     // std::println, because the handler itself must not be able to throw.

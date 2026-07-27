@@ -5,7 +5,7 @@
 // The lookup that decides whether the menu offers TRAIN AI at all. It is the
 // boundary between the two products, so what is tested here is the *search
 // order* rather than any one answer: `md.ui.runner.console_executable()` walks
-// the same three places in the same sequence, and a disagreement between them is
+// the same four places in the same sequence, and a disagreement between them is
 // either a menu entry that launches nothing or a console nobody can reach.
 #include "console.hpp"
 
@@ -70,6 +70,10 @@ struct Machine {
     /// The PATH variable's directories, joined by `join()` with the separator
     /// the search actually splits on — `;` on Windows, `:` elsewhere.
     std::string path;
+    /// The install directory an installer dropped the console's payload into,
+    /// beside the game. A member rather than a `lookup()` argument because the
+    /// checkout already has that seat and the two are never both the answer.
+    std::filesystem::path payload;
 
     [[nodiscard]] md::console::Lookup lookup(std::filesystem::path root = {}) const {
         md::console::Lookup probe;
@@ -91,11 +95,18 @@ struct Machine {
         };
         probe.search_path = path;
         probe.checkout_root = std::move(root);
+        probe.payload_root = payload;
         return probe;
     }
 };
 
 constexpr std::string_view checkout = "/home/dev/missile-defense";
+
+/// Where a Windows installer leaves the game and the console's payload together.
+/// Spelled with forward slashes so the fixtures compare through
+/// `generic_string()` like every other path here; the separator is not what
+/// these cases are about.
+constexpr std::string_view install_dir = "/c/Program Files/Missile Defense";
 
 } // namespace
 
@@ -160,6 +171,58 @@ TEST_CASE("A checkout offers its own console through the interpreter", "[unit][a
     CHECK(command->argv ==
           std::vector<std::string>{launcher("/usr/bin", "python3"), "-m", "md.ui"});
     CHECK(command->python_path.generic_string() == std::string{checkout} + "/python");
+}
+
+TEST_CASE("An installed payload beside the game is run through the interpreter",
+          "[unit][app][console]") {
+    // The Windows case, and the one that was missing: the installer writes
+    // `md\ui\` next to `md_app.exe` and nothing onto PATH, so before this stage
+    // existed every Windows install — installer and portable ZIP alike —
+    // resolved to nothing and the menu never offered training at all.
+    Machine machine;
+    machine.payload = install_dir;
+    machine.executables = {std::string{install_dir} + "/md/ui/__main__.py", "/usr/bin/python3"};
+    machine.path = "/usr/bin";
+
+    const auto command = md::console::command(machine.lookup());
+    REQUIRE(command.has_value());
+    CHECK(command->argv ==
+          std::vector<std::string>{launcher("/usr/bin", "python3"), "-m", "md.ui"});
+    // The payload's own directory, not a `python/` below it: that is what the
+    // installed layout looks like, and what launcher.cmd.in sets from `%~dp0`.
+    CHECK(command->python_path.generic_string() == std::string{install_dir});
+}
+
+TEST_CASE("An installed launcher still wins over the payload beside the game",
+          "[unit][app][console]") {
+    // Someone who pip-installed the package has an `md-console` of their own on
+    // PATH. It is the more explicit answer of the two, so the order that put
+    // PATH first has to survive the new stage being added underneath it.
+    Machine machine;
+    machine.payload = install_dir;
+    machine.executables = {std::string{install_dir} + "/md/ui/__main__.py",
+                           "/home/dev/.local/bin/md-console", "/usr/bin/python3"};
+    machine.path = join({"/home/dev/.local/bin", "/usr/bin"});
+
+    const auto command = md::console::command(machine.lookup());
+    REQUIRE(command.has_value());
+    CHECK(command->argv ==
+          std::vector<std::string>{launcher("/home/dev/.local/bin", "md-console")});
+    CHECK(command->python_path.empty());
+}
+
+TEST_CASE("A payload with no interpreter offers nothing", "[unit][app][console]") {
+    // The same rule the checkout case keeps, and it matters more here: a
+    // Windows install carries the payload whether or not the machine has any
+    // Python, so without this the menu would offer training on every game-only
+    // install that happened to tick the console component.
+    Machine machine;
+    machine.payload = install_dir;
+    machine.executables = {std::string{install_dir} + "/md/ui/__main__.py"};
+    machine.path = "/usr/bin";
+
+    CHECK_FALSE(md::console::find(machine.lookup()).has_value());
+    CHECK_FALSE(md::console::command(machine.lookup()).has_value());
 }
 
 TEST_CASE("A game-only install offers no console at all", "[unit][app][console]") {

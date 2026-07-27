@@ -491,3 +491,43 @@ def test_a_checkout_can_run_the_console_it_contains(tmp_path: Path) -> None:
     found = console_executable({"PATH": ""}, root=tmp_path)
     assert found is not None
     assert found.name.startswith("python")
+
+
+def _install_payload(root: Path) -> Path:
+    """The console's payload as a Windows installer leaves it, beside the game."""
+    package = root / "md" / "ui"
+    package.mkdir(parents=True)
+    (package / "__main__.py").write_text("", encoding="utf-8")
+    return root
+
+
+def test_a_payload_beside_the_game_is_run_by_the_interpreter(tmp_path: Path) -> None:
+    # The Windows case. The installer writes `md\ui\` next to `md_app.exe` and
+    # nothing onto PATH, and what it calls a launcher is a `.cmd` that Smart App
+    # Control refuses to run — so the interpreter is the only way in, and this
+    # is the stage that finds it. The C++ side has the same case in
+    # test_console.cpp; the two must not disagree about it.
+    install = _install_payload(tmp_path / "Missile Defense")
+    found = console_executable({"PATH": ""}, root=tmp_path / "no-checkout", install_root=install)
+    assert found is not None
+    assert found.name.startswith("python")
+
+
+def test_an_installed_launcher_still_wins_over_the_payload(tmp_path: Path) -> None:
+    # Someone who pip-installed the package has an md-console of their own, and
+    # it is the more explicit answer. Adding a stage underneath PATH must not
+    # reorder the ones above it.
+    console = _install_console(tmp_path)
+    install = _install_payload(tmp_path / "Missile Defense")
+    found = console_executable(
+        {"PATH": str(tmp_path)}, root=tmp_path / "no-checkout", install_root=install
+    )
+    assert found == console
+
+
+def test_an_unknown_install_root_offers_no_payload(tmp_path: Path) -> None:
+    # The default. `install_root` unset means the caller knows of no install, not
+    # "look wherever `md` happens to be imported from" — which is always true and
+    # would turn a game-only install into one that offers training.
+    _install_payload(tmp_path / "Missile Defense")
+    assert console_executable({"PATH": str(tmp_path)}, root=tmp_path / "nowhere") is None

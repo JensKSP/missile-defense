@@ -123,6 +123,13 @@ endif()
 
 # Windows: the audio device init explicitly manages a COM apartment (audio.cpp).
 if(WIN32)
+  # The counterpart of MACOSX_BUNDLE above, and no more cosmetic than it is.
+  # Without this the binary is linked for the console subsystem, so Windows opens
+  # a black command window behind the game and leaves it there for as long as it
+  # runs — reported from a real download of the nightly on 2026-07-27. Qt6::Core
+  # links its WinMain shim in on exactly this property, so `main()` stays where it
+  # is; what a terminal still needs is in main.cpp's attach_parent_console().
+  set_target_properties(md_app PROPERTIES WIN32_EXECUTABLE ON)
   target_link_libraries(md_app PRIVATE ole32)
   # Embed the application icon (shown by Explorer, the taskbar and shortcuts).
   enable_language(RC)

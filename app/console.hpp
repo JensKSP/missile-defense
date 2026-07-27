@@ -16,9 +16,18 @@
 /// TRAIN AI entry only when it resolves, so on a game-only install — no Python,
 /// no `md` package, no `md-console` — it must find nothing and the menu simply
 /// does not offer training. `md.ui.runner.console_executable()` searches the
-/// same three places in the same order for exactly that reason: a disagreement
+/// same four places in the same order for exactly that reason: a disagreement
 /// between them is either a menu entry that launches nothing, or a console that
 /// is installed and unreachable.
+///
+/// The fourth place is the Windows one, and it was missing until 2026-07-27:
+/// there, the console's payload is installed *beside the game* — `md/ui/` next
+/// to `md_app.exe`, under `C:\Program Files\Missile Defense` or wherever the
+/// portable ZIP was unpacked. That directory is on nobody's `PATH`, and the two
+/// system directories searched before it are Unix paths that cannot exist. So
+/// every Windows install, installer and ZIP alike, resolved to nothing and
+/// offered no way into training at all — while `md-console.cmd` sat unreachable
+/// in the same folder as the binary that could not find it.
 ///
 /// Nothing here touches Qt, and that is deliberate — the search order is the
 /// part worth testing, and a test of it should not need a window, a display or
@@ -62,6 +71,12 @@ struct Lookup {
     std::string search_path;
     /// The checkout this binary was built in, or empty when it was installed.
     std::filesystem::path checkout_root;
+    /// The directory holding the console's Python payload an installer left
+    /// beside the game (`md/ui/__main__.py` in it), or empty when there is
+    /// none. Distinct from `checkout_root`, which holds the *sources* one level
+    /// further down in `python/`; these are two different layouts and looking
+    /// for one in the other finds nothing.
+    std::filesystem::path payload_root;
 };
 
 /// How to start the console: an argv, plus the import path it needs.

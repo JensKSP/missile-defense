@@ -149,6 +149,7 @@ def console_executable(
     *,
     root: Path | None = None,
     platform: str = sys.platform,
+    install_root: Path | None = None,
 ) -> Path | None:
     """Locate the training console, or ``None`` if this install does not have one.
 
@@ -160,16 +161,29 @@ def console_executable(
     between them is a menu entry that launches nothing, or a console that is
     installed and unreachable.
 
-    Three places, most explicit first, mirroring :func:`app_binary`:
+    Four places, most explicit first, mirroring :func:`app_binary`:
 
     1. ``MD_CONSOLE`` — someone said which one. A path that does not exist is
        ``None`` rather than a fallback, because falling back would start a
        *different* console than the one that was named.
     2. ``md-console`` on ``PATH``, then the directories an installer uses — the
        answer for anyone who installed the package.
-    3. this checkout's own ``python/md/ui``, run as ``-m md.ui`` — a developer
+    3. the payload an installer left beside the game — ``md/ui`` in
+       ``install_root``, run as ``-m md.ui``. This is the Windows answer, where
+       what the installer writes is ``md-console.cmd``: a *script*, which Smart
+       App Control blocks on a stock Windows 11, and which no amount of
+       searching for an executable would have found anyway.
+    4. this checkout's own ``python/md/ui``, run as ``-m md.ui`` — a developer
        has no installed launcher but does have the console, and the game should
        still offer it there.
+
+    ``install_root`` is the directory the game was installed into. It has no
+    default worth having: the C++ side derives it from the directory its own
+    binary is in, and the only thing this side could reach for — ``PACKAGE_PATH``
+    — is the directory ``md`` is being imported from right now, so it would
+    always match and turn step 3 into an unconditional yes. Unset means "this
+    caller does not know of one", which is the honest answer from inside a
+    console that was started some other way.
     """
     env = os.environ if environ is None else environ
     root = PROJECT_ROOT if root is None else root
@@ -188,6 +202,8 @@ def console_executable(
             candidate = Path(directory) / f"{name}{exe}"
             if candidate.exists():
                 return candidate
+    if install_root is not None and (install_root / "md" / "ui" / "__main__.py").exists():
+        return Path(sys.executable)
     if (root / "python" / "md" / "ui" / "__main__.py").exists():
         return Path(sys.executable)
     return None
@@ -198,14 +214,15 @@ def console_command(
     *,
     root: Path | None = None,
     platform: str = sys.platform,
+    install_root: Path | None = None,
 ) -> list[str] | None:
-    """The console as an argv, or ``None``. Adds ``-m md.ui`` for the checkout case.
+    """The console as an argv, or ``None``. Adds ``-m md.ui`` where an interpreter runs it.
 
     Split from :func:`console_executable` because the game only needs to know
     *whether* there is one to decide its menu, while starting it needs the whole
-    command — and only one of the three answers above is not self-contained.
+    command — and two of the four answers above are not self-contained.
     """
-    found = console_executable(environ, root=root, platform=platform)
+    found = console_executable(environ, root=root, platform=platform, install_root=install_root)
     if found is None:
         return None
     if found == Path(sys.executable):

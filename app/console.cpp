@@ -25,20 +25,44 @@ constexpr std::array<std::string_view, 1> console_names{"md-console"};
 /// console is not a game and its Debian package puts it in `/usr/bin`.
 constexpr std::array<std::string_view, 2> system_directories{"/usr/bin", "/usr/local/bin"};
 
-/// Anything that could run `-m md.ui` from a checkout, most specific first.
+/// Anything that could run `-m md.ui`, most specific first.
+///
+/// Windows takes the two in the other order, to agree with
+/// `packaging/launcher.cmd.in`, which runs plain `python`. That is the same
+/// decision made twice, and on a machine where the two names resolve to
+/// different interpreters the menu entry and the shipped script would start
+/// different consoles.
+///
+/// `python3` is the riskier name to prefer there. Windows ships app execution
+/// aliases for *both* names in `WindowsApps`, and what they lead to depends on
+/// how Python was installed — measured on one machine here, both resolved to a
+/// real 3.14; on a machine with no Python at all they open the Microsoft Store
+/// instead of running anything. Neither can be told apart from an interpreter
+/// without executing it, which a search that only asks "is this file there?"
+/// must not do, so it takes the name the rest of the packaging already picked.
+#ifdef _WIN32
+constexpr std::array<std::string_view, 2> interpreter_names{"python", "python3"};
+#else
 constexpr std::array<std::string_view, 2> interpreter_names{"python3", "python"};
+#endif
 
 /// The marker that says a directory is this project's checkout rather than any
 /// other. The console's own entry module, because that is precisely the thing
 /// the checkout fallback would go on to run.
 constexpr std::string_view console_module = "python/md/ui/__main__.py";
 
-/// Which of the three answers the search gave, so the caller does not have to
+/// The same marker in an *installed* layout, where the payload sits directly
+/// beside the game instead of under a `python/` source directory.
+constexpr std::string_view payload_module = "md/ui/__main__.py";
+
+/// Which of the four answers the search gave, so the caller does not have to
 /// re-derive it from the path. An installed `md-console` can perfectly well sit
-/// in the same directory as a `python3`, so the path alone does not say.
+/// in the same directory as a `python3`, so the path alone does not say — and
+/// the two interpreter answers are told apart by nothing else at all.
 enum class Origin : std::uint8_t {
     Named,     ///< MD_CONSOLE
     Installed, ///< a launcher on PATH or in a system directory
+    Payload,   ///< the `md` package beside the game, to be handed `-m md.ui`
     Checkout,  ///< an interpreter, to be handed `-m md.ui`
 };
 
@@ -60,6 +84,20 @@ std::optional<std::filesystem::path> on_search_path(const Lookup& lookup, std::s
         std::filesystem::path candidate = std::filesystem::path{directory} / wanted;
         if (lookup.executable(candidate)) {
             return candidate;
+        }
+    }
+    return std::nullopt;
+}
+
+/// The first interpreter on `PATH` that could be handed `-m md.ui`.
+///
+/// Shared by the two answers that need one. They differ only in *which*
+/// directory goes on the import path, and having one of them find an
+/// interpreter the other would not is a difference nobody would ever want.
+std::optional<std::filesystem::path> interpreter(const Lookup& lookup) {
+    for (const std::string_view name : interpreter_names) {
+        if (auto found = on_search_path(lookup, name)) {
+            return found;
         }
     }
     return std::nullopt;
@@ -92,16 +130,26 @@ std::optional<std::pair<std::filesystem::path, Origin>> resolve(const Lookup& lo
             }
         }
     }
-    // 3. A checkout, run through an interpreter. Without one there is nothing to
+    // 3. The payload an installer left beside the game. This is the Windows
+    //    answer, and there is deliberately no launcher to look for: what the
+    //    installer writes there is `md-console.cmd`, a *script*, which Smart
+    //    App Control blocks outright on a stock Windows 11. Running the
+    //    interpreter directly is exactly what that script does, minus the one
+    //    part of it the platform refuses to execute.
+    if (!lookup.payload_root.empty() && lookup.executable(lookup.payload_root / payload_module)) {
+        if (auto found = interpreter(lookup)) {
+            return std::pair{*found, Origin::Payload};
+        }
+        return std::nullopt; // a payload with nothing to run it is not an offer
+    }
+    // 4. A checkout, run through an interpreter. Without one there is nothing to
     //    run `-m md.ui` with, and offering the entry anyway would put an item on
     //    screen that does nothing when it is chosen.
     if (lookup.checkout_root.empty() || !lookup.executable(lookup.checkout_root / console_module)) {
         return std::nullopt;
     }
-    for (const std::string_view name : interpreter_names) {
-        if (auto found = on_search_path(lookup, name)) {
-            return std::pair{*found, Origin::Checkout};
-        }
+    if (auto found = interpreter(lookup)) {
+        return std::pair{*found, Origin::Checkout};
     }
     return std::nullopt;
 }
@@ -127,7 +175,20 @@ Lookup machine_lookup(const std::filesystem::path& own_executable) {
     // game finds nothing and stops at the filesystem root; a build tree finds
     // the checkout three or four levels up without this having to know which.
     std::error_code ec;
-    std::filesystem::path directory = std::filesystem::absolute(own_executable, ec).parent_path();
+    const std::filesystem::path own_directory =
+        std::filesystem::absolute(own_executable, ec).parent_path();
+
+    // The installed layout, and one probe rather than a walk: an installer puts
+    // the payload in the same directory as the binary — `md\ui\` beside
+    // `md_app.exe`, under `C:\Program Files\Missile Defense` or wherever the
+    // portable ZIP was unpacked — or it does not put it anywhere. Looking any
+    // further up would start finding other people's `md` directories.
+    std::error_code payload_probe;
+    if (std::filesystem::is_regular_file(own_directory / payload_module, payload_probe)) {
+        lookup.payload_root = own_directory;
+    }
+
+    std::filesystem::path directory = own_directory;
     while (!directory.empty()) {
         std::error_code probe;
         if (std::filesystem::is_regular_file(directory / console_module, probe)) {
@@ -157,6 +218,11 @@ std::optional<Command> command(const Lookup& lookup) {
     }
     if (found->second == Origin::Checkout) {
         return Command{{found->first.string(), "-m", "md.ui"}, lookup.checkout_root / "python"};
+    }
+    if (found->second == Origin::Payload) {
+        // The payload's own directory is the import path, which is what
+        // `packaging/launcher.cmd.in` sets `PYTHONPATH` to from `%~dp0`.
+        return Command{{found->first.string(), "-m", "md.ui"}, lookup.payload_root};
     }
     return Command{{found->first.string()}, {}};
 }
