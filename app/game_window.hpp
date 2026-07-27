@@ -196,6 +196,12 @@ class GameWindow : public QVulkanWindow {
     /// Static so the packaging tests can ask without building a window.
     [[nodiscard]] static std::filesystem::path pretrained_path();
 
+    /// Every `.mdp` the package ships, name-sorted — the WATCH AI ladder. Three
+    /// of them: the same network at `learned-low`, `learned-medium` and
+    /// `learned-high`, so a player can watch one policy learn rather than take
+    /// the claim on trust.
+    [[nodiscard]] static std::vector<std::filesystem::path> bundled_models();
+
     /// Simulation ticks run per frame — 1 is real time, higher fast-forwards.
     [[nodiscard]] int speed() const noexcept { return speed_; }
 

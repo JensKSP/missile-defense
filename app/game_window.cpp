@@ -68,21 +68,50 @@ GameWindow::GameWindow() {
 /// `/usr/games/missile-defense` by the relative hop below. A checkout finds the
 /// source tree's own `models/`, so `--watch-model` is not the only way to try
 /// one during development.
-std::filesystem::path GameWindow::pretrained_path() {
+/// Every `.mdp` the package ships, sorted by name.
+///
+/// A list rather than one named file: the game bundles the same network at three
+/// points in its training — `learned-low`, `learned-medium`, `learned-high` —
+/// so a player can watch one policy acquire ammunition discipline instead of
+/// taking the claim on trust. Looking for a single `pretrained.mdp` would have
+/// shown one of them and silently dropped the other two.
+///
+/// Sorted, because the directory order is the filesystem's and the menu's is a
+/// ladder: low, medium, high is the order the names already spell.
+std::vector<std::filesystem::path> GameWindow::bundled_models() {
     const QString here = QCoreApplication::applicationDirPath();
     const std::array<QString, 4> candidates{
-        here + "/models/pretrained.mdp",
-        here + "/../Resources/models/pretrained.mdp",             // macOS bundle
-        here + "/../share/missile-defense/models/pretrained.mdp", // Debian
-        here + "/../../../models/pretrained.mdp", // build/<preset>/app -> the checkout
+        here + "/models",
+        here + "/../Resources/models",             // macOS bundle
+        here + "/../share/missile-defense/models", // Debian
+        here + "/../../../models",                 // build/<preset>/app -> the checkout
     };
     for (const QString& candidate : candidates) {
         const QString resolved = QDir::cleanPath(candidate);
-        if (QFileInfo::exists(resolved)) {
-            return std::filesystem::path{resolved.toStdString()};
+        if (!QFileInfo::exists(resolved)) {
+            continue;
+        }
+        std::vector<std::filesystem::path> found;
+        std::error_code ec;
+        for (const auto& entry : std::filesystem::directory_iterator{
+                 std::filesystem::path{resolved.toStdString()}, ec}) {
+            if (entry.is_regular_file(ec) && entry.path().extension() == ".mdp") {
+                found.push_back(entry.path());
+            }
+        }
+        if (!found.empty()) {
+            std::ranges::sort(found);
+            return found;
         }
     }
     return {};
+}
+
+std::filesystem::path GameWindow::pretrained_path() {
+    // The strongest bundled model, which is the one the HUD names and `--report`
+    // means by `pretrained`. Last by name is `learned-high` by construction.
+    const std::vector<std::filesystem::path> models = bundled_models();
+    return models.empty() ? std::filesystem::path{} : models.back();
 }
 
 // Persisted via QSettings — QGuiApplication's organization/application name (set
@@ -784,7 +813,7 @@ static std::vector<std::pair<std::string, std::string>> installed_models() {
         }
     };
 
-    if (const std::filesystem::path bundled = GameWindow::pretrained_path(); !bundled.empty()) {
+    for (const std::filesystem::path& bundled : GameWindow::bundled_models()) {
         add(bundled);
     }
     std::error_code ec; // the directory simply may not exist yet; that is not an error

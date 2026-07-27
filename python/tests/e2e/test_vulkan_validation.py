@@ -84,13 +84,14 @@ def test_no_scenario_raises_a_validation_message(
 def test_the_bundled_model_renders_clean(tmp_path: Path) -> None:
     """The learned-policy path, which is the one a first-time user is shown.
 
-    Skipped rather than failed when no model is bundled: `models/pretrained.mdp`
+    Skipped rather than failed when no model is bundled: `models/*.mdp`
     is optional by design (see `app/CMakeLists.txt`), and a source tree without
     one is a legitimate state.
     """
-    model = PROJECT_ROOT / "models" / "pretrained.mdp"
-    if not model.exists():
+    models = sorted((PROJECT_ROOT / "models").glob("*.mdp"))
+    if not models:
         pytest.skip("no bundled model in this tree — nothing to render")
+    model = models[-1]  # learned-high: the strongest, and the one the HUD names
     run = run_app("--watch-model", str(model), frames=240, sandbox=tmp_path)
     assert_clean(run)
     assert not validation_errors(run)

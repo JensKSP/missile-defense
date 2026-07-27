@@ -174,17 +174,16 @@ include(GNUInstallDirs)
 # one network acquire ammunition discipline rather than take the claim on trust.
 # Discovered rather than listed, so adding a fourth is a file and not an edit.
 file(GLOB MD_MODELS "${CMAKE_SOURCE_DIR}/models/*.mdp")
-set(MD_PRETRAINED ${MD_MODELS})
 if(MD_MODELS)
   message(STATUS "md_app: bundling ${MD_MODELS}")
   if(WIN32)
-    install(FILES "${MD_PRETRAINED}" DESTINATION models COMPONENT game)
+    install(FILES ${MD_MODELS} DESTINATION models COMPONENT game)
   elseif(APPLE)
     # Inside the bundle: nothing beside an .app is guaranteed to travel with it.
-    install(FILES "${MD_PRETRAINED}"
+    install(FILES ${MD_MODELS}
       DESTINATION "md_app.app/Contents/Resources/models" COMPONENT game)
   else()
-    install(FILES "${MD_PRETRAINED}"
+    install(FILES ${MD_MODELS}
       DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/missile-defense/models" COMPONENT game)
   endif()
 else()
