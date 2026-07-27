@@ -253,6 +253,27 @@ void write_report(const md::GameWindow& window) {
 }
 
 int run(int argc, char** argv) {
+#ifdef Q_OS_LINUX
+    // Ask for X11 on a Wayland session, unless the user has already chosen.
+    //
+    // Not a preference: on Wayland this window dies during start-up inside
+    // `QVulkanWindowPrivate::releaseSwapChain()`, reproducibly, on both the
+    // NVIDIA driver and lavapipe — so it is Qt's Vulkan/Wayland path and not one
+    // vendor's. The compositor sends `xdg_toplevel.configure` with a 0x0 size
+    // and the swapchain teardown that follows segfaults. Since the desktop entry
+    // runs `missile-defense` with no environment at all, every Wayland user
+    // would meet that crash instead of the game, and Wayland is the default
+    // session on current KDE and GNOME.
+    //
+    // XWayland has its own cost — NVIDIA implements no implicit sync, so those
+    // windows can tear — but a game that tears is a game, and one that segfaults
+    // is not. Setting it rather than forcing it leaves `QT_QPA_PLATFORM=wayland`
+    // working for anyone testing whether this is still necessary.
+    if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM") &&
+        !qEnvironmentVariableIsEmpty("WAYLAND_DISPLAY")) {
+        qputenv("QT_QPA_PLATFORM", "xcb");
+    }
+#endif
     QGuiApplication app(argc, argv);
     QGuiApplication::setOrganizationName("MissileDefense");
     QGuiApplication::setApplicationName("MissileDefense"); // stable app-data path for highscores

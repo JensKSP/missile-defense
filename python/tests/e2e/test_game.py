@@ -17,11 +17,12 @@ length and therefore exactly one right answer; that is `test_replay.py`.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
 
-from .harness import assert_clean, needs_app, needs_display, run_app
+from .harness import app_environ, assert_clean, needs_app, needs_display, run_app
 
 pytestmark = [pytest.mark.e2e, needs_app, needs_display]
 
@@ -87,3 +88,23 @@ def test_an_unreadable_recording_is_reported_and_does_not_take_the_game_down(
     assert_clean(run)
     assert run.state == "menu"
     assert "could not read the recording" in run.output
+
+
+def test_the_game_survives_a_wayland_session(tmp_path: Path) -> None:
+    """The desktop entry runs `missile-defense` with no environment at all.
+
+    On a Wayland session that used to be a segfault during start-up, inside
+    `QVulkanWindowPrivate::releaseSwapChain()` — reproducibly, on both the NVIDIA
+    driver and lavapipe, so it is Qt's Vulkan/Wayland path rather than one
+    vendor's. Wayland is the default session on current KDE and GNOME, so every
+    one of those users met a crash instead of the game.
+
+    Skipped where there is no Wayland session to fail on, which includes CI.
+    """
+    if not os.environ.get("WAYLAND_DISPLAY"):
+        pytest.skip("no Wayland session here — nothing for the fallback to prevent")
+    environ = app_environ(tmp_path)
+    del environ["QT_QPA_PLATFORM"]  # exactly what the .desktop file provides
+    run = run_app("--play", frames=120, sandbox=tmp_path, environ=environ)
+    assert_clean(run)
+    assert run.frames >= 120

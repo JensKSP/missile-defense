@@ -917,13 +917,22 @@ void GameWindow::open_console() {
     QProcess process;
     process.setProgram(QString::fromStdString(console_->argv.front()));
     process.setArguments(arguments);
+
+    QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
     if (!console_->python_path.empty()) {
         // The checkout case: `md` is not installed anywhere this interpreter
         // would find on its own, so the import path has to be handed over.
-        QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
         environment.insert("PYTHONPATH", QString::fromStdString(console_->python_path.string()));
-        process.setProcessEnvironment(environment);
     }
+    // Do *not* hand the console this game's platform plugin. The game is forced
+    // onto `xcb` because it needs an X11 surface for Vulkan and for being
+    // screenshot-able; the console is Qt Widgets and needs neither. Inherited,
+    // that choice put it on XWayland, where NVIDIA's lack of implicit sync
+    // produces the tearing and artefacts a Wayland-native window does not have.
+    // Removing the variable lets Qt pick for itself, which is Wayland on a
+    // Wayland session and xcb on an X11 one.
+    environment.remove("QT_QPA_PLATFORM");
+    process.setProcessEnvironment(environment);
     process.startDetached();
 }
 
