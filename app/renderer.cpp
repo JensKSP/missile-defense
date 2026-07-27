@@ -8,6 +8,7 @@
 #include "md/rng.hpp"
 #include "md/version.hpp"
 #include "projection.hpp"
+#include "terrain.hpp"
 
 #include <QVulkanDeviceFunctions>
 #include <QVulkanInstance>
@@ -23,6 +24,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -39,8 +41,10 @@ struct PushConstants {
 
 // Two worlds fit in one frame: the split screen draws both sides' entities into
 // this single buffer and issues one draw per half, so the budget is per frame
-// and not per viewport.
-constexpr std::size_t max_instances = 4096;
+// and not per viewport. The landscape is the bulk of it — a heightfield drawn as
+// columns, twice over in a match — which is why the ceiling is this far above
+// what the entities alone ever need.
+constexpr std::size_t max_instances = 8192;
 
 InstanceData rect(float cx, float cy, float hx, float hy, float r, float g, float b,
                   float a = 1.0f) {
@@ -79,10 +83,17 @@ void add_fireball(std::vector<InstanceData>& inst, float cx, float cy, float rad
 }
 
 // A little skyline filling [cx-half_w, cx+half_w]: `towers` vertical buildings of
-// stable, pseudo-random heights. The tallest reaches `top_y` exactly so the
-// silhouette keeps its full height. `lit` adds warm window rows.
-void add_building(std::vector<InstanceData>& inst, float cx, float half_w, float top_y, int towers,
-                  float r, float g, float b, bool lit) {
+// stable, pseudo-random heights, standing on the ground at `ground_y`. The
+// tallest reaches `top_y` exactly so the silhouette keeps its full height —
+// which is what lets the landscape rise and fall under a town without moving the
+// skyline into the HUD above it. `lit` adds warm window rows.
+void add_building(std::vector<InstanceData>& inst, float cx, float half_w, float ground_y,
+                  float top_y, int towers, float r, float g, float b, bool lit) {
+    // Founded half a unit *into* the ground rather than balanced on it: the lit
+    // rim along the surface has a real thickness, and a tower resting exactly on
+    // `ground_y` shows a bright line running under its own foot.
+    const float foot = ground_y - 0.5f;
+    const float full = std::max(top_y - foot, 0.5f);
     const float slot = (half_w * 2.0f) / static_cast<float>(towers);
     const auto h_frac = [cx](int i) {
         const float s =
@@ -97,19 +108,89 @@ void add_building(std::vector<InstanceData>& inst, float cx, float half_w, float
     }
     for (int i = 0; i < towers; ++i) {
         const float frac = (i == tallest) ? 1.0f : h_frac(i);
-        const float th = top_y * frac; // this tower's height
+        const float th = full * frac; // this tower's height
         const float tcx = (cx - half_w) + (slot * (static_cast<float>(i) + 0.5f));
         const float hx = slot * 0.40f; // leaves a thin gap between towers
         const float shade = 0.80f + (0.20f * h_frac(i));
-        inst.push_back(rect(tcx, th * 0.5f, hx, th * 0.5f, r * shade, g * shade, b * shade));
+        inst.push_back(
+            rect(tcx, foot + (th * 0.5f), hx, th * 0.5f, r * shade, g * shade, b * shade));
         if (lit) {
             const int rows = static_cast<int>((th - 0.7f) / 1.8f);
             for (int rw = 0; rw < rows; ++rw) {
-                const float wy = 1.6f + (static_cast<float>(rw) * 1.8f);
+                const float wy = ground_y + 1.1f + (static_cast<float>(rw) * 1.8f);
                 inst.push_back(rect(tcx, wy, hx * 0.55f, 0.26f, 1.0f, 0.9f, 0.5f, 0.85f));
             }
         }
     }
+}
+
+/// How one layer of ground is filled and how its surface edge catches the light.
+struct GroundStyle {
+    float step; // column width, world units
+    std::array<float, 3> fill;
+    std::array<float, 3> rim;
+    float rim_thickness; // minimum; a steep column widens it to cover the join
+    float grain;         // per-column darkening of the fill, so it is not a slab
+};
+
+/// One layer of landscape: a heightfield filled as columns, capped by a lit rim
+/// laid along its true surface.
+///
+/// Columns because the pipeline draws exactly one primitive — an oriented box —
+/// and a filled curve has to come from somewhere. The rim is a box rotated onto
+/// the segment between two successive surface points, so the silhouette the eye
+/// follows is the curve itself and not the staircase holding it up.
+template <typename Height>
+void add_ground_layer(std::vector<InstanceData>& inst, float world_w, const GroundStyle& style,
+                      Height height) {
+    const int columns = std::max(1, static_cast<int>(world_w / style.step));
+    const float step = world_w / static_cast<float>(columns);
+    float h0 = height(0.0f);
+    for (int i = 0; i < columns; ++i) {
+        const float x0 = step * static_cast<float>(i);
+        const float x1 = x0 + step;
+        const float h1 = height(x1);
+        const float mid = (h0 + h1) * 0.5f; // the column meets the rim halfway up the segment
+        const float shade = 1.0f - (style.grain * ((std::sin(x0 * 1.37f) * 0.5f) + 0.5f));
+        inst.push_back(rect((x0 + x1) * 0.5f, mid * 0.5f, step * 0.5f, mid * 0.5f,
+                            style.fill[0] * shade, style.fill[1] * shade, style.fill[2] * shade));
+        // Thickened on a slope by exactly enough to bury the step it spans.
+        const float thick = std::max(style.rim_thickness, std::abs(h1 - h0) * 0.6f);
+        inst.push_back(line(Vec2{x0, h0}, Vec2{x1, h1}, thick, style.rim[0], style.rim[1],
+                            style.rim[2], 1.0f));
+        h0 = h1;
+    }
+}
+
+/// The two layers of ground, back to front: a distant ridge barely off the sky,
+/// then the near ground the game is played on.
+///
+/// Built once and replayed from a buffer every frame — the heightfield never
+/// moves, and a match would otherwise pay for it twice per frame.
+std::vector<InstanceData> build_ground(const Terrain& terrain, float world_w) {
+    std::vector<InstanceData> ground;
+    add_ground_layer(ground, world_w,
+                     // Distance washes the warmth out of the far ridge and pulls
+                     // it towards the sky, which is what puts it *behind* rather
+                     // than merely above the ground in front of it.
+                     GroundStyle{.step = 4.0f,
+                                 .fill = {0.115f, 0.105f, 0.150f},
+                                 .rim = {0.170f, 0.152f, 0.192f},
+                                 .rim_thickness = 0.35f,
+                                 .grain = 0.08f},
+                     [](float x) { return Terrain::ridge(x); });
+    add_ground_layer(ground, world_w,
+                     // Earth, lit by the same cold moon as everything else: a
+                     // warm dark body under a tan rim. Brown also buys the one
+                     // thing a blue ground could not — it is nobody else's
+                     // colour on this field, so the horizon never reads as sky.
+                     GroundStyle{.step = 1.0f,
+                                 .fill = {0.175f, 0.140f, 0.115f},
+                                 .rim = {0.460f, 0.360f, 0.250f},
+                                 .rim_thickness = 0.50f,
+                                 .grain = 0.12f},
+                     [&terrain](float x) { return terrain.height(x); });
+    return ground;
 }
 
 // Draw an oriented rocket body + two swept-back tail fins from `pos` back by
@@ -269,6 +350,65 @@ void draw_text(std::vector<InstanceData>& inst, std::string_view text, float x, 
     }
 }
 
+/// The screen palette, named once.
+///
+/// These are not new colours: they are the ones the game already speaks in — the
+/// heading every screen wears, the amber a selected item turns, the blue the
+/// byline recedes to, the grey a footer sits in. Naming them is what lets a
+/// screen be laid out by *role* instead of by three fresh floats, and it is why
+/// HELP and ABOUT can now be structured without inventing a second vocabulary.
+namespace ink {
+constexpr std::array<float, 3> heading{0.85f, 0.92f, 1.00f}; // a screen title
+constexpr std::array<float, 3> accent{0.95f, 0.75f, 0.25f};  // the thing in hand
+constexpr std::array<float, 3> body{0.78f, 0.83f, 0.90f};    // ordinary copy
+constexpr std::array<float, 3> muted{0.55f, 0.60f, 0.70f};   // a step behind body
+constexpr std::array<float, 3> recede{0.34f, 0.45f, 0.70f};  // small print
+constexpr std::array<float, 3> footer{0.60f, 0.65f, 0.70f};  // PRESS ENTER
+constexpr std::array<float, 3> city{0.35f, 0.70f, 0.98f};    // the cities' own blue
+constexpr std::array<float, 3> gold{1.00f, 0.85f, 0.35f};    // the best score there is
+} // namespace ink
+
+/// `draw_text` in one of the palette's colours.
+void draw_text(std::vector<InstanceData>& inst, std::string_view text, float x, float top_y,
+               float px, const std::array<float, 3>& colour, bool centered) {
+    draw_text(inst, text, x, top_y, px, colour[0], colour[1], colour[2], centered);
+}
+
+/// One row of a key table: what you press, and what it does.
+struct Binding {
+    std::string_view key;
+    std::string_view action;
+};
+
+/// A two-column table of `KEY  ACTION` rows, centred as a block.
+///
+/// The key takes the colour a selected menu item has and the action the colour
+/// of ordinary copy — the player has already learned that pair everywhere else,
+/// so the table needs no legend. Right-aligning the keys against a shared split
+/// is what makes it read as a table rather than as four sentences: the actions
+/// start in one place, and the eye can run down either column on its own.
+void draw_bindings(std::vector<InstanceData>& inst, std::span<const Binding> rows, float centre,
+                   float top_y, float line_gap, float px) {
+    const float advance = px * 4.0f;
+    std::size_t key_chars = 0;
+    std::size_t action_chars = 0;
+    for (const Binding& row : rows) {
+        key_chars = std::max(key_chars, row.key.size());
+        action_chars = std::max(action_chars, row.action.size());
+    }
+    constexpr std::size_t gap_chars = 3;
+    const float width = static_cast<float>(key_chars + gap_chars + action_chars) * advance;
+    const float split = (centre - (width * 0.5f)) + (static_cast<float>(key_chars) * advance);
+    float y = top_y;
+    for (const Binding& row : rows) {
+        draw_text(inst, row.key, split - (static_cast<float>(row.key.size()) * advance), y, px,
+                  ink::accent, false);
+        draw_text(inst, row.action, split + (static_cast<float>(gap_chars) * advance), y, px,
+                  ink::body, false);
+        y -= line_gap;
+    }
+}
+
 VkShaderModule make_shader(QVulkanDeviceFunctions* dev, VkDevice device, const uint32_t* code,
                            std::size_t bytes) {
     VkShaderModuleCreateInfo info{};
@@ -356,29 +496,34 @@ std::string shout(std::string_view text) {
     return out;
 }
 
-/// The field a game is played on: ground, cities, launch bases.
+/// The field a game is played on: the landscape, the cities, the launch bases.
 ///
 /// Drawn in every state — the menus sit over a live skyline — and once per side
 /// in a match, which is why it is a function rather than a stretch of
-/// `startNextFrame`.
-void build_backdrop(const Sim& sim, std::vector<InstanceData>& inst) {
-    const float world_w = sim.config().world_width;
-    inst.push_back(rect(world_w * 0.5f, 1.0f, world_w * 0.5f, 1.0f, 0.10f, 0.11f, 0.18f)); // ground
+/// `startNextFrame`. The ground arrives prebuilt: it is the same every frame.
+void build_backdrop(const Sim& sim, const Terrain& terrain, std::span<const InstanceData> ground,
+                    std::vector<InstanceData>& inst) {
+    inst.insert(inst.end(), ground.begin(), ground.end());
     for (const auto& city : sim.cities()) {
+        const float ground_y = terrain.height(city.pos.x);
         if (city.alive) {
-            add_building(inst, city.pos.x, 7.0f, 8.0f, 5, 0.25f, 0.62f, 0.95f, true); // skyscrapers
+            add_building(inst, city.pos.x, 7.0f, ground_y, 10.0f, 5, 0.25f, 0.62f, 0.95f,
+                         true); // skyscrapers
         } else {
-            inst.push_back(rect(city.pos.x, 1.5f, 6.0f, 1.5f, 0.22f, 0.20f, 0.24f)); // rubble
+            inst.push_back(
+                rect(city.pos.x, ground_y + 1.0f, 6.0f, 1.2f, 0.25f, 0.22f, 0.21f)); // rubble
         }
     }
     for (const auto& base : sim.bases()) {
+        const float ground_y = terrain.height(base.pos.x);
         if (!base.alive) {
-            inst.push_back(rect(base.pos.x, 1.5f, 6.0f, 1.5f, 0.22f, 0.20f, 0.24f)); // rubble
+            inst.push_back(
+                rect(base.pos.x, ground_y + 1.0f, 6.0f, 1.2f, 0.25f, 0.22f, 0.21f)); // rubble
             continue;
         }
         const bool empty = base.ammo == 0;
-        add_building(inst, base.pos.x, 6.0f, 12.0f, 3, empty ? 0.42f : 0.85f, empty ? 0.38f : 0.58f,
-                     empty ? 0.32f : 0.24f, !empty); // launch towers
+        add_building(inst, base.pos.x, 6.0f, ground_y, 12.0f, 3, empty ? 0.42f : 0.85f,
+                     empty ? 0.38f : 0.58f, empty ? 0.32f : 0.24f, !empty); // launch towers
     }
 }
 
@@ -426,6 +571,25 @@ void build_entities(const Sim& sim, std::vector<InstanceData>& inst, float tsec)
 // allocation failure. Only the simulation hot path promises never to throw.
 Renderer::Renderer(GameWindow* window) : window_{window} {
     build_stars();
+    build_landscape();
+}
+
+// Raise the landscape once, from where the installations actually stand. Both
+// halves of a match play on the same layout, so one heightfield serves both.
+void Renderer::build_landscape() {
+    const Sim& sim = window_->sim();
+    std::vector<float> city_x;
+    city_x.reserve(sim.cities().size());
+    for (const auto& city : sim.cities()) {
+        city_x.push_back(city.pos.x);
+    }
+    std::vector<float> base_x;
+    base_x.reserve(sim.bases().size());
+    for (const auto& base : sim.bases()) {
+        base_x.push_back(base.pos.x);
+    }
+    terrain_ = Terrain{sim.config().world_width, city_x, base_x};
+    ground_ = build_ground(terrain_, sim.config().world_width);
 }
 
 // Scatter a fixed set of stars across the upper sky, each with its own dim base
@@ -642,7 +806,7 @@ void Renderer::startNextFrame() {
     }
 
     // Field backdrop (drawn in every state).
-    build_backdrop(sim, inst);
+    build_backdrop(sim, terrain_, ground_, inst);
 
     if (show_game) {
         build_entities(sim, inst, tsec);
@@ -752,20 +916,46 @@ void Renderer::startNextFrame() {
         }
     }
 
-    // Dim the frozen game behind the game-over screen and the pause menu.
-    if (game_over || paused_menu) {
-        inst.push_back(rect(cx, world_h * 0.5f, world_w * 0.5f, world_h * 0.5f, 0.02f, 0.02f, 0.05f,
-                            game_over ? 0.74f : 0.55f));
+    // Dim the field behind every screen that is mostly text.
+    //
+    // The front menu is the exception and is left alone: its lines all sit above
+    // the tallest thing on the ground (a battery's towers reach 12, and the lower
+    // of its two hints hangs to 13.6), so it gets to keep the live skyline that
+    // makes it the game's front page. Every other screen here runs its copy down
+    // to the foot of the frame — ABOUT's last line lands at 0.1 world units, in
+    // the dirt — and a 3x5 glyph crossing a lit hillside or a row of windows is
+    // not readable at any colour. Scrimming is what the game-over screen already
+    // did; these screens have the same problem and now get the same answer.
+    const bool text_screen =
+        state == GameWindow::State::Help || state == GameWindow::State::About ||
+        state == GameWindow::State::Options || state == GameWindow::State::Highscores ||
+        state == GameWindow::State::Replays || state == GameWindow::State::Watch ||
+        state == GameWindow::State::EnterScore;
+    if (game_over || paused_menu || text_screen) {
+        // A text screen ghosts the field almost out: ABOUT and HIGHSCORES both
+        // run their copy right down into the ground and neither has a spare line
+        // to give, so the backdrop is what has to yield. The other two keep more
+        // of the field, because on those the field is the point — the pause menu
+        // has a game the player wants to keep an eye on, and the game-over screen
+        // is there to show what is left of it.
+        float dim = 0.88f;
+        if (game_over) {
+            dim = 0.74f;
+        } else if (paused_menu) {
+            dim = 0.55f;
+        }
+        inst.push_back(
+            rect(cx, world_h * 0.5f, world_w * 0.5f, world_h * 0.5f, 0.02f, 0.02f, 0.05f, dim));
     }
 
     if (state == GameWindow::State::Menu) {
-        draw_text(inst, "MISSILE DEFENSE", cx, world_h * 0.90f, world_h * 0.022f, 0.85f, 0.92f,
-                  1.0f, true);
+        draw_text(inst, "MISSILE DEFENSE", cx, world_h * 0.90f, world_h * 0.022f, ink::heading,
+                  true);
         // Deeper and bluer than the title above it, so the byline recedes instead
         // of competing — near enough the city blue (0.25, 0.62, 0.95) to belong to
         // the same palette, dark enough to sit a step behind the name.
-        draw_text(inst, "BY JENS KOEHLER", cx, world_h * 0.78f, world_h * 0.010f, 0.34f, 0.45f,
-                  0.70f, true);
+        draw_text(inst, "BY JENS KOEHLER", cx, world_h * 0.78f, world_h * 0.010f, ink::recede,
+                  true);
         const int count = window_->menu_count();
         for (int i = 0; i < count; ++i) {
             const bool sel = window_->menu_index() == i;
@@ -787,7 +977,7 @@ void Renderer::startNextFrame() {
     } else if (game_over) {
         draw_text(inst, "GAME OVER", cx, world_h * 0.70f, world_h * 0.042f, 0.95f, 0.30f, 0.25f,
                   true);
-        draw_text(inst, "SCORE", cx, world_h * 0.46f, world_h * 0.015f, 0.75f, 0.80f, 0.88f, true);
+        draw_text(inst, "SCORE", cx, world_h * 0.46f, world_h * 0.015f, ink::body, true);
         draw_text(inst, std::to_string(sim.score() < 0 ? 0 : sim.score()), cx, world_h * 0.36f,
                   world_h * 0.028f, 1.0f, 1.0f, 1.0f, true);
         if (window_->ai_assisted()) {
@@ -797,15 +987,14 @@ void Renderer::startNextFrame() {
             draw_text(inst, "AI RUN   NOT A HIGHSCORE", cx, world_h * 0.19f, world_h * 0.011f,
                       0.45f, 0.95f, 0.65f, true);
         }
-        draw_text(inst, "PRESS ENTER", cx, world_h * 0.12f, world_h * 0.013f, 0.6f, 0.65f, 0.7f,
-                  true);
+        draw_text(inst, "PRESS ENTER", cx, world_h * 0.12f, world_h * 0.013f, ink::footer, true);
     } else if (state == GameWindow::State::Replays) {
         // One screen, two contents. The heading and the empty-state copy are the
         // only difference: scrolling, hover, selection and paging are identical,
         // and a second implementation of them would drift from this one.
         const bool models = window_->browsing() == GameWindow::Browse::Models;
-        draw_text(inst, models ? "MODELS" : "REPLAYS", cx, world_h * 0.90f, world_h * 0.026f, 0.85f,
-                  0.92f, 1.0f, true);
+        draw_text(inst, models ? "MODELS" : "REPLAYS", cx, world_h * 0.90f, world_h * 0.026f,
+                  ink::heading, true);
         const int count = window_->replay_count();
         if (count == 0) {
             // Never a bare empty panel: say what is missing and what puts it
@@ -836,40 +1025,51 @@ void Renderer::startNextFrame() {
         draw_text(inst, "ARROWS ENTER   ESC BACK", cx, world_h * 0.07f, world_h * 0.009f, 0.4f,
                   0.45f, 0.5f, true);
     } else if (state == GameWindow::State::Help) {
-        draw_text(inst, "HELP", cx, world_h * 0.88f, world_h * 0.026f, 0.85f, 0.92f, 1.0f, true);
-        const std::array<std::string_view, 5> lines{"MOUSE TO AIM", "CLICK TO FIRE",
-                                                    "DEFEND YOUR CITIES", "ESC PAUSE MENU",
-                                                    "ENTER SELECT"};
-        for (int i = 0; i < 5; ++i) {
-            const float y = world_h * (0.66f - (static_cast<float>(i) * 0.11f));
-            draw_text(inst, lines[static_cast<std::size_t>(i)], cx, y, world_h * 0.014f, 0.8f,
-                      0.85f, 0.9f, true);
-        }
-        draw_text(inst, "PRESS ENTER", cx, world_h * 0.09f, world_h * 0.011f, 0.6f, 0.65f, 0.7f,
+        draw_text(inst, "HELP", cx, world_h * 0.88f, world_h * 0.026f, ink::heading, true);
+        // The objective first and on its own, in the cities' own blue: it is the
+        // one line here that is not a key, and it is what all the keys are for.
+        // Five equally-weighted sentences made the player read all five to find
+        // out what the game wanted.
+        draw_text(inst, "DEFEND YOUR CITIES", cx, world_h * 0.71f, world_h * 0.016f, ink::city,
                   true);
+        static constexpr std::array<Binding, 4> keys{
+            {{"MOUSE", "AIM"}, {"CLICK", "FIRE"}, {"ESC", "PAUSE MENU"}, {"ENTER", "SELECT"}}};
+        draw_bindings(inst, keys, cx, world_h * 0.55f, world_h * 0.10f, world_h * 0.014f);
+        draw_text(inst, "PRESS ENTER", cx, world_h * 0.13f, world_h * 0.011f, ink::footer, true);
     } else if (state == GameWindow::State::About) {
-        draw_text(inst, "ABOUT", cx, world_h * 0.94f, world_h * 0.024f, 0.85f, 0.92f, 1.0f, true);
+        draw_text(inst, "ABOUT", cx, world_h * 0.94f, world_h * 0.024f, ink::heading, true);
         const std::string version_line = "VERSION " + std::string(version());
         // Uppercase-only legal notices + credits (the pixel font has no lower case
         // or punctuation beyond the period added for the version string). Lines are
         // kept short so none overflows the width, and spaced so none overlaps.
-        const std::array<std::string_view, 9> lines{"MISSILE DEFENSE",
-                                                    version_line,
-                                                    "COPYRIGHT 2026 JENS KOEHLER",
-                                                    "MIT LICENSE",
-                                                    "DEVELOPED WITH CLAUDE CODE",
-                                                    "USES QT MINIAUDIO VULKAN",
-                                                    "MISSILE COMMAND IS AN",
-                                                    "ATARI TRADEMARK",
-                                                    "INDEPENDENT NON COMMERCIAL HOMAGE"};
+        //
+        // Three weights, not one. As a flat block of nine identical lines this
+        // read as a legal notice with the game's name accidentally at the top:
+        // everything shouted equally, so nothing did. Now the name carries the
+        // heading's colour, what this build *is* sits in ordinary copy, and the
+        // trademark notice drops to the byline's recede blue — still legible,
+        // visibly the small print, and grouped by colour rather than by a gap.
+        const std::array<std::pair<std::string_view, const std::array<float, 3>&>, 9> lines{{
+            {"MISSILE DEFENSE", ink::heading},
+            {version_line, ink::body},
+            {"COPYRIGHT 2026 JENS KOEHLER", ink::body},
+            {"MIT LICENSE", ink::muted},
+            {"DEVELOPED WITH CLAUDE CODE", ink::muted},
+            {"USES QT MINIAUDIO VULKAN", ink::muted},
+            {"MISSILE COMMAND IS AN", ink::recede},
+            {"ATARI TRADEMARK", ink::recede},
+            {"INDEPENDENT NON COMMERCIAL HOMAGE", ink::recede},
+        }};
         for (std::size_t i = 0; i < lines.size(); ++i) {
-            const float y = world_h * (0.79f - (static_cast<float>(i) * 0.08f));
-            draw_text(inst, lines[i], cx, y, world_h * 0.011f, 0.78f, 0.83f, 0.9f, true);
+            const float y = world_h * (0.80f - (static_cast<float>(i) * 0.075f));
+            draw_text(inst, lines[i].first, cx, y, world_h * 0.011f, lines[i].second, true);
         }
-        draw_text(inst, "PRESS ENTER", cx, world_h * 0.05f, world_h * 0.010f, 0.6f, 0.65f, 0.7f,
-                  true);
+        // Tightened by half a percent a line so this one can come up off the
+        // floor: at 0.05 its bottom row of pixels fell *below* y = 0 and was
+        // clipped by the frame. It now clears the ground as well.
+        draw_text(inst, "PRESS ENTER", cx, world_h * 0.13f, world_h * 0.010f, ink::footer, true);
     } else if (state == GameWindow::State::Options) {
-        draw_text(inst, "OPTIONS", cx, world_h * 0.88f, world_h * 0.026f, 0.85f, 0.92f, 1.0f, true);
+        draw_text(inst, "OPTIONS", cx, world_h * 0.88f, world_h * 0.026f, ink::heading, true);
         const int count = GameWindow::options_count();
         for (int i = 0; i < count; ++i) {
             const bool sel = window_->menu_index() == i;
@@ -883,8 +1083,7 @@ void Renderer::startNextFrame() {
         // The same centred list as OPTIONS, and deliberately so: this is the
         // third screen with that shape, and a chooser that looked different
         // from the other two would read as a different kind of thing.
-        draw_text(inst, "WATCH AI", cx, world_h * 0.88f, world_h * 0.026f, 0.85f, 0.92f, 1.0f,
-                  true);
+        draw_text(inst, "WATCH AI", cx, world_h * 0.88f, world_h * 0.026f, ink::heading, true);
         for (int i = 0; i < window_->watch_count(); ++i) {
             const bool sel = window_->menu_index() == i;
             const float y = window_->menu_item_top_y(i);
@@ -894,34 +1093,48 @@ void Renderer::startNextFrame() {
         draw_text(inst, "WHO PLAYS. T TAKES OVER MID GAME", cx, world_h * 0.09f, world_h * 0.010f,
                   0.4f, 0.45f, 0.5f, true);
     } else if (state == GameWindow::State::Highscores) {
-        draw_text(inst, "HIGHSCORES", cx, world_h * 0.90f, world_h * 0.026f, 0.85f, 0.92f, 1.0f,
-                  true);
+        draw_text(inst, "HIGHSCORES", cx, world_h * 0.90f, world_h * 0.026f, ink::heading, true);
         const auto& table = window_->highscores();
         if (table.entries().empty()) {
-            draw_text(inst, "NO SCORES YET", cx, world_h * 0.5f, world_h * 0.015f, 0.6f, 0.65f,
-                      0.7f, true);
+            draw_text(inst, "NO SCORES YET", cx, world_h * 0.5f, world_h * 0.015f, ink::footer,
+                      true);
         } else {
             int row = 0;
             for (const auto& entry : table.entries()) {
                 const std::string ini(entry.initials.begin(), entry.initials.end());
                 const std::string line =
                     std::to_string(row + 1) + "  " + ini + "  " + std::to_string(entry.score);
-                const float y = world_h * (0.72f - (static_cast<float>(row) * 0.066f));
-                const bool top = row == 0;
-                draw_text(inst, line, cx, y, world_h * 0.012f, top ? 1.0f : 0.82f,
-                          top ? 0.85f : 0.86f, top ? 0.35f : 0.9f, true);
+                // A full table is ten rows between the heading and the footer, and
+                // a glyph hangs 4.92*px below the top it is given. At 0.012 type
+                // on a 0.062 step that leaves under half a unit of air, which
+                // printed the table as one vertical smear. Size and step are set
+                // together here for that reason: the gap is the constraint, not
+                // either number on its own.
+                const float y = world_h * (0.76f - (static_cast<float>(row) * 0.064f));
+                // A podium rather than a winner and nine also-rans: gold, then
+                // the two still worth chasing in ordinary copy, then the tail a
+                // step back. Ten identically-bright rows made the table a list
+                // to search instead of a standing to read.
+                const std::array<float, 3>* colour = &ink::muted;
+                if (row == 0) {
+                    colour = &ink::gold;
+                } else if (row < 3) {
+                    colour = &ink::body;
+                }
+                draw_text(inst, line, cx, y, world_h * 0.0105f, *colour, true);
                 ++row;
             }
         }
-        draw_text(inst, "PRESS ENTER", cx, world_h * 0.055f, world_h * 0.011f, 0.6f, 0.65f, 0.7f,
-                  true);
+        // As on ABOUT: a full ten-row table used to push this line off the bottom
+        // of the frame. The rows give up a little spacing so it has somewhere to
+        // go — and a footer that is half cut off reads as a rendering fault.
+        draw_text(inst, "PRESS ENTER", cx, world_h * 0.11f, world_h * 0.011f, ink::footer, true);
     } else if (state == GameWindow::State::EnterScore) {
-        draw_text(inst, "NEW HIGH SCORE", cx, world_h * 0.82f, world_h * 0.024f, 0.95f, 0.85f,
-                  0.35f, true);
+        draw_text(inst, "NEW HIGH SCORE", cx, world_h * 0.82f, world_h * 0.024f, ink::gold, true);
         draw_text(inst, std::to_string(window_->final_score()), cx, world_h * 0.66f,
                   world_h * 0.022f, 1.0f, 1.0f, 1.0f, true);
-        draw_text(inst, "ENTER YOUR INITIALS", cx, world_h * 0.52f, world_h * 0.012f, 0.7f, 0.75f,
-                  0.8f, true);
+        draw_text(inst, "ENTER YOUR INITIALS", cx, world_h * 0.52f, world_h * 0.012f, ink::body,
+                  true);
         const auto initials = window_->entry_initials();
         const int slot = window_->entry_slot();
         const float gpx = world_h * 0.05f; // big initial glyphs
@@ -982,7 +1195,7 @@ void Renderer::draw_match(const replay::MatchPlayer& match, QSize size) {
     for (int which = 0; which < 2; ++which) {
         const Sim& sim = which == 0 ? left : right;
         const auto first = static_cast<std::uint32_t>(inst.size());
-        build_backdrop(sim, inst);
+        build_backdrop(sim, terrain_, ground_, inst);
         build_entities(sim, inst, tsec);
         passes.push_back(Pass{side, rect_viewport(which == 0 ? 0.0f : half, half, h), first,
                               static_cast<std::uint32_t>(inst.size()) - first});
@@ -1040,7 +1253,13 @@ void Renderer::draw_match(const replay::MatchPlayer& match, QSize size) {
 
     // The shared transport, at the foot of the window and spanning both halves —
     // one clock, stated once, because there is only one.
-    const float bar_y = world_h * 0.075f;
+    //
+    // Lifted clear of the ground rather than laid on it: a match has no scrim to
+    // hide behind (both halves are live), so the only thing keeping this line
+    // readable is height. The caption's glyphs hang 4.92*px below the top given
+    // here — 13.6 world units — which clears the tallest thing the field carries,
+    // a battery's 12-unit towers. The bar then sits above the caption.
+    const float bar_y = world_h * 0.125f;
     const float bar_w = world_w * 0.36f;
     inst.push_back(rect(world_w * 0.5f, bar_y, bar_w, 0.22f, 0.22f, 0.26f, 0.34f));
     const float done = std::clamp(match.progress(), 0.0f, 1.0f);
@@ -1051,7 +1270,7 @@ void Renderer::draw_match(const replay::MatchPlayer& match, QSize size) {
     draw_text(inst,
               match.finished() ? "MATCH COMPLETE   R RESTART   ESC BACK"
                                : "SPACE PAUSE   ARROWS SEEK   R RESTART   ESC BACK",
-              world_w * 0.5f, world_h * 0.042f, world_h * 0.0060f, 0.46f, 0.53f, 0.62f, true);
+              world_w * 0.5f, world_h * 0.105f, world_h * 0.0060f, 0.46f, 0.53f, 0.62f, true);
 
     passes.push_back(Pass{full, whole(size), chrome_first,
                           static_cast<std::uint32_t>(inst.size()) - chrome_first});

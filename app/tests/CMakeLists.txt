@@ -8,6 +8,7 @@ endif()
 add_executable(md_app_unit_tests
   unit/test_console.cpp
   unit/test_human_input.cpp
+  unit/test_terrain.cpp
   unit/test_voices.cpp
   ../console.cpp)
 target_include_directories(md_app_unit_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/..")

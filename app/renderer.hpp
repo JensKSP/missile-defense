@@ -4,6 +4,7 @@
 #pragma once
 
 #include "projection.hpp"
+#include "terrain.hpp"
 
 #include <QVulkanWindow>
 #include <chrono>
@@ -68,6 +69,7 @@ class Renderer : public QVulkanWindowRenderer {
     void createPipeline();
     void createBuffers();
     void build_stars();
+    void build_landscape();
 
     /// Upload the frame's instances once and record one draw per pass.
     void submit(std::vector<InstanceData>& inst, const std::vector<Pass>& passes);
@@ -91,6 +93,12 @@ class Renderer : public QVulkanWindowRenderer {
 
     // Animated background starfield.
     std::vector<Star> stars_;
+
+    // The landscape: the heightfield the cities stand on, and the instances that
+    // draw it. Both are fixed for the life of the window — the ground does not
+    // move, so it is built once and copied into each frame rather than rebuilt.
+    Terrain terrain_;
+    std::vector<InstanceData> ground_;
     std::chrono::steady_clock::time_point start_{std::chrono::steady_clock::now()};
 };
 

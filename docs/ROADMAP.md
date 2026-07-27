@@ -42,6 +42,9 @@ A complete, fun arcade game. **Acceptance gate: the human plays it and confirms.
 - ✅ Pause → menu (RESUME / NEW GAME), Help screen
 - ✅ Rocket trails — missile lines from launch point to a glowing head
 - ✅ Blast glow + dangerous fireball explosions (ground impacts + interceptor blasts)
+- ✅ **Landscape** — the cities and batteries stand on a rolling brown heightfield
+  (batteries on mounds, as in the arcade) with a distant ridge behind it. Purely
+  cosmetic: `md::core` still resolves every landing at `y = 0` (`app/terrain.hpp`)
 - ✅ Game-over screen (dim overlay, spaced text)
 - ✅ **Sound** — procedural retro SFX via vendored miniaudio, driven by the
   deterministic `md::core` event stream (which also gives AI observation parity)
