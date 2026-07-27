@@ -54,6 +54,20 @@ message(STATUS "MoltenVK: copying ${moltenvk_real} into the bundle")
 file(MAKE_DIRECTORY "${frameworks}" "${icd_dir}")
 file(COPY "${moltenvk_real}" DESTINATION "${frameworks}")
 
+# The copy keeps the id it was built with, which is Homebrew's absolute path.
+# Nothing *links* MoltenVK — the loader dlopens it by the path in the manifest
+# above — so this is not why a bundle would fail to run. It is still wrong: it
+# is the one load command in the bundle that names a directory the target
+# machine does not have, and it is indistinguishable, to `otool -L` and to
+# anyone reading it, from a dependency that really would break. Rewrite it so
+# the bundle says only what is true about itself.
+execute_process(
+  COMMAND install_name_tool -id "@rpath/${moltenvk_name}" "${frameworks}/${moltenvk_name}"
+  RESULT_VARIABLE rc)
+if(NOT rc EQUAL 0)
+  message(FATAL_ERROR "install_name_tool could not rewrite the id of ${moltenvk_name}")
+endif()
+
 # Rewrite library_path and nothing else. This manifest is the loader's whole
 # description of the driver, and api_version / is_portability_driver are how it
 # decides whether to expose the device at all — hand-writing them is how a device

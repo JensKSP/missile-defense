@@ -315,6 +315,19 @@ jobs:
           NATIVE_PYTHON: ${{ steps.native-python.outputs.python-path }}
         run: |
           & $env:NATIVE_PYTHON -m pip install --upgrade pip nanobind
+          # Enter the MSVC environment first. This preset is Ninja, and Ninja
+          # takes whatever compiler is on PATH — which in a bare pwsh on this
+          # runner is `C:/mingw64/bin/c++.exe`. The extension then built fine and
+          # failed to *import*, because a MinGW-linked .pyd wants libstdc++-6 and
+          # libwinpthread-1 beside it and a native CPython has neither. "DLL load
+          # failed: The specified module could not be found" is what that looks
+          # like, and it names nothing.
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" `
+            -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            -property installationPath
+          if (-not $vs) { throw 'no Visual Studio with the C++ tools on this runner' }
+          Import-Module "$vs\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+          Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments '-arch=x64'
           cmake --preset win-native "-DPython_EXECUTABLE=$env:NATIVE_PYTHON"
           cmake --build --preset win-native --target _md_native
           $module = Get-ChildItem -Path build/win-native -Recurse -Filter '_md_native*.pyd' |
@@ -658,7 +671,11 @@ jobs:
           # exactly the machine it exists to distinguish itself from.
           apt-get purge -y missile-defense
           apt-get install -y ../missile-defense_*.deb
-          apt-get install -y --no-install-recommends xvfb mesa-vulkan-drivers
+          # `xauth` explicitly: it is a *Recommends* of xvfb, and this line says
+          # --no-install-recommends — the very trap this step's comment above is
+          # about, sprung on the step's own test rig. Without it xvfb-run dies
+          # with "xauth command not found" before the game is ever started.
+          apt-get install -y --no-install-recommends xvfb xauth mesa-vulkan-drivers
           # --frames caps the run, --silent keeps ALSA out of a container with no
           # sound card, and --report is the machine-readable account of what the
           # game did. Parsed rather than grepped for: "it printed something and

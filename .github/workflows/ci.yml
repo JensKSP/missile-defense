@@ -199,10 +199,20 @@ jobs:
           # Neither torch nor PySide6 is installed here, on purpose: what is
           # being checked is that each says so rather than raising out of an
           # import (docs/PACKAGING.md).
+          # Asserted as the contract, not as one phrasing. Both shims now answer
+          # differently on a PEP 668 interpreter — apt packages and a venv rather
+          # than a bare `pip install` — which is *better* advice and which broke
+          # a grep for the literal string. What has to hold either way: it names
+          # what is missing, and it offers a command.
           ! /tmp/wheelenv/bin/md-train --updates 1 2>&1 | tee /tmp/train.log
-          grep -q "pip install torch" /tmp/train.log
+          grep -q "torch" /tmp/train.log
+          grep -Eq "(pip|apt) install" /tmp/train.log
           ! /tmp/wheelenv/bin/md-console 2>&1 | tee /tmp/console.log
-          grep -q "pip install PySide6" /tmp/console.log
+          grep -q "PySide6" /tmp/console.log
+          grep -Eq "(pip|apt) install" /tmp/console.log
+          # And never a traceback, which is the failure these replaced.
+          ! grep -q "Traceback" /tmp/train.log
+          ! grep -q "Traceback" /tmp/console.log
 
   quick-start:
     # The README's own commands, extracted from the page and run on a clean
