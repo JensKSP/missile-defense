@@ -2,7 +2,7 @@
 # Copyright (c) 2026 Jens Köhler
 # Assisted-by: Claude Code (Anthropic)
 # pyright: reportMissingImports=false, reportMissingModuleSource=false
-"""Train a policy to play Missile Command. Run it with ``poe train``.
+"""Train a policy to play Missile Defense. Run it with ``poe train``.
 
 Everything you would normally want to change is in `TrainConfig` below, and every
 field says what it does and why it defaults where it does. The loop itself is
@@ -29,8 +29,10 @@ interpretable rather than just a number going up:
   finishes the update it is on, writes a final checkpoint, flushes the metrics
   and exits; ``touch runs/PAUSE`` blocks it between updates until the file goes
   away. Killing the process instead throws away everything since the last
-  checkpoint. See :mod:`md.control` — the training console's buttons write
-  exactly these files, and nothing else.
+  checkpoint. The eval cadence is changeable the same way, through
+  ``runs/TUNING.json``, because how often you want the yardstick is a judgement
+  made while watching. See :mod:`md.control` — the training console's buttons and
+  its eval-interval box write exactly these files, and nothing else.
 Where ``runs/`` is depends on where you are: the directory beside you in a
 checkout, and the per-user data directory once this is installed from a package.
 ``--out-dir`` and ``$MD_RUNS_DIR`` override, and :mod:`md.paths` has the order.
@@ -110,7 +112,11 @@ class TrainConfig:
     #: Episode length cap, in ticks. 120k is ~33 minutes of play.
     max_ticks: int = 120_000
     #: Score the policy on the fixed validation seeds this often (0 disables).
-    eval_every: int = 50
+    #: An eval costs most of an update early on and rather more once episodes
+    #: run long, so this is the knob a run changes mid-flight: it is published to
+    #: TUNING.json in the run directory and re-read every update, by the console
+    #: or by `echo '{"eval_every": 25}' > runs/TUNING.json` (see md.control).
+    eval_every: int = 10
     #: Drop a watchable episode into runs/ this often (0 disables).
     record_every: int = 25
     #: Save a checkpoint this often (0 disables).
@@ -311,6 +317,10 @@ def train(
     # last one must not kill this one before its first update.
     control = Control(out_dir)
     control.clear()
+    # And what it is *using*, for the settings it will keep re-reading. Published
+    # from the command line so the file always answers "what cadence is this run
+    # on?", and so a leftover file cannot outrank a flag someone just typed.
+    control.publish_tuning({"eval_every": config.eval_every})
     _write_config(out_dir / "config.json", config, ppo, schedule, out_dir, shaping)
     # Beside it, what the run is *training* — the console reads this rather than
     # a checkpoint, because opening one needs torch and it must never import it
@@ -336,7 +346,14 @@ def train(
         f"  pause with `touch {control.pause_file}`, "
         f"stop gracefully with `touch {control.stop_file}`"
     )
+    print(
+        f"  evaluating every {config.eval_every} updates — change it while the run "
+        f"goes in the console, or in {control.tuning_file}"
+    )
 
+    #: What the loop is scoring on now, so a change to the tuning file is worth a
+    #: line in the log rather than a silently different cadence.
+    eval_every = config.eval_every
     # Tracks the return of episodes as they finish, for a readable progress line.
     episode_returns: list[float] = []
     running = np.zeros(config.envs, dtype=np.float64)
@@ -430,7 +447,17 @@ def train(
             if env.save_recording(0, path, update=iteration, label=f"UPDATE {iteration}"):
                 print(f"  recorded {path}")
 
-        if config.eval_every > 0 and iteration % config.eval_every == 0:
+        # Read once per update, from the file the console writes. How often you
+        # want the yardstick is a judgement made *while* watching — often early,
+        # when the policy changes shape every few updates, and rarely later, when
+        # an eval plays sixteen full-length episodes to say what the last one
+        # already said.
+        wanted = control.tuned("eval_every", config.eval_every)
+        if wanted != eval_every:
+            print(f"  eval interval {eval_every} -> {wanted} updates")
+            eval_every = wanted
+
+        if eval_every > 0 and iteration % eval_every == 0:
             inference_device = _inference_device(device)
             summary = _score(
                 policy,
@@ -1271,7 +1298,7 @@ def score_checkpoint(path: Path, device_name: str | None = None, record: Path | 
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Train a Missile Command policy with PPO.")
+    parser = argparse.ArgumentParser(description="Train a Missile Defense policy with PPO.")
     defaults = TrainConfig()
     parser.add_argument("--envs", type=int, default=defaults.envs)
     parser.add_argument("--steps", type=int, default=defaults.steps)

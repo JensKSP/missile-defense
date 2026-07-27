@@ -212,6 +212,35 @@ def stylesheet() -> str:
         selection-background-color: {EDGE};
         font-family: {MONO};
     }}
+    /* The one control that is dragged rather than pressed (the eval interval).
+       Built from the same parts as the meters below — dark groove, lit fill — so
+       it reads as part of this window rather than as a stray widget from
+       another program, and so "how far along" is legible at a glance. */
+    QSlider::groove:horizontal {{
+        background: {NIGHT};
+        border: 1px solid {EDGE};
+        border-radius: 3px;
+        height: 4px;
+    }}
+    QSlider::sub-page:horizontal {{
+        background: {CITY};
+        border: 1px solid {CITY};
+        border-radius: 3px;
+    }}
+    QSlider::handle:horizontal {{
+        background: {TEXT};
+        border: 1px solid {TEXT};
+        width: 9px;
+        margin: -5px 0;
+        border-radius: 5px;
+    }}
+    QSlider::handle:horizontal:hover {{
+        background: {INTERCEPTOR};
+        border-color: {INTERCEPTOR};
+    }}
+    QSlider::sub-page:horizontal:disabled {{ background: {GRID}; border-color: {GRID}; }}
+    QSlider::handle:horizontal:disabled {{ background: {GRID}; border-color: {EDGE}; }}
+    QSlider::tick-mark {{ color: {EDGE}; }}
     /* Meters: a groove and a fill, no text — the number lives beside it. The
        fill colour is set per-widget, because it means something (see meters.py). */
     QProgressBar {{

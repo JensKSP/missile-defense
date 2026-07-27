@@ -3,6 +3,11 @@
 Milestones, ordered so that **a human can play first**. Each builds on the pure,
 headless, deterministic `md::core` simulation.
 
+> **1.0 completion:** The canonical remaining scope and release gates are in
+> [`docs/superpowers/plans/2026-07-27-v1.0-completion-plan.md`](superpowers/plans/2026-07-27-v1.0-completion-plan.md).
+> The product goal is a fun, self-directed ML learning experience, not merely a
+> game plus training controls.
+>
 > **Acceptance gate:** a milestone is *passed* only when **the human confirms it** by
 > playing/using it. "Implementation complete + gate green" is not "passed" — it means
 > *ready for human sign-off*.
@@ -117,7 +122,7 @@ a pure function of observable state, so target commitment falls out for free —
 the crosshair is already near is cheapest to shoot, which stops it oscillating between
 rivals.
 
-### Baseline results — the numbers to beat
+### Reference results — the learning ladder
 
 32 held-out canonical seeds (deterministic stream offset 32), default `Config`,
 15 Hz decisions, and an exact 120,000-tick cap:
@@ -132,9 +137,9 @@ rivals.
 
 #### The skill ladder, and what each behaviour is worth
 
-`md_agent_eval --skill low|medium|high`, same protocol. Only `high` is the
-published baseline; the other two exist to price the agent's behaviours and to
-give a player something watchable.
+`md_agent_eval --skill low|medium|high`, same protocol. These are progressive
+challenges: LOW is the first target, MEDIUM is the normal trained-policy
+benchmark, and HIGH is the expert challenge.
 
 | Skill | Mean score | Wave | Kills/shot | Wasted |
 |---|---|---|---|---|
@@ -166,10 +171,12 @@ updates), checkpoint selected on the validation split and scored **once** here:
 | Kills per interceptor | 1.09 | 0.86 |
 | Wasted shots | 4% | 23% |
 
-It matches the depth and loses the 7,676 entirely on marksmanship — it sits
-between `medium` and `high`, i.e. it rediscovered much of the ammunition
-discipline nobody told it about, but not all of it. `models/pretrained.mdp` is
-this checkpoint, and the game runs it natively.
+It matches the depth and loses the 7,676 entirely on marksmanship. It **easily
+beats MEDIUM** and approaches HIGH: it rediscovered much of the ammunition
+discipline nobody told it about, but not all of it. That is the 1.0 progression
+shown to learners; HIGH remains the challenge rather than a milestone the
+bundled model is falsely claimed to have beaten. `models/pretrained.mdp` is this
+checkpoint, and the game runs it natively.
 
 **This settles the question the design turned on.** A perfect-marksmanship agent — one
 that solves the lead-intercept exactly and never misses — still loses *every* game, with
@@ -194,7 +201,11 @@ protocol** so learned and scripted agents are compared identically.
 
 ## M6 — Train
 
-Custom PPO (PyTorch) with a curriculum; **beat the M4 algorithmic baseline**.
+Custom PPO (PyTorch) with a curriculum and a guided experimental loop. The
+learner progresses through LOW and MEDIUM, diagnoses the remaining behavior gap,
+and can take on HIGH as the expert challenge. The bundled relational policy
+already scores 90,865.9 on the held-out protocol: clearly above MEDIUM
+(63,295.6), below HIGH (98,542.3).
 
 ## M7 — Watch the AI / takeover
 
@@ -207,9 +218,13 @@ A desktop UI for running and understanding training: start / pause / stop / rese
 run, tweak the parameters, watch the curves, browse and play back recordings, inspect
 the model, and launch the game — without leaving the window.
 
-**Why it earns a milestone.** The project already bets on interpretability: recordings
-exist because a return curve cannot tell you the policy has learned to ignore MIRVs.
-This puts the curve and the episode side by side, which is the whole loop in one place.
+**Why it earns a milestone.** The product is a fun way to teach yourself machine
+learning. The console guides the learner through predict → change one thing →
+train → watch → measure → explain → challenge. The project already bets on
+interpretability: recordings exist because a return curve cannot tell you the
+policy has learned to ignore MIRVs. Putting the curve, visible behavior, fair
+comparison, and explanation side by side turns training into a learning loop
+rather than an unexplained dashboard.
 
 ### Design intent — modern, simple, elegant
 

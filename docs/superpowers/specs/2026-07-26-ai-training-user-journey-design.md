@@ -438,5 +438,7 @@ The work should land in dependency order:
 9. README, platform documentation, packaging CI, and end-to-end installed-user
    tests throughout the phases above.
 
-The detailed implementation plan is stored beside this specification in
-`docs/superpowers/plans/2026-07-26-ai-training-user-journey.md`.
+The detailed implementation record is stored beside this specification in
+`docs/superpowers/plans/2026-07-26-ai-training-user-journey.md`. The canonical
+remaining scope, educational journey, and release gates are in
+`docs/superpowers/plans/2026-07-27-v1.0-completion-plan.md`.

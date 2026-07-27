@@ -159,6 +159,73 @@ def test_the_console_says_which_build_it_is_and_what_it_runs_on(
         window.close()
 
 
+def test_the_eval_slider_drives_a_run_this_console_never_started(
+    qt_app: object, tmp_path: Path
+) -> None:
+    # The console is a convenience over the files, never the only way in: it
+    # reads what a trainer published and writes back the same file a terminal
+    # would `echo` into. Nothing about this widget knows which process is
+    # training, which is exactly why it works on a run started elsewhere.
+    from md.control import Control  # noqa: PLC0415
+    from md.ui.app import Console  # noqa: PLC0415
+
+    control = Control(tmp_path)
+    control.publish_tuning({"eval_every": 50})  # what a starting run does
+    window = Console(tmp_path)
+    try:
+        window._tick()
+        assert window._eval_every.isEnabled()
+        assert window._eval_shown() == 50
+
+        window._eval_every.setValue(window._eval_stops.index(10))
+        assert control.tuned("eval_every", 999) == 10
+        assert window._eval_readout.text() == "10 upd"
+
+        # And the other direction: someone edits the file, the handle follows
+        # rather than insisting on the last thing it said.
+        control.tune("eval_every", 25)
+        window._tick()
+        assert window._eval_shown() == 25
+    finally:
+        window.close()
+
+
+def test_the_eval_slider_shows_an_interval_that_is_not_one_of_its_stops(
+    qt_app: object, tmp_path: Path
+) -> None:
+    # A run started with --eval-every 30 is on 30, and a handle snapped to the
+    # nearest stop would be describing it wrongly. The scale gains a stop.
+    from md.control import Control  # noqa: PLC0415
+    from md.ui.app import Console  # noqa: PLC0415
+
+    Control(tmp_path).publish_tuning({"eval_every": 30})
+    window = Console(tmp_path)
+    try:
+        window._tick()
+        assert window._eval_shown() == 30
+        assert window._eval_readout.text() == "30 upd"
+    finally:
+        window.close()
+
+
+def test_the_eval_slider_greys_out_when_no_run_publishes_one(
+    qt_app: object, tmp_path: Path
+) -> None:
+    # A directory with no run in it, or a run started before this existed. A
+    # control that happily wrote a file nothing reads would be worse than a dead
+    # one, and worse still if it left that file behind for the next run.
+    from md.ui.app import EVAL_EVERY_UNPUBLISHED, Console  # noqa: PLC0415
+
+    window = Console(tmp_path)
+    try:
+        window._tick()
+        assert not window._eval_every.isEnabled()
+        assert window._eval_every.toolTip() == EVAL_EVERY_UNPUBLISHED
+        assert not (tmp_path / "TUNING.json").exists(), "the console invented a tuning file"
+    finally:
+        window.close()
+
+
 def test_a_protocol_change_starts_a_new_score_curve_and_controls_the_baseline(
     qt_app: object, tmp_path: Path
 ) -> None:

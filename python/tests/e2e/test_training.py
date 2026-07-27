@@ -33,8 +33,19 @@ from md.benchmark import (
     VALIDATION_SEED_OFFSET,
     VALIDATION_SPLIT,
 )
+from md.control import TUNING_NAME, Control
 
-from .harness import agent_eval, needs_agent_eval, needs_native, needs_torch, recordings
+from .harness import (
+    TINY_RUN,
+    TRAIN_TIMEOUT_S,
+    agent_eval,
+    needs_agent_eval,
+    needs_native,
+    needs_torch,
+    recordings,
+    start_training,
+    wait_until,
+)
 
 pytestmark = [pytest.mark.e2e, needs_torch, needs_native]
 
@@ -218,6 +229,62 @@ def test_a_run_drops_watchable_episodes(trained_run: Path) -> None:
     # ~80 kB an episode is the design claim (four bytes per agent step); the
     # assertion is only that they are whole files rather than empty stubs.
     assert all(path.stat().st_size > 0 for path in episodes)
+
+
+def test_a_run_publishes_the_cadence_it_is_evaluating_on(trained_run: Path) -> None:
+    # Published rather than merely obeyed: the console's eval box, and anyone
+    # with `cat`, has to be able to ask a running trainer what it is on — and a
+    # value that only exists inside the process cannot be asked.
+    published = json.loads((trained_run / TUNING_NAME).read_text(encoding="utf-8"))
+    assert published["eval_every"] == int(TINY_RUN["--eval-every"])
+
+
+def test_a_live_run_takes_a_new_eval_cadence_without_being_restarted(tmp_path: Path) -> None:
+    """The claim the tuning file exists to make: no restart, no lost checkpoint.
+
+    Started with evaluation switched off entirely, told to score every 30 updates
+    while it is running, and it does. `test_control.py` covers the file; only a
+    real loop can show that the loop re-reads it.
+
+    The pause is the synchronisation. A tiny run is a few seconds long, so the
+    test stops its clock rather than racing it — which is also the mechanism
+    doing exactly what it is for.
+    """
+    out_dir = tmp_path / "run"
+    control = Control(out_dir)
+    process = start_training(
+        out_dir,
+        overrides={"--updates": "60", "--eval-every": "0", "--record-every": "0"},
+    )
+    try:
+        wait_until(
+            control.tuning_file.exists,
+            timeout=TRAIN_TIMEOUT_S,
+            what="the run publishing what it was started with",
+        )
+        assert control.tuning() == {"eval_every": 0}, "the command line is what a run publishes"
+
+        control.request_pause()
+        log = out_dir / "train.log"
+        wait_until(
+            lambda: log.exists() and "paused after update" in log.read_text(encoding="utf-8"),
+            timeout=TRAIN_TIMEOUT_S,
+            what="the run pausing between updates",
+        )
+        control.tune("eval_every", 30)
+        control.resume()
+        assert process.wait(timeout=TRAIN_TIMEOUT_S) == 0
+    finally:
+        if process.poll() is None:
+            process.kill()
+        process.communicate()
+
+    assert "eval interval 0 -> 30 updates" in log.read_text(encoding="utf-8"), (
+        "the change is not in the log, so the run never noticed it"
+    )
+    rows = list(csv.DictReader((out_dir / "evals.csv").read_text(encoding="utf-8").splitlines()))
+    scored = [int(row["update"]) for row in rows]
+    assert scored == [30, 60], f"a run told to score every 30 updates scored at {scored}"
 
 
 def test_a_run_logs_itself_so_a_console_can_attach_later(trained_run: Path) -> None:

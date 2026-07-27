@@ -20,25 +20,41 @@ starts being the only way in (docs/ROADMAP.md, M8).
 file has to be parsed, and a reader can catch the writer mid-write — the same
 torn read `md.ui.sources` goes to trouble to avoid, except that here the damage
 is an unreadable *command* rather than one wrong data point. The existence of a
-file needs no parsing and no protocol, and `touch` produces it. If a later phase
-needs to pass a *value* rather than a signal, that is the moment to add a parsed
-file, written to a temporary name and renamed into place.
+file needs no parsing and no protocol, and `touch` produces it.
 
 Each is a **state**, not an event: paused stays paused while the file is there,
 which is also what makes it inspectable — `ls runs/` tells you why nothing is
 happening. Both are cleared when a run starts, so a stale ``STOP`` from last week
 cannot kill a fresh run before its first update.
+
+Passing a *value* is the one thing a marker cannot do, so ``TUNING.json`` sits
+beside them for the settings a run can change while it is going:
+
+    cat runs/TUNING.json                          # what the loop is using
+    echo '{"eval_every": 10}' > runs/TUNING.json  # score it five times as often
+
+It is written to a temporary name and renamed into place, so a reader never
+catches it half-written, and an unreadable file is treated as no file at all: the
+loop falls back to what it was started with rather than dying over a typo. A
+starting run publishes its own command-line values here, which is what makes the
+file the answer to *"what is this run actually using?"* rather than a pile of
+overrides whose absence means something else.
 """
 
 from __future__ import annotations
 
+import json
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
+from typing import cast
 
 #: Marker file names, relative to a run's ``--out-dir``.
 PAUSE_NAME = "PAUSE"
 STOP_NAME = "STOP"
+#: The one control that carries numbers. Upper case like the markers, because it
+#: is a control file and belongs with them in a listing.
+TUNING_NAME = "TUNING.json"
 
 
 class Control:
@@ -58,6 +74,10 @@ class Control:
     @property
     def stop_file(self) -> Path:
         return self.run_dir / STOP_NAME
+
+    @property
+    def tuning_file(self) -> Path:
+        return self.run_dir / TUNING_NAME
 
     # ---- what the trainer asks --------------------------------------------
     def paused(self) -> bool:
@@ -96,10 +116,62 @@ class Control:
         self._write(self.stop_file)
 
     def clear(self) -> None:
-        """Forget every request — what a starting or finishing run does."""
+        """Forget every request — what a starting or finishing run does.
+
+        The tuning file is not a request and is not cleared here: it describes
+        what a run *is using*, and a starting run overwrites it with its own
+        values (:meth:`publish_tuning`) rather than finding it gone.
+        """
         self.pause_file.unlink(missing_ok=True)
         self.stop_file.unlink(missing_ok=True)
 
     def _write(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.touch()
+
+    # ---- values, rather than signals ---------------------------------------
+    def tuning(self) -> dict[str, int]:
+        """The live settings this run directory carries, if any.
+
+        Unreadable is the same as absent. A file caught mid-rename, truncated by
+        a full disk or edited into invalid JSON by hand must never take down a
+        run that is hours old — the caller has its own value to fall back on.
+        """
+        try:
+            loaded: object = json.loads(self.tuning_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        if not isinstance(loaded, dict):
+            return {}
+        return {
+            name: value
+            for name, value in cast("dict[str, object]", loaded).items()
+            # bool is an int in Python, and nothing here is a flag.
+            if isinstance(value, int) and not isinstance(value, bool)
+        }
+
+    def tuned(self, name: str, fallback: int) -> int:
+        """One live setting, or what the run was started with."""
+        return self.tuning().get(name, fallback)
+
+    def publish_tuning(self, values: Mapping[str, int]) -> None:
+        """Say what this run is using — what a starting run does.
+
+        Overwrites: the command line that just started a run is the truth about
+        it, and a leftover file from the last run in the same directory must not
+        quietly outrank a flag someone typed.
+        """
+        self._write_tuning(dict(values))
+
+    def tune(self, name: str, value: int) -> None:
+        """Change one setting, leaving the others in the file alone."""
+        values = self.tuning()
+        values[name] = int(value)
+        self._write_tuning(values)
+
+    def _write_tuning(self, values: dict[str, int]) -> None:
+        """Whole file at a time, through a rename, so no reader sees it torn."""
+        self.tuning_file.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.tuning_file.with_suffix(".json.tmp")
+        temporary.write_text(json.dumps(values, indent=2) + "\n", encoding="utf-8")
+        temporary.replace(self.tuning_file)
