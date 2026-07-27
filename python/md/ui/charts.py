@@ -196,6 +196,22 @@ class CurveView(QChartView):
         self.setChart(self._chart)
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.setFrameShape(QChartView.Shape.NoFrame)
+        # Antialiasing and the default update mode do not get on. A QGraphicsView
+        # repaints only the bounding rect an item reports, and an antialiased
+        # stroke covers roughly half a pixel *beyond* it — so the fringe is never
+        # cleared and what moved leaves a trail behind it. Reported from Windows
+        # on 2026-07-28, for the crosshair under the pointer *and* for the curve
+        # itself; fractional display scaling makes it worse, because the rounding
+        # goes the same way every time.
+        #
+        # Full rather than `BoundingRectViewportUpdate`, and the second symptom is
+        # why. A new sample rescales an axis, which moves every point of every
+        # series at once — there is no small dirty region to union, and a mode
+        # that trusts the reported rects has nothing better to trust. Redrawing
+        # the whole viewport is the only one of the five modes that cannot leave
+        # a stale pixel, and this panel is a few hundred pixels updated a few
+        # times a second.
+        self.setViewportUpdateMode(QChartView.ViewportUpdateMode.FullViewportUpdate)
         # Moves with no button held are what a hover is; a QGraphicsView delivers
         # them through its viewport, so both have to be asked for them.
         self.setMouseTracking(True)
@@ -659,6 +675,10 @@ class BarView(QChartView):
         self.setChart(self._chart)
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.setFrameShape(QChartView.Shape.NoFrame)
+        # The same pairing as CurveView, for the same reason — see the note
+        # there. This one has no crosshair to smear, but bars are redrawn as the
+        # histogram fills and an antialiased edge overspills its rect either way.
+        self.setViewportUpdateMode(QChartView.ViewportUpdateMode.FullViewportUpdate)
 
         self._placeholder = QLabel("", self)
         self._placeholder.setProperty("role", "placeholder")
