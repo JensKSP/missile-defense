@@ -46,6 +46,7 @@ from md.ui.sources import (
     human_duration,
     human_rate,
     human_size,
+    is_canonical_benchmark,
     ladder_note,
     last_modified,
     list_checkpoints,
@@ -218,6 +219,24 @@ def test_evals_carry_the_summary_and_reproduction_protocol(tmp_path: Path) -> No
     assert (row.seed_split, row.seed_count, row.frame_skip) == (VALIDATION_SPLIT, 32, 7)
     assert row.seed_offset == VALIDATION_SEED_OFFSET
     assert (row.max_ticks, row.inference_device) == (9_999, "cpu")
+
+
+def test_the_handicap_a_score_was_earned_under_is_read_with_the_rest(tmp_path: Path) -> None:
+    # The trainer writes these two columns and `is_canonical_benchmark` compares
+    # them, so a reader that quietly dropped them left every row at `None` —
+    # which is *not* "presumably canonical". Every real run read as "nonstandard
+    # protocol" and no score could ever be shown against the ladder.
+    _append(
+        tmp_path / "evals.csv",
+        "update,mean_score,seed_split,seed_offset,seed_count,frame_skip,"
+        "max_ticks,inference_device,aim_trail,reaction_delay\r\n"
+        f"50,3014.50,{CANONICAL_SPLIT},{CANONICAL_SEED_OFFSET},{SEEDS_PER_SPLIT},"
+        f"{CANONICAL_FRAME_SKIP},{CANONICAL_MAX_TICKS},{CANONICAL_INFERENCE_DEVICE},"
+        f"{CANONICAL_AIM_TRAIL},{CANONICAL_REACTION_DELAY}\r\n",
+    )
+    row = evals_tail(tmp_path).poll().rows[0]
+    assert (row.aim_trail, row.reaction_delay) == (CANONICAL_AIM_TRAIL, CANONICAL_REACTION_DELAY)
+    assert is_canonical_benchmark(row)
 
 
 def test_a_row_without_a_score_is_not_a_row(tmp_path: Path) -> None:

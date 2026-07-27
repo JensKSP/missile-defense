@@ -531,6 +531,11 @@ def _eval_row(row: Mapping[str, str]) -> EvalRow | None:
         frame_skip=_count(row, "frame_skip"),
         max_ticks=_count(row, "max_ticks"),
         inference_device=_text(row, "inference_device"),
+        # Part of the protocol, not of the summary: `is_canonical_benchmark`
+        # compares them, so a row read without them is a row that can never be
+        # shown against the ladder.
+        aim_trail=_number(row, "aim_trail"),
+        reaction_delay=_count(row, "reaction_delay"),
         mean_ticks=_number(row, "mean_ticks"),
         mean_waves_cleared=_number(row, "mean_waves_cleared"),
         mean_cities_lost=_number(row, "mean_cities_lost"),

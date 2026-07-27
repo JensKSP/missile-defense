@@ -308,11 +308,11 @@ def test_a_protocol_change_starts_a_new_score_curve_and_controls_the_ladder(
     path = tmp_path / "evals.csv"
     header = (
         "update,mean_score,seed_split,seed_offset,seed_count,frame_skip,"
-        "max_ticks,inference_device\n"
+        "max_ticks,inference_device,aim_trail,reaction_delay\n"
     )
     path.write_text(
         header + f"50,120000,{VALIDATION_SPLIT},{VALIDATION_SEED_OFFSET},"
-        f"{SEEDS_PER_SPLIT},4,120000,cpu\n",
+        f"{SEEDS_PER_SPLIT},4,120000,cpu,{CANONICAL_AIM_TRAIL},{CANONICAL_REACTION_DELAY}\n",
         encoding="utf-8",
     )
     window = Console(tmp_path)
@@ -329,7 +329,8 @@ def test_a_protocol_change_starts_a_new_score_curve_and_controls_the_ladder(
             handle.write(
                 f"100,{CANONICAL_BASELINE_MEAN_SCORE + 100},{CANONICAL_SPLIT},"
                 f"{CANONICAL_SEED_OFFSET},{SEEDS_PER_SPLIT},{CANONICAL_FRAME_SKIP},"
-                f"{CANONICAL_MAX_TICKS},{CANONICAL_INFERENCE_DEVICE}\n"
+                f"{CANONICAL_MAX_TICKS},{CANONICAL_INFERENCE_DEVICE},"
+                f"{CANONICAL_AIM_TRAIL},{CANONICAL_REACTION_DELAY}\n"
             )
         window._tick()
 
