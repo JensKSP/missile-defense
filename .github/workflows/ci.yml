@@ -138,6 +138,18 @@ jobs:
           env.step(np.zeros(4, dtype=np.int32))
           PY
 
+      - name: The installed package, driven as a person would
+        # The same ground as the two steps above, but as tests rather than as
+        # shell — `tests/e2e/test_wheel_install.py` is where the assertions
+        # live, and running it here is what stops the two definitions drifting.
+        # It is opt-in (MD_WHEEL_E2E) so `app-e2e` does not build a second
+        # wheel for the same proof.
+        env:
+          MD_WHEEL_E2E: "1"
+        run: |
+          /tmp/wheelenv/bin/pip install --quiet pytest numpy
+          /tmp/wheelenv/bin/python -m pytest python/tests/e2e/test_wheel_install.py -m e2e -q
+
       - name: Both commands explain themselves without their optional half
         working-directory: /tmp
         run: |

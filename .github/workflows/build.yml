@@ -137,8 +137,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          staged=$(find build/release/_CPack_Packages -maxdepth 3 -name "*.app" -type d | sort)
+          # Depth 4, not 3: CPack stages under
+          # `_CPack_Packages/<system>/<generator>/<package-name>/`, so the
+          # bundles sit one level below where this used to look — it matched
+          # nothing, and `test 1 -eq 2` on an empty result is a failure with no
+          # output at all, which is a miserable thing to debug.
+          staged=$(find build/release/_CPack_Packages -maxdepth 4 -name "*.app" -type d | sort)
           echo "$staged"
+          test -n "$staged" || { echo "::error::no .app bundles were staged" >&2; exit 1; }
           test "$(echo "$staged" | wc -l)" -eq 2
           console=$(echo "$staged" | grep "Training")
           test -x "$console/Contents/MacOS/md-console"
@@ -386,6 +392,11 @@ jobs:
         # The negative half is the one that matters. Someone who wants the game
         # must not be made to install an interpreter, and that promise dies
         # quietly: nobody notices a `.py` file inside a 40 MB package.
+        # Skipped where only one product exists: under `nopython` the Python
+        # binaries are not built at all, so "the three are different" has
+        # nothing to compare. The half that still applies there — the game
+        # ships no Python — is the step below, which runs everywhere.
+        if: ${{ !matrix.profiles }}
         shell: bash
         run: |
           set -euo pipefail
@@ -437,7 +448,33 @@ jobs:
             exit 1
           fi
 
+      - name: The game package carries no Python, on every distribution
+        # The promise that does not depend on the Python half being built, so
+        # unlike the step above this one runs under `nopython` too — which is
+        # the distribution where a stray `install()` rule would be least likely
+        # to be noticed, because nothing else there looks at Python at all.
+        shell: bash
+        run: |
+          set -euo pipefail
+          game=$(echo ../missile-defense_*.deb)
+          test -f "$game"
+          contents=$(dpkg-deb -c "$game" | awk '$NF !~ /\/$/ {print $NF}' | sed 's|^\./|/|')
+          echo "$contents"
+          if grep -Eq '\.(py|pyi|so)$|dist-packages|/md-console$|/md-train$' <<<"$contents"; then
+            echo "::error::the game package ships part of the training half" >&2
+            exit 1
+          fi
+          relations=$(dpkg-deb -f "$game" Depends Recommends Pre-Depends | tr 'A-Z' 'a-z')
+          echo "game relations: $relations"
+          for forbidden in python3-md pyside torch 'python3 ' 'python3:any'; do
+            if [[ "$relations" == *"$forbidden"* ]]; then
+              echo "::error::the game package relates to $forbidden" >&2
+              exit 1
+            fi
+          done
+
       - name: A game-only install stays a game-only install
+        if: ${{ !matrix.profiles }}
         # Installing the game alone must succeed with dependency checks on — the
         # thing `apt install missile-defense` does — and must leave the machine
         # with no console on it. Then adding the console must actually put one
@@ -456,6 +493,17 @@ jobs:
             ../python3-md_*.deb ../missile-defense-training_*.deb
           command -v md-console
           python3 -c "import md, md.ui; print('md', md.__version__, 'from', md.__file__)"
+
+      - name: The game alone installs, where it is the only package
+        # `apt install missile-defense` with dependency checks on. The step
+        # above covers this where all three packages exist; under `nopython`
+        # the game is the whole install story and nothing else would prove it.
+        if: ${{ matrix.profiles }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          apt-get install -y --no-install-recommends ../missile-defense_*.deb
+          test -x /usr/games/missile-defense
 
       - name: Collect the package
         # dpkg-buildpackage writes to the parent directory, which is outside the

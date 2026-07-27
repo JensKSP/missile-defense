@@ -195,7 +195,9 @@ TEST_CASE("An empty field drives the attention's zero path", "[unit][agent][poli
     const std::vector<Sample> samples = parity_samples("tiny-entity-parity.json");
     const md::ObsSpec spec{};
     std::size_t offset = 0;
-    for (const auto [slots, features] : std::array<std::pair<std::size_t, std::size_t>, 3>{
+    // By reference: GCC's -Wrange-loop-construct flags the copy and the quick
+    // start builds with g++ and -Werror, where clang-21 says nothing at all.
+    for (const auto& [slots, features] : std::array<std::pair<std::size_t, std::size_t>, 3>{
              {{spec.threats, md::ObsSpec::threat_features},
               {spec.interceptors, md::ObsSpec::interceptor_features},
               {spec.blasts, md::ObsSpec::blast_features}}}) {

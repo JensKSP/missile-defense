@@ -21,6 +21,7 @@ with the line to add, rather than in CI three commits later.
 
 from __future__ import annotations
 
+import ast
 import tomllib
 from pathlib import Path
 
@@ -98,6 +99,61 @@ def test_every_qt_module_is_ignored_by_pyright() -> None:
     assert not missing, (
         "these md.ui modules import PySide6 and are not in pyright's ignore list:\n"
         + "\n".join(f'  "python/md/ui/{name}.py",' for name in missing)
+    )
+
+
+def _imports_torch(source: str) -> bool:
+    """Whether this file really imports torch — parsed, not grepped.
+
+    A substring search calls `md.runtime` a torch module because it *runs*
+    `python -c "import torch"` as a health check, and `md.modelcard` because it
+    records a torch version. Neither makes pyright resolve anything. The import
+    statement is the thing that does, wherever in the file it sits: a lazy
+    import inside a function counts exactly as much as one at the top.
+    """
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            if any(
+                alias.name == "torch" or alias.name.startswith("torch.") for alias in node.names
+            ):
+                return True
+        elif isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            if module == "torch" or module.startswith("torch."):
+                return True
+    return False
+
+
+def _torch_modules() -> set[str]:
+    """Every checked file that imports torch, as a pyright ignore path."""
+    roots = (PROJECT_ROOT / "python" / "md", PROJECT_ROOT / "tools")
+    return {
+        path.relative_to(PROJECT_ROOT).as_posix()
+        for root in roots
+        for path in sorted(root.rglob("*.py"))
+        if _imports_torch(path.read_text("utf-8"))
+    }
+
+
+def test_every_torch_module_is_ignored_by_pyright() -> None:
+    """The same drift, one dependency over.
+
+    pyright has no per-module `ignore_missing_imports`, so a file that touches
+    torch has to be named in the ignore list or it reports a cascade of
+    `Unknown` types — but *only* where torch is absent, which is CI and nothing
+    else. `export_policy.py` sat unlisted through weeks of green local runs.
+    """
+    config = _config()
+    tool = config["tool"]
+    assert isinstance(tool, dict)
+    pyright = tool["pyright"]
+    assert isinstance(pyright, dict)
+    ignored = {str(entry) for entry in pyright["ignore"]}  # pyright: ignore[reportUnknownArgumentType]
+
+    missing = sorted(_torch_modules() - ignored)
+    assert not missing, (
+        "these modules import torch and are not in pyright's ignore list, so the "
+        "gate fails wherever torch is absent:\n" + "\n".join(f'  "{name}",' for name in missing)
     )
 
 

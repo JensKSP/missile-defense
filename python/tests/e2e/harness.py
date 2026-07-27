@@ -141,6 +141,15 @@ needs_qt = pytest.mark.skipif(not _have("PySide6"), reason="PySide6 is not insta
 #: Building a wheel needs `build`. It is in `tools/bootstrap.py`'s DEV_TOOLS, so
 #: a bootstrapped venv has it — this guard is for a bare interpreter, and it
 #: names the fix rather than failing on an import nobody asked for.
+#: The wheel-install suite builds a wheel, which compiles the extension — minutes
+#: of work that duplicates what the `wheel` CI job already does. Opt-in so it
+#: runs there and in a developer's own run, and never inside `app-e2e`, where it
+#: would be a second copy of the same proof paid for twice.
+needs_wheel_e2e = pytest.mark.skipif(
+    os.environ.get("MD_WHEEL_E2E") != "1",
+    reason="set MD_WHEEL_E2E=1 to build and install the wheel (slow; the CI `wheel` job does)",
+)
+
 needs_build = pytest.mark.skipif(
     not _have("build"),
     reason="the `build` package is not installed — re-run `python3 -m tools.bootstrap`",

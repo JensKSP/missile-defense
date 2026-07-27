@@ -67,6 +67,11 @@ Description: Python bindings for the Missile Defense simulation
 
 Package: missile-defense-training
 Build-Profiles: <!pkg.missile-defense.nopython>
+# Not `games`, which it inherits from the source stanza: lintian rejects a
+# games-section package that ships no game, and it is right to — this is a
+# training console with charts in it. `science` is where Debian files the
+# machine-learning tooling it sits beside.
+Section: science
 Architecture: all
 Depends:
  ${python3:Depends},

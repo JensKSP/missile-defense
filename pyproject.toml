@@ -239,8 +239,15 @@ include = ["python/md", "tools"]
 extraPaths = ["python"]
 # See the mypy note above: without torch installed these degrade to Unknown, so
 # they are checked on a machine that has it rather than pretended to be clean.
+#
+# mypy needs no such list — `ignore_missing_imports` on `torch.*` above covers
+# it — but pyright has no per-module equivalent, so the files are named here and
+# `tests/test_typing_policy.py` keeps the naming honest. `export_policy.py` was
+# missing for weeks and nobody saw it: the errors only appear where torch is
+# absent, and the one environment like that is CI.
 ignore = [
   "python/md/auxiliary.py",
+  "python/md/export_policy.py",
   "python/md/ppo.py",
   "python/md/train.py",
   # Same reason, one layer out: PySide6 is optional, so the widgets are checked

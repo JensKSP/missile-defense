@@ -31,9 +31,9 @@ from pathlib import Path
 
 import pytest
 
-from .harness import PROJECT_ROOT, build_wheel, needs_build, needs_native
+from .harness import PROJECT_ROOT, build_wheel, needs_build, needs_native, needs_wheel_e2e
 
-pytestmark = [pytest.mark.e2e, needs_native, needs_build]
+pytestmark = [pytest.mark.e2e, needs_native, needs_build, needs_wheel_e2e]
 
 #: Building a wheel compiles the extension. Once per session, not per test.
 WHEEL_TIMEOUT_S = 900.0

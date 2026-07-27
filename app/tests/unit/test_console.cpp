@@ -35,6 +35,14 @@ std::string join(std::initializer_list<std::string_view> directories) {
     return joined;
 }
 
+/// A path as the search will report it, suffix and all.
+///
+/// `find()` returns what it probed, so on Windows that is `md-console.exe`.
+/// The fixtures name plain executables — `join()`'s counterpart on the way out.
+std::string exe(std::string_view path) {
+    return std::string{path} + std::string{md::console::executable_suffix};
+}
+
 /// A machine that exists only in this file: named variables, named executables.
 ///
 /// Injecting both halves is what makes the order assertable at all. The real
@@ -110,7 +118,7 @@ TEST_CASE("PATH is searched before the directories an installer writes to",
 
     const auto found = md::console::find(machine.lookup());
     REQUIRE(found.has_value());
-    CHECK(found->generic_string() == "/home/dev/.local/bin/md-console");
+    CHECK(found->generic_string() == exe("/home/dev/.local/bin/md-console"));
 }
 
 TEST_CASE("An installed console off PATH is still found in the system directories",
@@ -122,7 +130,7 @@ TEST_CASE("An installed console off PATH is still found in the system directorie
 
     const auto found = md::console::find(machine.lookup());
     REQUIRE(found.has_value());
-    CHECK(found->generic_string() == "/usr/bin/md-console");
+    CHECK(found->generic_string() == exe("/usr/bin/md-console"));
 }
 
 TEST_CASE("A checkout offers its own console through the interpreter", "[unit][app][console]") {
@@ -136,7 +144,7 @@ TEST_CASE("A checkout offers its own console through the interpreter", "[unit][a
 
     const auto command = md::console::command(machine.lookup(checkout));
     REQUIRE(command.has_value());
-    CHECK(command->argv == std::vector<std::string>{"/usr/bin/python3", "-m", "md.ui"});
+    CHECK(command->argv == std::vector<std::string>{exe("/usr/bin/python3"), "-m", "md.ui"});
     CHECK(command->python_path.generic_string() == std::string{checkout} + "/python");
 }
 
@@ -169,6 +177,6 @@ TEST_CASE("An installed launcher is run directly, with no interpreter and no pat
 
     const auto command = md::console::command(machine.lookup());
     REQUIRE(command.has_value());
-    CHECK(command->argv == std::vector<std::string>{"/usr/bin/md-console"});
+    CHECK(command->argv == std::vector<std::string>{exe("/usr/bin/md-console")});
     CHECK(command->python_path.empty());
 }

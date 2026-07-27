@@ -43,11 +43,19 @@ def episode(tmp_path_factory: pytest.TempPathFactory) -> Path:
     from md.env import VecEnv
 
     out = tmp_path_factory.mktemp("episode") / "update-00025.mdr"
-    env = VecEnv(1, seed=99, max_ticks=2000)
+    # A recording is only written when an episode *ends*, so this steps until one
+    # does rather than for a round number of steps. 120 steps happened to finish
+    # an episode on one machine and not on a CI runner, where every test in this
+    # file then failed on a fixture that had nothing to do with discovery.
+    env = VecEnv(1, seed=99, max_ticks=600)
     env.record(0)
     rng = np.random.default_rng(5)
-    for _ in range(120):
-        env.step(rng.integers(0, 900, size=1))
+    for _ in range(400):
+        _, _, terminated, truncated, _ = env.step(rng.integers(0, 900, size=1))
+        if bool(terminated[0]) or bool(truncated[0]):
+            break
+    else:  # `max_ticks` guarantees truncation long before this
+        pytest.fail("no episode finished, so there is nothing to discover")
     assert env.save_recording(0, out, update=25, label="episode")
     return out
 
