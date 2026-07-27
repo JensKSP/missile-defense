@@ -14,8 +14,12 @@ NVIDIA binding everywhere and AMD SMI on Linux.
 from __future__ import annotations
 
 import argparse
+import os
+import shutil
 import subprocess
 import sys
+import tomllib
+from collections.abc import Mapping
 from pathlib import Path
 
 from ._util import PROJECT_ROOT
@@ -79,6 +83,123 @@ def install_command(venv: Path, *, root: Path = PROJECT_ROOT) -> list[str]:
     ]
 
 
+def windows_cxx_toolchain(environ: Mapping[str, str] | None = None) -> str | None:
+    """Where MSVC is on this machine, or ``None`` when there is none.
+
+    ``pip install --editable .`` is not a pure-Python install here: the build
+    backend is scikit-build-core, which runs the CMake tree — and CMake needs a
+    C++ compiler for its *configure* step whether or not a target is built. On a
+    Windows box without MSVC that fails several hundred lines into a log whose
+    only clue is ``CMAKE_CXX_COMPILER``, which is not something a person can act
+    on. Asking first turns that into a sentence.
+
+    Three ways of being inside a toolchain, cheapest first: already in a
+    developer shell, ``cl.exe`` on ``PATH``, or vswhere reporting an install
+    with the C++ workload. **MinGW deliberately does not count.** An extension
+    has to share an ABI with the interpreter importing it, and the interpreter
+    the console runs under is MSVC-built — an MSYS2 clang on ``PATH`` is the
+    wrong compiler for this job, not a substitute for the right one.
+    """
+    env = os.environ if environ is None else environ
+    inside = env.get("VCINSTALLDIR")
+    if inside:
+        return inside
+    on_path = shutil.which("cl", path=env.get("PATH"))
+    if on_path:
+        return on_path
+    vswhere = (
+        Path(env.get("ProgramFiles(x86)", "C:/Program Files (x86)"))
+        / "Microsoft Visual Studio/Installer/vswhere.exe"
+    )
+    if not vswhere.is_file():
+        return None
+    probe = subprocess.run(
+        [
+            str(vswhere),
+            "-latest",
+            "-products",
+            "*",
+            "-requires",
+            "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+            "-property",
+            "installationPath",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return probe.stdout.strip() or None
+
+
+def console_requirements(root: Path = PROJECT_ROOT) -> list[str]:
+    """What the package and its ``[console]`` extra declare, read from pyproject.
+
+    Read rather than restated. A second copy of the list here would be a second
+    thing to keep current, and the way that goes wrong is not abstract: `numpy`
+    is a *base* dependency, so a console assembled from a hand-written list that
+    forgot it starts, imports `md.league`, and dies in `policy_format` with a
+    traceback — which is the exact failure this whole path exists to avoid.
+    """
+    with (root / "pyproject.toml").open("rb") as handle:
+        project = tomllib.load(handle)["project"]
+    extras = project.get("optional-dependencies", {})
+    return [*project.get("dependencies", ()), *extras.get("console", ())]
+
+
+def dependency_command(venv: Path, *, root: Path = PROJECT_ROOT) -> list[str]:
+    """Everything :func:`install_command` would install, minus the project itself.
+
+    The fallback for a machine that cannot compile the extension. What it leaves
+    out is `md` — supplied instead by :func:`link_checkout`, which is the half of
+    an editable install that needs no compiler.
+    """
+    return [
+        str(venv_python(venv)),
+        "-m",
+        "pip",
+        "install",
+        *console_requirements(root),
+        *DEV_TOOLS,
+        *BUILD_TOOLS,
+        *GATE_PINS,
+    ]
+
+
+def site_packages(venv: Path, *, platform: str = sys.platform) -> Path:
+    """The venv's ``site-packages``, wherever this platform puts it."""
+    if platform == "win32":
+        return venv / "Lib" / "site-packages"
+    libs = sorted((venv / "lib").glob("python3*/site-packages"))
+    if not libs:
+        raise FileNotFoundError(f"no site-packages under {venv / 'lib'}")
+    return libs[0]
+
+
+def link_checkout(venv: Path, *, root: Path = PROJECT_ROOT, platform: str = sys.platform) -> Path:
+    """Put this checkout's ``python/`` on the venv's import path.
+
+    Exactly what an editable install does for a pure-Python package, by exactly
+    the same mechanism — a ``.pth`` file — and without the build step that needs
+    a compiler. Edits to the sources are live here just as they would be.
+    """
+    marker = site_packages(venv, platform=platform) / "md-checkout.pth"
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(f"{root / 'python'}\n", encoding="utf-8")
+    return marker
+
+
+def activate_hint(venv: Path, *, platform: str = sys.platform) -> str:
+    """How to enter the environment, in this platform's own shell.
+
+    `source .venv/bin/activate` is not a thing on Windows, and printing it to
+    someone who has just run this on Windows is a small lie at the exact moment
+    they are looking for instructions.
+    """
+    if platform == "win32":
+        return f"{venv / 'Scripts' / 'Activate.ps1'}   (PowerShell)"
+    return f"source {venv / 'bin' / 'activate'}"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Create a development venv with tooling and console dependencies."
@@ -89,15 +210,42 @@ def main(argv: list[str] | None = None) -> int:
         default=PROJECT_ROOT / ".venv",
         help="environment to create or update (default: .venv)",
     )
+    parser.add_argument(
+        "--no-extension",
+        action="store_true",
+        help="install the dependencies and link this checkout, but do not build "
+        "_md_native (implied on Windows when no MSVC toolchain is found)",
+    )
     args = parser.parse_args(argv)
     venv = args.venv.resolve()
 
-    subprocess.run([sys.executable, "-m", "venv", str(venv)], check=True)
-    subprocess.run(install_command(venv), check=True)
+    # Decided before the venv exists, so nothing is half-built when the answer
+    # is "this machine cannot".
+    skip = args.no_extension
+    if not skip and sys.platform == "win32" and windows_cxx_toolchain() is None:
+        skip = True
+        print(
+            "No MSVC toolchain found, so the simulation binding cannot be built here.\n"
+            "Setting up everything else instead — the console will start, browse runs\n"
+            "and play replays; it will refuse to *start* a run and say why.\n"
+            "\n"
+            "To get the rest, install the C++ build tools and re-run this:\n"
+            "    winget install -e --id Microsoft.VisualStudio.2022.BuildTools "
+            '--override "--quiet --wait --add Microsoft.VisualStudio.Workload.VCTools"\n',
+            file=sys.stderr,
+        )
 
-    activate = venv / ("Scripts/activate" if sys.platform == "win32" else "bin/activate")
+    subprocess.run([sys.executable, "-m", "venv", str(venv)], check=True)
+    if skip:
+        subprocess.run(dependency_command(venv), check=True)
+        link_checkout(venv)
+    else:
+        subprocess.run(install_command(venv), check=True)
+
     print(f"ready: {venv}")
-    print(f"activate it with: source {activate}")
+    print(f"activate it with: {activate_hint(venv)}")
+    if skip:
+        print("without _md_native: `poe bindings` once you have a compiler")
     return 0
 
 

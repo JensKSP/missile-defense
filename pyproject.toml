@@ -107,7 +107,20 @@ bench     = { cmd = "python -m tools.run_bench", deps = ["release"], help = "Thr
 profile   = { cmd = "python -m tools.run_bench --profile", help = "Benchmark with per-phase timers (builds the 'profile' preset)" }
 # Both go through tools.launch, which picks an interpreter that has torch /
 # PySide6 rather than whichever python is first on PATH — see its docstring.
-train     = { cmd = "python -m tools.launch md.train", help = "Train a policy with PPO (needs torch; see docs/TRAINING.md)" }
+#
+# `train` builds the extension first, for the same reason `app` builds the game:
+# a task that runs something builds what it runs. It cannot start without
+# `md._md_native` at all, so the alternative is a failure several seconds later
+# naming a target the reader then has to know to build.
+#
+# `ui` deliberately does not, and the difference is not an oversight. The
+# console without the extension still starts, browses runs and plays replays —
+# only *starting* a run needs it, and it says so itself at the moment you press
+# Start. Making the build a hard dependency would mean that on a machine with no
+# C++ toolchain — a Windows box without MSVC, say — `poe ui` stopped opening a
+# console that would have worked, in order to build something the person may not
+# have come for.
+train     = { cmd = "python -m tools.launch md.train", deps = ["bindings"], help = "Train a policy with PPO (needs torch; see docs/TRAINING.md)" }
 ui        = { cmd = "python -m tools.launch md.ui", help = "Training console: watch a run's curves and replays (needs PySide6)" }
 bindings  = { cmd = "python -m tools.build_bindings", help = "Build the Python extension (_md_native) and put it beside the package" }
 shot      = { cmd = "python -m tools.capture screenshot", help = "Screenshot the running app -> shot.png (append --launch to spawn one)" }

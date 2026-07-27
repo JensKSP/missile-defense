@@ -37,9 +37,24 @@ from ._util import PROJECT_ROOT
 #: What each entry point needs before it can even start, and what installs it.
 #: Import names, because that is what `find_spec` takes; the pip name is beside
 #: it because they are not always the same word and the message quotes it.
+#:
+#: **numpy is here because it is a base dependency, not an extra**, and this
+#: table is what decides whether an interpreter counts as able to run the entry
+#: point at all. Listing only the headline package was enough for anyone who got
+#: here through `pip install`, which brings numpy along — and wrong for everyone
+#: who got the console from the Windows ZIP, where the payload is copied beside
+#: the game and nothing resolves dependencies. On 2026-07-28 such an interpreter
+#: was picked as usable, started the console, and died in `md.policy_format` on
+#: `import numpy`. An entry point's requirements are what it *imports*, not what
+#: distinguishes it from the other entry point.
+#:
+#: `md._md_native` is deliberately absent. It is not a package any `pip install`
+#: produces — `poe bindings` builds it — so naming it here would put a command
+#: in the message that cannot work. The trainer, which truly cannot run without
+#: it, gets it as a build dependency of the poe task instead.
 REQUIREMENTS: dict[str, tuple[tuple[str, str], ...]] = {
-    "md.train": (("torch", "torch"),),
-    "md.ui": (("PySide6", "PySide6"),),
+    "md.train": (("torch", "torch"), ("numpy", "numpy")),
+    "md.ui": (("PySide6", "PySide6"), ("numpy", "numpy")),
 }
 
 #: Asks an interpreter what it has, in one round trip: the version, then any of
@@ -131,6 +146,13 @@ def candidates(
         # including the ones deliberately kept off PATH — which is exactly the
         # situation here, where the native build is not the default `python`.
         found.extend(_py_launcher_entries())
+        # ... when it can be reached at all. In the MSYS2 CLANG64 shell there is
+        # no `py` on PATH, so the launcher answers nothing and the only
+        # interpreter that can train is invisible — measured on 2026-07-28, where
+        # `poe bindings` then built against MSYS2's Python and produced a module
+        # nothing could import. The registry holds the same list without the
+        # intermediary, and is where `py` itself reads it from.
+        found.extend(_registry_entries())
     for name in ("python3", "python"):
         on_path = shutil.which(name, path=env.get("PATH"))
         if on_path:
@@ -147,6 +169,61 @@ def _py_launcher_entries() -> list[str]:
     except (OSError, subprocess.SubprocessError):
         return []
     return [path for path in map(parse_launcher_line, finished.stdout.splitlines()) if path]
+
+
+def _registry_entries() -> list[str]:
+    """Every interpreter Windows has on record, per PEP 514.
+
+    ``Software\\Python\\<Company>\\<Tag>`` under both hives, and both the
+    ``ExecutablePath`` value and the install directory, because a distribution
+    may set either. Anything unreadable is skipped rather than raised on: this is
+    discovery, and one broken vendor key must not take the whole search with it.
+    """
+    try:
+        import winreg  # noqa: PLC0415 — Windows only, and only on this path
+    except ImportError:
+        return []
+
+    def children(key: object) -> list[str]:
+        names: list[str] = []
+        for index in range(1024):  # a bound, not an expectation
+            try:
+                names.append(winreg.EnumKey(key, index))  # type: ignore[arg-type]
+            except OSError:
+                break
+        return names
+
+    found: list[str] = []
+    for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+        try:
+            with winreg.OpenKey(hive, r"Software\Python") as companies:
+                for company in children(companies):
+                    with winreg.OpenKey(companies, company) as tags:
+                        for tag in children(tags):
+                            found.extend(_registered_interpreter(winreg, tags, tag))
+        except OSError:
+            continue
+    return found
+
+
+def _registered_interpreter(winreg: object, tags: object, tag: str) -> list[str]:
+    """The interpreter one PEP 514 tag points at, as zero, one or two paths."""
+    try:
+        with winreg.OpenKey(tags, rf"{tag}\InstallPath") as key:  # type: ignore[attr-defined]
+            paths: list[str] = []
+            try:
+                executable, _ = winreg.QueryValueEx(key, "ExecutablePath")  # type: ignore[attr-defined]
+                paths.append(str(executable))
+            except OSError:
+                pass
+            try:
+                directory, _ = winreg.QueryValueEx(key, "")  # type: ignore[attr-defined]
+                paths.append(str(Path(str(directory)) / "python.exe"))
+            except OSError:
+                pass
+            return paths
+    except OSError:
+        return []
 
 
 def parse_launcher_line(line: str) -> str:
