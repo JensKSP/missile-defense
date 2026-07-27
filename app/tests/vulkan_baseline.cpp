@@ -46,6 +46,10 @@ constexpr int kFrames = 200;
 std::set<std::uint64_t> g_semaphores;
 int g_reports = 0;
 
+//: Whether a debug messenger was actually created. Without one there is nothing
+//: listening, and "no violations" would be indistinguishable from "not asked".
+bool g_messenger_installed = false;
+
 VKAPI_ATTR VkBool32 VKAPI_CALL on_message(VkDebugUtilsMessageSeverityFlagBitsEXT,
                                           VkDebugUtilsMessageTypeFlagsEXT,
                                           const VkDebugUtilsMessengerCallbackDataEXT* data, void*) {
@@ -69,11 +73,17 @@ class Renderer : public QVulkanWindowRenderer {
     void startNextFrame() override {
         if (++frames_ >= kFrames) {
             // One machine-readable line, mirroring the game's own `--report`.
+            //
+            // `messenger_installed` is not decoration. A run reporting zero
+            // violations because it never had a messenger to hear them looks
+            // exactly like a run reporting zero because there were none, and
+            // only one of those means Qt is fixed.
             std::printf(R"({"vuid_01779_reports": %d, "distinct_semaphores": %zu, )"
-                        R"("concurrent_frames": %d, "swapchain_images": %d})"
+                        R"("concurrent_frames": %d, "swapchain_images": %d, )"
+                        R"("messenger_installed": %s})"
                         "\n",
                         g_reports, g_semaphores.size(), window_->concurrentFrameCount(),
-                        window_->swapChainImageCount());
+                        window_->swapChainImageCount(), g_messenger_installed ? "true" : "false");
             std::fflush(stdout);
             QGuiApplication::quit();
             return;
@@ -119,7 +129,8 @@ int main(int argc, char** argv) {
                                VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT;
         info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT;
         info.pfnUserCallback = on_message;
-        create(instance.vkInstance(), &info, nullptr, &messenger);
+        g_messenger_installed =
+            create(instance.vkInstance(), &info, nullptr, &messenger) == VK_SUCCESS;
     }
 
     Window window;

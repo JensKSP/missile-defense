@@ -1367,7 +1367,10 @@ void Renderer::submit(std::vector<InstanceData>& inst, const std::vector<Pass>& 
     // retired before Qt can reuse that semaphore. The evidence that this is
     // Qt's and not ours is in `python/tests/e2e/test_vulkan_validation.py`,
     // which reproduces the VUID from a bare `QVulkanWindow` with no project code
-    // in the process at all, and fails if that ever stops being true.
+    // in the process at all, and fails if that stops being true on a driver that
+    // can exhibit it. Not every driver can: the hazard needs a swapchain deeper
+    // than Qt's two frame-resource sets, and one that asks for only two images
+    // never trips it. That is a property of the driver, not a fix.
     //
     // The cost is the CPU/GPU overlap of one frame. Measured over 600 frames at
     // 1280x720 it was inside run-to-run noise on both an RTX 5090 and lavapipe,

@@ -126,13 +126,32 @@ def test_the_qt_workaround_is_still_necessary(tmp_path: Path) -> None:
     )
     assert reported is not None, f"no report from the witness:\n{result.stdout}\n{result.stderr}"
 
-    assert reported["vuid_01779_reports"] > 0, (
-        "a bare QVulkanWindow no longer trips "
-        "VUID-vkAcquireNextImageKHR-semaphore-01779 — Qt appears fixed. Delete the "
-        "vkQueueWaitIdle workaround in Renderer::submit and this test with it."
+    # Zero violations because nothing was listening is not zero violations.
+    assert reported["messenger_installed"], (
+        f"the witness could not install a debug messenger, so it heard nothing "
+        f"and proves nothing: {reported}"
     )
-    # The mechanism, not just the symptom: fewer semaphore sets than swapchain
-    # images is *why* Qt reuses a busy one. Asserting it means a future failure
-    # says which of the two facts changed.
-    assert reported["distinct_semaphores"] <= reported["concurrent_frames"]
-    assert reported["concurrent_frames"] < reported["swapchain_images"]
+
+    # The precondition, not the symptom. Qt allocates `concurrent_frames` sets of
+    # frame resources and then accepts whatever swapchain depth the driver's
+    # `minImageCount` demands; the reuse hazard exists only when the second
+    # number exceeds the first. Where it does not — and lavapipe under Xvfb is
+    # such a driver — there is nothing for the witness to reproduce, and saying
+    # so is honest where failing would be noise.
+    if reported["concurrent_frames"] >= reported["swapchain_images"]:
+        pytest.skip(
+            f"this driver gives Qt a swapchain no deeper than its frame-resource "
+            f"count, so the reuse hazard cannot arise here: {reported}. The "
+            f"workaround in Renderer::submit is still required on drivers that ask "
+            f"for more, which is every one tested on real hardware."
+        )
+
+    assert reported["vuid_01779_reports"] > 0, (
+        f"a bare QVulkanWindow no longer trips "
+        f"VUID-vkAcquireNextImageKHR-semaphore-01779 on a driver where it can "
+        f"({reported}) — Qt appears fixed. Delete the vkQueueWaitIdle workaround "
+        f"in Renderer::submit and this test with it."
+    )
+    # Qt reuses one semaphore per frame-resource set, so the count of distinct
+    # semaphores named by the violations should never exceed that.
+    assert reported["distinct_semaphores"] <= reported["concurrent_frames"], reported
