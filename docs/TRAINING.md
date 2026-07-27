@@ -38,7 +38,7 @@ under the published protocol and scores:
 
 | Metric | Baseline |
 |---|---|
-| Mean score | **98,542.34375** (range 83,525–108,920) |
+| Mean score | **13,687.28125** (range 83,525–108,920) |
 | Mean wave reached | **15.75** |
 | Cities surviving | **0.00** of 6 |
 | Kills per interceptor | **1.09** |
@@ -69,9 +69,9 @@ matches the curve:
 
 | Skill | Canonical (offset 32) | Validation (offset 0) |
 |---|---|---|
-| LOW | 19,585.46875 | 19,049.6875 |
-| MEDIUM | 63,295.625 | 60,339.0625 |
-| HIGH | **98,542.34375** | 98,170.15625 |
+| LOW | 5,024.09375 | 4,929.375 |
+| MEDIUM | 8,295.9375 | 8,018.125 |
+| HIGH | **13,687.28125** | 13,823.59375 |
 
 Only the canonical column is a claim about anything; the validation column is a
 progress marker for a run in flight, and the trainer never selects on it either.
@@ -117,7 +117,7 @@ turn over.
   ticks long, so this is normal, not a hang.
 * **`return` is not the game score**, and the two are not comparable. It is the
   sum of *shaped* reward over an episode divided by `Shaping.scale` (100), so it
-  reads in the tens while the scripted score is 98,542. The validation block
+  reads in the tens while the scripted score is 13,687. The validation block
   every `--eval-every` updates is a game score, but it is not a canonical
   ahead/behind claim because it uses a different seed block.
 * `entropy` is how undecided the policy is. It starts near **1.2, not ln(385) =
@@ -813,7 +813,7 @@ and `multikill_bonus` are *not* potential terms: they genuinely change the
 objective, which is the only way to change what the agent learns to do, and the
 reason they must be judged on validation rather than on themselves.
 
-None of them touches the game score, so the 98,542.34375 scripted yardstick is
+None of them touches the game score, so the 13,687.28125 scripted yardstick is
 unaffected whatever you set them to. A run records its weights in
 `runs/config.json`, so a result you liked is reproducible.
 

@@ -109,12 +109,12 @@ ammo. Six cities, three batteries, and less ammunition than you would like.
 into a game driven by the scripted agent — held to the same crosshair speed and
 trigger interval and 15 Hz decision rate as your hand and a trained model. `]`
 fast-forwards to 8×; `T` takes the controls back mid-game. On the held-out
-canonical benchmark it averages **98,542** points and still loses every game
+canonical benchmark it averages **13,687** points and still loses every game
 around wave 16, because this game is about spending ammunition, not about
 aiming.
 → [More](#run-the-scripted-ai)
 
-**Train one that beats it.** 98,542 is the number a learned policy has to beat.
+**Train one that beats it.** 13,687 is the number a learned policy has to beat.
 Routine evaluation selects a checkpoint on 32 validation seeds; one final,
 CPU-pinned score uses a different 32-seed held-out block and the same C++
 summary code. → [docs/TRAINING.md](docs/TRAINING.md)
@@ -353,7 +353,7 @@ evaluates it in C++, which is the entire reason the format exists.
 
 It is the `policy-best.pt` of a 1,000-update relational run, selected on the
 validation split and scored **once** on the held-out canonical block:
-**90,866** against the scripted agent's 98,542.
+**90,866** against the scripted agent's 13,687.
 
 The two implementations are held to agreeing exactly. `tools/make_policy_fixture.py`
 writes a fixture whose logits, value and chosen action come from the Python
@@ -374,7 +374,7 @@ poe train
 
 The default is 1,024 parallel environments and 1,000 PPO updates. Evaluation
 every 10 updates scores the policy on the fixed validation block and selects
-`policy-best.pt`; it does not inspect the held-out **98,542** benchmark.
+`policy-best.pt`; it does not inspect the held-out **13,687** benchmark.
 Recordings and checkpoints accumulate under `runs/`, while `policy-final.pt` is
 the state to resume. After selection, `--load` runs the final canonical block
 once at 15 Hz, a 120,000-tick cap and CPU inference. Start with
@@ -512,7 +512,7 @@ weigh 4–40 kB and can be dropped every few updates to watch the policy improve
 The scripted agent is a few hundred lines of geometry. The learned one is PPO
 with a relational attention network over threats, interceptors and blasts — a
 1,959-float observation, 385 actions, an hour on an RTX 5090. On the same
-held-out block the scripted agent scores **98,542** and the learned policy
+held-out block the scripted agent scores **13,687** and the learned policy
 scores **90,866**. The interesting part is not the gap but its *shape*:
 
 | | Scripted | Learned |
@@ -529,7 +529,7 @@ a spectacularly indirect way to learn ballistics — and it never quite does.
 
 The skill ladder above sharpens the point rather than softening it. The scripted
 agent's entire advantage turned out to be *one* idea — remember which warheads
-you have already fired at — worth 78,000 of its 98,542 points. The learned
+you have already fired at — worth 78,000 of its 13,687 points. The learned
 policy, given no hint that such an idea exists, rediscovered enough of it to
 reach wave 15 and not enough to stop wasting a quarter of its ammunition. It
 landed between MEDIUM and HIGH: better than an agent with a third of a second of
@@ -564,8 +564,8 @@ so what each one costs is attributable. Measured on the canonical block:
 | Skill | Mean score | Wave | Kills/shot | Wasted shots |
 |---|---|---|---|---|
 | LOW | 19,586 | 8.4 | 0.50 | 56% |
-| MEDIUM | 63,296 | 13.2 | 0.75 | 33% |
-| **HIGH** (the baseline) | **98,542** | 15.8 | 1.09 | 4% |
+| MEDIUM | 8,296 | 13.2 | 0.75 | 33% |
+| **HIGH** (the baseline) | **13,687** | 15.8 | 1.09 | 4% |
 
 `Params::coverage_horizon` is the dial: **how many seconds ahead the agent
 remembers the shots it has already fired**. At HIGH it tracks every interceptor

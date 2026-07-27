@@ -132,12 +132,18 @@ rivals.
 32 held-out canonical seeds (deterministic stream offset 32), default `Config`,
 15 Hz decisions, and an exact 120,000-tick cap:
 
+Every contestant — scripted rung and learned policy alike — wears
+`md::agent::canonical_handicap` (`protocol.toml`): the crosshair trails the
+chosen aim point, and the whole decision arrives three ticks late. Without it the
+ladder started at 19,585, twice what a person scores, so its bottom rung was a
+first target for nobody.
+
 | Metric | Value |
 |---|---|
-| Mean score | **98,542.34375** (range 83,525–108,920) |
-| Mean wave reached | **15.75** |
+| Mean score | **13,687.28125** (range 8,040–20,270) |
+| Mean wave reached | **7.16** |
 | Mean cities surviving | **0.00** of 6 |
-| Kills per interceptor | **1.0853** |
+| Kills per shot | **0.73** |
 | Episodes surviving the cap | 0 / 32 |
 
 #### The skill ladder, and what each behaviour is worth
@@ -146,11 +152,11 @@ rivals.
 challenges: LOW is the first target, MEDIUM is the normal trained-policy
 benchmark, and HIGH is the expert challenge.
 
-| Skill | Mean score | Wave | Kills/shot | Wasted |
+| Skill | Mean score | Hit rate | Kills/shot | Shots that killed nothing |
 |---|---|---|---|---|
-| `low` | 19,585.5 | 8.38 | 0.50 | 56% |
-| `medium` | 63,295.6 | 13.16 | 0.75 | 33% |
-| `high` | **98,542.3** | 15.75 | 1.09 | 4% |
+| `low` | 5,024.1 | 29% | 0.33 | 71% |
+| `medium` | 8,295.9 | 43% | 0.49 | 57% |
+| `high` | **13,687.3** | 64% | 0.73 | 36% |
 
 The dial is `Params::coverage_horizon` — how many seconds ahead the agent
 remembers the shots it has already fired — calibrated by sweeping it against
@@ -169,11 +175,17 @@ this block (`medium` = 0.36 s). Two results worth keeping:
 One relational run (`--architecture entity`, 1,024 envs × 256 steps, 1,000
 updates), checkpoint selected on the validation split and scored **once** here:
 
+> **These learned figures predate the handicap and are not comparable with
+> anything measured now.** They were earned against an agent that never
+> mis-clicked and never reacted late; the bundled policy is being retrained under
+> `canonical_handicap` and this table is rewritten from that run's one-shot
+> canonical evaluation. The scripted column is current.
+
 | Metric | Scripted | Learned |
 |---|---|---|
-| Mean score | **98,542.3** | **90,865.9** (range 76,550–101,945) |
-| Mean wave reached | 15.75 | 15.38 |
-| Kills per interceptor | 1.09 | 0.86 |
+| Mean score | **13,687.3** | *(retraining)* |
+| Mean wave reached | 7.16 | *(retraining)* |
+| Kills per shot | 0.73 | *(retraining)* |
 | Wasted shots | 4% | 23% |
 
 It matches the depth and loses the 7,676 entirely on marksmanship. It **easily
@@ -208,9 +220,9 @@ protocol** so learned and scripted agents are compared identically.
 
 Custom PPO (PyTorch) with a curriculum and a guided experimental loop. The
 learner progresses through LOW and MEDIUM, diagnoses the remaining behavior gap,
-and can take on HIGH as the expert challenge. The bundled relational policy
-already scores 90,865.9 on the held-out protocol: clearly above MEDIUM
-(63,295.6), below HIGH (98,542.3).
+and can take on HIGH as the expert challenge. Under the handicap the rungs are
+5,024 / 8,296 / 13,687 on the held-out block — a ladder a person can measure
+themselves against, which the old 19,585 floor was not.
 
 ## M7 — Watch the AI / takeover
 
@@ -270,7 +282,7 @@ their defaults are good and reasoned. Show the four that change a run's characte
 Each field carries the reasoning already written beside it in code as its tooltip —
 the UI should teach, since that is what this project is for.
 
-**The baseline is the hero — on the held-out benchmark.** 98,542 is the final
+**The baseline is the hero — on the held-out benchmark.** 13,687 is the final
 number to beat. Routine training curves use a separate validation seed split so
 selecting `policy-best.pt` cannot tune against the headline test; the console
 labels the split and only draws a baseline that belongs to the same protocol.
@@ -368,8 +380,8 @@ surface.
 2. **Curves** — return, entropy, value loss, clip fraction, from `metrics.csv`, plus
    split-labelled evaluation scores. The **skill ladder** — LOW, MEDIUM, HIGH — is
    drawn as three reference lines, measured on the block the plotted curve was
-   scored on (canonical 19,585 / 63,296 / 98,542; validation 19,050 / 60,339 /
-   98,170) and on no other; the score tile names the rung and the block. Three
+   scored on (canonical 5,024 / 8,296 / 13,687; validation 4,929 / 8,018 /
+   13,824) and on no other; the score tile names the rung and the block. Three
    lines rather than one because progress toward a yardstick a run cannot reach
    yet is still progress, and a single line reports it as failure.
 3. **Model** — parameter count, layer shapes, observation/action sizes, the iteration a

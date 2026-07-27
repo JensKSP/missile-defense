@@ -169,9 +169,14 @@ endif()
 # these three layouts, and lists this file alongside anything the console has
 # promoted into `models/`.
 include(GNUInstallDirs)
-set(MD_PRETRAINED "${CMAKE_SOURCE_DIR}/models/pretrained.mdp")
-if(EXISTS "${MD_PRETRAINED}")
-  message(STATUS "md_app: bundling ${MD_PRETRAINED}")
+# Every `.mdp` in models/, not one named file: the game ships the same policy at
+# three points in its training — novice, skilled, expert — so a player can watch
+# one network acquire ammunition discipline rather than take the claim on trust.
+# Discovered rather than listed, so adding a fourth is a file and not an edit.
+file(GLOB MD_MODELS "${CMAKE_SOURCE_DIR}/models/*.mdp")
+set(MD_PRETRAINED ${MD_MODELS})
+if(MD_MODELS)
+  message(STATUS "md_app: bundling ${MD_MODELS}")
   if(WIN32)
     install(FILES "${MD_PRETRAINED}" DESTINATION models COMPONENT game)
   elseif(APPLE)

@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from .harness import app_environ, assert_clean, needs_app, needs_display, run_app
+from .harness import PROJECT_ROOT, app_environ, assert_clean, needs_app, needs_display, run_app
 
 pytestmark = [pytest.mark.e2e, needs_app, needs_display]
 
@@ -108,3 +108,19 @@ def test_the_game_survives_a_wayland_session(tmp_path: Path) -> None:
     run = run_app("--play", frames=120, sandbox=tmp_path, environ=environ)
     assert_clean(run)
     assert run.frames >= 120
+
+
+def test_every_bundled_model_plays(tmp_path: Path) -> None:
+    """The game ships one policy at three stages of its training.
+
+    A player is meant to watch the same network go from firing wildly to beating
+    the hand-written expert, so all three have to load and play — not just the
+    one the menu happens to open first.
+    """
+    models = sorted((PROJECT_ROOT / "models").glob("*.mdp"))
+    if not models:
+        pytest.skip("no bundled models in this tree")
+    for model in models:
+        run = run_app("--watch-model", str(model), frames=120, sandbox=tmp_path)
+        assert_clean(run)
+        assert run.ticks > 0, f"{model.name} loaded but never played"

@@ -113,11 +113,24 @@ Action PolicyDriver::act(const Sim& sim) {
         }
     }
     if (!sim.samples_action_this_tick()) {
-        // The simulation is holding the last decision; whatever is returned now
-        // is discarded. Skipping the forward pass here is not an optimisation
-        // detail — it is also what makes the action log one entry per decision,
-        // which is the only granularity the Python evaluator can be compared at.
-        return Action::noop();
+        // Held: no forward pass. That is not only an optimisation — it is what
+        // makes the action log one entry per decision, which is the only
+        // granularity the Python evaluator can be compared at.
+        //
+        // The *held index* is re-decoded rather than returning `noop()`, because
+        // an engagement is a steer-then-fire macro and re-decoding is what keeps
+        // it aimed at a threat that is still falling. `md::rl::VecEnv` does
+        // exactly this in its inner loop, and the two must agree: anything
+        // wrapping this driver sees these ticks too. `HandicappedDriver` eases
+        // the crosshair toward whatever it is given, and a `noop`'s aim is the
+        // world origin — so returning one dragged a handicapped policy's aim to
+        // (0, 0) three ticks out of four and cost it 22,000 points, while the
+        // scripted agent, which computes a real target every tick, showed
+        // nothing wrong at all.
+        if (last_index_ == no_index) {
+            return Action::noop(); // nothing decided yet this episode
+        }
+        return md::decode_action(sim, spec_, last_index_);
     }
     md::encode(sim, spec_, observation_);
     // Overwrite the event suffix `encode` just wrote with the window's counts,
