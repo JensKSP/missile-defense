@@ -338,6 +338,108 @@ def test_the_run_a_console_would_start_is_a_command_you_could_type(
         dialog.close()
 
 
+# ---- a stop that nobody is left to obey --------------------------------------
+
+
+def test_a_leftover_stop_does_not_wedge_the_console(qt_app: object, tmp_path: Path) -> None:  # noqa: ARG001
+    """A STOP outlives the run that was asked to stop, and used to be forever.
+
+    The trainer clears it on the way out, so the file only survives when a Stop
+    arrives after that — pressing it a second time, or in another window, while
+    a finished run still counts as live. The console then reported STOPPING with
+    no process behind it *and* disabled Start, which is the button whose whole
+    job is to clear the file. The status has to expire on its own.
+    """
+    from md.control import Control  # noqa: PLC0415
+    from md.ui.app import Console  # noqa: PLC0415
+
+    run = tmp_path / "test1"
+    run.mkdir()
+    (run / "metrics.csv").write_text(
+        "update,samples,return,entropy,policy_loss,value_loss,clip_fraction,steps_per_second\n"
+        "1,100,1.0,0.5,0.1,0.2,0.1,1000\n",
+        encoding="utf-8",
+    )
+    stale = time.time() - 600
+    os.utime(run / "metrics.csv", (stale, stale))
+    Control(run).request_stop()
+
+    window = Console(run)
+    try:
+        window._tick()
+        assert window._status.text() == "IDLE"
+        assert window._primary.isEnabled(), "Start stayed disabled by a stop nobody can obey"
+        assert not window._stop.isEnabled()
+    finally:
+        window.close()
+
+
+def test_a_stop_while_the_run_is_going_still_reads_as_stopping(
+    qt_app: object,  # noqa: ARG001
+    tmp_path: Path,
+) -> None:
+    """The other half: a run that is finishing its update is *not* a leftover."""
+    from md.control import Control  # noqa: PLC0415
+    from md.ui.app import Console  # noqa: PLC0415
+
+    run = tmp_path / "test1"
+    run.mkdir()
+    (run / "metrics.csv").write_text(
+        "update,samples,return,entropy,policy_loss,value_loss,clip_fraction,steps_per_second\n"
+        "1,100,1.0,0.5,0.1,0.2,0.1,1000\n",
+        encoding="utf-8",
+    )  # written just now
+    Control(run).request_stop()
+
+    window = Console(run)
+    try:
+        window._tick()
+        assert window._status.text() == "STOPPING"
+        assert not window._primary.isEnabled()
+    finally:
+        window.close()
+
+
+def test_the_console_clears_the_controls_when_its_own_run_exits(
+    qt_app: object,  # noqa: ARG001
+    tmp_path: Path,
+) -> None:
+    """Hiding a stale STOP in the status line is not the same as removing it.
+
+    The file is a request to a process that has gone; leaving it there means the
+    next Start has to clear it, and every other reader — a second console, a
+    person running `ls` — is told a run is stopping that is not.
+    """
+    from md.control import Control  # noqa: PLC0415
+    from md.ui.app import Console  # noqa: PLC0415
+
+    class _Exited:
+        """This console's child, already over."""
+
+        finished = True
+
+        def drain(self) -> list[str]:
+            return ["update 14 | ..."]
+
+        def exit_code(self) -> int:
+            return 0
+
+    run = tmp_path / "test1"
+    run.mkdir()
+    (run / "metrics.csv").write_text("update,samples,return\n1,100,1.0\n", encoding="utf-8")
+    control = Control(run)
+    control.request_stop()
+
+    window = Console(run)
+    try:
+        window._run = _Exited()  # type: ignore[assignment]
+        window._tick()
+        assert not control.stopping(), "the STOP outlived the process it was addressed to"
+        assert window._status.text() == "IDLE"
+    finally:
+        window.close()
+
+
 # ---- naming a run, and deleting one -----------------------------------------
 # Both are destructive in opposite directions: one decides what a directory will
 # be called for the rest of its life, the other removes one for good. The

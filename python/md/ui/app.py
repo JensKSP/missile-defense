@@ -1183,17 +1183,32 @@ class Console(QMainWindow):
         Which is why it works for a run this console never started: the control
         files and the metrics timestamp are all it reads.
         """
+        own = self._run
+        if own is not None and own.finished:
+            # Our own child, and it is over: no guessing needed, no pretending a
+            # run that just exited is live because its last line is thirty
+            # seconds old, and no marker file outliving the process it was for.
+            return "idle"
+        live = own is not None or (modified is not None and time.time() - modified < LIVE_AFTER_S)
         if self._control.stopping():
-            return "stopping"
+            # Qualified by liveness, because a stop is obeyed within one update:
+            # a STOP still sitting in a directory nothing is writing to is a
+            # leftover rather than a state. Pressing Stop in a second window
+            # just after a run ended writes exactly that — and reporting it for
+            # ever would disable the Start button that clears it, which is a
+            # console wedged by its own status line.
+            return "stopping" if live else "idle"
         if self._control.paused():
+            # *Not* qualified the same way: a paused run writes nothing at all,
+            # so a metrics.csv that has stopped moving is what being paused
+            # looks like from out here. Only our own exited child (above) is
+            # proof enough to override the file.
             return "paused"
-        if self._run is not None:
-            # Our own child: no guessing needed, and no pretending a run that
-            # just exited is live because its last line is thirty seconds old.
-            return "idle" if self._run.finished else "live"
+        if own is not None:
+            return "live"
         if modified is None:
             return "none"
-        return "live" if (time.time() - modified) < LIVE_AFTER_S else "idle"
+        return "live" if live else "idle"
 
     def _set_status(self, text: str, colour: str) -> None:
         if self._status.text() != text:
@@ -1342,6 +1357,12 @@ class Console(QMainWindow):
             return
         self._reported_exit = True
         self._append_log(f"— the run exited with code {code} —")
+        # Whatever control files are still in the directory were requests to
+        # this process, and it has gone. The trainer clears them itself on the
+        # way out (md.train), but a Stop pressed while it was already writing
+        # its last checkpoint lands *after* that clear and has nobody left to
+        # obey it — so the run that made the request is also what ends it.
+        self._control.clear()
         if code != 0:
             # A run that died on its first line is the case where the log is the
             # only thing that can tell you why, so it opens itself.
