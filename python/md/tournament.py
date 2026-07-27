@@ -252,7 +252,18 @@ def evaluate_model(
 
     episodes: list[EpisodeResult] = []
     for done, seed in enumerate(seed_list, start=1):
-        episodes.append(runner.play(seed, chosen.max_ticks, chosen.frame_skip))
+        # The handicap comes from the protocol rather than from the binding's
+        # default, so a `Protocol` that opts out is actually played that way —
+        # and so a result can never record a handicap it was not measured under.
+        episodes.append(
+            runner.play(
+                seed,
+                chosen.max_ticks,
+                chosen.frame_skip,
+                chosen.aim_trail,
+                chosen.reaction_delay,
+            )
+        )
         if progress is not None:
             # After the episode, so the count is of seeds that are *in*. A
             # cancellation raises out of here, and rule 2 makes that safe:

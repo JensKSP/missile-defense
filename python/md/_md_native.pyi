@@ -150,8 +150,20 @@ class LoadedPolicy:
     def architecture(self) -> str: ...
     @property
     def display_name(self) -> str: ...
-    def play(self, seed: int, max_ticks: int = ..., decision_interval: int = ...) -> EpisodeResult:
-        """Play one seed to termination or the cap and return its outcome."""
+    def play(
+        self,
+        seed: int,
+        max_ticks: int = ...,
+        decision_interval: int = ...,
+        aim_trail: float = ...,
+        reaction_delay: int = ...,
+    ) -> EpisodeResult:
+        """Play one seed to termination or the cap, under the published handicap.
+
+        The handicap defaults to the canonical one, the same way `md_agent_eval`
+        does: a score earned without it is not comparable with the ladder, so
+        opting out (``aim_trail=0.0, reaction_delay=0``) has to be asked for.
+        """
 
     def act(self, observation: npt.NDArray[np.float32], legal: npt.NDArray[np.bool_]) -> int:
         """The action this policy would take, masked to the legal ones."""

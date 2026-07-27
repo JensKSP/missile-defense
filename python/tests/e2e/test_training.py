@@ -26,6 +26,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from md import cadence
 from md.benchmark import (
     CANONICAL_BASELINE_MEAN_SCORE,
     CANONICAL_FRAME_SKIP,
@@ -192,10 +193,15 @@ def test_the_default_evaluator_is_the_published_held_out_benchmark() -> None:
     )
     assert match is not None
     assert float(match.group(1)) == pytest.approx(CANONICAL_BASELINE_MEAN_SCORE, abs=0.05)
-    assert (int(match.group(2)), int(match.group(3))) == (83_525, 108_920)
+    # The spread, the wave the run dies on and the kills per shot, all under the
+    # published handicap — which is what the evaluator applies by default, and
+    # what moved every one of these numbers. The scripted agent used to reach
+    # wave 15.75 and average 1.09 kills a shot when it never mis-clicked and
+    # never had to wait; it does not any more, and neither will a policy.
+    assert (int(match.group(2)), int(match.group(3))) == (8_040, 20_270)
     assert f"seed stream offset {CANONICAL_SEED_OFFSET}" in result.stdout
-    assert re.search(r"last wave\s+15\.75", result.stdout)
-    assert re.search(r"shots fired.*1\.09 kills/shot", result.stdout)
+    assert re.search(r"last wave\s+7\.16", result.stdout)
+    assert re.search(r"shots fired.*0\.73 kills/shot", result.stdout)
 
 
 @needs_agent_eval
@@ -343,7 +349,23 @@ def test_a_live_run_takes_a_new_eval_cadence_without_being_restarted(tmp_path: P
     )
     rows = list(csv.DictReader((out_dir / "evals.csv").read_text(encoding="utf-8").splitlines()))
     scored = [int(row["update"]) for row in rows]
-    assert scored == [30, 60], f"a run told to score every 30 updates scored at {scored}"
+    # Not `[30, 60]`: the cadence *ramps* (md.cadence), and the schedule is a
+    # function of the update number alone. So a run that adopts a 30-update
+    # interval part-way through joins the schedule it would have been on all
+    # along — dense over the updates where a policy still changes shape — rather
+    # than counting thirty from wherever it happened to be told. Which updates
+    # those are is asked of `cadence`, because a list of numbers here would say
+    # nothing about why they are those and would drift the moment the ramp did.
+    ramp = json.loads((out_dir / "config.json").read_text(encoding="utf-8"))["train"][
+        "eval_ramp_until"
+    ]
+    ramped = cadence.schedule(interval=30, ramp_until=ramp, last=60)
+    assert scored, "the run scored nothing at all after being told to score"
+    assert scored[0] in ramped and scored == ramped[ramped.index(scored[0]) :], (
+        f"a run told to score every 30 updates scored at {scored}, "
+        f"which is not the tail of the 30-update ramp {ramped}"
+    )
+    assert scored[-1] == 60, "the run stopped scoring before its last update"
 
 
 def test_a_run_logs_itself_so_a_console_can_attach_later(trained_run: Path) -> None:

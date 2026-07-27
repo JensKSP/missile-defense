@@ -16,6 +16,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
 from md.benchmark import (
     CANONICAL_AIM_TRAIL,
     CANONICAL_FRAME_SKIP,
@@ -85,6 +86,44 @@ def test_the_canonical_protocol_includes_the_handicap() -> None:
     assert not _protocol(aim_trail=CANONICAL_AIM_TRAIL + 0.01)
     assert not _protocol(reaction_delay=0)
     assert not _protocol(reaction_delay=CANONICAL_REACTION_DELAY + 1)
+
+
+def test_the_league_plays_under_the_handicap_it_records() -> None:
+    """The half that was missing, and could not be seen from either side alone.
+
+    `md_agent_eval` wraps its driver in `HandicappedDriver` by default; the
+    binding the league scores through built a bare `PolicyDriver` and did not.
+    So a league result carried `aim_trail` and `reaction_delay` in its protocol
+    and had been measured under neither — two implementations of "play a seed"
+    that the docstring on each claimed were the same code.
+
+    A bundled model and a short cap: what is asserted is which driver is used,
+    not what the model scores.
+    """
+    pytest.importorskip(
+        "md._md_native",
+        reason="the _md_native extension is not built (cmake -DMD_BUILD_BINDINGS=ON)",
+    )
+    from md._md_native import LoadedPolicy  # noqa: PLC0415 — the native binding
+
+    model = ROOT / "models" / "learned-high.mdp"
+    if not model.exists():
+        pytest.skip(f"{model.name} is not in this checkout")
+    policy = LoadedPolicy(str(model))
+    seed = 10_791_363_909_057_970_626  # the canonical block's first
+
+    default = policy.play(seed, 1_200, CANONICAL_FRAME_SKIP).score
+    handicapped = policy.play(
+        seed,
+        1_200,
+        CANONICAL_FRAME_SKIP,
+        CANONICAL_AIM_TRAIL,
+        CANONICAL_REACTION_DELAY,
+    ).score
+    unhandicapped = policy.play(seed, 1_200, CANONICAL_FRAME_SKIP, 0.0, 0).score
+
+    assert default == handicapped, "the default is not the published protocol"
+    assert default != unhandicapped, "the handicap is being asked for and ignored"
 
 
 def test_a_score_from_before_the_handicap_is_not_assumed_comparable() -> None:

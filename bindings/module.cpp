@@ -9,6 +9,7 @@
 //   * the batch step releases the GIL, so the C++ worker pool actually runs in
 //     parallel instead of taking turns.
 #include "md/agent/eval.hpp"
+#include "md/agent/handicap.hpp"
 #include "md/agent/policy.hpp"
 #include "md/config.hpp"
 #include "md/observation.hpp"
@@ -68,12 +69,23 @@ class LoadedPolicy {
     /// Play one seed to termination or ``max_ticks``. Same `run_episode` the
     /// scripted baseline and `md_agent_eval` use, so the two are comparable by
     /// construction rather than by agreement.
+    ///
+    /// Comparable *including the handicap*, which is the half this used to leave
+    /// out: it built a bare `PolicyDriver` while `md_agent_eval` wrapped its own
+    /// in `HandicappedDriver` by default, so the league scored every contestant
+    /// on an easier game than the one it recorded having played. The two
+    /// disagreed by 340 points on the first canonical seed and nothing said so.
     [[nodiscard]] md::agent::EpisodeResult play(std::uint64_t seed, std::uint64_t max_ticks,
-                                                unsigned decision_interval) const {
+                                                unsigned decision_interval,
+                                                md::agent::Handicap handicap) const {
         md::Config config{};
         config.decision_interval = decision_interval;
         md::agent::PolicyDriver driver{policy_, md::ObsSpec{}};
-        return md::agent::run_episode(config, seed, driver, max_ticks);
+        if (!handicap.active()) {
+            return md::agent::run_episode(config, seed, driver, max_ticks);
+        }
+        md::agent::HandicappedDriver handicapped{driver, handicap};
+        return md::agent::run_episode(config, seed, handicapped, max_ticks);
     }
 
     [[nodiscard]] const md::agent::Policy& policy() const noexcept { return policy_; }
@@ -203,14 +215,22 @@ holds the two to the same action, decision for decision.
         .def(
             "play",
             [](const LoadedPolicy& self, std::uint64_t seed, std::uint64_t max_ticks,
-               unsigned decision_interval) {
+               unsigned decision_interval, float aim_trail, std::uint32_t reaction_delay) {
                 require(max_ticks > 0, "max_ticks must be positive");
                 require(decision_interval > 0, "decision_interval must be positive");
+                require(aim_trail >= 0.0F && aim_trail < 1.0F, "aim_trail must be in [0, 1)");
                 nb::gil_scoped_release release; // minutes of simulation, no Python in it
-                return self.play(seed, max_ticks, decision_interval);
+                return self.play(
+                    seed, max_ticks, decision_interval,
+                    md::agent::Handicap{.reaction_delay = reaction_delay, .aim_trail = aim_trail});
             },
             nb::arg("seed"), nb::arg("max_ticks") = 120000U, nb::arg("decision_interval") = 4U,
-            "Play one seed to termination or the cap and return its outcome.")
+            // The published handicap, exactly as `md_agent_eval` defaults to it:
+            // an evaluation without it is not a comparable one, so opting out is
+            // something a caller has to type.
+            nb::arg("aim_trail") = md::agent::canonical_handicap.aim_trail,
+            nb::arg("reaction_delay") = md::agent::canonical_handicap.reaction_delay,
+            "Play one seed to termination or the cap, under the published handicap.")
         .def(
             "act",
             [](const LoadedPolicy& self, ConstFloatArray observation, ConstBoolArray legal) {
