@@ -93,7 +93,7 @@ struct Handicap {
 /// a learned policy would never carry it, and the rungs would be measured under
 /// a handicap the contestant did not have.
 inline constexpr Handicap canonical_handicap{.reaction_delay = protocol::reaction_delay,
-                                            .aim_trail = protocol::aim_trail};
+                                             .aim_trail = protocol::aim_trail};
 
 /// Wraps any `Driver` and applies `Handicap` to what it does.
 ///

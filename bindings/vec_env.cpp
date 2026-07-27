@@ -43,8 +43,8 @@ VecEnv::VecEnv(std::size_t num_envs, const Config& config, const ObsSpec& spec, 
                unsigned frame_skip, std::uint64_t max_ticks, float aim_trail,
                unsigned reaction_delay)
     : config_{config}, spec_{spec}, threads_{threads == 0u ? VecSim::hardware_threads() : threads},
-      frame_skip_{frame_skip == 0u ? 1u : frame_skip}, max_ticks_{max_ticks},
-      aim_trail_{aim_trail}, reaction_delay_{reaction_delay} {
+      frame_skip_{frame_skip == 0u ? 1u : frame_skip}, max_ticks_{max_ticks}, aim_trail_{aim_trail},
+      reaction_delay_{reaction_delay} {
     crosshair_.resize(num_envs);
     pending_.resize(num_envs);
     // `frame_skip` is the policy's decision cadence, not only a batching

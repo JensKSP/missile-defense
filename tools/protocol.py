@@ -46,7 +46,6 @@ CPP_TYPES = {
     "canonical_offset": "std::size_t",
     "policy_container_version": "std::uint32_t",
     "aim_trail": "float",
-    "reaction_delay": "std::uint32_t",
 }
 
 
