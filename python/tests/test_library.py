@@ -17,6 +17,7 @@ import json
 import time
 from pathlib import Path
 
+import pytest
 from md import library
 
 EVALS_HEADER = (
@@ -392,7 +393,12 @@ def test_the_library_and_the_dashboard_call_a_stopped_run_the_same_thing() -> No
     pill — the same condition under two words, which reads as two facts. The
     names now live in `md.library` and both views spell them from there; this
     fails if a third spelling appears.
+
+    Skipped without PySide6 rather than failing: the console is an optional
+    part of this project (LGPL-3 where the rest is MIT, so the game never
+    depends on it), and the quality gate runs where it is not installed.
     """
+    pytest.importorskip("PySide6", reason="the console is optional; see README")
     from md.ui import app
 
     assert library.STATE_IDLE in app.STATUS

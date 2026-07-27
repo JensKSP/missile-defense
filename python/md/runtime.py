@@ -425,6 +425,87 @@ def _last_json(lines: Iterable[str]) -> dict[str, object] | None:
     return None
 
 
+#: What `HEALTH_SCRIPT` imports, in the order it imports them, paired with what
+#: a person should do when that import is the one that failed. Order matters:
+#: the binding is imported first precisely so an ABI mismatch is not mistaken for
+#: a torch problem, and this is where that intent survives into the message.
+IMPORT_ADVICE = (
+    (
+        "md._md_native",
+        "the simulation binding is missing or does not match this interpreter. "
+        "pip cannot supply it — it is compiled from this checkout. Build it with "
+        "`poe bindings`, then verify the runtime again.",
+    ),
+    (
+        "torch",
+        "torch installed but will not import. The usual cause is a wheel built "
+        "for a different CUDA or Python version — see the log for the traceback.",
+    ),
+)
+
+UNHEALTHY = "the installed runtime failed its check — see the log"
+
+#: What :meth:`Runtime.install` says when it declines to start. Names the command
+#: rather than the condition: "the binding is missing" is a diagnosis, and the
+#: person reading it wants the cure.
+NO_BINDING = (
+    "the simulation binding is not built, so no runtime could pass its check — "
+    "run `poe bindings` first, then install again"
+)
+
+
+def _missing_binding() -> str | None:
+    """Why an install would be pointless, or ``None`` if it would not.
+
+    Imported here rather than at module scope: this module is deliberately free
+    of the native binding — the console must load and show its state on a machine
+    where nothing is built yet, which is the exact machine that needs to be told
+    what to do about it.
+    """
+    from importlib.util import find_spec  # noqa: PLC0415 — see the docstring
+
+    try:
+        # `find_spec` rather than an import: presence is the whole question, and
+        # importing a 4 MB extension to answer it leaves it loaded for the life
+        # of the console for no reason.
+        return None if find_spec("md._md_native") is not None else NO_BINDING
+    except (ImportError, ValueError):
+        # A parent package that will not import, or a broken `__spec__`. Either
+        # way the binding is not usable, which is the only thing being asked.
+        return NO_BINDING
+
+
+def _why_unhealthy(lines: Iterable[str]) -> str:
+    """Name the import that actually failed, rather than guessing torch.
+
+    This used to report "could not import torch" whatever went wrong, which was
+    wrong in the most common case and actively misleading in it: a source tree
+    whose binding has not been built reports a perfect torch install as a torch
+    failure, and the person goes looking in the wrong place. It cost a session.
+    """
+    text = "\n".join(lines)
+    for module, advice in IMPORT_ADVICE:
+        # Both spellings the interpreter uses: `No module named 'x'` for an
+        # absent module, and a bare mention in an ImportError for one that is
+        # present but unloadable — an ABI mismatch raises the latter.
+        if f"No module named '{module}'" in text or ("ImportError" in text and module in text):
+            return advice
+    return UNHEALTHY
+
+
+def _mtime(path: Path | None) -> float:
+    """A file's modification time, or 0.0 when there is none.
+
+    Stamps a verification against the manifest it was measured on, so
+    installing, repairing or removing a runtime invalidates the result without
+    anyone having to remember to say so.
+    """
+    try:
+        return 0.0 if path is None else path.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
 def _silent(line: str) -> None:
     """Where an install's output goes when the caller did not ask for it."""
 
@@ -448,6 +529,11 @@ class Runtime:
         self._root = paths.runtime_dir() if root is None else root
         self._runner = runner
         self._platform = platform
+        #: What :meth:`verify` last proved, as (interpreter, manifest mtime).
+        #: Cleared rather than updated on failure, so a broken runtime is
+        #: re-checked every time instead of being remembered as broken — the
+        #: thing it was missing may since have been built.
+        self._verified: tuple[str, float] | None = None
 
     @property
     def root(self) -> Path:
@@ -521,6 +607,39 @@ class Runtime:
         """The interpreter to train with, or ``None`` if there is not one."""
         return self.status().python
 
+    def verify(self, *, force: bool = False) -> RuntimeStatus:
+        """:meth:`status`, but having actually asked the runtime to prove it.
+
+        :meth:`status` believes the manifest and checks that the interpreter file
+        exists. That is right for polling — the console asks it once a second —
+        and wrong for deciding whether to offer Start, because everything it
+        checks can be true of a runtime that no longer works: a torch deleted to
+        reclaim disk, a CUDA driver downgraded under it, a binding rebuilt for a
+        different Python. The console then shows Start, the button appears to do
+        nothing, and the failure surfaces somewhere unrelated.
+
+        So this runs the same health script the install had to pass. It costs a
+        subprocess and an ``import torch``, which is why the result is cached
+        against the manifest it was measured on: re-verifying is free until
+        something actually installs, repairs or removes a runtime.
+        """
+        status = self.status()
+        if not status.ready or status.python is None:
+            return status
+        manifest = self._current()
+        stamp = (
+            str(status.python),
+            _mtime(None if manifest is None else manifest / MANIFEST_NAME),
+        )
+        if not force and self._verified == stamp:
+            return status
+        health = self._health(status.python, _silent)
+        if not health.ok:
+            self._verified = None
+            return replace(status, state=BROKEN, detail=health.detail, python=None)
+        self._verified = stamp
+        return status
+
     # -- writing ---------------------------------------------------------------
 
     def install(
@@ -543,6 +662,16 @@ class Runtime:
         """
         check_index(plan.index_url)
         emit = _silent if on_output is None else on_output
+        # Asked before anything is downloaded, because the answer cannot change
+        # by downloading. The binding is compiled from this checkout and is not
+        # part of a runtime at all; pip has no way to supply it. Without it the
+        # health check at the end of this method is certain to fail, and failing
+        # deletes the directory — so leaving this until then spends five
+        # gigabytes of CUDA torch to learn a fact that was knowable in a
+        # millisecond, and then throws the torch away too. That is not
+        # hypothetical: it happened to a checkout whose `.so` had been cleaned.
+        if (missing := _missing_binding()) is not None:
+            return replace(self.status(), detail=missing)
         # Annotated, or mypy reads the bare lambda as untyped and every call
         # through it becomes an untyped call in a typed context.
         stop: Callable[[], bool] = (lambda: False) if cancel is None else cancel
@@ -615,7 +744,7 @@ class Runtime:
         code = self._runner([str(interpreter), "-c", HEALTH_SCRIPT], record)
         payload = _last_json(lines)
         if code != 0 or payload is None:
-            return Health(False, "the installed runtime could not import torch — see the log")
+            return Health(False, _why_unhealthy(lines))
         if not payload.get("native"):
             return Health(False, "the installed runtime could not import the simulation binding")
         return Health(

@@ -269,6 +269,52 @@ jobs:
       - name: Run it
         run: python3 -m tools.quickstart --source "$GITHUB_WORKSPACE"
 
+  bootstrap:
+    # `python3 -m tools.bootstrap` is what the README tells a developer to run,
+    # and the claim it makes is that the console it produces can train. That claim
+    # was false for a while and nothing here could see it: every other job pip
+    # installs its own dependency list, so the one path a person actually takes
+    # was the one path CI never took.
+    #
+    # What it missed: bootstrap installed the console and the gate's tools but not
+    # nanobind, so CMake never created the `_md_native` target and `poe bindings`
+    # failed with `unknown target`. The visible symptom was two steps away and
+    # looked like something else entirely — the console's runtime installer
+    # downloaded five gigabytes of CUDA torch, health-checked it by importing the
+    # binding, found none, and reported the *torch* install as failed.
+    #
+    # So this runs the documented command and then asks the only question that
+    # matters about its result.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake ninja-build \
+            qt6-base-dev qt6-base-dev-tools \
+            libvulkan-dev glslang-tools \
+            libminiaudio-dev catch2 nlohmann-json3-dev \
+            python3 python3-pip python3-venv python3-dev
+
+      - name: Bootstrap exactly as the README says to
+        run: python3 -m tools.bootstrap
+
+      - name: The venv it made can build the simulation binding
+        run: .venv/bin/poe bindings
+
+      - name: And the console can import it
+        # `hasattr(VecEnv)` rather than a bare import: the health check the
+        # runtime installer runs asks the same thing, and a binding that imports
+        # but exposes nothing would pass one and fail the other.
+        run: |
+          .venv/bin/python -c "
+          import md._md_native as native
+          assert hasattr(native, 'VecEnv'), 'binding imported but exposes no VecEnv'
+          print('binding ok:', native.__file__)
+          "
+
   artifacts:
     # The .dmg, the Windows installer and all three Linux distribution builds,
     # from the same definition release.yml uses. Sharing it is the point: a

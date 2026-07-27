@@ -23,6 +23,8 @@ import pytest
 from md import runtime
 from md.runtime import (
     ALLOWED_INDEX_HOSTS,
+    BROKEN,
+    READY,
     Runtime,
     RuntimePlan,
     SystemInfo,
@@ -344,3 +346,141 @@ def test_progress_is_reported_for_a_failure_too(tmp_path: Path) -> None:
     lines: list[str] = []
     _install(tmp_path, FakeRunner(fail_at="pip"), on_output=lines.append)
     assert any("pretend failure" in line for line in lines)
+
+
+def test_a_failed_check_names_the_import_that_failed() -> None:
+    """It used to blame torch whatever went wrong.
+
+    The health script imports the native binding *before* torch on purpose, so
+    that an ABI mismatch is the first line of the traceback. Reporting "could
+    not import torch" regardless threw that away and sent people to look at a
+    torch install that was perfectly fine — which is exactly what happens in a
+    checkout whose binding has not been built yet.
+    """
+    missing_binding = [
+        "Successfully installed torch-2.13.0+cu130",
+        "Traceback (most recent call last):",
+        '  File "<string>", line 2, in <module>',
+        "    import md._md_native as native",
+        "ModuleNotFoundError: No module named 'md._md_native'",
+    ]
+    advice = runtime._why_unhealthy(missing_binding)
+    assert "poe bindings" in advice
+    assert "torch" not in advice.split("`poe bindings`")[0]
+
+    broken_torch = [
+        "Traceback (most recent call last):",
+        '  File "<string>", line 3, in <module>',
+        "    import torch",
+        "ImportError: libcudart.so.13: cannot open shared object file",
+    ]
+    assert "torch" in runtime._why_unhealthy(broken_torch)
+
+    # Something else entirely stays honest rather than picking a module.
+    assert runtime._why_unhealthy(["killed by the OOM killer"]) == runtime.UNHEALTHY
+
+
+@pytest.fixture(autouse=True)
+def _binding_is_present(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every test here talks to a fake runner, so the real binding is irrelevant.
+
+    `Runtime.install` refuses before downloading when `md._md_native` cannot be
+    imported, which is right in production and wrong for a suite that must give
+    the same answer on a machine that has never run `poe bindings` — the quality
+    gate is exactly such a machine. The one test that cares patches it the other
+    way.
+    """
+    monkeypatch.setattr(runtime, "_missing_binding", lambda: None)
+
+
+def _ready_store(tmp_path: Path) -> tuple[Runtime, FakeRunner]:
+    """A store with one installed, healthy runtime — the state before a doubt."""
+    runner = FakeRunner()
+    store = Runtime(tmp_path / "store", runner=runner, platform="linux")
+    plan = RuntimePlan(
+        backend="cpu",
+        python=Path("/usr/bin/python3"),
+        target=tmp_path / "store" / "cpu-py3.13-1",
+        packages=("torch",),
+        index_url="https://pypi.org/simple",
+    )
+    assert store.install(plan).state == READY
+    return store, runner
+
+
+def test_an_install_refuses_before_downloading_when_the_binding_is_absent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Five gigabytes should not be spent to learn something knowable up front.
+
+    The health check imports the native binding, which is compiled from this
+    checkout and can never be supplied by pip. Running it only at the end meant
+    a checkout whose `.so` was missing downloaded CUDA torch in full, failed,
+    and then had the directory — torch included — deleted. The fact was
+    available before the first byte.
+    """
+    monkeypatch.setattr(runtime, "_missing_binding", lambda: runtime.NO_BINDING)
+    runner = FakeRunner()
+    store = Runtime(tmp_path / "store", runner=runner, platform="linux")
+    plan = RuntimePlan(
+        backend="cpu",
+        python=Path("/usr/bin/python3"),
+        target=tmp_path / "store" / "cpu-py3.13-1",
+        packages=("torch",),
+        index_url="https://pypi.org/simple",
+    )
+    status = store.install(plan)
+    assert runner.commands == [], "the install downloaded something already known to fail"
+    assert "poe bindings" in status.detail
+
+
+def test_verify_asks_the_runtime_to_prove_it_rather_than_trusting_the_manifest(
+    tmp_path: Path,
+) -> None:
+    """`status()` believes a file; `verify()` asks a question.
+
+    Everything `status()` checks stays true of a runtime that no longer works —
+    a torch deleted to reclaim disk, a driver downgraded under it, a binding
+    rebuilt for another Python. The console would keep offering Start, the
+    button would appear to do nothing, and the failure would surface somewhere
+    unrelated.
+    """
+    store, _ = _ready_store(tmp_path)
+    assert store.status().state == READY  # the manifest still says so
+
+    store._runner = FakeRunner(fail_at="import torch")  # noqa: SLF001 — the seam under test
+    checked = store.verify()
+    assert checked.state == BROKEN
+    assert checked.python is None, "a runtime that cannot prove itself must not be trainable"
+
+
+def test_a_verified_runtime_is_not_re_verified_on_every_ask(tmp_path: Path) -> None:
+    """It costs a subprocess and an `import torch`; the console polls once a second."""
+    store, _ = _ready_store(tmp_path)
+    calls: list[list[str]] = []
+    store._runner = FakeRunner(on_command=calls.append)  # noqa: SLF001
+
+    assert store.verify().state == READY
+    first = len(calls)
+    assert first > 0
+    assert store.verify().state == READY
+    assert len(calls) == first, "verification repeated with nothing having changed"
+    assert store.verify(force=True).state == READY
+    assert len(calls) > first, "force did not re-check"
+
+
+def test_a_failed_verification_is_not_remembered(tmp_path: Path) -> None:
+    """The thing it was missing may since have been built.
+
+    Caching a failure would mean a console that has to be restarted after
+    `poe bindings` — exactly the kind of stale answer this method exists to stop
+    giving.
+    """
+    store, _ = _ready_store(tmp_path)
+    calls: list[list[str]] = []
+    store._runner = FakeRunner(fail_at="import torch", on_command=calls.append)  # noqa: SLF001
+
+    assert store.verify().state == BROKEN
+    before = len(calls)
+    assert store.verify().state == BROKEN
+    assert len(calls) > before, "a failure was cached"

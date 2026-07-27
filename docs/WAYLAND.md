@@ -60,7 +60,7 @@ either. The surface is destroyed too early regardless of who owns the swapchain.
 
 ```cpp
 bool GameWindow::event(QEvent* event) {
-    if (event->type() == QEvent::Close) {
+    if (event->type() == QEvent::Close && QGuiApplication::platformName() == "wayland") {
         setVulkanInstance(nullptr);
     }
     return QVulkanWindow::event(event);
@@ -71,9 +71,29 @@ bool GameWindow::event(QEvent* event) {
 menu's EXIT, the compositor's close button, a window manager asking — and it is
 delivered immediately before `destroy()`, so nothing renders after it.
 
-What this buys is not a skipped cleanup. With it, Qt calls
-`releaseSwapChainResources()` **and** `releaseResources()` and the process exits
-0 — the same callback sequence the working X11 path produces:
+### What it costs
+
+**The `VkSurfaceKHR` is never destroyed.** The platform window destroys that
+surface through the instance it can reach from the window, and a detached window
+offers it none.
+
+That leak is the *mechanism*, not a side effect. The surface destruction Qt would
+have performed is exactly the invalid one — the `wl_surface` beneath it is
+already gone — so declining to perform it is the whole of the fix. The validation
+layer sees the leak at shutdown as `VUID-vkDestroyInstance-instance-00629`.
+
+It is an honest trade: one leaked handle in a process that is exiting, instead of
+a segfault in a process that is exiting.
+
+**This is why the workaround is gated on the platform.** On xcb the surface is
+destroyed correctly and there is nothing to work around, so detaching there would
+trade a clean teardown for a leaked handle and buy nothing. That is not a
+hypothetical — applying it unconditionally is what made CI's Vulkan gate report
+00629 on X11, which is how the cost above came to be understood at all.
+
+With the line in place, Qt still calls `releaseSwapChainResources()` **and**
+`releaseResources()` and the process exits 0 — the same callback sequence the
+working X11 path produces:
 
 | | `releaseSwapChainResources` | `releaseResources` | exit |
 |---|---|---|---|
@@ -81,7 +101,8 @@ What this buys is not a skipped cleanup. With it, Qt calls
 | Wayland, with the line | ✅ | ✅ | 0 |
 | X11 (reference) | ✅ | ✅ | 0 |
 
-Valgrind reports no invalid read, write or free anywhere in the teardown.
+Valgrind reports no invalid read, write or free anywhere in the teardown — the
+leaked surface handle is a leak, not a corruption.
 
 **How well this is understood.** The effect is measured, not derived. Nothing in
 `QVulkanWindowPrivate::releaseSwapChain()` reads the instance, so Qt's source

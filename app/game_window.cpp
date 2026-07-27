@@ -11,6 +11,7 @@
 #include <QCursor>
 #include <QDir>
 #include <QFileInfo>
+#include <QGuiApplication>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QProcess>
@@ -1397,25 +1398,35 @@ void GameWindow::mousePressEvent(QMouseEvent* event) {
 /// step earlier than Qt assumes.
 ///
 /// Detaching here, while the window is still whole, is what makes the teardown
-/// finish. What that buys is not a skipped cleanup: with it, Qt calls
-/// `releaseSwapChainResources()` **and** `releaseResources()` and the process
-/// exits 0 — the same callback sequence the working X11 path produces, and
-/// Valgrind reports no invalid read, write or free anywhere in it.
+/// finish: Qt calls `releaseSwapChainResources()` **and** `releaseResources()`,
+/// the process exits 0, and Valgrind reports no invalid read, write or free.
 ///
-/// Honesty about how well this is understood: the effect is measured, not
-/// derived. Nothing in `QVulkanWindowPrivate::releaseSwapChain()` reads the
-/// instance, so the source does not explain why detaching changes its outcome.
-/// What is not in doubt is the size of the effect — a bare `QVulkanWindow`
-/// crashes 24 of 24 runs without this and 24 of 24 survive with it, on the
-/// NVIDIA driver and on lavapipe, two implementations sharing no code. That is
-/// not a timing coincidence. `app/tests/wayland_teardown.cpp` measures both
-/// halves so a future Qt cannot quietly invalidate either.
+/// **What it costs, stated plainly: the `VkSurfaceKHR` is never destroyed.** The
+/// platform window destroys that surface through the instance it can reach from
+/// the window, and a detached window offers it none. That leak is the mechanism
+/// rather than a side effect — the surface destruction Qt would have performed is
+/// exactly the invalid one, since the `wl_surface` beneath it is already gone.
+/// The validation layer sees the leak as `VUID-vkDestroyInstance-instance-00629`
+/// at shutdown, which is the honest trade: one leaked handle in a process that is
+/// exiting, instead of a segfault in a process that is exiting.
+///
+/// **Hence the platform test.** On xcb the surface is destroyed correctly and
+/// there is nothing to work around, so detaching there would trade a clean
+/// teardown for a leaked handle and buy nothing. This is not defensive coding:
+/// applying it everywhere is what made CI's Vulkan gate report 00629 on X11.
+///
+/// Honesty about how well the Wayland half is understood: the effect is measured,
+/// not derived. A bare `QVulkanWindow` crashes 24 of 24 runs without this and
+/// survives 24 of 24 with it, on the NVIDIA driver and on lavapipe — two
+/// implementations sharing no code, so not a timing coincidence.
+/// `app/tests/wayland_teardown.cpp` measures both halves so a future Qt cannot
+/// quietly invalidate either.
 ///
 /// `Close` is the right moment because every way out of this game reaches it —
 /// the menu's EXIT, the compositor's close button, a window manager asking — and
 /// it is delivered immediately before `destroy()`, so nothing renders after it.
 bool GameWindow::event(QEvent* event) {
-    if (event->type() == QEvent::Close) {
+    if (event->type() == QEvent::Close && QGuiApplication::platformName() == "wayland") {
         setVulkanInstance(nullptr);
     }
     return QVulkanWindow::event(event);

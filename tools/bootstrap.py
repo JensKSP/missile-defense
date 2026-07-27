@@ -28,6 +28,22 @@ from ._util import PROJECT_ROOT
 #: reach a release instead.
 DEV_TOOLS = ("poethepoet", "ruff", "pytest", "mypy", "pyright", "build")
 
+#: What `poe bindings` needs, and the reason a fresh checkout could not train.
+#:
+#: nanobind is already in `[build-system].requires`, which covers building the
+#: *wheel* — pip creates an isolated environment for that and installs it there.
+#: It does not cover `cmake --build --target _md_native`, which is what `poe
+#: bindings` runs against this venv. Without it CMake simply does not create the
+#: target, so the build fails with `unknown target` and `md._md_native` is never
+#: written beside the package.
+#:
+#: The visible cost of that was two steps away and looked like something else
+#: entirely: the console's runtime installer downloads five gigabytes of CUDA
+#: torch, health-checks the result by importing the binding, finds none, and
+#: reports the install as failed. So a bootstrapped console could watch runs and
+#: never start one — which is exactly the promise `[console]` is supposed to keep.
+BUILD_TOOLS = ("nanobind>=2.0",)
+
 #: Constraints the *gate* needs, over and above what the package needs to run.
 #:
 #: `numpy<2.5` is a typing requirement rather than a runtime one. numpy 2.5
@@ -58,6 +74,7 @@ def install_command(venv: Path, *, root: Path = PROJECT_ROOT) -> list[str]:
         "--editable",
         f"{root}[console]",
         *DEV_TOOLS,
+        *BUILD_TOOLS,
         *GATE_PINS,
     ]
 
