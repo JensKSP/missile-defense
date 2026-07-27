@@ -136,6 +136,19 @@ set_target_properties(md_app PROPERTIES AUTOMOC ON)
 
 if(BUILD_TESTING)
   add_subdirectory(tests)
+
+  # The upstream-ownership witness for the xcb fallback in `app/main.cpp`. A bare
+  # QVulkanWindow with none of this project in it, which still segfaults during
+  # Qt's window teardown under Wayland; `test_wayland_teardown.py` runs it so the
+  # fallback fails loudly the day Qt no longer needs it.
+  #
+  # Unlike `md_vulkan_baseline` this needs no validation layer — the exit status
+  # is the measurement — so it is built wherever tests are. Never installed.
+  if(UNIX AND NOT APPLE)
+    add_executable(md_wayland_teardown tests/wayland_teardown.cpp)
+    set_target_properties(md_wayland_teardown PROPERTIES AUTOMOC ON)
+    target_link_libraries(md_wayland_teardown PRIVATE Qt6::Gui md::warnings)
+  endif()
 endif()
 
 # Vulkan validation layers are opt-in (dev builds); never requested in a
