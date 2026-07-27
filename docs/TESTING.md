@@ -109,15 +109,23 @@ affordance:
 3. **Every run is bounded.** A hang must surface as a failed test, not a job that
    runs until the runner gives up.
 4. **Validation errors are failures.** The debug build enables
-   `VK_LAYER_KHRONOS_validation`, and any `VUID` not in
-   `harness.KNOWN_VALIDATION_ERRORS` fails the test — which is how "did it render
-   correctly?" is checked without capturing a pixel.
+   `VK_LAYER_KHRONOS_validation`, and *any* `VUID` in a run's output fails the
+   test — which is how "did it render correctly?" is checked without capturing a
+   pixel.
 
-> **Two known validation errors are recorded there**, both found by this suite the
-> first time it ran and both pre-existing: a swapchain acquire semaphore reused
-> while a wait on it is still pending, and a SPIR-V capability whose environment
-> requirement is not met. They are baselined so that *new* ones fail immediately
-> rather than being buried — not because they are acceptable.
+> **There is no allow-list, and adding one back needs a very good argument.** Two
+> validation errors were baselined when this suite first ran, and both are now
+> fixed rather than excused: `VkShaderModuleCreateInfo-pCode-08740`, which was an
+> instance declaring `apiVersion = 0`, and
+> `VUID-vkAcquireNextImageKHR-semaphore-01779`, which is a genuine `QVulkanWindow`
+> defect worked around in `Renderer::submit`. A baseline of errors we have decided
+> to live with stops being a to-do and becomes background noise, and every
+> renderer change after it gets reviewed against a dirty baseline.
+
+`app/tests/vulkan_baseline.cpp` is a bare `QVulkanWindow` with none of this
+project in it. `test_vulkan_validation.py` runs it to prove that 01779 is Qt's
+and not ours, and — more usefully — to fail the day Qt stops raising it, because
+that is the day the workaround should be deleted.
 
 ## The TDD loop
 

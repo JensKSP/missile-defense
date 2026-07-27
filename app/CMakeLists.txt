@@ -142,6 +142,15 @@ endif()
 # release/package build, so shipped binaries don't depend on the layer package.
 if(MD_VULKAN_VALIDATION)
   target_compile_definitions(md_app PRIVATE MD_VULKAN_VALIDATION)
+
+  # The upstream-ownership witness for the `vkQueueWaitIdle` in
+  # `Renderer::submit`. A bare QVulkanWindow with none of this project in it;
+  # `test_vulkan_validation.py` runs it to prove the VUID that workaround exists
+  # for is Qt's, and to notice the day Qt stops raising it. Never installed, and
+  # built only here, where the layer it needs is already a build-time choice.
+  add_executable(md_vulkan_baseline tests/vulkan_baseline.cpp)
+  set_target_properties(md_vulkan_baseline PROPERTIES AUTOMOC ON)
+  target_link_libraries(md_vulkan_baseline PRIVATE Qt6::Gui md::warnings)
 endif()
 
 # ---- The bundled learned agent -----------------------------------------------

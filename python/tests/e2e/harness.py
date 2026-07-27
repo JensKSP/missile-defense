@@ -344,51 +344,26 @@ def run_app(
     return run
 
 
-#: Validation errors this renderer already produced before any of these tests
-#: existed, confirmed by running the debug build with no flags at all. They are
-#: **not** acceptable — they are recorded so that *new* ones fail immediately
-#: instead of being buried under them, and each is a bug to fix in its own right:
-#:
-#: * `vkAcquireNextImageKHR-semaphore-01779` — the acquire semaphore is reused
-#:   while a previous signal or wait on it is still pending. The classic
-#:   swapchain synchronisation mistake: one semaphore where there must be one per
-#:   frame in flight. It happens to work on this driver and is undefined.
-#:
-#:   **Not ours to fix in this file's sense of "ours".** Nothing in this tree
-#:   calls `vkAcquireNextImageKHR`: the swapchain, and therefore the semaphore,
-#:   belongs entirely to Qt's `QVulkanWindow`. Fixing it means either a Qt
-#:   version where it is fixed, or abandoning `QVulkanWindow` for a hand-rolled
-#:   swapchain — which is a renderer rewrite, not a patch. Recorded here so the
-#:   next person does not go looking for our semaphore. Observed on Qt 6.8.2.
-#:
-#: `VkShaderModuleCreateInfo-pCode-08740` **was** here and is fixed, in
-#: `app/main.cpp`. Two successive notes in this spot diagnosed it wrongly — the
-#: first blamed the shaders' SPIR-V target, the second blamed another loader
-#: layer — and both were confident. The actual cause: `QVulkanInstance` does not
-#: fill in `VkApplicationInfo::apiVersion` unless it is told to, so the instance
-#: declared version 0, and the layer correctly reported every shader module as
-#: declaring the `Shader` capability with nothing that satisfies it. One
-#: `setApiVersion(QVersionNumber(1, 0))` and it is gone.
-#:
-#: The lesson is kept because it cost two passes: a validation message about a
-#: shader was not about the shaders. Before rewriting anything the layer
-#: complains about, check what the instance actually asked for.
-#:
-#: Finding these was the first thing this layer did, which is roughly the
-#: argument for having it. Diagnosing them correctly took a second pass, which is
-#: roughly the argument for writing the evidence down beside the baseline.
-KNOWN_VALIDATION_ERRORS = ("VUID-vkAcquireNextImageKHR-semaphore-01779",)
+def validation_errors(run: AppRun) -> list[str]:
+    """Vulkan validation messages from this run, newest last.
 
+    **There is no allow-list.** There used to be one, holding
+    `VUID-vkAcquireNextImageKHR-semaphore-01779`, on the reasoning that the
+    swapchain belongs to `QVulkanWindow` and so the semaphore was not ours to
+    fix. The ownership half of that was right and the conclusion was wrong: an
+    application cannot reorder Qt's acquire, but it *can* refuse to let Qt reuse
+    a semaphore that is still busy, which is what `Renderer::submit` now does.
+    See the comment there, and `test_vulkan_validation.py` for the evidence that
+    the defect is Qt's.
 
-def validation_errors(run: AppRun, *, include_known: bool = False) -> list[str]:
-    """Vulkan validation messages from this run, newest last."""
+    A baseline of "errors we have decided to live with" stops being a to-do and
+    becomes background noise, and every renderer change after it is reviewed
+    against a dirty baseline. If a VUID appears here, it is a bug.
+    """
     # `output`, not `stderr`: under `xvfb-run` the layer's messages arrive on
     # stdout. See :attr:`AppRun.output` — this grepping the wrong stream is why
     # no validation error was ever reported by this suite.
-    lines = [line for line in run.output.splitlines() if "VUID" in line]
-    if include_known:
-        return lines
-    return [line for line in lines if not any(known in line for known in KNOWN_VALIDATION_ERRORS)]
+    return [line for line in run.output.splitlines() if "VUID" in line]
 
 
 def assert_clean(run: AppRun) -> None:
@@ -397,13 +372,11 @@ def assert_clean(run: AppRun) -> None:
     A Vulkan validation error is a failure and not a warning: it means the
     renderer did something the specification does not define, which is a bug that
     happens to have worked on this driver. Only the debug build enables the
-    layer, so this bites exactly where it can — and only for errors not already
-    in :data:`KNOWN_VALIDATION_ERRORS`, so a regression is never hidden by a
-    pre-existing fault.
+    layer, so this bites exactly where it can.
     """
     assert run.exit_code == 0, f"exited {run.exit_code}\n{run.stderr}"
     offending = validation_errors(run)
-    assert not offending, "new Vulkan validation errors:\n" + "\n".join(offending)
+    assert not offending, "Vulkan validation errors:\n" + "\n".join(offending)
 
 
 # ---- a training run ----------------------------------------------------------

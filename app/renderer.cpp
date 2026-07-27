@@ -1348,6 +1348,33 @@ void Renderer::submit(std::vector<InstanceData>& inst, const std::vector<Pass>& 
 
     dev_->vkCmdEndRenderPass(cb);
     window_->frameReady();
+
+    // Wait for the frame we just handed to Qt before starting the next one.
+    //
+    // This is a workaround for a defect in `QVulkanWindow`, not a property this
+    // renderer wants. Qt hardcodes `frameLag = 2` and so allocates two sets of
+    // per-frame semaphores, but it asks the driver for a swapchain of whatever
+    // `VkSurfaceCapabilitiesKHR::minImageCount` requires — three on every driver
+    // tested here. It then reuses an acquire semaphore two frames later without
+    // having waited for the submit that waits on that same semaphore to
+    // complete, which is `VUID-vkAcquireNextImageKHR-semaphore-01779`: the
+    // semaphore still has an uncompleted wait pending. That is undefined
+    // behaviour that happens to work on the drivers we run on.
+    //
+    // Nothing in this tree can reorder Qt's acquire against its own fence wait,
+    // and the swapchain image count is not application-controllable. Serialising
+    // here is the one lever an application has: it guarantees the submit has
+    // retired before Qt can reuse that semaphore. The evidence that this is
+    // Qt's and not ours is in `python/tests/e2e/test_vulkan_validation.py`,
+    // which reproduces the VUID from a bare `QVulkanWindow` with no project code
+    // in the process at all, and fails if that ever stops being true.
+    //
+    // The cost is the CPU/GPU overlap of one frame. Measured over 600 frames at
+    // 1280x720 it was inside run-to-run noise on both an RTX 5090 and lavapipe,
+    // because this renderer is instanced quads and is bound by neither. Revisit
+    // if the renderer ever becomes GPU-bound.
+    dev_->vkQueueWaitIdle(window_->graphicsQueue());
+
     window_->requestUpdate();
 }
 
