@@ -20,6 +20,7 @@ from md.benchmark import (
     CANONICAL_INFERENCE_DEVICE,
     CANONICAL_LADDER,
     CANONICAL_MAX_TICKS,
+    CANONICAL_REACTION_DELAY,
     CANONICAL_SEED_OFFSET,
     CANONICAL_SPLIT,
     NO_LADDER,
@@ -413,6 +414,7 @@ def test_the_model_note_scores_the_checkpoint_by_its_own_update(tmp_path: Path) 
             max_ticks=CANONICAL_MAX_TICKS,
             inference_device=CANONICAL_INFERENCE_DEVICE,
             aim_trail=CANONICAL_AIM_TRAIL,
+            reaction_delay=CANONICAL_REACTION_DELAY,
         ),
         250: EvalRow(
             250,
@@ -431,6 +433,7 @@ def test_the_model_note_scores_the_checkpoint_by_its_own_update(tmp_path: Path) 
             max_ticks=CANONICAL_MAX_TICKS,
             inference_device=CANONICAL_INFERENCE_DEVICE,
             aim_trail=CANONICAL_AIM_TRAIL,
+            reaction_delay=CANONICAL_REACTION_DELAY,
         ),
     }
     note = checkpoint_note(list_checkpoints(tmp_path), evals)
@@ -458,6 +461,7 @@ def test_validation_checkpoint_note_never_claims_a_baseline_delta(tmp_path: Path
         max_ticks=CANONICAL_MAX_TICKS,
         inference_device=CANONICAL_INFERENCE_DEVICE,
         aim_trail=CANONICAL_AIM_TRAIL,
+        reaction_delay=CANONICAL_REACTION_DELAY,
     )
     note = checkpoint_note(list_checkpoints(tmp_path), {200: row})
     assert f"validation score {row.mean_score:,.0f}" in note

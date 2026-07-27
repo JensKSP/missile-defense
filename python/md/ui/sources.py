@@ -117,6 +117,7 @@ class EvalRow:
     #: runs faced an agent that never mis-clicked, so their numbers answer a
     #: different question and must not be ranked beside these.
     aim_trail: float | None = None
+    reaction_delay: int | None = None
     # The full per-episode statistics (the plan's Task 11). Every one is
     # optional for the same reason the rest are: a run written by an older
     # trainer simply has no such column, and the console has to keep reading it.
@@ -154,6 +155,7 @@ def is_canonical_benchmark(row: EvalRow) -> bool:
         max_ticks=row.max_ticks,
         inference_device=row.inference_device,
         aim_trail=row.aim_trail,
+        reaction_delay=row.reaction_delay,
     )
 
 
@@ -232,6 +234,7 @@ def row_ladder(row: EvalRow) -> Ladder:
         max_ticks=row.max_ticks,
         inference_device=row.inference_device,
         aim_trail=row.aim_trail,
+        reaction_delay=row.reaction_delay,
     )
 
 

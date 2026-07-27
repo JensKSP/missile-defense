@@ -10,7 +10,8 @@ from __future__ import annotations
 
 DECISION_INTERVAL: int = 4
 MAX_TICKS: int = 120000
-AIM_TRAIL: float = 0.877
+AIM_TRAIL: float = 0.84
+REACTION_DELAY: int = 3
 PER_SPLIT: int = 32
 VALIDATION_OFFSET: int = 0
 CANONICAL_OFFSET: int = 32

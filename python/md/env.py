@@ -126,6 +126,7 @@ class VecEnv:
         frame_skip: int = 4,
         max_ticks: int = 120_000,
         aim_trail: float = 0.0,
+        reaction_delay: int = 0,
         shaping: Shaping | None = None,
         seed: int = 0,
     ) -> None:
@@ -140,6 +141,7 @@ class VecEnv:
             frame_skip=frame_skip,
             max_ticks=max_ticks,
             aim_trail=aim_trail,
+            reaction_delay=reaction_delay,
         )
         n, k = self.num_envs, self.obs_size
         # Allocated once; C++ writes into these in place, for the process lifetime.
@@ -181,6 +183,16 @@ class VecEnv:
         320 with it, because a policy is a closed loop and a delay opens it.
         """
         return float(self._native.aim_trail)
+
+    @property
+    def reaction_delay(self) -> int:
+        """Ticks between the policy deciding and the simulation acting.
+
+        The other half of the handicap. Both are applied here rather than only at
+        evaluation because a policy is a closed loop: one trained without them
+        and scored with them collapses rather than merely doing worse.
+        """
+        return int(self._native.reaction_delay)
 
     @property
     def threads(self) -> int:

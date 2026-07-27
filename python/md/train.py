@@ -72,6 +72,7 @@ from .benchmark import (
     CANONICAL_FRAME_SKIP,
     CANONICAL_INFERENCE_DEVICE,
     CANONICAL_MAX_TICKS,
+    CANONICAL_REACTION_DELAY,
     CANONICAL_SEED_OFFSET,
     CANONICAL_SPLIT,
     SEEDS_PER_SPLIT,
@@ -124,6 +125,8 @@ class TrainConfig:
     #: Defaults to the published protocol so a run is comparable by default;
     #: `--reaction-delay 0` opts out and marks the run as non-canonical.
     aim_trail: float = CANONICAL_AIM_TRAIL
+    #: The other half of the handicap: ticks between deciding and acting.
+    reaction_delay: int = CANONICAL_REACTION_DELAY
     #: Score the policy on the fixed validation seeds this often (0 disables).
     #: An eval costs most of an update early on and rather more once episodes
     #: run long, so this is the knob a run changes mid-flight: it is published to
@@ -246,6 +249,7 @@ def train(
         frame_skip=config.frame_skip,
         max_ticks=config.max_ticks,
         aim_trail=config.aim_trail,
+        reaction_delay=config.reaction_delay,
         shaping=shaping,
         seed=config.seed,
     )
@@ -506,6 +510,7 @@ def train(
                 frame_skip=config.frame_skip,
                 max_ticks=config.max_ticks,
                 aim_trail=config.aim_trail,
+                reaction_delay=config.reaction_delay,
             )
             _log_eval(
                 out_dir / "evals.csv",
@@ -1616,6 +1621,7 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Episode length cap in ticks; lower it to see episodes finish sooner.",
     )
+    parser.add_argument("--reaction-delay", type=int, default=None)
     parser.add_argument("--eval-every", type=int, default=None)
     # Where the ramp arrives. 0 turns it off and restores a plain fixed interval.
     parser.add_argument("--eval-ramp-until", type=int, default=None)

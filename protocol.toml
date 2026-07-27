@@ -39,7 +39,8 @@ max_ticks = 120000
 # mis-clicking. Without this the scripted ladder starts at 19,585, twice what a
 # person scores, so its bottom rung was a first target for nobody.
 #
-# 0.877 puts the ladder at 5,782 / 8,543 / 16,321 on the canonical block.
+# 0.840, together with `reaction_delay`, puts the ladder at
+# 5,024 / 8,296 / 13,687 on the canonical block.
 # The knob is noisy at this resolution — neighbouring thousandths move MEDIUM by
 # several hundred points on 32 seeds — so treat the third decimal as fitted to
 # the published block, not as a physical constant. Two rejected alternatives are
@@ -48,7 +49,18 @@ max_ticks = 120000
 # the very thing the ladder measures. A reaction delay reached the same MEDIUM
 # but left HIGH only 1.4 sigma above it — indistinguishable over 32 seeds.
 # This one leaves 16.9 sigma.
-aim_trail = 0.877
+aim_trail = 0.840
+
+# Ticks between deciding and acting: a person sees, decides, and only then moves
+# a hand. 3 ticks is 50 ms at 60 Hz.
+#
+# The whole decision is delayed, aim included. Delaying only the trigger costs
+# almost nothing — the crosshair goes on tracking meanwhile, so the shot still
+# lands where the agent currently wants it. It is the staleness of the aim that
+# bites. Alone it is far too blunt a knob: at 5 ticks it reaches the same MEDIUM
+# but leaves HIGH only 1.4 sigma above it, which is no ladder at all. Paired with
+# the trail it keeps 1.65x.
+reaction_delay = 3
 
 [seeds]
 # Episodes per evaluation block.

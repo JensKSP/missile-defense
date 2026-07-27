@@ -29,6 +29,7 @@ import numpy as np
 from . import _md_native as _native
 from .benchmark import (
     CANONICAL_AIM_TRAIL,
+    CANONICAL_REACTION_DELAY,
     CANONICAL_SEED_OFFSET,
     SEEDS_PER_SPLIT,
     VALIDATION_SEED_OFFSET,
@@ -67,6 +68,7 @@ def evaluate(
     frame_skip: int = 4,
     max_ticks: int = 120_000,
     aim_trail: float = CANONICAL_AIM_TRAIL,
+    reaction_delay: int = CANONICAL_REACTION_DELAY,
     threads: int = 0,
 ) -> Summary:
     """Play every seed once under `policy` and aggregate.
@@ -106,6 +108,7 @@ def evaluate(
         frame_skip=frame_skip,
         max_ticks=max_ticks,
         aim_trail=aim_trail,
+        reaction_delay=reaction_delay,
         shaping=None,
         seed=seed_list[0],
     )

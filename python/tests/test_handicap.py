@@ -21,6 +21,7 @@ from md.benchmark import (
     CANONICAL_FRAME_SKIP,
     CANONICAL_INFERENCE_DEVICE,
     CANONICAL_MAX_TICKS,
+    CANONICAL_REACTION_DELAY,
     CANONICAL_SEED_OFFSET,
     CANONICAL_SPLIT,
     SEEDS_PER_SPLIT,
@@ -70,6 +71,7 @@ def _protocol(**overrides: object) -> bool:
         "max_ticks": CANONICAL_MAX_TICKS,
         "inference_device": CANONICAL_INFERENCE_DEVICE,
         "aim_trail": CANONICAL_AIM_TRAIL,
+        "reaction_delay": CANONICAL_REACTION_DELAY,
     }
     fields.update(overrides)
     return canonical_baseline_comparable(**fields)  # type: ignore[arg-type]
@@ -77,8 +79,12 @@ def _protocol(**overrides: object) -> bool:
 
 def test_the_canonical_protocol_includes_the_handicap() -> None:
     assert _protocol()
+    # Both halves, because a score earned with only one of them is a score from
+    # a different game.
     assert not _protocol(aim_trail=0.0)
     assert not _protocol(aim_trail=CANONICAL_AIM_TRAIL + 0.01)
+    assert not _protocol(reaction_delay=0)
+    assert not _protocol(reaction_delay=CANONICAL_REACTION_DELAY + 1)
 
 
 def test_a_score_from_before_the_handicap_is_not_assumed_comparable() -> None:
@@ -90,3 +96,4 @@ def test_a_score_from_before_the_handicap_is_not_assumed_comparable() -> None:
     would put a 90,866 beside a 9,000 as though they answered the same question.
     """
     assert not _protocol(aim_trail=None)
+    assert not _protocol(reaction_delay=None)

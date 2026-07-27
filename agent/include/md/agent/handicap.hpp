@@ -82,13 +82,18 @@ struct Handicap {
 /// with the same names and different numbers. The value lives in
 /// `protocol.toml`, which generates `md/protocol.hpp`.
 ///
-/// **Only `aim_trail`.** A reaction delay was measured and rejected: it reaches
-/// the same MEDIUM but leaves HIGH just 1.4 sigma above it over 32 seeds, which
-/// is no ladder at all. A perception delay was rejected for a different and
-/// worse reason — it can only be applied inside the scripted agent's own
-/// reasoning, so a learned policy would never carry it, and the rungs would be
-/// measured under a handicap the contestant did not have.
-inline constexpr Handicap canonical_handicap{.aim_trail = protocol::aim_trail};
+/// **Both knobs, because a hand is late *and* slow.** Either alone is a poor
+/// dial: a reaction delay on its own reaches the target MEDIUM but leaves HIGH
+/// 1.4 sigma above it over 32 seeds, which is no ladder at all, and a trail on
+/// its own leaves out the part of being human that is simply reacting late.
+/// Together they hold 1.65x.
+///
+/// A *perception* delay was measured and rejected for a different and worse
+/// reason: it can only be applied inside the scripted agent's own reasoning, so
+/// a learned policy would never carry it, and the rungs would be measured under
+/// a handicap the contestant did not have.
+inline constexpr Handicap canonical_handicap{.reaction_delay = protocol::reaction_delay,
+                                            .aim_trail = protocol::aim_trail};
 
 /// Wraps any `Driver` and applies `Handicap` to what it does.
 ///

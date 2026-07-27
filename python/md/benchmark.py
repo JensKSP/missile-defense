@@ -19,6 +19,7 @@ from ._protocol import (
     INFERENCE_DEVICE,
     MAX_TICKS,
     PER_SPLIT,
+    REACTION_DELAY,
     VALIDATION_OFFSET,
 )
 from ._protocol import CANONICAL_SPLIT as CANONICAL_SPLIT
@@ -42,6 +43,7 @@ CANONICAL_FRAME_SKIP = DECISION_INTERVAL
 CANONICAL_MAX_TICKS = MAX_TICKS
 CANONICAL_INFERENCE_DEVICE = INFERENCE_DEVICE
 CANONICAL_AIM_TRAIL = AIM_TRAIL
+CANONICAL_REACTION_DELAY = REACTION_DELAY
 
 
 @dataclass(frozen=True)
@@ -99,9 +101,9 @@ class Ladder:
 CANONICAL_LADDER = Ladder(
     CANONICAL_SPLIT,
     (
-        Baseline("low", 5_782.34375),
-        Baseline("medium", 8_542.65625),
-        Baseline("high", 16_321.40625),
+        Baseline("low", 5_024.09375),
+        Baseline("medium", 8_295.9375),
+        Baseline("high", 13_687.28125),
     ),
 )
 
@@ -114,9 +116,9 @@ CANONICAL_LADDER = Ladder(
 VALIDATION_LADDER = Ladder(
     VALIDATION_SPLIT,
     (
-        Baseline("low", 5_842.1875),
-        Baseline("medium", 8_367.65625),
-        Baseline("high", 14_462.5),
+        Baseline("low", 4_929.375),
+        Baseline("medium", 8_018.125),
+        Baseline("high", 13_823.59375),
     ),
 )
 
@@ -153,6 +155,7 @@ def canonical_baseline_comparable(
     max_ticks: int | None,
     inference_device: str | None,
     aim_trail: float | None = None,
+    reaction_delay: int | None = None,
 ) -> bool:
     """Whether a learned-policy row used the published canonical protocol.
 
@@ -171,6 +174,7 @@ def canonical_baseline_comparable(
         and max_ticks == CANONICAL_MAX_TICKS
         and inference_device == CANONICAL_INFERENCE_DEVICE
         and aim_trail == CANONICAL_AIM_TRAIL
+        and reaction_delay == CANONICAL_REACTION_DELAY
     )
 
 
@@ -212,6 +216,7 @@ def ladder_for(
     max_ticks: int | None,
     inference_device: str | None,
     aim_trail: float | None = None,
+    reaction_delay: int | None = None,
 ) -> Ladder:
     """The ladder a row scored under this protocol may be read against.
 
@@ -228,6 +233,7 @@ def ladder_for(
         max_ticks=max_ticks,
         inference_device=inference_device,
         aim_trail=aim_trail,
+        reaction_delay=reaction_delay,
     ):
         return CANONICAL_LADDER
     if validation_ladder_comparable(

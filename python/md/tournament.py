@@ -99,6 +99,7 @@ class Protocol:
     #: earned against a handicapped one, and a table that mixed them would be
     #: comparing two different games.
     aim_trail: float = benchmark.CANONICAL_AIM_TRAIL
+    reaction_delay: int = benchmark.CANONICAL_REACTION_DELAY
 
     @property
     def canonical(self) -> bool:
@@ -109,6 +110,7 @@ class Protocol:
             seed_count=self.seed_count,
             frame_skip=self.frame_skip,
             aim_trail=self.aim_trail,
+            reaction_delay=self.reaction_delay,
             max_ticks=self.max_ticks,
             inference_device=self.inference_device,
         )

@@ -243,17 +243,18 @@ The arrays passed to `step` are written in place; nothing is copied and nothing 
 allocated per step. `step` releases the GIL, so the worker pool runs in parallel.
 )doc")
         .def(nb::init<std::size_t, const md::Config&, const md::ObsSpec&, unsigned, unsigned,
-                      std::uint64_t, float>(),
+                      std::uint64_t, float, unsigned>(),
              nb::arg("num_envs"), nb::arg("config") = md::Config{},
              nb::arg("obs_spec") = md::ObsSpec{}, nb::arg("threads") = 0u,
              nb::arg("frame_skip") = 4u, nb::arg("max_ticks") = 120000u,
-             nb::arg("aim_trail") = 0.0f)
+             nb::arg("aim_trail") = 0.0f, nb::arg("reaction_delay") = 0u)
         .def_prop_ro("num_envs", &md::rl::VecEnv::num_envs)
         .def_prop_ro("obs_size", &md::rl::VecEnv::obs_size)
         .def_prop_ro("action_count", &md::rl::VecEnv::action_count)
         .def_prop_ro("threads", &md::rl::VecEnv::threads)
         .def_prop_ro("frame_skip", &md::rl::VecEnv::frame_skip)
         .def_prop_ro("aim_trail", &md::rl::VecEnv::aim_trail)
+        .def_prop_ro("reaction_delay", &md::rl::VecEnv::reaction_delay)
         .def(
             "reset",
             [](md::rl::VecEnv& env, std::uint64_t seed, FloatArray obs) {

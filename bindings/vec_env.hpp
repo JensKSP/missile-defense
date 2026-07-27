@@ -12,6 +12,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <optional>
 #include <vector>
 
@@ -34,7 +35,8 @@ namespace md::rl {
 class VecEnv {
   public:
     VecEnv(std::size_t num_envs, const Config& config, const ObsSpec& spec, unsigned threads,
-           unsigned frame_skip, std::uint64_t max_ticks, float aim_trail = 0.0f);
+           unsigned frame_skip, std::uint64_t max_ticks, float aim_trail = 0.0f,
+           unsigned reaction_delay = 0);
 
     /// How far the crosshair lags behind the policy's chosen aim point —
     /// `md::agent::Handicap::aim_trail`, applied here so a policy *trains* under
@@ -48,6 +50,10 @@ class VecEnv {
     /// instantly, and that is what `HandicappedDriver` eases for every other
     /// contestant.
     [[nodiscard]] float aim_trail() const noexcept { return aim_trail_; }
+
+    /// Ticks between the policy deciding and the simulation acting — the other
+    /// half of `md::agent::Handicap`, applied here for the same reason.
+    [[nodiscard]] unsigned reaction_delay() const noexcept { return reaction_delay_; }
 
     [[nodiscard]] std::size_t num_envs() const noexcept { return sims_.size(); }
 
@@ -160,6 +166,9 @@ class VecEnv {
     std::vector<Vec2> crosshair_;
     std::uint64_t max_ticks_ = 0;
     float aim_trail_ = 0.0f;
+    unsigned reaction_delay_ = 0;
+    //: Per-env queue of decoded actions still on their way to the simulation.
+    std::vector<std::deque<Action>> pending_;
     std::uint64_t next_seed_ = 0;
 };
 

@@ -40,11 +40,13 @@ void accumulate_events(std::array<float, ObsSpec::event_features>& out,
 } // namespace
 
 VecEnv::VecEnv(std::size_t num_envs, const Config& config, const ObsSpec& spec, unsigned threads,
-               unsigned frame_skip, std::uint64_t max_ticks, float aim_trail)
+               unsigned frame_skip, std::uint64_t max_ticks, float aim_trail,
+               unsigned reaction_delay)
     : config_{config}, spec_{spec}, threads_{threads == 0u ? VecSim::hardware_threads() : threads},
       frame_skip_{frame_skip == 0u ? 1u : frame_skip}, max_ticks_{max_ticks},
-      aim_trail_{aim_trail} {
+      aim_trail_{aim_trail}, reaction_delay_{reaction_delay} {
     crosshair_.resize(num_envs);
+    pending_.resize(num_envs);
     // `frame_skip` is the policy's decision cadence, not only a batching
     // optimization. Keep the core player-model limit in lockstep so changing the
     // trainer's cadence cannot quietly give it faster reactions than evaluation.
@@ -192,6 +194,7 @@ void VecEnv::reset(std::uint64_t seed, float* obs) {
     for (std::size_t i = 0; i < sims_.size(); ++i) {
         sims_[i].reset(seed + static_cast<std::uint64_t>(i));
         crosshair_[i] = {}; // a hand that has not moved yet
+        pending_[i].clear();
         episode_ticks_[i] = 0;
         episode_seed_[i] = seed + static_cast<std::uint64_t>(i);
         live_log_[i].clear();
@@ -214,6 +217,7 @@ void VecEnv::reset(std::span<const std::uint64_t> seeds, float* obs) {
         const std::uint64_t seed = seeds.empty() ? 0 : seeds[i % seeds.size()];
         sims_[i].reset(seed);
         crosshair_[i] = {};
+        pending_[i].clear();
         episode_ticks_[i] = 0;
         episode_seed_[i] = seed;
         live_log_[i].clear();
@@ -263,6 +267,20 @@ void VecEnv::run_range(std::size_t begin, std::size_t end, const std::int32_t* a
                 at.y += (action.aim.y - at.y) * (1.0f - aim_trail_);
                 action.aim = at;
             }
+            if (reaction_delay_ > 0) {
+                // Decided now, applied `reaction_delay_` ticks from now — the
+                // same queue `HandicappedDriver` keeps for every other
+                // contestant. Until it has filled, nothing has come back from
+                // the hand yet, which is the state a person starts in too.
+                std::deque<Action>& queue = pending_[i];
+                queue.push_back(action);
+                if (queue.size() <= reaction_delay_) {
+                    action = Action::noop();
+                } else {
+                    action = queue.front();
+                    queue.pop_front();
+                }
+            }
             const StepResult result = sim.step(action);
             reward += static_cast<float>(result.reward);
             wasted_[i] += result.wasted;
@@ -297,6 +315,7 @@ void VecEnv::run_range(std::size_t begin, std::size_t end, const std::int32_t* a
             }
             sim.reset(next);
             crosshair_[i] = {}; // the next episode starts with an empty hand
+            pending_[i].clear();
             episode_ticks_[i] = 0;
             begin_episode(i, next);
             encode_into(i, obs + (i * stride));
