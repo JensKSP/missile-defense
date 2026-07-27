@@ -194,6 +194,31 @@ def exported_policy(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return torch_free.write(destination, policy)
 
 
+#: What `xvfb-run` shells out to by bare name: the display, its cookie, and the
+#: two coreutils it uses to make one. All live in `/usr/bin`, which the
+#: environment below deliberately removes.
+GRAPHICS_TOOLS = ("Xvfb", "xauth", "mcookie", "mktemp", "awk")
+
+
+def _graphics_shim(sandbox: Path) -> Path:
+    """A PATH entry holding only what starting a display needs.
+
+    The promise these tests check is that the *game* cannot find an interpreter,
+    so `/usr/bin` is out — and `xvfb-run` lives on the far side of that line,
+    calling Xvfb and friends by bare name. Symlinking exactly those keeps the
+    display working without putting `python3` back within the game's reach,
+    which stripping a directory and hoping was never going to manage.
+    """
+    shim = sandbox / "graphics-bin"
+    shim.mkdir(parents=True, exist_ok=True)
+    for tool in GRAPHICS_TOOLS:
+        found = shutil.which(tool)
+        link = shim / tool
+        if found and not link.exists():
+            link.symlink_to(found)
+    return shim
+
+
 def _pathless_environ(sandbox: Path, tree: Path | None) -> dict[str, str]:
     """The environment of a machine with no Python and no console anywhere.
 
@@ -205,7 +230,7 @@ def _pathless_environ(sandbox: Path, tree: Path | None) -> dict[str, str]:
     """
     env = app_environ(sandbox)
     directories = [str(tree / "games"), str(tree / "bin")] if tree is not None else []
-    env["PATH"] = os.pathsep.join([*directories, "/usr/games"])
+    env["PATH"] = os.pathsep.join([*directories, str(_graphics_shim(sandbox)), "/usr/games"])
     env.pop("MD_CONSOLE", None)
     env.pop("MD_APP", None)
     return env
