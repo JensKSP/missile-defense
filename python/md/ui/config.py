@@ -54,6 +54,7 @@ from PySide6.QtWidgets import (
 from .. import runconfig
 from . import theme
 from .params import Setting, read_params, settings_of
+from .reward import Formula, Term, formula_of
 
 #: A run directory with no `config.json`. Names the file, because a run that
 #: began before the trainer wrote one has everything else and only this missing —
@@ -77,6 +78,79 @@ GROUP_LABELS = {
 }
 
 
+class RewardView(QWidget):
+    """The reward formula of a run, with that run's numbers in it.
+
+    Sits above the table rather than replacing any of it. The table answers
+    "what was set"; this answers "what was the agent paid for", which is the
+    question the seven `Shaping` rows are least able to answer on their own —
+    they do not show that three of them are summed into one potential, that
+    `gamma` discounts that potential and not the return, or that two of them are
+    switched off.
+
+    A zero-weighted term is drawn muted rather than dropped. "Was this run
+    penalised for wasted shots?" is a question about a term that is not there,
+    and a missing line answers it with silence.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._column = QVBoxLayout(self)
+        self._column.setContentsMargins(0, 0, 0, 0)
+        self._column.setSpacing(4)
+        self._shown: object | None = None
+
+    def show_formula(self, formula: Formula | None) -> None:
+        """Draw one run's reward. Cheap to call on every rescan."""
+        key = _formula_key(formula)
+        if key == self._shown:
+            return
+        self._shown = key
+
+        while (item := self._column.takeAt(0)) is not None:
+            if (widget := item.widget()) is not None:
+                widget.deleteLater()
+        self.setVisible(formula is not None)
+        if formula is None:
+            return
+
+        self._add(formula.total, role="formula")
+        if formula.shaped and formula.phi:
+            self._add(formula.phi, role="formula")
+            if formula.gamma:
+                self._add(f"γ = {formula.gamma}", role="note", colour=theme.MUTED)
+        for term in (*formula.potential, *formula.priced):
+            self._add_term(term)
+        for note in formula.notes:
+            self._add(note, role="note", colour=theme.MUTED)
+
+    def _add(self, text: str, *, role: str, colour: str | None = None) -> QLabel:
+        label = QLabel(text)
+        label.setProperty("role", role)
+        label.setWordWrap(True)
+        if colour is not None:
+            label.setStyleSheet(f"color: {colour};")
+        self._column.addWidget(label)
+        return label
+
+    def _add_term(self, term: Term) -> None:
+        # An inactive term keeps its row and loses its colour: present, priced at
+        # nothing, and said so — rather than absent and ambiguous.
+        label = self._add(term.line, role="note", colour=None if term.active else theme.MUTED)
+        label.setToolTip(term.why)
+
+
+def _formula_key(formula: Formula | None) -> object | None:
+    """What is on screen, so an unchanged run is not redrawn every rescan."""
+    if formula is None:
+        return None
+    return (
+        formula.shaped,
+        formula.gamma,
+        tuple((t.name, t.weight, t.active) for t in (*formula.potential, *formula.priced)),
+    )
+
+
 class ConfigPanel(QWidget):
     """A run's settings as a table, with the changed ones marked."""
 
@@ -90,6 +164,9 @@ class ConfigPanel(QWidget):
         self._summary.setProperty("role", "note")
         self._summary.setWordWrap(True)
         column.addWidget(self._summary)
+
+        self._reward = RewardView()
+        column.addWidget(self._reward)
 
         self._empty = QLabel(NOTHING_STORED)
         self._empty.setProperty("role", "placeholder")
@@ -129,6 +206,7 @@ class ConfigPanel(QWidget):
         self._empty.setVisible(not settings)
         self._table.setVisible(bool(settings))
         self._summary.setText(_summary(config, settings))
+        self._reward.show_formula(formula_of(settings))
         self._table.setRowCount(0)
         if not settings:
             return

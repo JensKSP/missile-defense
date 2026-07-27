@@ -89,6 +89,14 @@ def stylesheet() -> str:
         color: {MUTED};
         font-size: 11px;
     }}
+    /* The reward equation, in the config panel. Monospaced because it is an
+       equation and the terms should line up under each other, and full-strength
+       text because it is the headline of that panel rather than a footnote to
+       it — the surrounding prose is what carries `role="note"`. */
+    QLabel[role="formula"] {{
+        font-family: {MONO};
+        font-size: 12px;
+    }}
     /* The statistics in a chart's corner: a footnote to the curve, so it is the
        smallest text in the window and never competes with the line itself. */
     QLabel[role="stat"] {{

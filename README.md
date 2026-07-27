@@ -264,6 +264,30 @@ cmake --preset release -DMD_BUILD_APP=OFF
 cmake --build --preset release
 ```
 
+### Starting from a clean tree
+
+A fresh clone and a `git clean -ffdx` leave the same thing, and getting back from
+either is two commands:
+
+```bash
+python3 -m tools.bootstrap        # rebuilds .venv and the development tools
+cmake --preset release && cmake --build --preset release
+```
+
+Everything git ignores is reproducible **except two things**, which is worth
+knowing before you clean:
+
+| Path | Cost of losing it |
+|---|---|
+| `build/`, `.venv/`, caches | Time only — the commands above rebuild them. PyTorch is the long pole and is re-installed separately, per [docs/TRAINING.md](docs/TRAINING.md). |
+| `runs/` | **Gone for good.** Training histories, several hundred MB, in no repository. |
+| `models/<name>/`, `matches/` | **Gone for good.** Models the console promoted, and the match records between them. |
+
+Bundled models are safe: `models/*.mdp` is tracked, and `.gitignore` ignores only
+the per-model *directories* underneath. `git clean -ffdx` needs the second `-f`
+because CMake checks dependencies out as nested git repositories under
+`build/*/\_deps/`, and one `-f` skips those and leaves the tree half cleaned.
+
 ## How to play
 
 Defend your six cities from incoming missiles by launching interceptors from
