@@ -49,6 +49,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Drop the runner image's unused third-party tap
+        # GitHub's macOS image ships `aws/tap`, and Homebrew 4.7 warns on every
+        # `brew` invocation that it is ignoring untrusted taps — an annotation on
+        # a green job, about a tap nothing here installs from. Untapping is what
+        # Homebrew itself suggests, and it is what we mean: this build uses
+        # homebrew/core and nothing else.
+        #
+        # `|| true` because a future image may not ship it, and a missing tap is
+        # the state we are asking for.
+        run: brew untap aws/tap || true
+
       - name: Install build dependencies
         # qtbase rather than the `qt` umbrella: the app needs Qt6::Gui alone, and
         # `qt` pulls in WebEngine and three dozen other modules for no gain.

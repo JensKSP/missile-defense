@@ -442,6 +442,13 @@ def test_the_staged_console_starts_and_exits_cleanly(full_tree: Path, tmp_path: 
     env["PYTHONPATH"] = os.pathsep.join(
         [str(full_tree / PACKAGE_DESTINATION.parent), env.get("PYTHONPATH", "")]
     ).rstrip(os.pathsep)
+    # `HOME` is redirected so the console cannot write into the developer's own
+    # config or data directories. That also moves the *user site* — `pip install
+    # --break-system-packages` puts PySide6 under `~/.local`, which is exactly
+    # how CI installs it — so the console looked correctly installed and then
+    # reported Qt missing. Pin the user base to the real one first: the point of
+    # the override is where the console *writes*, not what it can import.
+    env.setdefault("PYTHONUSERBASE", str(Path(os.environ.get("HOME", "~")).expanduser() / ".local"))
     env["HOME"] = str(tmp_path)
     env["MD_RUNS_DIR"] = str(tmp_path / "runs")
     result = subprocess.run(
