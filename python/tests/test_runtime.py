@@ -33,6 +33,11 @@ from md.runtime import (
     recommend,
 )
 
+# Bound here rather than reached through the module, because the autouse fixture
+# below replaces `runtime._missing_binding` for every other test in the file.
+# This name keeps pointing at the real one, which is what its own tests need.
+from md.runtime import _missing_binding as probe_binding
+
 PY = (3, 13)
 
 
@@ -425,7 +430,7 @@ def _binding_is_present(monkeypatch: pytest.MonkeyPatch) -> None:
     gate is exactly such a machine. The one test that cares patches it the other
     way.
     """
-    monkeypatch.setattr(runtime, "_missing_binding", lambda: None)
+    monkeypatch.setattr(runtime, "_missing_binding", lambda _python, _runner: None)
 
 
 def _ready_store(tmp_path: Path) -> tuple[Runtime, FakeRunner]:
@@ -449,6 +454,69 @@ def _ready_store(tmp_path: Path) -> tuple[Runtime, FakeRunner]:
     return Runtime(root, runner=runner, platform="linux"), runner
 
 
+def _binding_probes(
+    *, imports: bool, present: bool
+) -> Callable[[list[str], Callable[[str], None]], int]:
+    """A runner that answers the two binding probes and refuses anything else."""
+
+    def run(command: list[str], _emit: Callable[[str], None]) -> int:
+        script = command[-1]
+        if script == runtime.BINDING_PROBE:
+            return 0 if imports else 1
+        if script == runtime.BINDING_PRESENT_PROBE:
+            return 0 if present else 1
+        raise AssertionError(f"not a binding probe: {command}")
+
+    return run
+
+
+def test_a_binding_that_imports_is_no_obstacle() -> None:
+    assert (
+        probe_binding(Path("/opt/native/python"), _binding_probes(imports=True, present=True))
+        is None
+    )
+
+
+def test_a_binding_built_for_another_interpreter_is_caught_before_the_download() -> None:
+    """The 1.9 GB one, and the reason the guard imports instead of looking.
+
+    A `.pyd` compiled by MSYS2 clang sits on the path of a python.org CPython
+    quite happily and then fails to load, because it wants MinGW's runtime DLLs.
+    The old guard asked `find_spec`, which says yes to exactly that file — so it
+    passed, pip fetched CUDA torch in full, and the health check failed on the
+    import the guard had declined to attempt. Measured on 2026-07-28.
+    """
+    python = Path("/opt/native/python")
+    detail = probe_binding(python, _binding_probes(imports=False, present=True))
+    assert detail is not None
+    assert detail != runtime.NO_BINDING  # `poe bindings` has already been run
+    # Spelled as this platform spells it — the message quotes the path back, and
+    # asserting the tidier form only proves the test and the code disagree.
+    assert str(python) in detail  # ... just not against this interpreter
+
+
+def test_a_binding_that_was_never_built_says_so() -> None:
+    detail = probe_binding(
+        Path("/opt/native/python"), _binding_probes(imports=False, present=False)
+    )
+    assert detail == runtime.NO_BINDING
+
+
+def test_the_binding_is_probed_in_the_interpreter_the_runtime_will_be_built_from() -> None:
+    # Not in the console's own. They are routinely different on Windows — the
+    # console can be running under MSYS2 while the runtime is made from a
+    # python.org CPython — and only one of them has to load the extension.
+    asked: list[list[str]] = []
+
+    def run(command: list[str], _emit: Callable[[str], None]) -> int:
+        asked.append(command)
+        return 0
+
+    python = Path("/opt/native/python")
+    assert probe_binding(python, run) is None
+    assert asked[0][0] == str(python)
+
+
 def test_an_install_refuses_before_downloading_when_the_binding_is_absent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -460,7 +528,7 @@ def test_an_install_refuses_before_downloading_when_the_binding_is_absent(
     and then had the directory — torch included — deleted. The fact was
     available before the first byte.
     """
-    monkeypatch.setattr(runtime, "_missing_binding", lambda: runtime.NO_BINDING)
+    monkeypatch.setattr(runtime, "_missing_binding", lambda _python, _runner: runtime.NO_BINDING)
     runner = FakeRunner()
     store = Runtime(tmp_path / "store", runner=runner, platform="linux")
     plan = RuntimePlan(

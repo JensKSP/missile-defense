@@ -478,26 +478,59 @@ NO_BINDING = (
     "run `poe bindings` first, then install again"
 )
 
+#: What :meth:`Runtime.install` says when the binding exists but the interpreter
+#: the runtime would be built from cannot load it. A different sentence from
+#: :data:`NO_BINDING` because it is a different problem with a different cure:
+#: `poe bindings` has already been run, just against the wrong interpreter.
+WRONG_BINDING = (
+    "the simulation binding exists but {python} cannot load it — it was built "
+    "for a different interpreter or toolchain, and a runtime made from this one "
+    "could not import it either. Rebuild it against this interpreter "
+    "(`poe bindings -- win-native --python {python}` on Windows), then install again"
+)
 
-def _missing_binding() -> str | None:
+#: One import, in a fresh process, printing nothing. The question is whether the
+#: extension *loads*, so nothing short of loading it will do.
+BINDING_PROBE = "import md._md_native"
+
+#: Whether a file for it is on the path at all — which is all `find_spec` can
+#: say, and exactly the right tool for telling "never built" apart from "built
+#: for something else" once :data:`BINDING_PROBE` has already said no.
+BINDING_PRESENT_PROBE = (
+    "import importlib.util as u, sys; sys.exit(0 if u.find_spec('md._md_native') else 1)"
+)
+
+
+def _missing_binding(python: Path, runner: Runner) -> str | None:
     """Why an install would be pointless, or ``None`` if it would not.
 
-    Imported here rather than at module scope: this module is deliberately free
-    of the native binding — the console must load and show its state on a machine
-    where nothing is built yet, which is the exact machine that needs to be told
-    what to do about it.
-    """
-    from importlib.util import find_spec  # noqa: PLC0415 — see the docstring
+    **Asked of ``python``, not of this process, and by importing rather than by
+    looking.** Both halves were wrong before and each cost the same thing.
 
-    try:
-        # `find_spec` rather than an import: presence is the whole question, and
-        # importing a 4 MB extension to answer it leaves it loaded for the life
-        # of the console for no reason.
-        return None if find_spec("md._md_native") is not None else NO_BINDING
-    except (ImportError, ValueError):
-        # A parent package that will not import, or a broken `__spec__`. Either
-        # way the binding is not usable, which is the only thing being asked.
-        return NO_BINDING
+    `importlib.find_spec` was the cheap way to ask, and it answers a different
+    question: whether a file with the right suffix is on the path. A binding
+    compiled by MSYS2 clang satisfies that and then fails to load in a
+    python.org CPython, because it wants MinGW's runtime DLLs — so the guard
+    passed, pip downloaded 1.9 GB of CUDA torch, and the health check at the end
+    failed on the import the guard had declined to attempt. Measured here on
+    2026-07-28: `find_spec` said `True`, `import` said `DLL load failed`.
+
+    And the interpreter that has to load it is the one the runtime is built
+    *from*, which is not necessarily the one the console runs in. Asking the
+    console proves nothing about the venv it is about to create.
+
+    Costs one interpreter start-up, against a download three orders of magnitude
+    larger — and unlike an import in this process, it leaves nothing loaded.
+    """
+    if runner([str(python), "-c", BINDING_PROBE], _silent) == 0:
+        return None
+    # Present but unloadable is the more confusing of the two states, and worth
+    # a second probe to name: `poe bindings` is the cure for one of them and has
+    # already been done for the other. `find_spec` is the right tool *here* —
+    # "is a file there" is exactly the question left, once the import has
+    # already answered "does it load".
+    present = runner([str(python), "-c", BINDING_PRESENT_PROBE], _silent) == 0
+    return WRONG_BINDING.format(python=python) if present else NO_BINDING
 
 
 def _why_unhealthy(lines: Iterable[str]) -> str:
@@ -706,7 +739,7 @@ class Runtime:
         # gigabytes of CUDA torch to learn a fact that was knowable in a
         # millisecond, and then throws the torch away too. That is not
         # hypothetical: it happened to a checkout whose `.so` had been cleaned.
-        if (missing := _missing_binding()) is not None:
+        if (missing := _missing_binding(plan.python, self._runner)) is not None:
             return replace(self.status(), detail=missing)
         # Annotated, or mypy reads the bare lambda as untyped and every call
         # through it becomes an untyped call in a typed context.
