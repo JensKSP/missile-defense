@@ -40,14 +40,22 @@ or does not exist.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
+import subprocess
+import sys
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import paths, policy_format
+
+#: How long the exporter gets. It reads one checkpoint and writes one file, so
+#: this is a bound on a hang rather than a budget — a runtime that has to page
+#: several gigabytes of torch in from a cold disk is the slow honest case.
+EXPORT_TIMEOUT_S = 300.0
 
 #: What every model directory holds. Two files, and both are read by code that
 #: has no Python in it — `policy.mdp` by `md::agent::Policy`, `model.json` by
@@ -349,7 +357,89 @@ def _install(staging: Path, destination: Path, *, replacing: bool) -> None:
     shutil.rmtree(superseded, ignore_errors=True)
 
 
-def promote(plan: Promotion, root: Path | None = None, *, replace: Model | None = None) -> Model:
+def _export(
+    checkpoint: Path,
+    destination: Path,
+    metadata: Mapping[str, str | int | float],
+    python: str | None,
+) -> None:
+    """Convert a checkpoint here, or in the interpreter that has torch.
+
+    **The one console action that needs torch.** Everything else about a run is
+    read from the files it left, which is what lets a console with no CUDA and
+    no torch anywhere near it watch, compare and archive runs. Opening a `.pt`
+    is the exception, and importing torch into the console to do it is exactly
+    the dependency this design refuses.
+
+    So promotion borrows the interpreter it would start a *run* with. That is
+    already the machine's answer to "which Python can do torch things", already
+    verified, and already the one whose torch matches the checkpoint's. Where
+    torch is beside this process — a checkout, and every test here — nothing is
+    spawned and the difference is invisible.
+
+    The failure this replaces: promoting from a packaged console raised
+    `ModuleNotFoundError: No module named 'torch'` out of a Qt slot, which is a
+    button that does nothing.
+    """
+    from . import export_policy  # noqa: PLC0415 — imports numpy, not torch
+
+    # Absolute, and deliberately *not* resolved. A venv's `bin/python` is a
+    # symlink to the system interpreter and so is the training runtime's, so
+    # resolving both makes every venv on the machine look like the same one —
+    # and this call took the in-process path straight back into the missing
+    # torch it exists to route around.
+    here = python is None or os.path.abspath(python) == os.path.abspath(sys.executable)
+    if here:
+        try:
+            export_policy.export_checkpoint(checkpoint, destination, metadata=metadata)
+        except ImportError as error:  # torch is not beside this console
+            raise LeagueError(
+                "promoting a model needs the training runtime, and this console has "
+                f"no torch of its own ({error}). Set up training from the console, "
+                "or run it from a checkout with torch installed."
+            ) from error
+        return
+
+    command = [
+        str(python),
+        "-m",
+        "md.export_policy",
+        str(checkpoint),
+        str(destination),
+        "--metadata",
+        json.dumps(dict(metadata)),
+    ]
+    # The runtime is a bare venv with torch in it; `md` itself lives here, in
+    # this checkout or this installation, so it has to be put on the path the
+    # same way starting a trainer does (`md.ui.runner.training_environ`).
+    environ = dict(os.environ)
+    package_root = str(Path(__file__).resolve().parents[1])
+    existing = environ.get("PYTHONPATH", "")
+    if package_root not in existing.split(os.pathsep):
+        environ["PYTHONPATH"] = (
+            f"{package_root}{os.pathsep}{existing}" if existing else package_root
+        )
+    try:
+        finished = subprocess.run(  # noqa: S603 — the interpreter this console starts runs with
+            command, capture_output=True, text=True, env=environ, timeout=EXPORT_TIMEOUT_S
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise LeagueError(f"the training runtime could not be run: {error}") from error
+    if finished.returncode != 0:
+        # stderr is the exporter's own sentence (`md.export_policy.main`), which
+        # was written to be read by a person. Anything else means it died before
+        # reaching that, and then the whole of what it said is what there is.
+        detail = finished.stderr.strip() or finished.stdout.strip() or "no output"
+        raise LeagueError(detail)
+
+
+def promote(
+    plan: Promotion,
+    root: Path | None = None,
+    *,
+    replace: Model | None = None,
+    python: str | None = None,
+) -> Model:
     """Export ``plan.checkpoint`` into the league, atomically.
 
     The whole operation happens in a temporary directory beside the destination
@@ -365,9 +455,14 @@ def promote(plan: Promotion, root: Path | None = None, *, replace: Model | None 
     carrying them over would be a table that lies. Without it, a name already in
     the league raises :class:`DuplicateName` before the checkpoint is even read.
 
+    ``python`` is the interpreter to open the checkpoint with — the managed
+    training runtime, normally, since reading a `.pt` needs torch and the
+    console is built never to have it. Leave it out where torch is beside this
+    process, which is what a checkout and every test here are.
+
     Raises :class:`LeagueError`, with the reason, for anything that stops it.
     """
-    from . import export_policy  # noqa: PLC0415 — pulls in torch; only promotion does
+    from . import export_policy  # noqa: PLC0415 — the exporter, not torch (see `_export`)
 
     directory = paths.models_dir() if root is None else root
     directory.mkdir(parents=True, exist_ok=True)
@@ -380,9 +475,7 @@ def promote(plan: Promotion, root: Path | None = None, *, replace: Model | None 
         metadata: dict[str, str | int | float] = dict(plan.metadata)
         metadata["display_name"] = plan.display_name
         try:
-            export_policy.export_checkpoint(
-                plan.checkpoint, staging / POLICY_NAME, metadata=metadata
-            )
+            _export(plan.checkpoint, staging / POLICY_NAME, metadata, python)
         except export_policy.ExportError as error:
             raise LeagueError(str(error)) from error
 

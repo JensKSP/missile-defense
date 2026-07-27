@@ -53,6 +53,7 @@ from PySide6.QtWidgets import (
 
 from .. import league, library, policy_format
 from . import sources
+from .runner import training_python
 
 if TYPE_CHECKING:  # pulls in the native binding; annotations only
     from ..tournament import Protocol
@@ -199,8 +200,12 @@ class PromoteDialog(QDialog):
             trained_updates=self._run.updates,
             note=self._note.text().strip(),
         )
+        # The training runtime's interpreter, because opening a `.pt` needs
+        # torch and this console is built never to have it (`league._export`).
+        # A checkout with torch beside it spawns nothing.
+        python = training_python()
         try:
-            self.promoted = league.promote(plan)
+            self.promoted = league.promote(plan, python=python)
         except league.DuplicateName as clash:
             # Refused before the checkpoint was read, so this costs nothing and
             # the answer is one of two things the person is best placed to pick.
@@ -209,7 +214,7 @@ class PromoteDialog(QDialog):
                 self._retype_the_name()
                 return
             try:
-                self.promoted = league.promote(plan, replace=replace)
+                self.promoted = league.promote(plan, replace=replace, python=python)
             except league.LeagueError as error:
                 QMessageBox.warning(self, "Could not promote", str(error))
                 return

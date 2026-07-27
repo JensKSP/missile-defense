@@ -18,6 +18,7 @@ intended outcome rather than a limitation.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from pathlib import Path
 
@@ -144,6 +145,72 @@ def test_a_promoted_model_records_where_it_came_from(tmp_path: Path, checkpoint:
     assert model.source_checkpoint == "policy-00800.pt"
     assert model.trained_updates == 800
     assert model.promoted_at > 0
+
+
+def test_promoting_with_no_torch_here_says_where_torch_is(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The console has no torch, on purpose, and promotion is where that bites.
+
+    Everything else about a run is read from the files it left — which is what
+    lets a console with no CUDA anywhere near it watch and compare runs — but a
+    `.pt` cannot be opened without torch. From a packaged console this raised
+    `ModuleNotFoundError` out of a Qt slot, which is a button that does nothing.
+    A sentence naming the way out is the least it can do.
+    """
+    from md import export_policy  # noqa: PLC0415
+
+    def no_torch(*_args: object, **_kwargs: object) -> Path:
+        raise ImportError("No module named 'torch'")
+
+    monkeypatch.setattr(export_policy, "export_checkpoint", no_torch)
+    junk = tmp_path / "policy.pt"
+    junk.write_text("nope", encoding="utf-8")
+
+    with pytest.raises(league.LeagueError) as raised:
+        league.promote(league.Promotion(junk, "Doomed"), root=tmp_path / "models")
+    assert "training runtime" in str(raised.value)
+    assert not list((tmp_path / "models").glob(".*incoming"))
+
+
+def test_promoting_borrows_the_interpreter_it_is_given(tmp_path: Path) -> None:
+    """The way out: export in the interpreter that *does* have torch.
+
+    The same one a run is started with. What is asserted is the command and the
+    environment, because that is what has to be right for a *bare venv* to run
+    this: the runtime has torch and nothing else, `md` lives in this checkout or
+    this installation, so without `PYTHONPATH` the spawned process cannot import
+    the module it was told to run. Stood in for by a shell shim, so this needs
+    neither torch nor a real checkpoint.
+    """
+    if os.name == "nt":
+        pytest.skip("the shim is a shell script")
+
+    record = tmp_path / "argv"
+    shim = tmp_path / "python-shim"
+    shim.write_text(
+        f'#!/bin/sh\n{{ echo "$@"; echo "PYTHONPATH=$PYTHONPATH"; }} > "{record}"\n'
+        'echo "the runtime said no" >&2\nexit 1\n',
+        encoding="utf-8",
+    )
+    shim.chmod(0o755)
+    checkpoint = tmp_path / "policy-00800.pt"
+    checkpoint.write_text("not read by the shim", encoding="utf-8")
+
+    with pytest.raises(league.LeagueError) as raised:
+        league.promote(
+            league.Promotion(checkpoint, "Borrowed"), root=tmp_path / "models", python=str(shim)
+        )
+    # Whatever the exporter said, said back — it is the sentence written for a
+    # person, and wrapping it in one of ours would bury it.
+    assert "the runtime said no" in str(raised.value)
+
+    argv, pythonpath = record.read_text(encoding="utf-8").splitlines()
+    assert argv.startswith(f"-m md.export_policy {checkpoint} ")
+    assert '"display_name": "Borrowed"' in argv
+    package_root = str(Path(league.__file__).resolve().parents[1])
+    assert package_root in pythonpath.removeprefix("PYTHONPATH=").split(os.pathsep)
+    assert not list((tmp_path / "models").glob(".*incoming"))
 
 
 def test_a_promotion_that_fails_leaves_the_league_untouched(tmp_path: Path) -> None:

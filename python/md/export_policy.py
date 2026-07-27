@@ -422,3 +422,51 @@ def _set_presence(observation: Weights, rng: np.random.Generator, *, live: float
 
 def _round(values: Sequence[float] | Weights) -> list[float]:
     return [round(float(value), FIXTURE_DIGITS) for value in values]
+
+
+# ---- the exporter as a process ----------------------------------------------
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Export one checkpoint, from a command line.
+
+    Which exists because of where torch is. The console must never import it
+    (docs/ROADMAP.md, M8) — that is the whole reason a packaged install can watch
+    a run on a machine with no CUDA — and promotion is the one console action
+    that needs a `.pt` opened. So the console runs *this*, in the same managed
+    runtime it starts a trainer with (:func:`md.ui.runner.training_python`),
+    rather than importing torch into its own process and being unable to.
+
+    A checkout with torch beside the console never spawns it: :func:`md.league.promote`
+    calls :func:`export_checkpoint` directly when it can.
+    """
+    import argparse  # noqa: PLC0415 — only the command line needs it
+    import sys  # noqa: PLC0415
+
+    parser = argparse.ArgumentParser(
+        prog="md.export_policy", description="Convert a training checkpoint to a .mdp"
+    )
+    parser.add_argument("checkpoint", type=Path, help="the .pt to read")
+    parser.add_argument("destination", type=Path, help="the .mdp to write")
+    parser.add_argument(
+        "--metadata",
+        default="{}",
+        help="JSON object merged under the provenance this exporter derives",
+    )
+    args = parser.parse_args(argv)
+    try:
+        metadata = json.loads(args.metadata)
+        if not isinstance(metadata, dict):
+            raise ValueError("--metadata must be a JSON object")
+        written = export_checkpoint(args.checkpoint, args.destination, metadata=metadata)
+    except (ExportError, PolicyFormatError, ValueError, OSError) as error:
+        # The message alone, on stderr: the caller shows it to somebody, and a
+        # traceback around it would bury the sentence that was written for them.
+        print(str(error), file=sys.stderr)
+        return 1
+    print(written)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
