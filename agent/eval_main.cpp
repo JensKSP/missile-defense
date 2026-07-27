@@ -21,6 +21,7 @@
 #include "md/version.hpp"
 
 #include <charconv>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -122,8 +123,8 @@ int run(int argc, char** argv) {
             // simulation only steps in the latter, so the rounding is stated
             // rather than hidden — 75 ms is 4.5 ticks and cannot be had.
             const double ms = std::atof(argv[++i]);
-            handicap.reaction_delay =
-                static_cast<std::uint32_t>((ms / 1000.0 / static_cast<double>(config.dt)) + 0.5);
+            handicap.reaction_delay = static_cast<std::uint32_t>(
+                std::llround(ms / 1000.0 / static_cast<double>(config.dt)));
         } else if (arg == "--aim-trail" && (i + 1) < argc) {
             handicap.aim_trail = static_cast<float>(std::atof(argv[++i]));
         } else if (arg == "--policy" && (i + 1) < argc) {
