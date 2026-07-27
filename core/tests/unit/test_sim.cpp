@@ -832,3 +832,25 @@ TEST_CASE("A smart bomb is worth five ordinary warheads", "[unit][sim][scoring]"
         REQUIRE(smart == 5 * icbm);
     }
 }
+
+TEST_CASE("the fatal impact is still burning when the game ends", "[unit][sim]") {
+    // The window keeps the final explosions alive for two seconds after
+    // termination so the player sees the hit that ended the game. That only
+    // works if the hit is *in* the simulation's state at the moment it
+    // terminates — and it is the ground impact, not an interceptor blast, that
+    // matters here: at game over there are typically no blasts at all, which is
+    // why a death throe that carried only blasts showed an empty screen.
+    for (std::uint64_t seed = 1; seed <= 3; ++seed) {
+        md::Sim sim{md::Config{}};
+        sim.reset(seed);
+        bool ended = false;
+        for (std::uint64_t tick = 0; tick < 200000 && !ended; ++tick) {
+            ended = sim.step(md::Action::noop()).terminated;
+        }
+        REQUIRE(ended);
+        REQUIRE_FALSE(sim.explosions().empty());
+        // Brand new: it has not had a tick to expand, which is precisely why
+        // switching screens on termination made it invisible.
+        REQUIRE_THAT(static_cast<double>(sim.explosions().back().age), WithinAbs(0.0, 1e-6));
+    }
+}
