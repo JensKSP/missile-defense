@@ -433,18 +433,25 @@ jobs:
     # distribution would build" is the whole claim, and it is only true if the
     # compiler and every Build-Depends version are that distribution's own.
     #
-    # Both, because the two disagree about the thing this package needs most.
-    # Trixie's default g++ is 14 and has <print>; Ubuntu 24.04's is 13 and does
-    # not, so agent/ and bench/ do not compile there with the default at all.
-    # debian/control asks for `g++ (>= 4:14) | g++-14` and debian/rules picks
-    # g++-14 when it is there — which is the default on trixie and the explicit
-    # package on Ubuntu. This matrix is what keeps that claim honest.
-    runs-on: ubuntu-24.04
+    # Ubuntu 26.04 is the primary Ubuntu target: it is the current LTS and can
+    # build all three binary packages from archive dependencies. Debian trixie
+    # remains the Debian authority, and Ubuntu 24.04 remains a compatibility
+    # build for users who have not upgraded yet. Noble's default g++ is 13 and
+    # has no <print>, so that leg takes the g++-14 fallback and cannot build the
+    # nanobind extension from archive packages. Resolute and trixie use their
+    # distribution-default compilers and build the complete product.
+    #
+    # GitHub does not yet offer an ubuntu-26.04 hosted runner. The runner only
+    # orchestrates these pinned containers, so ubuntu-latest is correct here:
+    # matrix.image, not runs-on, is the environment that produces each package.
+    runs-on: ubuntu-latest
     container: ${{ matrix.image }}
     strategy:
       fail-fast: false
       matrix:
         include:
+          - image: ubuntu:26.04
+            slug: ubuntu-26.04
           - image: debian:trixie
             slug: debian-trixie
           - image: ubuntu:24.04
@@ -669,7 +676,12 @@ jobs:
           # a package that is already there — so without this the "with
           # Recommends" install would be a no-op and the test would run against
           # exactly the machine it exists to distinguish itself from.
-          apt-get purge -y missile-defense
+          # `|| true` because on the `nopython` leg nothing has installed the
+          # game yet — the step that would have is skipped there by its own
+          # profile guard — and apt exits 100 on a package it cannot locate.
+          # The purge is a precaution against a *previous* install being left in
+          # place, so having nothing to purge is a fine outcome, not a failure.
+          apt-get purge -y missile-defense || true
           apt-get install -y ../missile-defense_*.deb
           # `xauth` explicitly: it is a *Recommends* of xvfb, and this line says
           # --no-install-recommends — the very trap this step's comment above is
@@ -717,8 +729,8 @@ jobs:
       - name: Upload the .deb
         uses: actions/upload-artifact@v7
         with:
-          # Per distribution. Both legs uploading one name gave two artifacts
-          # that could not be told apart — and the two are not interchangeable:
-          # each is linked against its own distribution's Qt and libstdc++.
+          # Per distribution. Matrix legs uploading one name produce artifacts
+          # that cannot be told apart, and the packages are not interchangeable:
+          # each is linked against its distribution's Qt and libstdc++.
           name: missile-defense-deb-${{ matrix.slug }}
           path: dist/*
