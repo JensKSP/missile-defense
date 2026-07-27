@@ -14,19 +14,7 @@
 
 namespace md {
 
-namespace {
-
-/// Current blast radius: expands from 0 to the max over the first 30% of its
-/// lifetime, then lingers at full radius until it expires.
-float blast_radius(float age, const Config& c) noexcept {
-    const float expand_time = 0.3f * c.blast_lifetime;
-    if (age < expand_time) {
-        return c.blast_max_radius * (age / expand_time);
-    }
-    return c.blast_max_radius;
-}
-
-} // namespace
+namespace {} // namespace
 
 Sim::Sim(const Config& config) noexcept : config_{config} {
     reset(0);

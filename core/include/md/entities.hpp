@@ -53,6 +53,22 @@ struct Threat {
 };
 
 /// An expanding explosion that destroys threats within its current radius.
+/// Current blast radius: expands from 0 to the max over the first 30% of its
+/// lifetime, then lingers at full radius until it expires.
+///
+/// In the header because the app animates the final explosions itself for a
+/// moment after the simulation has ended (`Sim::step` is a no-op once
+/// terminated, so the world would otherwise freeze mid-blast). A second copy of
+/// this curve in the renderer is exactly the duplication that ends with the
+/// game drawing a different explosion from the one the simulation resolved.
+[[nodiscard]] inline float blast_radius(float age, const Config& c) noexcept {
+    const float expand_time = 0.3F * c.blast_lifetime;
+    if (age < expand_time) {
+        return c.blast_max_radius * (age / expand_time);
+    }
+    return c.blast_max_radius;
+}
+
 struct Blast {
     Vec2 center{};
     float age = 0.0f;    // seconds since detonation

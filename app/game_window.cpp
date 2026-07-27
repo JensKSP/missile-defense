@@ -405,6 +405,24 @@ bool GameWindow::finished() const noexcept {
     return exit_when_done_ && (state_ == State::GameOver || state_ == State::EnterScore);
 }
 
+void GameWindow::advance_death(float seconds) {
+    dying_for_ += seconds;
+    // Age the copies exactly as `Sim` would have, using the same curve, so the
+    // explosion the player watches is the one the simulation resolved.
+    for (Blast& blast : dying_blasts_) {
+        blast.age += seconds;
+        blast.radius = blast_radius(blast.age, sim().config());
+    }
+    std::erase_if(dying_blasts_, [this](const Blast& blast) {
+        return blast.age >= sim().config().blast_lifetime;
+    });
+    if (dying_for_ >= death_seconds) {
+        dying_for_ = -1.0F;
+        dying_blasts_.clear();
+        end_game();
+    }
+}
+
 void GameWindow::end_game() {
     in_progress_ = false;
     accumulator_ = 0.0;
@@ -1067,6 +1085,15 @@ void GameWindow::advance_match() {
     accumulator_ += static_cast<double>(clock_.restart()) / 1000.0;
     accumulator_ = std::min(accumulator_, 0.25); // clamp to avoid a spiral of death
 
+    if (dying_for_ >= 0.0F) {
+        // The game is lost and the simulation has stopped; the explosions have
+        // not. Nothing is stepped here — only the copies age — so a death throe
+        // cannot change a score, a recording or an episode's length.
+        advance_death(static_cast<float>(accumulator_));
+        accumulator_ = 0.0;
+        return;
+    }
+
     const auto dt = static_cast<double>(sim_.config().dt);
     while (accumulator_ >= dt) {
         for (int repeat = 0; repeat < speed_; ++repeat) {
@@ -1099,7 +1126,10 @@ void GameWindow::advance() {
         return;
     }
     // Hide the OS cursor while playing so the on-screen crosshair is the pointer.
-    const bool hide = (state_ == State::Playing);
+    // Not during the death throes: the game is lost, nothing responds to aiming
+    // any more, and a hidden pointer over a screen that ignores it reads as a
+    // frozen application rather than as an ending.
+    const bool hide = (state_ == State::Playing && dying_for_ < 0.0F);
     if (hide != cursor_hidden_) {
         setCursor(hide ? Qt::BlankCursor : Qt::ArrowCursor);
         cursor_hidden_ = hide;
@@ -1119,6 +1149,15 @@ void GameWindow::advance() {
     }
     accumulator_ += static_cast<double>(clock_.restart()) / 1000.0;
     accumulator_ = std::min(accumulator_, 0.25); // clamp to avoid a spiral of death
+
+    if (dying_for_ >= 0.0F) {
+        // The game is lost and the simulation has stopped; the explosions have
+        // not. Nothing is stepped here — only the copies age — so a death throe
+        // cannot change a score, a recording or an episode's length.
+        advance_death(static_cast<float>(accumulator_));
+        accumulator_ = 0.0;
+        return;
+    }
 
     const auto dt = static_cast<double>(sim_.config().dt);
     while (accumulator_ >= dt) {
@@ -1169,7 +1208,12 @@ void GameWindow::advance() {
         }
         accumulator_ -= dt;
         if (sim_.terminated()) {
-            end_game();
+            // Not `end_game()` yet: the blast that just took the last city is
+            // at radius zero, and switching screens here is what cut the
+            // explosion off mid-detonation. Take a copy and let it burn.
+            dying_for_ = 0.0F;
+            const auto live = sim_.blasts();
+            dying_blasts_.assign(live.begin(), live.end());
             break;
         }
     }

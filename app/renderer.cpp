@@ -532,7 +532,11 @@ void build_backdrop(const Sim& sim, const Terrain& terrain, std::span<const Inst
 /// `tsec` is wall-clock animation time, not simulation time — it drives the
 /// smart bomb's spin and pulse, which are decoration. Both sides of a match get
 /// the same value, so the two screens animate together.
-void build_entities(const Sim& sim, std::vector<InstanceData>& inst, float tsec) {
+/// `blasts` is passed rather than read from `sim`: once the last city falls the
+/// simulation stops advancing them, and the window keeps the final explosions
+/// burning for a moment so the player sees the hit that ended the game.
+void build_entities(const Sim& sim, const Terrain& terrain, std::span<const Blast> blasts,
+                    std::vector<InstanceData>& inst, float tsec) {
     for (const auto& threat : sim.threats()) {
         if (threat.type == ThreatType::Mirv) { // splitter — purple, multi-warhead
             inst.push_back(line(threat.origin, threat.pos, 0.4f, 0.6f, 0.3f, 0.85f, 0.5f));
@@ -552,10 +556,16 @@ void build_entities(const Sim& sim, std::vector<InstanceData>& inst, float tsec)
         }
     }
     for (const auto& it : sim.interceptors()) {
-        inst.push_back(line(it.origin, it.pos, 0.3f, 0.6f, 0.85f, 1.0f, 0.5f));
+        // Lifted onto the landscape, like the battery that fired it. `md::core`
+        // is deliberately flat — the terrain is cosmetic and every landing still
+        // resolves at y = 0 — so the launch point the simulation records is at
+        // zero while the battery is drawn on a mound above it. Drawing the trail
+        // from the raw origin started every shot underground.
+        const Vec2 muzzle{it.origin.x, terrain.height(it.origin.x)};
+        inst.push_back(line(muzzle, it.pos, 0.3f, 0.6f, 0.85f, 1.0f, 0.5f));
         inst.push_back(circle(it.pos.x, it.pos.y, 0.9f, 0.9f, 0.97f, 1.0f));
     }
-    for (const auto& blast : sim.blasts()) {
+    for (const auto& blast : blasts) {
         add_fireball(inst, blast.center.x, blast.center.y, blast.radius,
                      blast.age / sim.config().blast_lifetime);
     }
@@ -809,7 +819,7 @@ void Renderer::startNextFrame() {
     build_backdrop(sim, terrain_, ground_, inst);
 
     if (show_game) {
-        build_entities(sim, inst, tsec);
+        build_entities(sim, terrain_, window_->visible_blasts(), inst, tsec);
         if (!game_over) { // HUD: score / wave / ammo — hidden on the game-over screen
             const float digit_px = world_h * 0.013f;
             const float hud_top = world_h * 0.97f;
@@ -1196,7 +1206,9 @@ void Renderer::draw_match(const replay::MatchPlayer& match, QSize size) {
         const Sim& sim = which == 0 ? left : right;
         const auto first = static_cast<std::uint32_t>(inst.size());
         build_backdrop(sim, terrain_, ground_, inst);
-        build_entities(sim, inst, tsec);
+        // Each side's own blasts. A match has no death throes — neither replay
+        // is the window's own game — so there is nothing for the window to hold.
+        build_entities(sim, terrain_, sim.blasts(), inst, tsec);
         passes.push_back(Pass{side, rect_viewport(which == 0 ? 0.0f : half, half, h), first,
                               static_cast<std::uint32_t>(inst.size()) - first});
     }

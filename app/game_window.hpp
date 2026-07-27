@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -307,7 +308,8 @@ class GameWindow : public QVulkanWindow {
     /// bundled one; `--watch-model` passes a file it has just loaded.
     void start_model_game(std::optional<agent::Policy> policy = std::nullopt);
     void end_game(); // termination -> initials entry (if a high score) or game over
-    void handle_score_entry(int key); // arcade initials input
+    void advance_death(float seconds); // age the final explosions, then end_game()
+    void handle_score_entry(int key);  // arcade initials input
     void toggle_fullscreen();
     void toggle_audio();
     void toggle_music();
@@ -365,6 +367,32 @@ class GameWindow : public QVulkanWindow {
     HighscoreTable highscores_;
     QElapsedTimer clock_;
     double accumulator_ = 0.0;
+
+    /// How long the last explosions keep burning after the game is lost, before
+    /// the GAME OVER screen replaces them.
+    ///
+    /// The final warhead lands, the city goes, and `Sim` terminates in that same
+    /// tick — so switching screens on termination cut the explosion off at
+    /// radius zero and swallowed its sound. `Sim::step` is a no-op once
+    /// terminated (deliberately: a finished episode must not be advanced by
+    /// accident), so the blasts cannot simply be left to the simulation. They
+    /// are copied out and aged here instead, which is presentation and belongs
+    /// in the window rather than in `md::core`.
+    static constexpr float death_seconds = 2.0F;
+
+    //: Counts up during the death throes; negative means not dying.
+    float dying_for_ = -1.0F;
+    //: The explosions as they stood when the game was lost, aged by this window.
+    std::vector<Blast> dying_blasts_;
+
+  public:
+    /// The explosions to draw: the simulation's, or the dying copy once it has
+    /// stopped advancing them.
+    [[nodiscard]] std::span<const Blast> visible_blasts() const noexcept {
+        return dying_for_ >= 0.0F ? std::span<const Blast>{dying_blasts_} : sim().blasts();
+    }
+
+  private:
     bool started_ = false;
     bool in_progress_ = false; // a game is running or paused-in-menu
     std::uint64_t frames_ = 0;
