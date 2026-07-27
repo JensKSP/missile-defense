@@ -65,6 +65,14 @@ Qt's `offscreen` platform is *not* an option for the game: it has no Vulkan
 support (`This plugin does not support createPlatformVulkanInstance`), so the
 game cannot start under it. Hence Xvfb, which is a real X server.
 
+> **Assert on `AppRun.output`, never `AppRun.stderr`.** `xvfb-run` runs its
+> command as `"$@" 2>&1`, so under the wrapper — which is every run in CI — the
+> two streams are merged before pytest sees them and `stderr` is always empty.
+> This is not a nicety: `validation_errors()` grepped `stderr` for Vulkan `VUID`
+> lines, found none, and pronounced every run's renderer clean for as long as
+> this suite had run under Xvfb. A zero-validation-error gate that reads the
+> wrong stream reports success forever.
+
 ```bash
 sudo apt install xvfb     # Debian/Ubuntu — without it the game tests skip
 poe test-app              # the whole application e2e suite
