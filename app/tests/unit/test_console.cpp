@@ -39,8 +39,21 @@ std::string join(std::initializer_list<std::string_view> directories) {
 ///
 /// `find()` returns what it probed, so on Windows that is `md-console.exe`.
 /// The fixtures name plain executables — `join()`'s counterpart on the way out.
+/// Compared through `generic_string()`, hence forward slashes here.
 std::string exe(std::string_view path) {
     return std::string{path} + std::string{md::console::executable_suffix};
+}
+
+/// `argv[0]`, spelled the way the search spells it.
+///
+/// Built with `operator/` and `string()` because that is what `command()` does,
+/// so the separator is the *platform's* and not the fixture's: on Windows the
+/// real answer is `/usr/bin\python3.exe`, mixed slashes and all, and asserting
+/// a tidier spelling only tests that the fixture and the code disagree.
+std::string launcher(std::string_view directory, std::string_view name) {
+    return (std::filesystem::path{directory} /
+            (std::string{name} + std::string{md::console::executable_suffix}))
+        .string();
 }
 
 /// A machine that exists only in this file: named variables, named executables.
@@ -144,7 +157,8 @@ TEST_CASE("A checkout offers its own console through the interpreter", "[unit][a
 
     const auto command = md::console::command(machine.lookup(checkout));
     REQUIRE(command.has_value());
-    CHECK(command->argv == std::vector<std::string>{exe("/usr/bin/python3"), "-m", "md.ui"});
+    CHECK(command->argv ==
+          std::vector<std::string>{launcher("/usr/bin", "python3"), "-m", "md.ui"});
     CHECK(command->python_path.generic_string() == std::string{checkout} + "/python");
 }
 
@@ -177,6 +191,6 @@ TEST_CASE("An installed launcher is run directly, with no interpreter and no pat
 
     const auto command = md::console::command(machine.lookup());
     REQUIRE(command.has_value());
-    CHECK(command->argv == std::vector<std::string>{exe("/usr/bin/md-console")});
+    CHECK(command->argv == std::vector<std::string>{launcher("/usr/bin", "md-console")});
     CHECK(command->python_path.empty());
 }

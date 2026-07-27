@@ -76,8 +76,9 @@ set_target_properties(_md_native PROPERTIES
 # STABLE_ABI above is what makes this worth installing at all: the object is
 # abi3, so it survives the distribution's Python moving a minor version and does
 # not have to be rebuilt in lockstep with it (docs/PACKAGING.md).
-set(MD_PYTHON_INSTALL_DIR "md" CACHE STRING
-    "Where `cmake --install` puts _md_native (relative to the prefix, or absolute)")
+# `MD_PYTHON_INSTALL_DIR` is declared by the top-level CMakeLists, before this
+# directory is added. It has to be: the install rule below is registered when
+# this file is read, so a destination set afterwards never reaches it.
 
 # COMPONENT is repeated inside each artifact clause rather than written once at
 # the end. A trailing COMPONENT after per-artifact destinations binds only to the

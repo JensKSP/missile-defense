@@ -274,6 +274,28 @@ else()
     "with network access.")
 endif()
 
+# ---- Where the native extension is installed ---------------------------------
+# Decided *here*, before `add_subdirectory(bindings)`, because that is where the
+# `install(TARGETS _md_native)` rule is registered and a destination chosen
+# afterwards is chosen too late. It used to be overridden further down, next to
+# the .py sources — so on macOS the sources landed inside the console bundle and
+# the extension landed beside the prefix, giving a bundle that imports `md` and
+# then cannot import `md._md_native`. A console without the binding is a console
+# that cannot train, which is the one thing it is for.
+#
+# A cache entry, so `-DMD_PYTHON_INSTALL_DIR=...` still wins — debian/rules
+# passes the distribution's own dist-packages path and must keep doing so.
+if(APPLE)
+  # Inside the bundle: nothing beside an .app is ever on sys.path.
+  set(md_console_bundle "Missile Defense Training.app")
+  set(md_python_install_default "${md_console_bundle}/Contents/Resources/md")
+else()
+  # Windows installs flat beside md_app.exe; elsewhere the caller says.
+  set(md_python_install_default "md")
+endif()
+set(MD_PYTHON_INSTALL_DIR "${md_python_install_default}" CACHE STRING
+    "Where `cmake --install` puts the md package and _md_native")
+
 # ---- Components ---------------------------------------------------------------
 add_subdirectory(core)
 add_subdirectory(agent)   # scripted reference AI (M4) + the evaluation protocol
@@ -332,15 +354,11 @@ if(MD_INSTALL_PYTHON_PACKAGE)
   set(MD_LAUNCHER_PYTHON "python3" CACHE STRING
       "The interpreter the installed md-console / md-train launchers exec")
 
+  # `MD_PYTHON_INSTALL_DIR` is already decided, above the components — see the
+  # note there. Only the launcher directory is left to choose.
   if(APPLE)
-    set(md_console_bundle "Missile Defense Training.app")
-    # Overriding the cache default from bindings/CMakeLists.txt: the extension
-    # has to land inside the same bundle as the sources or the console imports
-    # a package with a hole in it.
-    set(MD_PYTHON_INSTALL_DIR "${md_console_bundle}/Contents/Resources/md")
     set(md_console_bindir "${md_console_bundle}/Contents/MacOS")
   elseif(WIN32)
-    set(MD_PYTHON_INSTALL_DIR "md")
     set(md_console_bindir ".") # flat, beside md_app.exe — see app/CMakeLists.txt
   else()
     set(md_console_bindir "${CMAKE_INSTALL_BINDIR}")
