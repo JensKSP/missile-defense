@@ -138,6 +138,24 @@ def stylesheet() -> str:
     }}
     QPushButton:hover, QToolButton:hover {{ background: {GRID}; }}
     QPushButton:disabled {{ color: {MUTED}; border-color: {GRID}; }}
+    /* Keyboard focus, visibly. A stylesheet that sets `border` on a control
+       replaces the platform's focus rectangle with nothing, so every widget
+       styled above became invisible to Tab — which is not a cosmetic problem:
+       it makes the whole console unusable without a mouse. One rule, on every
+       focusable thing, in the accent that means "this is where you are". */
+    QPushButton:focus, QToolButton:focus, QComboBox:focus, QLineEdit:focus,
+    QCheckBox:focus, QSpinBox:focus, QDoubleSpinBox:focus, QTabBar::tab:focus,
+    QAbstractItemView:focus, QListWidget:focus, QTableWidget:focus {{
+        border: 1px solid {INTERCEPTOR};
+        outline: none;
+    }}
+    /* The selected row of a table that does *not* have focus stays visible but
+       recedes: two panels both showing a bright selection is two claims about
+       where the keyboard is, and only one of them can be true. */
+    QTableWidget::item:selected:!active, QListWidget::item:selected:!active {{
+        background: {GRID};
+        color: {TEXT};
+    }}
     /* Buttons that share a row with a caption rather than the control bar —
        they belong to the panel under them, so they must not out-shout it. */
     QPushButton[role="compact"] {{

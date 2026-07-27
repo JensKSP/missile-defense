@@ -98,14 +98,14 @@ class RunTable(QWidget):
 
         actions = QHBoxLayout()
         actions.setSpacing(6)
-        self._open = QPushButton("Open")
+        self._open = QPushButton("&Open")
         self._open.setProperty("role", "primary")
         self._open.clicked.connect(self._open_selected)
-        self._rename = QPushButton("Rename…")
+        self._rename = QPushButton("&Rename…")
         self._rename.clicked.connect(self._rename_selected)
-        self._note = QPushButton("Note…")
+        self._note = QPushButton("&Note…")
         self._note.clicked.connect(self._note_selected)
-        self._storage = QPushButton("Storage…")
+        self._storage = QPushButton("&Storage…")
         self._storage.setToolTip(
             "What this run costs on disk, and how to clean it up, archive it, "
             "or archive it and remove it"
@@ -120,9 +120,24 @@ class RunTable(QWidget):
         column.addLayout(actions)
 
         self._table.itemSelectionChanged.connect(self._selection_changed)
+        # Enter on the selected row does what the primary button does. Without
+        # it the table is a place the keyboard can reach and cannot act in,
+        # which is the most common way a Tab-navigable window is still
+        # mouse-only in practice.
+        self._table.itemActivated.connect(self._activated)
         self._selection_changed()
 
     # ---- feeding it ----------------------------------------------------------
+
+    def focus_list(self) -> None:
+        """Put the keyboard on the rows, selecting the first if none is.
+
+        A table with focus and no current row swallows the first arrow press
+        deciding where to start, which reads as a dropped keystroke.
+        """
+        self._table.setFocus()
+        if self._runs and self.selected() is None:
+            self._table.selectRow(0)
 
     def set_root(self, root: Path) -> None:
         self._root = root
@@ -188,6 +203,10 @@ class RunTable(QWidget):
 
     # ---- actions -------------------------------------------------------------
 
+    def _activated(self, _item: QTableWidgetItem) -> None:
+        """Enter on the selected row does what the primary button does."""
+        self._open_selected()
+
     def _selection_changed(self) -> None:
         run = self.selected()
         for button in (self._open, self._rename, self._note):
@@ -250,12 +269,12 @@ class LibraryView(QWidget):
         caption.setProperty("role", "caption")
         heading.addWidget(caption)
         heading.addStretch(1)
-        self._restore = QPushButton("Restore…")
+        self._restore = QPushButton("Res&tore…")
         self._restore.setToolTip("Put an archived run back into this library")
         self._restore.clicked.connect(self._restore_archive)
         heading.addWidget(self._restore)
         if on_new_run is not None:
-            new_run = QPushButton("New run…")
+            new_run = QPushButton("&New run…")
             new_run.setProperty("role", "primary")
             new_run.clicked.connect(on_new_run)
             heading.addWidget(new_run)

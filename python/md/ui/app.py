@@ -34,6 +34,7 @@ import time
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -345,11 +346,27 @@ class Console(QMainWindow):
         self._library.attach(self._library_root())
         self._league.refresh()
         self._pages.setCurrentIndex(0)
+        # Focus lands on the list, not wherever Qt left it. Arriving on a screen
+        # with the keyboard parked on nothing means the first Tab is spent
+        # finding out where you are, every single time.
+        self._library.table.focus_list()
 
     def _open_run(self, run_dir: Path) -> None:
         self._attach(run_dir)
         self._pages.setCurrentIndex(1)
         self._tick()
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802 — Qt's name
+        """Escape goes back to the library, from anywhere on a run screen.
+
+        The one navigation this window has, and it was reachable only by
+        clicking a button in the corner. Escape is what every other back
+        control in both binaries answers to, including the game's.
+        """
+        if event.key() == Qt.Key.Key_Escape and self._pages.currentIndex() == 1:
+            self._show_library()
+            return
+        super().keyPressEvent(event)
 
     def _new_run_from_library(self) -> None:
         """Start a run from the landing screen, in a fresh directory.
@@ -430,8 +447,8 @@ class Console(QMainWindow):
         self._status.setProperty("role", "caption")
         # Back to the list. First in the row because it is a *level*, not an
         # action on this run — the same place a browser puts one.
-        self._back = QPushButton("‹ Library")
-        self._back.setToolTip("Every run and every promoted model")
+        self._back = QPushButton("‹ &Library")
+        self._back.setToolTip("Every run and every promoted model (Escape)")
         self._back.clicked.connect(self._show_library)
         row.addWidget(self._back)
         row.addSpacing(10)

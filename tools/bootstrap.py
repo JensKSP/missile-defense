@@ -20,7 +20,13 @@ from pathlib import Path
 
 from ._util import PROJECT_ROOT
 
-DEV_TOOLS = ("poethepoet", "ruff", "pytest", "mypy", "pyright")
+#: `build` is here for one test: `tests/e2e/test_wheel_install.py` installs the
+#: wheel this repository produces into a fresh interpreter, which is the only
+#: check in the suite that runs the *shipped* package rather than the source
+#: tree. Without it that whole file skips, and the packaging bugs it exists to
+#: catch — a module left out, a binding not copied, a renamed entry point —
+#: reach a release instead.
+DEV_TOOLS = ("poethepoet", "ruff", "pytest", "mypy", "pyright", "build")
 
 #: Constraints the *gate* needs, over and above what the package needs to run.
 #:

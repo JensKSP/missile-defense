@@ -187,7 +187,7 @@ class LeagueView(QWidget):
         caption.setProperty("role", "caption")
         heading.addWidget(caption)
         heading.addStretch(1)
-        self._import = QPushButton("Import .mdp…")
+        self._import = QPushButton("&Import .mdp…")
         self._import.clicked.connect(self._import_policy)
         heading.addWidget(self._import)
         column.addLayout(heading)
@@ -212,21 +212,21 @@ class LeagueView(QWidget):
 
         actions = QHBoxLayout()
         actions.setSpacing(6)
-        self._watch = QPushButton("Watch it play")
+        self._watch = QPushButton("&Watch it play")
         self._watch.setProperty("role", "primary")
         self._watch.clicked.connect(self._watch_selected)
-        self._evaluate = QPushButton("Evaluate")
+        self._evaluate = QPushButton("&Evaluate")
         self._evaluate.setToolTip(
             "Score this model over the canonical held-out seeds — the only "
             "protocol the league ranks on"
         )
         self._evaluate.clicked.connect(self._evaluate_selected)
-        self._versus = QPushButton("Head-to-head…")
+        self._versus = QPushButton("&Head-to-head…")
         self._versus.setToolTip(
             "Play two models over the *same* seeds, then watch one of those episodes side by side"
         )
         self._versus.clicked.connect(self._head_to_head)
-        self._rename = QPushButton("Rename…")
+        self._rename = QPushButton("Re&name…")
         self._rename.clicked.connect(self._rename_selected)
         for button in (self._watch, self._evaluate, self._versus, self._rename):
             actions.addWidget(button)
@@ -234,6 +234,7 @@ class LeagueView(QWidget):
         column.addLayout(actions)
 
         self._table.itemSelectionChanged.connect(self._selection_changed)
+        self._table.itemActivated.connect(self._activated)
         self._selection_changed()
 
     def refresh(self) -> None:
@@ -273,6 +274,10 @@ class LeagueView(QWidget):
             return None
         row = rows.pop()
         return self._models[row] if 0 <= row < len(self._models) else None
+
+    def _activated(self, _item: QTableWidgetItem) -> None:
+        """Enter on the selected row does what the primary button does."""
+        self._watch_selected()
 
     def _selection_changed(self) -> None:
         model = self.selected()

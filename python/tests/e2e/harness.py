@@ -138,6 +138,14 @@ needs_native = pytest.mark.skipif(
 )
 needs_qt = pytest.mark.skipif(not _have("PySide6"), reason="PySide6 is not installed")
 
+#: Building a wheel needs `build`. It is in `tools/bootstrap.py`'s DEV_TOOLS, so
+#: a bootstrapped venv has it — this guard is for a bare interpreter, and it
+#: names the fix rather than failing on an import nobody asked for.
+needs_build = pytest.mark.skipif(
+    not _have("build"),
+    reason="the `build` package is not installed — re-run `python3 -m tools.bootstrap`",
+)
+
 
 # ---- waiting -----------------------------------------------------------------
 
