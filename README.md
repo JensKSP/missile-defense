@@ -11,7 +11,9 @@ reproducible environment — used to train a reinforcement-learning agent.
 
 ## Download
 
-Prebuilt for Debian trixie, Ubuntu 24.04, Windows and macOS (Apple silicon):
+Prebuilt for Ubuntu 26.04 LTS, Debian trixie, Ubuntu 24.04 LTS, Windows and
+macOS (Apple silicon). Ubuntu 26.04 is the primary Linux target; the 24.04 game
+package remains available for compatibility:
 
 | | |
 |---|---|
@@ -33,7 +35,7 @@ What a downloaded build needs. Building from source needs more — see
 
 | | |
 |---|---|
-| **Debian / Ubuntu** | Debian 13 (trixie) or Ubuntu 24.04, 64-bit. The two `.deb`s are not interchangeable: each is linked against its own distribution's Qt and libstdc++. |
+| **Debian / Ubuntu** | Ubuntu 26.04 LTS (primary), Debian 13 (trixie), or Ubuntu 24.04 LTS (game-only compatibility), 64-bit. Use the `.deb` named for your distribution; each is linked against that distribution's Qt and libstdc++. |
 | **Windows** | Windows 10 or 11, 64-bit. |
 | **macOS** | macOS 14 (Sonoma) or later, **Apple silicon only** — there is no Intel build. |
 | **Graphics** | A GPU and driver that speak **Vulkan 1.0**. Anything from roughly 2016 on does: NVIDIA (any current driver), AMD, and Intel from Skylake. macOS has no Vulkan of its own and the bundle carries MoltenVK, so it goes through Metal. |
@@ -73,14 +75,15 @@ Details per platform: [docs/NVIDIA.md](docs/NVIDIA.md) ·
 ## Quick start
 
 Or build it — clone to watching an AI defend six cities, in about ten minutes.
-On Debian / Ubuntu — for Windows see [docs/WINDOWS.md](docs/WINDOWS.md), for
-macOS [docs/MACOS.md](docs/MACOS.md), and for other distros adjust the package
-names using [Requirements](#requirements) below:
+On Ubuntu 26.04 LTS or Debian 13 — for Ubuntu 24.04 see the compatibility note
+below, for Windows see [docs/WINDOWS.md](docs/WINDOWS.md), for macOS
+[docs/MACOS.md](docs/MACOS.md), and for other distros adjust the package names
+using [Requirements](#requirements) below:
 
 ```bash
 # 1 — dependencies (a few hundred MB: Qt 6, Vulkan, a C++23 compiler)
 sudo apt update
-sudo apt install -y g++-14 cmake ninja-build \
+sudo apt install -y g++ cmake ninja-build \
   qt6-base-dev qt6-base-dev-tools \
   libvulkan-dev glslang-tools mesa-vulkan-drivers libminiaudio-dev \
   nlohmann-json3-dev
@@ -88,13 +91,15 @@ sudo apt install -y g++-14 cmake ninja-build \
 # 2 — build (no Python needed, and no install step afterwards)
 git clone https://github.com/JensKSP/missile-defense.git
 cd missile-defense
-# g++-14 explicitly: it has C++23 <print>, which Ubuntu 24.04's default g++-13
-# does not, and CXX makes CMake use it instead of hunting for clang.
-CXX=g++-14 cmake --preset release && cmake --build --preset release
+CXX=g++ cmake --preset release && cmake --build --preset release
 
 # 3 — play
 ./build/release/app/md_app
 ```
+
+Ubuntu 24.04 remains supported, but its default g++-13 lacks C++23 `<print>`.
+There, install `g++-14` instead of `g++` and configure with
+`CXX=g++-14 cmake --preset release`.
 
 **Play it.** The mouse aims, left click fires from the nearest battery with
 ammo. Six cities, three batteries, and less ammunition than you would like.

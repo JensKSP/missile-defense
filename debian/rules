@@ -15,12 +15,11 @@ export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 # macOS, Windows — is Clang, so this is the one build that compiles the tree with
 # GCC, and the golden determinism test runs there against a second compiler.
 #
-# g++-14 by preference: <print> (agent/, bench/) needs libstdc++ 14. Debian
-# trixie's default g++ is already 14, so this picks the default there and changes
-# nothing; Ubuntu 24.04's default is 13, where naming g++-14 explicitly is the
-# difference between the same packaging building and not. debian/control declares
-# that as an either/or so both distributions can satisfy it.
-export CXX := $(shell command -v g++-14 || command -v g++)
+# <print> (agent/, bench/) needs libstdc++ 14. Prefer the distribution's default
+# compiler when it is new enough: g++ 15 on Ubuntu 26.04 and g++ 14 on Debian
+# trixie. Ubuntu 24.04's default is 13, so debian/control installs g++-14 there
+# instead and this falls back to its versioned executable.
+export CXX := $(shell command -v g++ || command -v g++-14)
 
 %:
 	dh $@ --buildsystem=cmake
@@ -39,13 +38,12 @@ MD_DIST_PACKAGES := $(shell $(DIST_PACKAGES))
 # bindings, and the training console. MD_INSTALL_PYTHON_PACKAGE is what puts the
 # .py sources and the md-console / md-train launchers into the staging tree for
 # the .install files to split; MD_BUILD_BINDINGS builds the extension beside them.
-# The Python half is a build profile because one supported distribution cannot
-# satisfy it: `python3-nanobind` reached Debian after Ubuntu 24.04 froze, so on
-# the current LTS there is no way to build the extension from archive packages.
-# Building the *game* there is still worth proving, so `nopython` drops the two
-# Python binaries and leaves the rest of the package exactly as it is. This is
-# an either/or in the archive sense, not a silent degradation: with the profile
-# unset — every real build, including the one that ships — nothing changes.
+# The Python half is a build profile because one supported compatibility target
+# cannot satisfy it: `python3-nanobind` reached Debian after Ubuntu 24.04 froze,
+# so Noble cannot build the extension from archive packages. Building the *game*
+# there is still worth proving, so `nopython` drops the two Python binaries and
+# leaves the rest of the package exactly as it is. Ubuntu 26.04 and Debian
+# trixie build all three packages with the profile unset.
 NOPYTHON := $(filter pkg.missile-defense.nopython,$(DEB_BUILD_PROFILES))
 ifeq ($(NOPYTHON),)
 PYTHON_ARGS := \

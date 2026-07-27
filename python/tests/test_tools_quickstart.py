@@ -3,11 +3,11 @@
 # Assisted-by: Claude Code (Anthropic)
 """Tests for running the README's quick start — without running it.
 
-The job itself needs a clean Debian and several minutes; what needs checking on
-every commit is cheaper and more fragile: that the block is still *found*, and
-that the two lines CI cannot run verbatim are still recognised. A substitution
-that silently stops matching turns the job into one that clones master, or one
-that hangs waiting for a window.
+The job itself needs a clean Ubuntu container and several minutes; what needs
+checking on every commit is cheaper and more fragile: that the block is still
+*found*, and that the two lines CI cannot run verbatim are still recognised. A
+substitution that silently stops matching turns the job into one that clones
+master, or one that hangs waiting for a window.
 
 The last test is the real point of the whole tool: it reads the actual README,
 so a quick start that loses its code block fails here rather than in CI.

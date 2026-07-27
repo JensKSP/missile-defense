@@ -10,7 +10,10 @@ on:
 
 jobs:
   gate:
-    runs-on: ubuntu-24.04
+    # Follow GitHub's current GA Ubuntu LTS image. The distributable Linux
+    # packages are pinned separately in build.yml, including Ubuntu 26.04 now;
+    # GitHub has not published a 26.04 hosted-runner label yet.
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
@@ -62,7 +65,7 @@ jobs:
     # real short training run, and the console window. Everything else in this
     # file tests code; this job tests the programs, which is where the failures
     # a person meets first actually live (docs/TESTING.md).
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
@@ -154,7 +157,7 @@ jobs:
     # whose first import fails. Installed into a venv *outside* the checkout and
     # imported from there — from inside it, `python/md` on the path would make a
     # wheel missing the module look fine.
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
@@ -215,12 +218,12 @@ jobs:
           ! grep -q "Traceback" /tmp/console.log
 
   quick-start:
-    # The README's own commands, extracted from the page and run on a clean
-    # Debian. It is the first thing a stranger types and the one page nobody
-    # with the packages already installed can see is broken (tools/quickstart.py
-    # says which two lines it rewrites and why).
-    runs-on: ubuntu-24.04
-    container: debian:trixie
+    # The README's own commands, extracted from the page and run on a clean copy
+    # of the current Ubuntu LTS. It is the first thing a stranger types and the
+    # one page nobody with the packages already installed can see is broken
+    # (tools/quickstart.py says which two lines it rewrites and why).
+    runs-on: ubuntu-latest
+    container: ubuntu:26.04
     steps:
       - name: Tools the README assumes you already have
         run: |
@@ -231,7 +234,8 @@ jobs:
         run: python3 -m tools.quickstart --source "$GITHUB_WORKSPACE"
 
   artifacts:
-    # The .dmg, the Windows installer and both .debs, from the same definition
-    # release.yml uses. Sharing it is the point: a release cannot ship something
-    # CI has never built, and a build fixed for CI is fixed for releases too.
+    # The .dmg, the Windows installer and all three Linux distribution builds,
+    # from the same definition release.yml uses. Sharing it is the point: a
+    # release cannot ship something CI has never built, and a build fixed for CI
+    # is fixed for releases too.
     uses: ./.github/workflows/build.yml

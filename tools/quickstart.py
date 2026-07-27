@@ -10,7 +10,8 @@ Writing it surfaced exactly that class of error once already (a dropped
 ``apt update``, which makes ``apt install clang-21`` fail outright on a stale
 index, and is invisible from a machine that has the index).
 
-So: extract the commands *out of the README* and run them on a clean Debian.
+So: extract the commands *out of the README* and run them on a clean copy of the
+current Ubuntu LTS.
 Extracted rather than copied into a script, because a copy is one more thing to
 keep in step and the drift would be silent again.
 
@@ -115,8 +116,8 @@ def rewrite(lines: Sequence[str], *, source: str, drop_sudo: bool) -> tuple[list
 def running_as_root() -> bool:
     """Whether ``sudo`` would be both unnecessary and probably absent.
 
-    A Debian container runs as root and does not ship ``sudo``, so the README's
-    lines fail there for a reason that has nothing to do with the README.
+    A minimal distro container runs as root and does not ship ``sudo``, so the
+    README's lines fail there for a reason that has nothing to do with the README.
     ``os.geteuid`` is POSIX-only and this module is imported by the tests on
     Windows too, hence the lookup rather than the call.
     """

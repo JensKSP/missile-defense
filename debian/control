@@ -4,7 +4,7 @@ Priority: optional
 Maintainer: Jens Köhler <jens@koehler-speyer.de>
 Build-Depends:
  debhelper-compat (= 13),
- g++-14 | g++ (>= 4:14),
+ g++ (>= 4:14) | g++-14,
  cmake,
  ninja-build,
  qt6-base-dev,

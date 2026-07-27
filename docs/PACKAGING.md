@@ -39,12 +39,12 @@ platform each is meant for, and uploads them:
 
 | Job | Platform | Produces |
 |---|---|---|
-| `gate` | Ubuntu | the quality gate, plus the CPack `.deb` |
-| `debian` | Ubuntu | the **debhelper** `.deb` from `debian/`, lintian-checked |
+| `gate` | GitHub's current Ubuntu LTS runner | the quality gate, plus the CPack `.deb` |
+| `debian` | Ubuntu 26.04 (primary), Debian trixie, Ubuntu 24.04 (compatibility) | the **debhelper** `.deb`s from `debian/`, lintian-checked |
 | `windows` | Windows / MSYS2 CLANG64 | NSIS installer + portable ZIP |
 | `macos` | macOS on Apple silicon | the `.dmg` |
 
-`gate` and `debian` both produce a Debian package on purpose. They are different
+`gate` and `debian` both produce Debian packages on purpose. They are different
 code paths — CPack's DEB generator against `cmake --install`, versus debhelper's
 `dh_auto_*` with `hardening=+all` and no `-Werror` — and only the second is what
 Debian would build. One can break while the other still works.

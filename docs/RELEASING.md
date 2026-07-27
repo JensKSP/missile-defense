@@ -65,8 +65,8 @@ the same three files plus `git tag -a v0.2.0`.
    [ci.yml](../.github/workflows/ci.yml) calls on every push, so a release ships
    what CI has been building all along rather than the output of a second recipe
    that nobody runs between releases;
-3. **collects them**, renaming the two `.deb`s so the distribution is in the
-   filename, and writes `SHA256SUMS`;
+3. **collects them**, renaming each distro's `.deb`s so the distribution is in
+   the filename, and writes `SHA256SUMS`;
 4. **opens a draft release** with the download guide above GitHub's generated
    commit notes.
 
@@ -85,17 +85,21 @@ To publish automatically instead, drop `--draft` from the last step.
 |---|---|---|
 | macOS (Apple silicon) | `missile-defense-<ver>-macos-arm64.dmg` | `macos-15` |
 | Windows | `missile-defense-<ver>-win64.exe`, `…-win64.zip` | MSYS2 CLANG64 |
-| Debian trixie | `missile-defense_<ver>-1_amd64-debian-trixie.deb` | `debian:trixie` |
-| Ubuntu 24.04 | `missile-defense_<ver>-1_amd64-ubuntu-24.04.deb` | `ubuntu:24.04` |
+| **Ubuntu 26.04 LTS** | `*-ubuntu-26.04.deb` (game, bindings, console) | `ubuntu:26.04` |
+| Debian trixie | `*-debian-trixie.deb` (game, bindings, console) | `debian:trixie` |
+| Ubuntu 24.04 LTS (compatibility) | `missile-defense_<ver>-1_amd64-ubuntu-24.04.deb` | `ubuntu:24.04` |
 
 Plus `SHA256SUMS` over all of them.
 
-**The two `.deb`s are not interchangeable.** They arrive from
-`dpkg-buildpackage` with byte-identical filenames and resolve against different
-Qt ABIs — `qt6-base-private-abi (= 6.8.2)` on trixie against
-`qt6-base-abi (= 6.4.2)` on Ubuntu, with `libqt6gui6` renamed `libqt6gui6t64` in
-between. Hence the distribution in the filename: mixing them up is not a subtle
-degradation, it is an install that fails at the far end.
+**The distro `.deb`s are not interchangeable.** They arrive from
+`dpkg-buildpackage` with identical filenames and resolve against different Qt
+and libstdc++ versions: Qt 6.10 on Ubuntu 26.04, 6.8 on trixie, and 6.4 on
+Ubuntu 24.04. Hence the distribution in the filename: mixing them up is not a
+subtle degradation, it is an install that fails at the far end.
+
+Ubuntu 26.04 is the primary Ubuntu target and builds the game, Python bindings,
+and training console. The 24.04 compatibility leg builds the game only because
+that release has no archive package for nanobind.
 
 ## Nightlies
 

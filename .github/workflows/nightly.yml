@@ -33,7 +33,7 @@ jobs:
     # Skip the whole thing when master has not moved. Four platforms of runner
     # time to rebuild a tree that already has a nightly is waste, and it churns
     # the download URLs for no reason.
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     outputs:
       changed: ${{ steps.check.outputs.changed }}
       package-version: ${{ steps.derive.outputs.package }}
@@ -82,7 +82,7 @@ jobs:
 
   publish:
     needs: [decide, build]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
@@ -92,7 +92,7 @@ jobs:
 
       - name: Lay them out
         # Same shape as release.yml: flatten, put the distribution in each .deb's
-        # name because two cannot share one, and checksum the lot.
+        # name because distro builds share package names, and checksum the lot.
         run: |
           set -euo pipefail
           mkdir -p dist
@@ -141,8 +141,9 @@ jobs:
           |---|---|
           | macOS (Apple silicon) | `*-macos-arm64.dmg` |
           | Windows | `*-win64.exe` (installer) or `*-win64.zip` (portable) |
+          | **Ubuntu 26.04 LTS** | `*-ubuntu-26.04.deb` |
           | Debian trixie | `*-debian-trixie.deb` |
-          | Ubuntu 24.04 | `*-ubuntu-24.04.deb` |
+          | Ubuntu 24.04 LTS (compatibility) | `*-ubuntu-24.04.deb` |
 
           `SHA256SUMS` covers every file here. For a version someone has looked
           at, use the

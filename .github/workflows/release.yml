@@ -38,7 +38,7 @@ jobs:
     # Before spending twenty minutes of runner time on four platforms. A tag that
     # disagrees with the tree produces artifacts named after the tree, published
     # under a release named after the tag — which nothing downstream would catch.
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
@@ -54,7 +54,7 @@ jobs:
 
   publish:
     needs: build
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
@@ -65,11 +65,11 @@ jobs:
 
       - name: Lay them out under names that say what they are
         # download-artifact nests each artifact in a directory of its own name,
-        # so everything is flattened first. The two .debs arrive with identical
-        # filenames — same package, same version, different distribution — and a
-        # release cannot hold two assets of one name, so the distribution goes
-        # into the filename. Getting those two mixed up is an install failure at
-        # the far end: they resolve against different Qt ABIs.
+        # so everything is flattened first. Distro builds arrive with identical
+        # filenames — same package and version, different distribution — and a
+        # release cannot hold several assets of one name, so the distribution
+        # goes into the filename. Mixing them up is an install failure at the far
+        # end: they resolve against different Qt ABIs.
         run: |
           set -euo pipefail
           mkdir -p dist
@@ -105,11 +105,13 @@ jobs:
           |---|---|
           | macOS (Apple silicon) | `*-macos-arm64.dmg` |
           | Windows | `*-win64.exe` (installer) or `*-win64.zip` (portable) |
+          | **Ubuntu 26.04 LTS** | `*-ubuntu-26.04.deb` |
           | Debian trixie | `*-debian-trixie.deb` |
-          | Ubuntu 24.04 | `*-ubuntu-24.04.deb` |
+          | Ubuntu 24.04 LTS (compatibility) | `*-ubuntu-24.04.deb` |
 
-          The two `.deb`s are not interchangeable: each is linked against its own
-          distribution's Qt. `SHA256SUMS` covers every file here.
+          Linux `.deb`s are not interchangeable: use the one named for your
+          distribution. Each is linked against that distribution's Qt.
+          `SHA256SUMS` covers every file here.
 
           The macOS bundle is ad-hoc signed and not notarised, so macOS will
           refuse to open it until you clear quarantine — see
