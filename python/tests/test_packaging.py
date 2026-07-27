@@ -15,10 +15,12 @@ from __future__ import annotations
 
 import ast
 import importlib
+import sys
 import tomllib
 from pathlib import Path
 
 import md
+import pytest
 
 ROOT = Path(md.__file__).parents[2]
 PYPROJECT = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
@@ -49,6 +51,44 @@ def test_the_trainer_shim_does_not_import_what_it_checks_for() -> None:
             assert node.module is None or not node.module.startswith("torch")
 
 
+def test_the_advice_for_a_missing_torch_is_advice_that_works_here() -> None:
+    """A distribution interpreter refuses `pip install`, so it must not be told to.
+
+    This is the message someone sees when they skipped the setup step, which
+    makes it the one place a wrong sentence costs the most. Both machines are
+    described here rather than whichever one the tests happen to run on.
+    """
+    from md.cli import DEBIAN_README, explain_missing
+
+    recipe = "python3 -m venv --system-site-packages"
+
+    managed = explain_missing("torch", "torch", "Training", managed=True)
+    assert "md-console" in managed, "the packaged answer is the console's own installer"
+    assert recipe in managed
+    assert DEBIAN_README in managed
+    assert f"{sys.executable} -m pip install" not in managed, (
+        "an externally managed interpreter was told to install into itself"
+    )
+
+    unmanaged = explain_missing("torch", "torch", "Training", managed=False)
+    assert f"{sys.executable} -m pip install torch" in unmanaged
+    assert recipe not in unmanaged
+
+
+def test_the_debian_readme_the_message_points_at_is_shipped() -> None:
+    """It was cited for months and never written; debhelper installs it by name.
+
+    `debian/README.Debian` would land in the *first* binary package — the game,
+    which has no Python in it at all. The per-package spelling is what puts it
+    where the command that names it can be run.
+    """
+    readme = ROOT / "debian" / "missile-defense-training.README.Debian"
+    assert readme.is_file(), "md-train points at a file the package does not ship"
+    text = readme.read_text(encoding="utf-8")
+    assert "--system-site-packages" in text, "the venv recipe lost the part that matters"
+    assert "PEP 668" in text
+
+
 def test_neither_heavy_half_is_a_hard_dependency() -> None:
     """docs/PACKAGING.md's central promise, as a test rather than a paragraph.
 
@@ -64,6 +104,31 @@ def test_neither_heavy_half_is_a_hard_dependency() -> None:
     assert any("PySide6" in item for item in extras["console"])
     assert any("nvidia-ml-py" in item for item in extras["console"])
     assert any(item.startswith("amdsmi;") for item in extras["console"])
+
+
+def test_the_extension_is_not_tied_to_the_interpreter_that_built_it() -> None:
+    """`nanobind_add_module(... STABLE_ABI ...)` is a request, not a result.
+
+    nanobind grants it only when `Python::SABIModule` exists, which needs
+    `Development.SABIModule` among the components `find_package(Python)` asks
+    for — and when it does not, it falls back to a version-tagged module without
+    a word. That is what happened here: every build worked, on the machine that
+    built it, while the packages shipped an extension that a distribution Python
+    upgrade would break and that no other machine's interpreter could load.
+
+    Both halves are asserted, because either alone can regress: the declaration
+    that makes it possible, and the artifact that proves it happened.
+    """
+    cmake = (ROOT / "bindings" / "CMakeLists.txt").read_text(encoding="utf-8")
+    assert "Development.SABIModule" in cmake, "STABLE_ABI cannot be honoured without it"
+
+    native = pytest.importorskip("md._md_native", reason="the native binding is not built")
+    # `.pyd` on Windows, `.abi3.so` elsewhere — CPython's limited-API name is
+    # the untagged one there, so "abi3 is in the filename" is not the test.
+    expected = ".pyd" if sys.platform == "win32" else ".abi3.so"
+    assert Path(native.__file__).name == f"_md_native{expected}", (
+        f"built for one interpreter rather than the stable ABI: {native.__file__}"
+    )
 
 
 def test_the_wheel_builds_only_the_headless_half() -> None:
@@ -146,6 +211,22 @@ def test_the_console_package_carries_the_dependencies_the_game_refuses() -> None
     assert "pyside6" in relations, "the console does not depend on PySide6"
 
 
+def test_the_console_package_can_build_the_runtime_it_offers_to_build() -> None:
+    """The install-a-runtime button shells out to `python3 -m venv`.
+
+    Debian ships `venv` separately and `${python3:Depends}` does not pull it, so
+    a machine can satisfy every declared dependency and still fail on the first
+    command of the one setup step this package exists to perform. Asserted from
+    both ends — the declaration and the code that needs it — because either one
+    moving alone is the bug.
+    """
+    console = _debian_stanzas()["missile-defense-training"]
+    assert "python3-venv" in console.get("depends", ""), (
+        "the console offers to build a virtualenv without depending on venv"
+    )
+    assert '"-m", "venv"' in (ROOT / "python" / "md" / "runtime.py").read_text(encoding="utf-8")
+
+
 def test_each_package_installs_a_disjoint_set_of_paths() -> None:
     """Two products cannot both own a file, and dpkg refuses if they try."""
     manifests = {
@@ -185,6 +266,28 @@ def test_every_platform_has_a_way_to_launch_the_installed_console() -> None:
     # interpreter can already find `md`.
     for name in ("launcher.cmd.in", "console-bundle-launcher.in"):
         assert "PYTHONPATH" in (ROOT / "packaging" / name).read_text(encoding="utf-8")
+
+
+def test_the_launchers_that_follow_a_users_python_check_it_first() -> None:
+    """On Windows and macOS the interpreter is not ours, and may not be there.
+
+    Both launchers exec a `python` they do not control. Windows answers a
+    missing one with a Microsoft Store alias that returns 9009; macOS answers it
+    from the Finder with no terminal at all, so the bundle bounces once and
+    quits. Neither is a message, and both are somebody's first impression of a
+    console they just installed. The Linux launcher is deliberately exempt: its
+    package depends on the interpreter, so absence is not a state it can be in.
+    """
+    for name in ("launcher.cmd.in", "console-bundle-launcher.in"):
+        text = (ROOT / "packaging" / name).read_text(encoding="utf-8")
+        assert "version_info >= (3, 11)" in text, f"{name} execs a Python it never checked"
+        assert "pip install PySide6" in text, f"{name} does not say what would fix it"
+    # And it has to *say* it where the failure happens: a console window that
+    # closes on exit, or a Finder launch that has no console at all.
+    assert "pause" in (ROOT / "packaging" / "launcher.cmd.in").read_text(encoding="utf-8")
+    assert "osascript" in (ROOT / "packaging" / "console-bundle-launcher.in").read_text(
+        encoding="utf-8"
+    )
 
 
 def test_the_macos_console_is_a_separate_application() -> None:

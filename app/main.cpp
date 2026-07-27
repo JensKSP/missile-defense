@@ -22,6 +22,7 @@
 #endif
 
 #ifdef Q_OS_MACOS
+#include <CoreFoundation/CoreFoundation.h> // for the "no Vulkan driver" alert
 #include <QByteArray>
 #include <QDir>
 #include <QFile>
@@ -84,6 +85,42 @@ std::string_view explain_vulkan_failure(VkResult code) {
     }
 }
 
+/// Put `message` in front of someone who started this from an icon.
+///
+/// stderr is the primary channel and always written; this is for the case where
+/// nothing is reading it. A GUI process on Windows has no console at all, and a
+/// macOS bundle launched from the Finder sends stderr to Console.app, which
+/// amounts to the same thing: the game exits, and the person who double-clicked
+/// it sees one bounce of the icon and nothing else.
+///
+/// Neither platform gets a Qt dialog. QMessageBox lives in QtWidgets, which the
+/// game deliberately does not link (docs/PACKAGING.md — the game stays a small,
+/// Gui-only binary), so each uses what its own system already provides: user32
+/// on Windows and CoreFoundation on macOS, both already linked by Qt.
+void report_to_the_desktop([[maybe_unused]] const std::string& message) {
+#ifdef Q_OS_WIN
+    MessageBoxA(nullptr, message.c_str(), "Missile Defense", MB_OK | MB_ICONERROR);
+#elifdef Q_OS_MACOS
+    // CFUserNotification and not `osascript`: this runs when the app is already
+    // failing to start, and spawning a shell to draw an error box adds a second
+    // thing that can be missing. Every string has to be released, including on
+    // the path where the call itself fails.
+    CFStringRef title =
+        CFStringCreateWithCString(nullptr, "Missile Defense", kCFStringEncodingUTF8);
+    CFStringRef body = CFStringCreateWithCString(nullptr, message.c_str(), kCFStringEncodingUTF8);
+    if (title != nullptr && body != nullptr) {
+        CFUserNotificationDisplayAlert(0.0, kCFUserNotificationStopAlertLevel, nullptr, nullptr,
+                                       nullptr, title, body, nullptr, nullptr, nullptr, nullptr);
+    }
+    if (title != nullptr) {
+        CFRelease(title);
+    }
+    if (body != nullptr) {
+        CFRelease(body);
+    }
+#endif
+}
+
 /// Tell the user the game cannot start, and what would fix it.
 ///
 /// This replaces a `qFatal`, which aborts the process: no window, no message,
@@ -92,8 +129,8 @@ std::string_view explain_vulkan_failure(VkResult code) {
 /// does not start — the machines a release reaches are exactly the ones nobody
 /// tested — and it is entirely fixable by the person in front of it, but only if
 /// they are told what is wrong. So: an exit code rather than an abort, an
-/// explanation rather than a number, and on Windows a dialog as well, because a
-/// GUI process there has no console for stderr to arrive in.
+/// explanation rather than a number, and a desktop alert as well wherever
+/// stderr has nowhere to go.
 void report_no_vulkan(VkResult code) {
     // The numeric code is worth carrying for a bug report but not for a person,
     // so it is a suffix — and omitted entirely when it is VK_SUCCESS, where
@@ -116,14 +153,7 @@ void report_no_vulkan(VkResult code) {
                     explain_vulkan_failure(code), detail);
     std::fputs(message.c_str(), stderr);
     std::fputs("\n", stderr);
-#ifdef Q_OS_WIN
-    // stderr from a Windows GUI subsystem process goes nowhere at all, so
-    // without this the user who double-clicked the icon gets silence. user32 is
-    // already linked by Qt, so this costs no dependency — and QMessageBox is not
-    // an option: it lives in QtWidgets, which the game deliberately does not
-    // link (docs/PACKAGING.md — the game stays a small, Gui-only binary).
-    MessageBoxA(nullptr, message.c_str(), "Missile Defense", MB_OK | MB_ICONERROR);
-#endif
+    report_to_the_desktop(message);
 }
 
 /// The window's state as one word, for `--report`.

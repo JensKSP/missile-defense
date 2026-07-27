@@ -99,7 +99,29 @@ place.
 `vulkan-1.dll` is deliberately **not** bundled: the Vulkan loader ships with the
 OS and GPU driver and has to match them.
 
-There is no Windows installer. The Debian package (`poe deb`) is Linux-only.
+## The installer
+
+`cpack --config build/release/CPackConfig.cmake -B build/release -G "NSIS;ZIP"`
+builds both shipped Windows artifacts: an NSIS installer and a portable ZIP of
+the same tree. CI does exactly this, and the release attaches both.
+
+The installer offers **two** components. The game is required; the *Training
+console* is offered unticked, because someone who came for an arcade game must
+be able to decline an interpreter without reading a manual.
+
+That component is the one thing here that is not self-contained, and the reason
+is the ABI. The game is built with MSYS2/CLANG64, but the console is exec'd by
+whatever `python` is on your PATH — a python.org CPython, because that is where
+the PySide6 and torch wheels are, and a mingw-built extension cannot be loaded
+by it. So the console's `_md_native` is built separately, with MSVC against a
+python.org CPython, and it is that module the installer ships. It is a stable-ABI
+(`abi3`) `.pyd`, so it works on 3.12 and later rather than on one exact minor
+version.
+
+What that means if you install it: have a **python.org CPython 3.12+** on PATH
+and `pip install PySide6` into it. `md-console.cmd` checks before it execs and
+says so if either is missing, rather than opening the Microsoft Store — which is
+what a bare `python` does on a machine that has none.
 
 ## Training on Windows
 

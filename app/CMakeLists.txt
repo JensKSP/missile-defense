@@ -93,6 +93,15 @@ target_include_directories(md_app PRIVATE "${shader_hdr_dir}")
 target_link_libraries(md_app
   PRIVATE md::core md::agent md::replay md::warnings Qt6::Gui Vulkan::Vulkan md_miniaudio)
 
+if(APPLE)
+  # CFUserNotificationDisplayAlert, for the "this Mac has no Vulkan driver"
+  # alert in main.cpp. Qt drags CoreFoundation in already and the link would
+  # very likely succeed without this — which is the reason to name it: a
+  # transitive dependency that happens to be there is not the same as one this
+  # binary asked for, and the difference only shows up on the day Qt stops.
+  target_link_libraries(md_app PRIVATE "-framework CoreFoundation")
+endif()
+
 # macOS: fill in the bundle manifest (app/Info.plist.in) and drop the icon into
 # Contents/Resources. The bundle directory stays `md_app.app` so the build tree
 # looks the same on every platform; the name a user sees comes from CFBundleName

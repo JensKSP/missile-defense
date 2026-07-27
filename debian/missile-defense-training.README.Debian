@@ -1,0 +1,75 @@
+missile-defense-training for Debian
+===================================
+
+Getting PyTorch, which this package deliberately does not depend on
+-------------------------------------------------------------------
+
+Training needs PyTorch. `python3-torch` is only Suggested, for two reasons that
+both point the same way: Debian's copy is CPU-only and lags upstream, and the
+vendor builds that people actually train on — CUDA, ROCm — are multi-gigabyte
+wheels published outside the archive. A hard dependency would therefore install
+a second copy that no real run uses.
+
+So the absence has to be arranged for rather than assumed away. There are two
+supported ways, and the first is the one to reach for.
+
+1. Let the console do it (recommended)
+--------------------------------------
+
+Open the training console:
+
+    md-console
+
+If this machine has no PyTorch, the Start button is disabled with the reason
+next to it, and the console offers to install a training runtime. It builds a
+virtualenv under the per-user data directory, picks the right build for the
+hardware it finds — CUDA, ROCm or CPU — and health-checks the result by
+importing both torch and the simulation binding before it becomes the live one.
+Nothing is mutated in place, so a failed or cancelled install cannot damage a
+working runtime, and nothing is installed from anywhere except pypi.org or
+download.pytorch.org.
+
+This needs `python3-venv`, which this package depends on, and a network
+connection. A CUDA runtime is roughly 4.5 GB.
+
+2. A virtualenv you make yourself
+---------------------------------
+
+Debian 12 and later mark the system interpreter *externally managed* (PEP 668),
+so `pip install torch` into it fails by design — correctly, and it is not a
+thing to work around with --break-system-packages. Use a virtualenv:
+
+    python3 -m venv --system-site-packages ~/.venvs/md
+    ~/.venvs/md/bin/pip install torch
+    ~/.venvs/md/bin/md-train
+
+`--system-site-packages` is the whole trick: the venv sees the packaged
+`_md_native` extension and the `md` package from python3-md, while pip owns
+torch inside the venv and touches nothing the archive installed.
+
+For a GPU build, take the index URL from https://pytorch.org/get-started/ —
+for example:
+
+    ~/.venvs/md/bin/pip install torch --index-url \
+        https://download.pytorch.org/whl/cu130
+
+The CUDA build must not be newer than the maximum CUDA version your driver
+reports in `nvidia-smi`.
+
+Where things are written
+------------------------
+
+Runs, recordings, exported policies and any managed runtime go under
+`$XDG_DATA_HOME/MissileDefense` (`~/.local/share/MissileDefense` by default).
+Nothing is written outside the user's home directory, and the packages install
+no runtime data of their own.
+
+The game is a separate package
+------------------------------
+
+`missile-defense` is Recommended, not Depended on: the console can start,
+browse runs and compare policies with no game installed. It is what opens a
+recording when you double-click one, so install it if you want to watch what
+your agent did rather than only read the curve.
+
+ -- Jens Köhler <jens@koehler-speyer.de>  Mon, 27 Jul 2026 12:00:00 +0200

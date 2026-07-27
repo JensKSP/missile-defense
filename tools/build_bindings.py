@@ -13,10 +13,27 @@ from __future__ import annotations
 
 import argparse
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
 from . import _util
+
+
+def _extension_suffix(interpreter: str) -> str:
+    """What a *version-tagged* module for ``interpreter`` would be called.
+
+    Asked of that interpreter rather than derived from the running one: the whole
+    point of `--python` is that the two differ, and guessing here would delete a
+    module belonging to a Python nobody built for.
+    """
+    probe = subprocess.run(
+        [interpreter, "-c", "import sysconfig; print(sysconfig.get_config_var('EXT_SUFFIX'))"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return probe.stdout.strip() if probe.returncode == 0 else ""
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -48,7 +65,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     _util.run(["cmake", "--build", "--preset", preset, "--target", "_md_native"])
 
-    built = sorted((_util.PROJECT_ROOT / "build" / preset / "python" / "md").glob("_md_native*"))
+    output = _util.PROJECT_ROOT / "build" / preset / "python" / "md"
+    built = sorted(output.glob("_md_native*"))
     modules = [p for p in built if p.suffix in {".so", ".pyd"}]
     if not modules:
         print(
@@ -57,6 +75,16 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
+
+    # The build tree keeps whatever an *earlier* configure produced: CMake links
+    # to a new output name and never deletes the old one, so a checkout that
+    # predates the stable ABI has both, and copying "everything built" would
+    # carry the superseded module across as well. Drop it at the source.
+    tagged = f"_md_native{_extension_suffix(parsed.python)}"
+    if any(".abi3" in m.name for m in modules):
+        for ghost in [m for m in modules if m.name == tagged]:
+            ghost.unlink()
+            modules.remove(ghost)
 
     package: Path = _util.PROJECT_ROOT / "python" / "md"
     # Clear only what this build supersedes: the exact names it is about to write,
@@ -67,6 +95,14 @@ def main(argv: list[str] | None = None) -> int:
     # imports only the tag that is its own — so deleting the other one breaks the
     # other toolchain and buys nothing.
     superseded = {m.name for m in modules} | {f"_md_native{m.suffix}" for m in modules}
+    # One exception, and it is the reverse of the rule above. An abi3 module and
+    # a version-tagged one for the *same* interpreter are not two toolchains
+    # coexisting, they are one module and its ghost — and the ghost wins, because
+    # `importlib` tries the version-tagged suffix before `.abi3`. So a checkout
+    # that had built the tagged module once would keep importing it for ever,
+    # including the run that was meant to prove the stable ABI works.
+    if any(".abi3" in m.name for m in modules):
+        superseded |= {tagged}
     for stale in package.glob("_md_native*"):
         if stale.name in superseded:
             stale.unlink()

@@ -364,6 +364,27 @@ if(MD_INSTALL_PYTHON_PACKAGE)
       "MD_INSTALL_PYTHON_PACKAGE off.")
   endif()
 
+  # And it has to be a binding the *user's* interpreter can load. A packaged
+  # console is exec'd by whatever `python3` the machine has — the distribution's
+  # on Debian, the user's own on Windows and macOS — which is never the one that
+  # built the module. A version-tagged extension therefore works only where the
+  # minor version happens to match, and fails as `ModuleNotFoundError:
+  # md._md_native` on every other machine: an installed console that browses and
+  # replays and cannot train, with nothing to say why.
+  #
+  # A developer build may be version-tagged; a build that is being packaged may
+  # not, and this is the point where the two are distinguishable.
+  if(MD_BUILD_BINDINGS AND NOT MD_NATIVE_IS_ABI3)
+    message(FATAL_ERROR
+      "MD_INSTALL_PYTHON_PACKAGE is ON but _md_native was built for one "
+      "interpreter rather than against the stable ABI, so the installed console "
+      "would only train on a machine running Python ${Python_VERSION} exactly. "
+      "The stable ABI needs CPython >= 3.12 and its SABI development files "
+      "(Debian: python3-dev; look for Development.SABIModule in the configure "
+      "output). Configure with a newer interpreter, or turn "
+      "MD_INSTALL_PYTHON_PACKAGE off.")
+  endif()
+
   # `python3` unqualified, so the package follows the distribution's Python
   # rather than pinning the absolute path of whichever one configured the build.
   set(MD_LAUNCHER_PYTHON "python3" CACHE STRING
@@ -490,8 +511,10 @@ if(MD_BUILD_APP AND PROJECT_IS_TOP_LEVEL)
     set(CPACK_NSIS_MUI_UNIICON "${CMAKE_SOURCE_DIR}/packaging/missile-defense.ico")     # uninstaller
     set(CPACK_NSIS_INSTALLED_ICON_NAME "md_app.exe") # icon in Add/Remove Programs
   elseif(APPLE)
-    # A drag-to-Applications disk image holding the .app (Qt is already inside
-    # it — see the macdeployqt step in app/CMakeLists.txt; MoltenVK is not).
+    # A drag-to-Applications disk image holding the .app, with everything it
+    # needs inside it: Qt via macdeployqt, and the Vulkan loader with it because
+    # md_app links it; MoltenVK by hand, because the loader dlopens the driver
+    # and macdeployqt therefore never sees it (app/deploy_macos.cmake.in).
     # Single-architecture: it is built for whichever arch the host is, because
     # Homebrew's Qt is not universal. The DMG is unsigned and unnotarised, which
     # is a deliberate limit of building without an Apple Developer ID, not an

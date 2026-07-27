@@ -73,12 +73,20 @@ Build-Profiles: <!pkg.missile-defense.nopython>
 # machine-learning tooling it sits beside.
 Section: science
 Architecture: all
+# python3-venv is not decoration. The console's answer to "this machine has no
+# PyTorch" is to build one itself — `python3 -m venv` into the per-user data
+# directory, then pip from an allow-listed index (md/runtime.py). Debian ships
+# `venv` in a package of its own and `${python3:Depends}` does not pull it, so
+# without this the one-time setup step fails on its first command, on a machine
+# that had done nothing wrong. It is a Depends and not a Recommends because
+# installing a training runtime is the reason this package exists.
 Depends:
  ${python3:Depends},
  ${misc:Depends},
  python3-md (>= ${source:Version}),
  python3-pyside6.qtcharts,
- python3-pyside6.qtwidgets
+ python3-pyside6.qtwidgets,
+ python3-venv
 Recommends:
  missile-defense
 Suggests:

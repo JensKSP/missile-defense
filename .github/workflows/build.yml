@@ -161,12 +161,71 @@ jobs:
           test -x "$console/Contents/MacOS/md-console"
           test -f "$console/Contents/Info.plist"
           test -f "$console/Contents/Resources/md/ui/app.py"
-          ls "$console/Contents/Resources/md/"_md_native*.so
+          # `.abi3.so` exactly, not a glob. This bundle is launched with
+          # whatever `python3` the person has — never the Homebrew one that
+          # built it — so a version-tagged module is a console that installs,
+          # opens, and cannot train on any Mac but this runner. The glob that
+          # used to be here passed happily for months while that was true.
+          test -f "$console/Contents/Resources/md/_md_native.abi3.so" || {
+            echo "::error::the console bundle carries no stable-ABI extension:" >&2
+            ls "$console/Contents/Resources/md/"_md_native* >&2
+            exit 1
+          }
           # And the game's bundle stays free of it, which is the same promise
           # the Debian split keeps: one product must not contain the other.
           game=$(echo "$staged" | grep -v "Training")
           if find "$game" -name "*.py" | grep .; then
             echo "::error::the game bundle ships Python sources" >&2
+            exit 1
+          fi
+
+      - name: The game bundle carries the whole Vulkan stack
+        # macOS has no Vulkan of its own — not the driver and not the loader —
+        # so both have to be *inside* the .app or the disk image only runs on a
+        # machine that already has Homebrew, which is nobody who downloads one.
+        # Two separate mechanisms put them there and neither announces failure:
+        # macdeployqt copies the loader because md_app links it, and
+        # deploy_macos.cmake copies MoltenVK by hand because it is dlopened and
+        # macdeployqt therefore cannot see it. Until now nothing checked either.
+        shell: bash
+        run: |
+          set -euo pipefail
+          app=$(find build/release/_CPack_Packages -maxdepth 4 -name "*.app" -type d \
+            | grep -v Training | head -1)
+          test -n "$app" || { echo "::error::no game bundle was staged" >&2; exit 1; }
+          echo "$app"
+          ls "$app/Contents/Frameworks"
+
+          # The driver, and the manifest that tells the loader where it went.
+          icd="$app/Contents/Resources/vulkan/icd.d/MoltenVK_icd.json"
+          test -f "$icd" || { echo "::error::no MoltenVK ICD manifest in the bundle" >&2; exit 1; }
+          cat "$icd"
+          # Relative, or it points at this runner's Homebrew and the bundle runs
+          # nowhere else — which is the failure mode the rewrite exists to stop
+          # and the one that looks exactly like success here.
+          if ! grep -q '"library_path"[[:space:]]*:[[:space:]]*"\.\./\.\./\.\./Frameworks/' "$icd"; then
+            echo "::error::the ICD manifest does not point inside the bundle" >&2
+            exit 1
+          fi
+          driver=$(sed -n 's/.*Frameworks\/\([^"]*\)".*/\1/p' "$icd")
+          test -f "$app/Contents/Frameworks/$driver" \
+            || { echo "::error::the ICD names $driver, which is not in the bundle" >&2; exit 1; }
+
+          # And the loader, which is a different library and a different bug:
+          # MoltenVK ships none, so a bundle with the driver and no libvulkan is
+          # still a bundle that cannot open a window.
+          ls "$app/Contents/Frameworks/"libvulkan*.dylib \
+            || { echo "::error::no Vulkan loader in the bundle" >&2; exit 1; }
+
+          # Nothing in there may still resolve to a Homebrew prefix. otool over
+          # the executable and every dylib beside it is what catches a load
+          # command macdeployqt did not rewrite — invisible on this machine,
+          # fatal on every other.
+          leaked=$(otool -L "$app/Contents/MacOS/md_app" "$app/Contents/Frameworks/"*.dylib \
+            | grep -E '/(opt|usr/local)/homebrew|/opt/homebrew|/usr/local/Cellar' || true)
+          if [ -n "$leaked" ]; then
+            echo "::error::the bundle still links against Homebrew:" >&2
+            echo "$leaked" >&2
             exit 1
           fi
 
@@ -228,6 +287,49 @@ jobs:
           cmake --version
           python --version
 
+      - uses: actions/setup-python@v6
+        # The interpreter the *installed* console will actually run on. MSYS2's
+        # Python builds the game's half of the tree; nobody who downloads an
+        # installer has one, and docs/WINDOWS.md sends people to python.org
+        # precisely because that is where the PySide6 and torch wheels are. The
+        # console component has to carry an extension for that ABI, so this job
+        # needs both interpreters.
+        id: native-python
+        with:
+          python-version: '3.13'
+
+      - name: Build the console's extension for a native CPython
+        # MSVC, against the interpreter above, headless (`win-native`: no Qt, no
+        # Vulkan — this builds one shared object). The result is what the
+        # installer ships; the MSYS2 build stays as it is and keeps serving
+        # ctest. Both are stable-ABI, so both are called `_md_native.pyd` and the
+        # substitution downstream is exact.
+        #
+        # Every interpreter here is named by absolute path, never through PATH.
+        # Two Pythons are installed and both `setup-msys2` and `setup-python`
+        # prepend to PATH, so which one `python` means depends on step order —
+        # and a build that silently used the other one produces exactly the
+        # artifact this step exists to stop shipping.
+        shell: pwsh
+        env:
+          NATIVE_PYTHON: ${{ steps.native-python.outputs.python-path }}
+        run: |
+          & $env:NATIVE_PYTHON -m pip install --upgrade pip nanobind
+          cmake --preset win-native "-DPython_EXECUTABLE=$env:NATIVE_PYTHON"
+          cmake --build --preset win-native --target _md_native
+          $module = Get-ChildItem -Path build/win-native -Recurse -Filter '_md_native*.pyd' |
+            Select-Object -First 1
+          if (-not $module) { throw 'the native CPython extension was not built' }
+          # `.pyd` with no interpreter tag is CPython's limited-API name. A
+          # tagged one here means STABLE_ABI silently did not apply, and the
+          # console would then need this exact minor version on the target
+          # machine — which is the bug this whole step exists to close.
+          if ($module.Name -ne '_md_native.pyd') {
+            throw "expected a stable-ABI _md_native.pyd, got $($module.Name)"
+          }
+          & $env:NATIVE_PYTHON -c "import sys; sys.path.insert(0, r'$($module.Directory)'); import _md_native; print('native extension imports:', _md_native.__file__)"
+          "MD_NATIVE_MODULE=$($module.FullName)" >> $env:GITHUB_ENV
+
       - name: C++ tests (Debug)
         # The debug preset asks for ASan/UBSan; CMakeLists degrades that to a
         # plain Debug build here, because there is no LeakSanitizer runtime under
@@ -250,9 +352,13 @@ jobs:
         run: |
           # Pin the interpreter, or CMake finds the runner's tool-cache CPython
           # through the registry rather than the CLANG64 one this job installed
-          # nanobind into — see the note on the nanobind step above.
+          # nanobind into — see the note on the nanobind step above. By absolute
+          # path since a second interpreter joined the job: `command -v python`
+          # answers whichever of the two PATH happens to favour, which is a
+          # function of step order rather than of intent.
           cmake --preset release -DMD_WERROR=OFF -DMD_PEDANTIC=OFF $STAMP \
-            -DPython_EXECUTABLE="$(cygpath -m "$(command -v python)")" \
+            -DPython_EXECUTABLE="$(cygpath -m /clang64/bin/python.exe)" \
+            -DMD_PREBUILT_PYTHON_MODULE="$(cygpath -m "$MD_NATIVE_MODULE")" \
             -DMD_BUILD_BINDINGS=ON -DMD_INSTALL_PYTHON_PACKAGE=ON
           cmake --build --preset release
           ctest --preset release
@@ -284,7 +390,16 @@ jobs:
           fi
           test -f stage-full/md-console.cmd
           test -f stage-full/md/ui/app.py
-          ls stage-full/md/_md_native*.pyd
+          # `_md_native.pyd` exactly: the limited-API name, and the one built
+          # against a python.org CPython two steps up. A `.cp313-mingw_x86_64`
+          # or `.cp313-win_amd64` name here means the installer went back to
+          # shipping a module the user's interpreter cannot load — which is what
+          # it did until this assertion replaced a glob that accepted anything.
+          test -f stage-full/md/_md_native.pyd || {
+            echo "::error::the console component carries no stable-ABI extension:" >&2
+            ls stage-full/md/_md_native* >&2
+            exit 1
+          }
 
       - name: Upload the installer and ZIP
         uses: actions/upload-artifact@v7
@@ -452,7 +567,17 @@ jobs:
           grep -q '/usr/bin/md-console$' /tmp/console.list
           grep -q 'missile-defense-training.desktop$' /tmp/console.list
           grep -q 'dist-packages/md/ui/app.py$' /tmp/bindings.list
-          grep -q 'dist-packages/md/_md_native' /tmp/bindings.list
+          # Stable ABI, by filename. `_md_native.abi3.so` keeps working when the
+          # distribution moves its Python a minor version; a `.cpython-313-`
+          # name has to be rebuilt in lockstep with it, and until STABLE_ABI was
+          # actually wired up that is what shipped. Anchored, not a substring —
+          # `_md_native` alone matched the tagged name too, which is how it went
+          # unnoticed.
+          grep -q 'dist-packages/md/_md_native\.abi3\.so$' /tmp/bindings.list || {
+            echo "::error::python3-md ships no stable-ABI extension:" >&2
+            grep '_md_native' /tmp/bindings.list >&2
+            exit 1
+          }
 
           # And no file is owned twice — dpkg refuses to install two packages
           # that both claim a path, so this is a broken install, not a nit.
@@ -508,6 +633,51 @@ jobs:
             ../python3-md_*.deb ../missile-defense-training_*.deb
           command -v md-console
           python3 -c "import md, md.ui; print('md', md.__version__, 'from', md.__file__)"
+
+      - name: The installed game starts
+        # Everything above proves the *dependencies resolve*. None of it proves
+        # the game runs, and the two are further apart than they look: the steps
+        # above install with --no-install-recommends, and both the Qt platform
+        # plugin (qt6-qpa-plugins) and the Vulkan driver (mesa-vulkan-drivers)
+        # reach a normal machine as Recommends of libqt6gui6 and libvulkan1. A
+        # container installed that way therefore holds a binary that cannot open
+        # a window at all — and every assertion here passed for it.
+        #
+        # So this is the ordinary `apt install ./missile-defense.deb`, with
+        # Recommends on the way apt has them on by default, and then the binary
+        # is actually run. Xvfb and lavapipe make that possible with no GPU;
+        # they are the *test's* dependencies, installed here rather than
+        # declared, because a package must not depend on its own test rig.
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Purge first. The step above may already have installed the game
+          # without Recommends, and apt does not go back and reconsider them for
+          # a package that is already there — so without this the "with
+          # Recommends" install would be a no-op and the test would run against
+          # exactly the machine it exists to distinguish itself from.
+          apt-get purge -y missile-defense
+          apt-get install -y ../missile-defense_*.deb
+          apt-get install -y --no-install-recommends xvfb mesa-vulkan-drivers
+          # --frames caps the run, --silent keeps ALSA out of a container with no
+          # sound card, and --report is the machine-readable account of what the
+          # game did. Parsed rather than grepped for: "it printed something and
+          # exited 0" is also what a binary that drew nothing would do.
+          # Screen size and the search for the JSON line both mirror
+          # tests/e2e/harness.py: a default Xvfb screen is smaller than the
+          # window this asks for, and the report is not reliably the last line —
+          # Qt and the Vulkan loader both write to stdout on the way out.
+          report=$(xvfb-run -a --server-args='-screen 0 1280x720x24' \
+            /usr/games/missile-defense --frames 90 --silent --report \
+            | grep '^{' | tail -1)
+          echo "$report"
+          python3 - "$report" <<'PY'
+          import json, sys
+          run = json.loads(sys.argv[1])
+          if run.get("frames", 0) < 1:
+              sys.exit(f"the installed game rendered no frames: {run}")
+          print("the installed game ran", run["frames"], "frames in state", run["state"])
+          PY
 
       - name: The game alone installs, where it is the only package
         # `apt install missile-defense` with dependency checks on. The step

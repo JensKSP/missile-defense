@@ -24,6 +24,52 @@ rather than notarised, so macOS asks you to clear quarantine first —
 How the versions are numbered, and what a nightly's `0.1.0~dev128` means to
 `apt`, is in [docs/RELEASING.md](docs/RELEASING.md#versioning).
 
+## System requirements
+
+What a downloaded build needs. Building from source needs more — see
+[Requirements](#requirements).
+
+### To play the game
+
+| | |
+|---|---|
+| **Debian / Ubuntu** | Debian 13 (trixie) or Ubuntu 24.04, 64-bit. The two `.deb`s are not interchangeable: each is linked against its own distribution's Qt and libstdc++. |
+| **Windows** | Windows 10 or 11, 64-bit. |
+| **macOS** | macOS 14 (Sonoma) or later, **Apple silicon only** — there is no Intel build. |
+| **Graphics** | A GPU and driver that speak **Vulkan 1.0**. Anything from roughly 2016 on does: NVIDIA (any current driver), AMD, and Intel from Skylake. macOS has no Vulkan of its own and the bundle carries MoltenVK, so it goes through Metal. |
+| **CPU** | Any x86-64 (or Apple silicon). No AVX-512, no special instruction set — releases are built for the baseline so they run everywhere. |
+| **Memory / disk** | Well under 200 MB of RAM, and about 15 MB installed — half of that a pretrained model, so you can watch a learned agent play without training one. |
+| **Sound** | Optional. Linux uses ALSA or PulseAudio if either is there and plays silently if not; there are no audio files to install, because every sound is generated in code. |
+
+The game needs **no Python, no network, and no account**, and writes nothing
+outside your home directory. Its SPIR-V shaders are compiled into the binary, so
+apart from the pretrained model there is nothing beside it to lose.
+
+> **If it does not start**, the likeliest cause by far is the graphics driver,
+> and the game says so: it prints what Vulkan told it and what would fix it, in
+> a dialog on Windows and macOS where there is no console to print to. On Linux
+> `sudo apt install mesa-vulkan-drivers vulkan-tools` and then `vulkaninfo` is
+> the whole diagnosis.
+
+### To train your own agent
+
+The training console is a separate, optional product — a second package on
+Debian, an unticked component in the Windows installer, a second icon in the
+macOS disk image. Installing the game never brings any of it with it.
+
+| | |
+|---|---|
+| **Python** | 3.11 or newer. Debian installs the console against the distribution's own; on Windows and macOS it follows whatever `python` is on your PATH, and tells you if there isn't one. |
+| **PySide6** | Required (`apt install python3-pyside6.qtcharts`, or `pip install PySide6`). It is LGPL-3 where this project is MIT, which is why it is never a dependency of the game. |
+| **PyTorch** | Required to *start* a run, not to watch or replay one. You do not have to install it yourself — the console offers to build a training runtime for the hardware it finds. |
+| **GPU (optional)** | Training is optimizer-bound, so a GPU is the whole win: about **43× a 16-thread CPU** at the default 1024 environments, which needs ~4.1 GB of VRAM. NVIDIA (CUDA) or AMD (ROCm, Linux only). Without one it still trains, just slowly. |
+| **Disk** | ~5 GB for a CUDA runtime, plus whatever your runs record. |
+| **Network** | Only to install the training runtime. Nothing else phones anywhere. |
+
+Details per platform: [docs/NVIDIA.md](docs/NVIDIA.md) ·
+[docs/WINDOWS.md](docs/WINDOWS.md) · [docs/MACOS.md](docs/MACOS.md) ·
+[docs/PACKAGING.md](docs/PACKAGING.md).
+
 ## Quick start
 
 Or build it — clone to watching an AI defend six cities, in about ten minutes.
@@ -237,8 +283,10 @@ It can start, pause, resume and stop a run without owning the training process;
 close the window and training carries on. Runs are configured from named
 **presets** — `fast` to check the machinery, `good` for the recipe that produced
 the bundled model, `best` for an overnight bet — and you can save, update and
-delete your own. The full explanation of every curve, file and control is in
-[docs/TRAINING.md](docs/TRAINING.md).
+delete your own. A run that stopped is picked up with **Continue**, which fills
+the form in from that run's own settings, and **Parameters…** shows what any run
+was started with and which of those it changed. The full explanation of every
+curve, file and control is in [docs/TRAINING.md](docs/TRAINING.md).
 
 ### Set up your machine for AI training
 

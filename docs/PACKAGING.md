@@ -227,6 +227,48 @@ to be rebuilt in lockstep with it.
 That was the blocker under everything below — there was no build backend at all,
 so nothing here was installable and `pybuild` had nothing to invoke.
 
+### `STABLE_ABI` is a request, and it was being refused
+
+nanobind honours it only when three things hold: CPython, ≥ 3.12, and a
+`Python::SABIModule` target. That last one exists only if `find_package(Python)`
+asked for `Development.SABIModule` — and for a long time this one did not, so
+nanobind quietly built a version-tagged module instead and said nothing. Every
+build worked on the machine that built it, and the paragraph above was false.
+
+It is checked now rather than assumed, in three places, because the failure is
+silent by nature:
+
+* `bindings/CMakeLists.txt` reads the target's own `SUFFIX` after the fact and
+  compares it to nanobind's `NB_SUFFIX_S`. Not a match on the string `abi3`:
+  the limited-API suffix is `.abi3.so` on Linux and macOS but a plain `.pyd` on
+  Windows, so the literal would fail every correct Windows build.
+* The top-level file turns that into a **fatal error** when
+  `MD_INSTALL_PYTHON_PACKAGE` is on. A developer build may be tied to one
+  interpreter; a build that is being packaged may not.
+* Each packaging job asserts the shipped filename — `python3-md`'s contents, the
+  staged NSIS component, the macOS console bundle — and `test_packaging.py`
+  asserts both the declaration and the built artifact.
+
+### Windows ships an extension from a second build
+
+`MD_PREBUILT_PYTHON_MODULE` names an `_md_native.<suffix>` built elsewhere, to
+install in place of this build's own. It exists for one situation, and Windows
+is the only place that has it.
+
+The game is built in MSYS2/CLANG64 — that is where Qt and Vulkan are — so the
+extension built beside it is a mingw object against MSYS2's interpreter and
+libc++. The installed console does not run there: `md-console.cmd` execs
+whatever `python` is on PATH, which is a python.org CPython for anyone who
+followed docs/WINDOWS.md, because that is where the PySide6 and torch wheels
+are. Loading one into the other fails inside an import with a DLL error.
+
+So the Windows job builds `_md_native` twice: once with the game, and once with
+MSVC against a python.org CPython (the `win-native` preset, which exists for
+this reason), and names the second one here. The stable ABI makes the
+substitution total — both are called `_md_native.pyd`, so nothing downstream
+has to know which build it got, and the installed console works on 3.12 and
+later rather than on one exact minor version.
+
 ## Checklist for the day this is published
 
 * `debian/control`: the three binary packages above, `dh-python`/`pybuild` for the
@@ -236,6 +278,9 @@ so nothing here was installable and `pybuild` had nothing to invoke.
   `dh_auto_install` the `python` component. ✅ the install rule exists; what is
   left is the `debian/` side of it.
 * A `README.Debian` for `missile-defense-training` carrying the venv recipe above.
+  ✅ `debian/missile-defense-training.README.Debian` — spelled per-package, because
+  a bare `debian/README.Debian` is installed into the *first* binary package,
+  which is the game and has no Python in it. `md-train` prints its installed path.
 * `debian/copyright` extended for the Python sources and for miniaudio, which is
   fetched at build time when `libminiaudio-dev` is absent.
 * Desktop entry for the console under `Categories=Development;Science;` — it is a
