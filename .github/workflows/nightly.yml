@@ -40,7 +40,7 @@ jobs:
       deb-version: ${{ steps.derive.outputs.deb }}
       semver: ${{ steps.derive.outputs.semver }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # the dev version counts commits, so shallow will not do
 
@@ -84,9 +84,9 @@ jobs:
     needs: [decide, build]
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: incoming
 

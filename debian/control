@@ -4,7 +4,7 @@ Priority: optional
 Maintainer: Jens Köhler <jens@koehler-speyer.de>
 Build-Depends:
  debhelper-compat (= 13),
- g++ (>= 4:14) | g++-14,
+ g++-14 | g++ (>= 4:14),
  cmake,
  ninja-build,
  qt6-base-dev,
@@ -14,9 +14,9 @@ Build-Depends:
  libminiaudio-dev,
  nlohmann-json3-dev,
  catch2 (>= 3),
- python3-all-dev,
- python3-nanobind,
- dh-sequence-python3
+ python3-all-dev <!pkg.missile-defense.nopython>,
+ python3-nanobind <!pkg.missile-defense.nopython>,
+ dh-sequence-python3 <!pkg.missile-defense.nopython>
 Standards-Version: 4.7.2
 Homepage: https://github.com/JensKSP/missile-defense
 Vcs-Git: https://github.com/JensKSP/missile-defense.git
@@ -47,6 +47,7 @@ Description: faithful Atari Missile Command clone (Qt 6 + Vulkan)
  agent is the separate missile-defense-training package.
 
 Package: python3-md
+Build-Profiles: <!pkg.missile-defense.nopython>
 Section: python
 Architecture: any
 Depends:
@@ -65,6 +66,7 @@ Description: Python bindings for the Missile Defense simulation
  trainer does, and says so when you run it without one.
 
 Package: missile-defense-training
+Build-Profiles: <!pkg.missile-defense.nopython>
 Architecture: all
 Depends:
  ${python3:Depends},

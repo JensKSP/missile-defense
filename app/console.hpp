@@ -28,6 +28,29 @@
 /// searched *after* `PATH` could not be written at all.
 namespace md::console {
 
+/// How `Lookup::search_path` is split, as the platform spells it.
+///
+/// Public because `search_path` is: a caller that supplies the string has to
+/// know how it will be read. A test that joined two directories with a colon
+/// on Windows built one nonsense directory instead of two, and the four
+/// resulting failures looked like the search was broken rather than the fixture.
+#ifdef _WIN32
+inline constexpr char path_separator = ';';
+#else
+inline constexpr char path_separator = ':';
+#endif
+
+/// What the search appends before asking `Lookup::executable` about a name.
+///
+/// Public for the same reason: the callback is handed `md-console.exe` on
+/// Windows and `md-console` everywhere else, and an implementation that does
+/// not expect that answers no to every candidate.
+#ifdef _WIN32
+inline constexpr std::string_view executable_suffix = ".exe";
+#else
+inline constexpr std::string_view executable_suffix{};
+#endif
+
 /// Everything the search needs from the machine it is running on.
 struct Lookup {
     /// An environment variable's value, or empty when it is unset.

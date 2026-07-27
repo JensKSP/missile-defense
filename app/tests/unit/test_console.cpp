@@ -18,6 +18,23 @@
 
 namespace {
 
+/// Join directories the way the platform's PATH does.
+///
+/// Not a literal `:`. On Windows the separator is `;`, so a hard-coded colon
+/// produced a single directory named `a:b` — and the search correctly found
+/// nothing in it, which read as four broken tests rather than one broken
+/// fixture.
+std::string join(std::initializer_list<std::string_view> directories) {
+    std::string joined;
+    for (const std::string_view directory : directories) {
+        if (!joined.empty()) {
+            joined += md::console::path_separator;
+        }
+        joined += directory;
+    }
+    return joined;
+}
+
 /// A machine that exists only in this file: named variables, named executables.
 ///
 /// Injecting both halves is what makes the order assertable at all. The real
@@ -25,8 +42,13 @@ namespace {
 /// to prove /usr/bin is searched after PATH could not be written.
 struct Machine {
     std::map<std::string, std::string> variables;
-    std::set<std::string> executables; // absolute paths that "exist"
-    std::string path;                  // the PATH variable's directories
+    /// Absolute paths that "exist", spelled *without* the platform's executable
+    /// suffix. `lookup()` adds it, so every case below reads the same on every
+    /// platform instead of sprouting `.exe` in a dozen string literals.
+    std::set<std::string> executables;
+    /// The PATH variable's directories, joined by `join()` with the separator
+    /// the search actually splits on — `;` on Windows, `:` elsewhere.
+    std::string path;
 
     [[nodiscard]] md::console::Lookup lookup(std::filesystem::path root = {}) const {
         md::console::Lookup probe;
@@ -35,7 +57,16 @@ struct Machine {
             return found == variables.end() ? std::string{} : found->second;
         };
         probe.executable = [this](const std::filesystem::path& candidate) {
-            return executables.contains(candidate.generic_string());
+            // The search appends `.exe` on Windows before asking. Strip it back
+            // off so the fixtures can name plain `md-console` and still be
+            // answered on a platform that looks for `md-console.exe`.
+            std::string name = candidate.generic_string();
+            constexpr std::string_view suffix = md::console::executable_suffix;
+            if (!suffix.empty() && name.size() > suffix.size() &&
+                name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0) {
+                name.resize(name.size() - suffix.size());
+            }
+            return executables.contains(name);
         };
         probe.search_path = path;
         probe.checkout_root = std::move(root);
@@ -75,7 +106,7 @@ TEST_CASE("PATH is searched before the directories an installer writes to",
           "[unit][app][console]") {
     Machine machine;
     machine.executables = {"/home/dev/.local/bin/md-console", "/usr/bin/md-console"};
-    machine.path = "/home/dev/.local/bin:/usr/games";
+    machine.path = join({"/home/dev/.local/bin", "/usr/games"});
 
     const auto found = md::console::find(machine.lookup());
     REQUIRE(found.has_value());
@@ -114,7 +145,7 @@ TEST_CASE("A game-only install offers no console at all", "[unit][app][console]"
     // it: no launcher, no interpreter, no checkout — so no TRAIN AI entry.
     Machine machine;
     machine.executables = {"/usr/games/missile-defense"};
-    machine.path = "/usr/games:/usr/bin";
+    machine.path = join({"/usr/games", "/usr/bin"});
 
     CHECK_FALSE(md::console::find(machine.lookup()).has_value());
     CHECK_FALSE(md::console::command(machine.lookup()).has_value());

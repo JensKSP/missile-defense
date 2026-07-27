@@ -39,6 +39,25 @@ MD_DIST_PACKAGES := $(shell $(DIST_PACKAGES))
 # bindings, and the training console. MD_INSTALL_PYTHON_PACKAGE is what puts the
 # .py sources and the md-console / md-train launchers into the staging tree for
 # the .install files to split; MD_BUILD_BINDINGS builds the extension beside them.
+# The Python half is a build profile because one supported distribution cannot
+# satisfy it: `python3-nanobind` reached Debian after Ubuntu 24.04 froze, so on
+# the current LTS there is no way to build the extension from archive packages.
+# Building the *game* there is still worth proving, so `nopython` drops the two
+# Python binaries and leaves the rest of the package exactly as it is. This is
+# an either/or in the archive sense, not a silent degradation: with the profile
+# unset — every real build, including the one that ships — nothing changes.
+NOPYTHON := $(filter pkg.missile-defense.nopython,$(DEB_BUILD_PROFILES))
+ifeq ($(NOPYTHON),)
+PYTHON_ARGS := \
+		-DMD_BUILD_BINDINGS=ON \
+		-DMD_INSTALL_PYTHON_PACKAGE=ON \
+		-DMD_PYTHON_INSTALL_DIR=$(MD_DIST_PACKAGES)/md
+else
+PYTHON_ARGS := \
+		-DMD_BUILD_BINDINGS=OFF \
+		-DMD_INSTALL_PYTHON_PACKAGE=OFF
+endif
+
 override_dh_auto_configure:
 	dh_auto_configure -- \
 		-DMD_WERROR=OFF \
@@ -46,9 +65,7 @@ override_dh_auto_configure:
 		-DMD_SANITIZE=OFF \
 		-DMD_COVERAGE=OFF \
 		-DMD_BUILD_APP=ON \
-		-DMD_BUILD_BINDINGS=ON \
-		-DMD_INSTALL_PYTHON_PACKAGE=ON \
-		-DMD_PYTHON_INSTALL_DIR=$(MD_DIST_PACKAGES)/md
+		$(PYTHON_ARGS)
 
 override_dh_auto_install:
 	dh_auto_install

@@ -38,9 +38,12 @@ import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from . import benchmark, league, policy_format
-from .env import Actions, Flags, Observations
+
+if TYPE_CHECKING:  # `md.env` imports the native extension; these are annotations only
+    from .env import Actions, Flags, Observations
 
 #: How many seeds a *quick* match uses. Small enough to answer "is this one
 #: obviously worse?" in under a minute, and labelled unranked so it can never be

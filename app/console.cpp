@@ -17,14 +17,6 @@ namespace md::console {
 
 namespace {
 
-#ifdef _WIN32
-constexpr char path_separator = ';';
-constexpr std::string_view executable_suffix = ".exe";
-#else
-constexpr char path_separator = ':';
-constexpr std::string_view executable_suffix{};
-#endif
-
 /// What the console is called once installed. The Debian package and the
 /// pyproject entry point agree on the name, so one search finds either.
 constexpr std::array<std::string_view, 1> console_names{"md-console"};

@@ -47,7 +47,7 @@ jobs:
       HOMEBREW_NO_INSTALL_CLEANUP: 1
       HOMEBREW_NO_AUTO_UPDATE: 1
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install build dependencies
         # qtbase rather than the `qt` umbrella: the app needs Qt6::Gui alone, and
@@ -154,7 +154,7 @@ jobs:
           fi
 
       - name: Upload the .dmg
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: missile-defense-dmg
           path: build/release/*.dmg
@@ -173,7 +173,7 @@ jobs:
       run:
         shell: msys2 {0}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: msys2/setup-msys2@v2
         with:
@@ -266,7 +266,7 @@ jobs:
           ls stage-full/md/_md_native*.pyd
 
       - name: Upload the installer and ZIP
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: missile-defense-windows
           path: |
@@ -300,6 +300,12 @@ jobs:
             slug: debian-trixie
           - image: ubuntu:24.04
             slug: ubuntu-24.04
+            # `python3-nanobind` reached Debian after 24.04 froze, so the
+            # extension cannot be built there from archive packages at all.
+            # The game still can, and that is the half this entry is really
+            # about — so the Python binaries are profiled out rather than the
+            # whole LTS dropped from the matrix.
+            profiles: pkg.missile-defense.nopython
     steps:
       - name: Install git
         # The image has none, and without it actions/checkout silently falls back
@@ -308,9 +314,11 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends git ca-certificates
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install the declared build dependencies
+        env:
+          DEB_BUILD_PROFILES: ${{ matrix.profiles }}
         # From debian/control itself, so the job cannot drift from what the
         # package claims to need — which is half of what it exists to check.
         # No sudo: a container runs as root, and Rules-Requires-Root: no means
@@ -353,6 +361,8 @@ jobs:
         # Binary-only: the source format is 3.0 (quilt), which wants an orig
         # tarball a git checkout does not have. dh runs the test suite on the way
         # through, so this covers the packaged build's own ctest run too.
+        env:
+          DEB_BUILD_PROFILES: ${{ matrix.profiles }}
         run: dpkg-buildpackage -us -uc -b
 
       - name: Lintian
@@ -455,7 +465,7 @@ jobs:
           cp ../*.deb ../*.changes ../*.buildinfo dist/
 
       - name: Upload the .deb
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           # Per distribution. Both legs uploading one name gave two artifacts
           # that could not be told apart — and the two are not interchangeable:

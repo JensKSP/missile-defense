@@ -40,7 +40,7 @@ jobs:
     # under a release named after the tag — which nothing downstream would catch.
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # On a tag push this is already the tag; on a manual run it is the
           # default branch, which is the wrong tree to check a tag against.
@@ -56,10 +56,10 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Collect every artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: incoming
 
