@@ -33,6 +33,7 @@ defect. Errors and synchronization hazards gate; advice is printed.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import subprocess
@@ -166,6 +167,60 @@ def _layer_settings(work: Path, *, best_practices: bool) -> Path:
     return settings
 
 
+def _witness_binary() -> Path | None:
+    """The bare-QVulkanWindow witness, if this build produced one."""
+    candidate = _util.PROJECT_ROOT / "build" / "debug" / "app" / f"md_vulkan_baseline{_util.EXE}"
+    return candidate if candidate.exists() else None
+
+
+def _require_a_live_layer(wrapper: list[str], env: dict[str, str]) -> None:
+    """Refuse to run at all unless the validation layer is actually loaded.
+
+    `QVulkanInstance::setLayers` on a layer the loader does not have is **silently
+    ignored**. Every message this gate looks for then never appears, every
+    scenario passes, and the result is a green tick that means "nothing was
+    checked". CI ran exactly that way — no `vulkan-validationlayers` package —
+    and both this gate and the e2e suite's `assert_clean` were inert in it.
+
+    So the witness runs first as a canary: it reports whether the loader offers
+    the layer, and a clean run is only trusted after that says yes.
+    """
+    witness = _witness_binary()
+    if witness is None:
+        raise SystemExit(
+            "error: md_vulkan_baseline is not built, so this check cannot confirm "
+            "the validation layer is live.\n"
+            "       Configure with -DMD_VULKAN_VALIDATION=ON and rebuild. Without "
+            "it a clean result would be indistinguishable from no result."
+        )
+    result = subprocess.run(
+        [*wrapper, str(witness)],
+        capture_output=True,
+        text=True,
+        timeout=300.0,
+        env=env,
+        check=False,
+    )
+    report = next(
+        (json.loads(line) for line in reversed(result.stdout.splitlines()) if line.startswith("{")),
+        None,
+    )
+    if report is None:
+        raise SystemExit(
+            "error: the validation-layer canary produced no report:\n"
+            f"{result.stdout}\n{result.stderr}"
+        )
+    if not report.get("validation_layer_available"):
+        raise SystemExit(
+            "error: VK_LAYER_KHRONOS_validation is not available to the loader, so "
+            "nothing would be validated and this gate would pass without checking "
+            "anything.\n"
+            "       Install it (Debian/Ubuntu: `sudo apt install vulkan-validationlayers`; "
+            "elsewhere: the Vulkan SDK)."
+        )
+    print(f"  layer live, canary sees {report['swapchain_images']} swapchain images")
+
+
 def check_runtime(*, best_practices: bool) -> list[str]:
     """Run every rendering scenario under the layer. Returns failure messages."""
     app = _debug_app()
@@ -187,6 +242,8 @@ def check_runtime(*, best_practices: bool) -> list[str]:
         # The leak checker fires on the X and GPU driver libraries, which is a
         # different question from the one being asked here.
         env["ASAN_OPTIONS"] = env.get("ASAN_OPTIONS", "") + ":detect_leaks=0"
+
+        _require_a_live_layer(wrapper, env)
 
         for what, args in SCENARIOS:
             command = [*wrapper, str(app), *args, "--frames", "240", "--silent", "--report"]

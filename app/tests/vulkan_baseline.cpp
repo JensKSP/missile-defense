@@ -50,6 +50,14 @@ int g_reports = 0;
 //: listening, and "no violations" would be indistinguishable from "not asked".
 bool g_messenger_installed = false;
 
+//: Whether the loader offers the validation layer at all. `setLayers` on a layer
+//: that is not installed is silently ignored — so without this, a machine with no
+//: layer package reports a perfectly clean renderer, forever, and every check
+//: built on it is inert. That is not hypothetical: CI had no
+//: `vulkan-validationlayers` and passed this gate vacuously until this field
+//: existed.
+bool g_layer_available = false;
+
 VKAPI_ATTR VkBool32 VKAPI_CALL on_message(VkDebugUtilsMessageSeverityFlagBitsEXT,
                                           VkDebugUtilsMessageTypeFlagsEXT,
                                           const VkDebugUtilsMessengerCallbackDataEXT* data, void*) {
@@ -80,10 +88,11 @@ class Renderer : public QVulkanWindowRenderer {
             // only one of those means Qt is fixed.
             std::printf(R"({"vuid_01779_reports": %d, "distinct_semaphores": %zu, )"
                         R"("concurrent_frames": %d, "swapchain_images": %d, )"
-                        R"("messenger_installed": %s})"
+                        R"("messenger_installed": %s, "validation_layer_available": %s})"
                         "\n",
                         g_reports, g_semaphores.size(), window_->concurrentFrameCount(),
-                        window_->swapChainImageCount(), g_messenger_installed ? "true" : "false");
+                        window_->swapChainImageCount(), g_messenger_installed ? "true" : "false",
+                        g_layer_available ? "true" : "false");
             std::fflush(stdout);
             QGuiApplication::quit();
             return;
@@ -109,6 +118,9 @@ int main(int argc, char** argv) {
 
     QVulkanInstance instance;
     instance.setApiVersion(QVersionNumber(1, 0)); // as app/main.cpp does; see the note there
+    // Asked before it is requested, because requesting a layer that is not there
+    // fails silently and looks exactly like a clean run.
+    g_layer_available = instance.supportedLayers().contains("VK_LAYER_KHRONOS_validation");
     instance.setLayers({"VK_LAYER_KHRONOS_validation"});
     instance.setExtensions({"VK_EXT_debug_utils"});
     if (!instance.create()) {

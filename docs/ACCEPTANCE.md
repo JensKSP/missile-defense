@@ -162,7 +162,14 @@ So that this list is not re-testing what CI covers. As of 2026-07-27:
 - Windows and macOS artifacts **build**. Neither is launched anywhere.
 - The renderer raises **no Vulkan validation message** — no allow-list — across
   menu, gameplay and both scripted skill levels, with synchronization validation
-  enabled (`poe vulkan-runtime`). On lavapipe only.
+  enabled (`poe vulkan-runtime`). On lavapipe only, and **no GPU vendor's driver
+  has ever been validated by any automated run**; §4 is where that gets checked.
+
+  Read that claim with its history. Until 2026-07-27 the CI runner had no
+  `vulkan-validationlayers` package, and `QVulkanInstance::setLayers` on a layer
+  the loader does not have is silently ignored — so every validation assertion in
+  CI passed by finding nothing to fail on. The gate now runs a canary first and
+  refuses to report anything if the layer is not live.
 - Shaders are `spirv-val`-clean against `vulkan1.0` (`poe vulkan-shaders`).
 - The game package contains no Python; a game-only install stays game-only.
 

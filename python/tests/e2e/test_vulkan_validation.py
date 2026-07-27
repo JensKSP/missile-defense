@@ -131,6 +131,15 @@ def test_the_qt_workaround_is_still_necessary(tmp_path: Path) -> None:
         f"the witness could not install a debug messenger, so it heard nothing "
         f"and proves nothing: {reported}"
     )
+    # And zero because no layer is loaded is not zero either. `setLayers` on an
+    # absent layer is silently ignored, so a machine without the layer package
+    # reports every renderer perfectly clean — which is how this suite's
+    # `assert_clean` was inert in CI until the witness caught it.
+    assert reported["validation_layer_available"], (
+        f"VK_LAYER_KHRONOS_validation is not available to the loader, so every "
+        f"validation assertion in this suite is vacuous here: {reported}. Install "
+        f"it (Debian/Ubuntu: `sudo apt install vulkan-validationlayers`)."
+    )
 
     # The precondition, not the symptom. Qt allocates `concurrent_frames` sets of
     # frame resources and then accepts whatever swapchain depth the driver's
