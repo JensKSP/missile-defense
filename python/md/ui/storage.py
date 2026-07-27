@@ -55,6 +55,13 @@ NOTHING_TO_CLEAN = (
     "or pinned — and the summary files are kilobytes worth keeping."
 )
 
+#: Why archiving takes as long as it does — the modal's one line of explanation.
+#: A progress bar that cannot say how far along it is has to say what it is
+#: doing instead, or a long operation is indistinguishable from a hung one.
+HASHING_NOTE = (
+    "Every file is hashed on the way in, which is what makes the archive verifiable later."
+)
+
 
 class _Work(QThread):
     """One long filesystem operation, off the event loop.
@@ -89,7 +96,11 @@ class _Busy(QDialog):
     """
 
     def __init__(
-        self, what: str, work: Callable[[], object], parent: QWidget | None = None
+        self,
+        what: str,
+        work: Callable[[], object],
+        parent: QWidget | None = None,
+        note_text: str = HASHING_NOTE,
     ) -> None:
         super().__init__(parent)
         self.outcome: object | None = None
@@ -109,9 +120,7 @@ class _Busy(QDialog):
         bar.setRange(0, 0)
         layout.addWidget(bar)
 
-        note = QLabel(
-            "Every file is hashed on the way in, which is what makes the archive verifiable later."
-        )
+        note = QLabel(note_text)
         note.setWordWrap(True)
         note.setProperty("role", "note")
         layout.addWidget(note)
@@ -133,14 +142,20 @@ class _Busy(QDialog):
         self.reject()
 
 
-def run_work(what: str, work: Callable[[], T], parent: QWidget | None) -> T | None:
+def run_work(
+    what: str, work: Callable[[], T], parent: QWidget | None, note: str = HASHING_NOTE
+) -> T | None:
     """Run ``work`` behind a modal, or report why it could not be done.
 
     Generic so a caller keeps its own return type: the signal that carries the
     result across the thread boundary can only be `object`, and every call site
     casting it back by hand is how one of them ends up casting it wrong.
+
+    ``note`` is the line under the progress bar. It has a default because three
+    of the four callers are archiving; a caller that is doing something else has
+    to say so, or the modal explains an operation that is not happening.
     """
-    busy = _Busy(what, work, parent)
+    busy = _Busy(what, work, parent, note)
     if busy.exec() == QDialog.DialogCode.Accepted:
         return cast(T, busy.outcome)
     if busy.error:

@@ -297,8 +297,9 @@ starts a new score segment and peak instead of drawing a line between unlike
 measurements.
 
 The bar across the top is deliberately small: one button that changes meaning
-(**Start** → **Pause** → **Resume**), **Stop**, and **Reset**, which attaches to a
-fresh run directory and never deletes the old one. **Start** opens the parameter
+(**Start** → **Pause** → **Resume**), **Stop**, and **Reset**, which asks what to
+call a fresh run directory, attaches to it, and never deletes the old one.
+**Start** opens the parameter
 form — the four fields that change a run's character, everything else behind
 *Advanced*, each carrying as its tooltip the reasoning written beside it in
 `TrainConfig` and `PPOConfig`. Only what you change is passed, and the resulting
@@ -345,6 +346,14 @@ Every run has two names. The **directory** never changes — it is what a
 `--resume`, a path and every file inside the run refer to. The **display name**
 is yours, editable at any time including while the run is going, and it is what
 the list shows. Notes are for the sentence you will want in a fortnight.
+
+**New run…** asks for the name before it asks for anything else, prefilled with
+a generated one so Enter is still a whole answer. What you type becomes the
+directory, lowercased and hyphenated — `Entity policy, 3 seeds` writes into
+`runs/entity-policy-3-seeds` — and is kept as the display name when the two
+differ. A name already taken gains a `-2` rather than being refused. Nothing is
+written until the run actually starts, so a parameter form you cancel leaves no
+empty directory behind. From a terminal the same decision is `--out-dir`.
 
 **Enter Model League** (on the run screen, under the model panel) copies a
 checkpoint into `models/<id>/` as a `policy.mdp` — the data-only format the game
@@ -396,6 +405,13 @@ plan you agreed to, not a fresh one computed at the moment of the click.
 archive can be verified later without the original. **Archive and remove…**
 writes, verifies, and only then deletes: the one outcome nobody recovers from is
 a run archived, deleted and then found unreadable.
+
+**Delete…** in the run list is the one with no copy of anything: it names what
+goes — checkpoints, recordings, updates, total size — and then removes the
+directory for good. It refuses a **live** run rather than asking, because
+deleting a directory a trainer still has open loses the run in pieces instead of
+all at once; stop it first. It also refuses to delete the library directory
+itself when that directory *is* the run.
 
 **Restore…** puts one back, verifying before a single file lands and refusing to
 merge into an existing run — a half-merged run has `metrics.csv` from one and

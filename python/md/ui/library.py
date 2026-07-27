@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QInputDialog,
     QLabel,
+    QMessageBox,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -111,7 +112,10 @@ class RunTable(QWidget):
             "or archive it and remove it"
         )
         self._storage.clicked.connect(self._storage_selected)
-        for button in (self._open, self._rename, self._note, self._storage):
+        self._delete = QPushButton("&Delete…")
+        self._delete.setToolTip("Remove this run and everything in it from disk, for good")
+        self._delete.clicked.connect(self._delete_selected)
+        for button in (self._open, self._rename, self._note, self._storage, self._delete):
             actions.addWidget(button)
         actions.addStretch(1)
         self._summary = QLabel()
@@ -209,7 +213,7 @@ class RunTable(QWidget):
 
     def _selection_changed(self) -> None:
         run = self.selected()
-        for button in (self._open, self._rename, self._note):
+        for button in (self._open, self._rename, self._note, self._delete):
             button.setEnabled(run is not None)
 
     def _open_selected(self) -> None:
@@ -238,6 +242,69 @@ class RunTable(QWidget):
         dialog.exec()
         if dialog.changed:
             self.changed.emit()
+
+    def _delete_selected(self) -> None:
+        """Remove a run for good, once it has been said exactly what goes.
+
+        The only irreversible thing this screen can do, so it is the only one
+        that both names what it is about to destroy and points at the reversible
+        version of itself: somebody who would rather have a ZIP than a hole
+        should find that out here, not afterwards.
+        """
+        run = self.selected()
+        root = self._root
+        if run is None or root is None:
+            return
+        if run.live:
+            # A trainer holding this directory open keeps writing into files
+            # that no longer have names: the run comes apart in pieces instead
+            # of going all at once, and the pieces are what is left on disk.
+            QMessageBox.warning(
+                self,
+                "That run is still going",
+                f"{run.name} was written to less than {int(library.LIVE_AFTER_S)} seconds "
+                "ago. Open it and press Stop first — deleting a directory a trainer "
+                "still has open loses the run in pieces rather than all at once.",
+            )
+            return
+
+        # The id in brackets only when it is not the name already, as the table
+        # does: `amber-anvil (amber-anvil)` is noise in the one sentence that
+        # has to be read carefully. Plain text throughout, like every other
+        # confirmation here — a display name is typed by a person, and one
+        # containing a `<` must not be able to swallow the warning after it.
+        named = run.name if run.name == run.run_id else f"{run.name} ({run.run_id})"
+        answer = QMessageBox.question(
+            self,
+            "Delete this run?",
+            f"{named} and everything in it — "
+            f"{run.checkpoints} checkpoint{'' if run.checkpoints == 1 else 's'}, "
+            f"{run.recordings} recording{'' if run.recordings == 1 else 's'} and "
+            f"{run.updates:,} updates of metrics, {sources.human_size(run.storage.total)} "
+            "in total — will be deleted from disk.\n\nThis cannot be undone. "
+            "Storage… writes a verified ZIP first if there is any chance you "
+            "will want it back.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        from .. import archive  # noqa: PLC0415 — beside the dialog it is used from
+        from .storage import run_work  # noqa: PLC0415 — optional dependency
+
+        freed = run_work(
+            "Deleting",
+            lambda: archive.delete_run(run, root),
+            self,
+            "Checkpoints, recordings and metrics. Nothing is copied anywhere first.",
+        )
+        if freed is None:
+            return
+        self.changed.emit()
+        QMessageBox.information(
+            self, "Deleted", f"{run.name} is gone; {sources.human_size(freed)} freed."
+        )
 
     def _note_selected(self) -> None:
         run = self.selected()

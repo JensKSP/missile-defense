@@ -41,6 +41,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QFrame,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QListWidget,
     QListWidgetItem,
@@ -206,6 +207,16 @@ class Console(QMainWindow):
 
         self.setCentralWidget(self._build())
         self._attach(run_dir)
+        #: The directory the library lists, decided **once** from what the
+        #: console was opened on and never re-derived. Derived, because the two
+        #: differ exactly when it matters — `poe ui -- runs/amber-anvil` opens
+        #: one run and its library is `runs/`, while `poe ui -- runs` opens a
+        #: directory of them and is its own library. Once, because the answer
+        #: has to survive the run directory ceasing to be a run: a new run
+        #: nobody has started yet and a run somebody has just deleted both look
+        #: exactly like "a directory that is not a run", and re-deriving would
+        #: quietly move the library to the wrong level of the tree.
+        self._library_dir = run_dir.parent if run_library.load_run(run_dir) is not None else run_dir
         # Land on the library when the directory holds *several* runs, and on
         # the run itself when it holds one. Both are what the person meant:
         # `poe ui` on an experiment directory wants the list, and
@@ -239,6 +250,10 @@ class Console(QMainWindow):
         #: re-attach: that run carries on, it is simply no longer this screen's.
         self._run: TrainingRun | None = None
         self._reported_exit = False
+        #: A display name typed into the New Run dialog and not yet on disk.
+        #: Cleared here: attaching somewhere else means it was for a directory
+        #: this window is no longer looking at.
+        self._pending_name = ""
         #: What the picker is showing, so it is only rebuilt when it changed.
         self._choices: list[Path] = []
         self._compare_choices: list[Path] = []
@@ -369,30 +384,47 @@ class Console(QMainWindow):
         super().keyPressEvent(event)
 
     def _new_run_from_library(self) -> None:
-        """Start a run from the landing screen, in a fresh directory.
+        """Name a run, then start it, in a directory of its own.
 
         Fresh rather than "the one that sorted first": a New Run button that
         silently reset an existing directory would be the most destructive
         control in the window, and Reset already exists for that with a
         confirmation in front of it.
+
+        **The name is asked for before anything else**, because it is the one
+        decision the parameter form cannot carry: a run is identified by its
+        directory for the rest of its life, and a generated `amber-anvil` is a
+        handle rather than an answer to "which experiment is this?". Prefilled
+        with a generated one all the same, so Enter is still a whole answer.
         """
         root = self._library_root()
         existing = [run.name for run in run_library.discover(root)]
-        self._open_run(root / run_library.default_name(existing))
+        suggested = run_library.default_name(existing)
+        name, accepted = QInputDialog.getText(
+            self, "New run", "A name for this run:", text=suggested
+        )
+        if not accepted:
+            return
+        # An emptied field means "I did not care after all", which is what the
+        # suggestion was for — not a run called nothing.
+        name = name.strip() or suggested
+        target = run_library.new_run_dir(root, name)
+        self._open_run(target)
+        # The typed name only becomes a *display* name when the directory could
+        # not be called that: `entity-3-seed` needs no second copy of itself,
+        # and `Entity policy, 3 seeds` does. Written when the run starts rather
+        # than now, so a parameter dialog somebody cancels leaves nothing on
+        # disk at all — see `_start`.
+        self._pending_name = name if name != target.name else ""
         self._primary_pressed()
 
     def _library_root(self) -> Path:
         """Where the library looks: the directory *containing* runs.
 
-        Derived from what the console was opened on rather than from
-        `paths.runs_dir()`, because the two differ exactly when it matters —
-        `poe ui -- runs/amber-anvil` opens one run and its library is `runs/`,
-        while `poe ui -- runs` opens a directory of them and is its own library.
-        Asking `paths` instead would show a list of somebody else's runs.
+        Settled in `__init__` from what the console was opened on rather than
+        from `paths.runs_dir()`, which would show a list of somebody else's runs.
         """
-        if run_library.load_run(self._run_dir) is None:
-            return self._run_dir  # a directory of runs, not a run
-        return self._run_dir.parent
+        return self._library_dir
 
     def _watch_model(self, policy: Path) -> None:
         """Open the game on a promoted model — the league's `Watch it play`.
@@ -1218,6 +1250,12 @@ class Console(QMainWindow):
         self._log_toggle.setChecked(True)
         self._run = TrainingRun(command, cwd=PROJECT_ROOT)
         self._reported_exit = False
+        if self._pending_name:
+            # Now that there is a run to name. `rename` creates the directory if
+            # the trainer has not got there yet, and writes atomically because
+            # the trainer is writing everything else in it from this moment on.
+            run_library.rename(out_dir, self._pending_name)
+            self._pending_name = ""
 
     def _stop_pressed(self) -> None:
         self._control.request_stop()
@@ -1226,20 +1264,31 @@ class Console(QMainWindow):
         )
 
     def _reset_pressed(self) -> None:
-        """Start over somewhere new. Destructive only in the sense of moving on."""
-        target = sources.next_run_dir(self._run_dir)
-        answer = QMessageBox.question(
+        """Start over somewhere new. Destructive only in the sense of moving on.
+
+        Named here rather than only in the library, because this is the other
+        way a run directory comes into existence and `high-delta-3` is exactly
+        the name nobody can tell from `high-delta-2` a fortnight later. The
+        suggestion is still that name, so the quick answer is Enter.
+        """
+        suggested = sources.next_run_dir(self._run_dir).name
+        name, accepted = QInputDialog.getText(
             self,
             "Start a fresh run directory?",
-            f"The console will attach to <b>{target}</b> and the next Start writes there."
-            f"<br><br>Nothing in <b>{self._run_dir}</b> is deleted — its checkpoints, "
-            "recordings and metrics stay exactly where they are. Stop the run there "
+            "A name for the new run. The next Start writes there instead.\n\n"
+            f"Nothing in {self._run_dir.name} is deleted — its checkpoints,\n"
+            "recordings and metrics stay where they are. Stop the run there\n"
             "first if it is still going.",
-            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel,
+            text=suggested,
         )
-        if answer == QMessageBox.StandardButton.Ok:
-            self._attach(target)
+        if not accepted:
+            return
+        name = name.strip() or suggested
+        target = run_library.new_run_dir(self._library_root(), name)
+        self._attach(target)
+        # After attaching, which clears it: this name is for the directory the
+        # window is looking at *now*.
+        self._pending_name = name if name != target.name else ""
 
     def _show_about(self) -> None:
         """Who wrote this, which build it is, and what it is standing on.

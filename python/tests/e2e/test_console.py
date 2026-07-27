@@ -338,6 +338,288 @@ def test_the_run_a_console_would_start_is_a_command_you_could_type(
         dialog.close()
 
 
+# ---- naming a run, and deleting one -----------------------------------------
+# Both are destructive in opposite directions: one decides what a directory will
+# be called for the rest of its life, the other removes one for good. The
+# confirmations are answered by monkeypatching, never by a synthetic click — a
+# deletion a stray Enter could have caused is not evidence of anything.
+
+
+def _stopped_run(root: Path, name: str, *, updates: int = 3) -> Path:
+    """A run directory nothing has written to for a while."""
+    run = root / name
+    (run / "checkpoints").mkdir(parents=True)
+    (run / "metrics.csv").write_text(
+        "update,samples,return,entropy,policy_loss,value_loss,clip_fraction,steps_per_second\n"
+        + "".join(f"{i},{i * 100},1.0,0.5,0.1,0.2,0.1,1000\n" for i in range(1, updates + 1)),
+        encoding="utf-8",
+    )
+    (run / "checkpoints" / "policy-final.pt").write_bytes(b"x" * 4096)
+    (run / "update-00100.mdr").write_bytes(b"y" * 512)
+    stale = time.time() - 600
+    for path in (run / "metrics.csv", run):
+        os.utime(path, (stale, stale))
+    return run
+
+
+def test_a_deleted_run_is_gone_from_the_disk_and_the_list(
+    qt_app: object,  # noqa: ARG001 — the QApplication has to exist
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from md.ui.library import LibraryView  # noqa: PLC0415
+    from PySide6.QtWidgets import QMessageBox  # noqa: PLC0415
+
+    monkeypatch.setattr(
+        QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes)
+    )
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a, **k: None))
+
+    root = tmp_path / "runs"
+    doomed = _stopped_run(root, "amber-anvil")
+    _stopped_run(root, "brisk-harbour")
+
+    view = LibraryView()
+    view.attach(root)
+    try:
+        row = next(i for i, run in enumerate(view.table._runs) if run.run_id == "amber-anvil")
+        view.table._table.selectRow(row)
+
+        view.table._delete_selected()
+        assert not doomed.exists(), "the run survived a confirmed delete"
+        assert (root / "brisk-harbour").is_dir(), "the wrong run was deleted"
+        # And the list is the list again without anyone pressing refresh: a row
+        # for a directory that is not there is the worst kind of stale.
+        assert view.table._table.rowCount() == 1
+    finally:
+        view.close()
+
+
+def test_a_declined_delete_removes_nothing(
+    qt_app: object,  # noqa: ARG001
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from md.ui.library import LibraryView  # noqa: PLC0415
+    from PySide6.QtWidgets import QMessageBox  # noqa: PLC0415
+
+    monkeypatch.setattr(
+        QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.No)
+    )
+    root = tmp_path / "runs"
+    kept = _stopped_run(root, "amber-anvil")
+
+    view = LibraryView()
+    view.attach(root)
+    try:
+        view.table.focus_list()
+        view.table._delete_selected()
+        assert kept.is_dir()
+        assert (kept / "checkpoints" / "policy-final.pt").exists()
+    finally:
+        view.close()
+
+
+def test_a_live_run_is_not_deleted_at_all(
+    qt_app: object,  # noqa: ARG001
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Deleting a directory a trainer still has open loses the run in pieces.
+
+    So the question is not even asked: a confirmation nobody can answer safely
+    is worse than a refusal that says which button to press first.
+    """
+    from md.ui.library import LibraryView  # noqa: PLC0415
+    from PySide6.QtWidgets import QMessageBox  # noqa: PLC0415
+
+    asked: list[str] = []
+    warned: list[str] = []
+
+    def _question(*args: object, **kwargs: object) -> object:
+        asked.append(str(args[1]))
+        return QMessageBox.StandardButton.Yes
+
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(_question))
+    monkeypatch.setattr(
+        QMessageBox, "warning", staticmethod(lambda *a, **k: warned.append(str(a[2])))
+    )
+
+    root = tmp_path / "runs"
+    live = _stopped_run(root, "amber-anvil")
+    os.utime(live / "metrics.csv", None)  # written to just now
+
+    view = LibraryView()
+    view.attach(root)
+    try:
+        view.table.focus_list()
+        run = view.table.selected()
+        assert run is not None and run.live, "the fixture is not live"
+        view.table._delete_selected()
+        assert live.is_dir()
+        assert not asked, "a live run was offered for deletion"
+        assert warned and "Stop" in warned[0]
+    finally:
+        view.close()
+
+
+def test_a_new_run_is_called_what_it_was_named(
+    qt_app: object,  # noqa: ARG001
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The one decision the parameter form cannot carry.
+
+    A run is identified by its directory for the rest of its life — every
+    `--resume`, every path, every row in the list — so the name is asked for
+    before anything else and is what the directory is called.
+    """
+    from md.ui.app import Console  # noqa: PLC0415
+    from PySide6.QtWidgets import QInputDialog  # noqa: PLC0415
+
+    root = tmp_path / "runs"
+    _stopped_run(root, "amber-anvil")
+
+    monkeypatch.setattr(
+        QInputDialog, "getText", staticmethod(lambda *a, **k: ("Entity policy, 3 seeds", True))
+    )
+    window = Console(root)
+    # The parameter dialog is a separate decision and a modal; what is asserted
+    # here is where the run would go, not that one starts.
+    monkeypatch.setattr(Console, "_primary_pressed", lambda self: None)
+    try:
+        window._new_run_from_library()
+        assert window._run_dir == root / "entity-policy-3-seeds"
+        # Nothing on disk yet. A name typed into a dialog somebody then cancels
+        # must not leave a directory behind for the next one to trip over.
+        assert not window._run_dir.exists()
+        # The typed name is kept for the run that is about to start, because the
+        # directory could not be called that.
+        assert window._pending_name == "Entity policy, 3 seeds"
+    finally:
+        window.close()
+
+
+def test_a_cancelled_name_starts_nothing(
+    qt_app: object,  # noqa: ARG001
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from md.ui.app import Console  # noqa: PLC0415
+    from PySide6.QtWidgets import QInputDialog  # noqa: PLC0415
+
+    root = tmp_path / "runs"
+    existing = _stopped_run(root, "amber-anvil")
+
+    monkeypatch.setattr(QInputDialog, "getText", staticmethod(lambda *a, **k: ("whatever", False)))
+    started: list[int] = []
+    monkeypatch.setattr(Console, "_primary_pressed", lambda self: started.append(1))
+    window = Console(root)
+    try:
+        window._new_run_from_library()
+        assert not started, "cancelling the name still opened the parameter dialog"
+        assert window._run_dir == root, "the console moved off the library anyway"
+        assert [child.name for child in root.iterdir()] == [existing.name]
+    finally:
+        window.close()
+
+
+def test_reset_names_the_directory_it_moves_to(
+    qt_app: object,  # noqa: ARG001
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The other way a run directory comes into existence.
+
+    `high-delta-3` is exactly the name nobody can tell from `high-delta-2` a
+    fortnight later, so Reset asks the same question the library does — and
+    still suggests the numbered name, so Enter is a whole answer.
+    """
+    from md.ui.app import Console  # noqa: PLC0415
+    from PySide6.QtWidgets import QInputDialog  # noqa: PLC0415
+
+    root = tmp_path / "runs"
+    first = _stopped_run(root, "high-delta")
+
+    asked: list[str] = []
+
+    def _typed(*args: object, **kwargs: object) -> tuple[str, bool]:
+        asked.append(str(kwargs.get("text", "")))
+        return ("Wider clusters", True)
+
+    monkeypatch.setattr(QInputDialog, "getText", staticmethod(_typed))
+    window = Console(first)
+    try:
+        window._reset_pressed()
+        assert asked == ["high-delta-2"], "the numbered name was not offered"
+        assert window._run_dir == root / "wider-clusters"
+        assert first.is_dir(), "Reset deleted the run it moved away from"
+    finally:
+        window.close()
+
+
+def test_the_name_lands_in_the_library_when_the_run_starts(
+    qt_app: object,  # noqa: ARG001
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The display name is written by the console, and only once there is a run.
+
+    Both halves matter: written, or naming a run does nothing anybody can see;
+    and not before, or every cancelled dialog leaves an orphan directory.
+    """
+    from md import library  # noqa: PLC0415
+    from md.ui import app as app_module  # noqa: PLC0415
+    from md.ui.app import Console  # noqa: PLC0415
+    from PySide6.QtWidgets import QDialog, QInputDialog  # noqa: PLC0415
+
+    class _Accepted:
+        """The parameter dialog, already agreed to."""
+
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
+        def exec(self) -> int:
+            return int(QDialog.DialogCode.Accepted)
+
+        def command(self) -> list[str]:
+            return ["/usr/bin/true"]
+
+    class _Started:
+        """A trainer that was launched and does nothing."""
+
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self.finished = True
+
+        def poll(self) -> list[str]:
+            return []
+
+    root = tmp_path / "runs"
+    root.mkdir(parents=True)
+    monkeypatch.setattr(
+        QInputDialog, "getText", staticmethod(lambda *a, **k: ("Entity policy, 3 seeds", True))
+    )
+    monkeypatch.setattr(app_module, "ParameterDialog", _Accepted)
+    monkeypatch.setattr(app_module, "TrainingRun", _Started)
+    # This test is about naming, not about torch: without this it would take the
+    # "install a runtime" path on any machine that has none, and that is a modal.
+    monkeypatch.setattr(app_module, "can_train", lambda: True)
+
+    window = Console(root)
+    try:
+        window._new_run_from_library()
+        run_dir = window._run_dir
+        assert run_dir == root / "entity-policy-3-seeds"
+        assert library.read_metadata(run_dir).display_name == "Entity policy, 3 seeds"
+        # And it is not written twice: a second Start on the same directory is
+        # not a second naming, and would undo a rename made in between.
+        library.rename(run_dir, "renamed since")
+        window._start()
+        assert library.read_metadata(run_dir).display_name == "renamed since"
+    finally:
+        window.close()
+
+
 @needs_torch
 @needs_native
 def test_the_console_and_the_trainer_agree_on_what_a_run_directory_is(

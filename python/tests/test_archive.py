@@ -272,6 +272,40 @@ def test_a_run_outside_the_managed_root_is_never_removed(tmp_path: Path) -> None
     assert run.path.exists()
 
 
+# ---- deleting outright -------------------------------------------------------
+# The one operation with no copy of anything anywhere, so the guards in front of
+# it are the whole of its behaviour worth asserting.
+
+
+def test_deleting_a_run_takes_everything_in_it_and_says_what_it_freed(tmp_path: Path) -> None:
+    run = a_run(tmp_path, checkpoints=(100, 200), recordings=(100,))
+    freed = archive.delete_run(run, tmp_path)
+    assert not run.path.exists()
+    assert freed > 0
+    assert not library.discover(tmp_path)
+
+
+def test_deleting_refuses_a_run_outside_the_managed_root(tmp_path: Path) -> None:
+    """The same sentence `apply_cleanup` refuses: a run path arrives from a
+    picker, an environment variable or a command line."""
+    run = a_run(tmp_path)
+    with pytest.raises(archive.ArchiveError, match="outside"):
+        archive.delete_run(run, tmp_path / "somewhere-else")
+    assert run.path.exists()
+
+
+def test_deleting_refuses_the_library_directory_itself(tmp_path: Path) -> None:
+    """`runs/` holding a single run is a shape `discover` supports, and deleting
+    that run would take the library with it — which is nobody's intention."""
+    root = tmp_path / "runs"
+    make_run(root.parent, "runs", checkpoints=(100,))
+    run = library.load_run(root)
+    assert run is not None
+    with pytest.raises(archive.ArchiveError, match="library directory itself"):
+        archive.delete_run(run, root)
+    assert run.path.exists()
+
+
 # ---- cleanup -----------------------------------------------------------------
 
 

@@ -253,6 +253,46 @@ def test_a_default_name_is_readable_and_never_collides() -> None:
     assert len(taken) > 20
 
 
+def test_a_typed_name_becomes_a_directory_name_a_shell_can_use() -> None:
+    """The name is typed by a person and the directory is typed at a prompt,
+    put in a `--resume` and quoted by nobody."""
+    assert library.run_id_for("Entity policy, 3 seeds") == "entity-policy-3-seeds"
+    assert library.run_id_for("  spaced  out  ") == "spaced-out"
+    # A name made entirely of punctuation is still a run, not a directory called
+    # `` or `-`.
+    assert library.run_id_for("!?!") == "run"
+
+
+def test_a_taken_directory_name_is_suffixed_rather_than_refused(tmp_path: Path) -> None:
+    """Refusing at the moment somebody is trying to start training would be a
+    dialog in the way; a name that is not taken is the answer they wanted."""
+    assert library.run_id_for("delta", ["delta"]) == "delta-2"
+    assert library.run_id_for("delta", ["delta", "delta-2"]) == "delta-3"
+    # Case-insensitively: two directories differing only in case are the same
+    # directory on Windows and macOS.
+    assert library.run_id_for("Delta", ["delta"]) == "delta-2"
+
+    root = tmp_path / "runs"
+    make_run(root, "high-delta")
+    assert library.new_run_dir(root, "High Delta") == root / "high-delta-2"
+
+
+def test_a_new_run_avoids_a_directory_no_trainer_has_written_into_yet(tmp_path: Path) -> None:
+    """`discover` cannot see a directory without a `metrics.csv`, and `mkdir`
+    can: a new run that landed on top of one would mix two runs together."""
+    root = tmp_path / "runs"
+    (root / "amber-anvil").mkdir(parents=True)  # started, then cancelled
+    assert not library.discover(root)
+    assert library.new_run_dir(root, "amber-anvil") == root / "amber-anvil-2"
+
+
+def test_a_new_run_in_a_library_that_does_not_exist_yet_is_named_anyway(tmp_path: Path) -> None:
+    """The first run on a fresh machine. Nothing is created to find that out."""
+    root = tmp_path / "never-made"
+    assert library.new_run_dir(root, "First Run") == root / "first-run"
+    assert not root.exists()
+
+
 # ---- pins --------------------------------------------------------------------
 
 

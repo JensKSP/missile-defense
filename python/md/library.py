@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
@@ -257,6 +258,50 @@ _NOUNS = (
     "ridge",
     "summit",
 )
+
+
+#: Everything that is not a letter or a digit, collapsed to one dash. A display
+#: name is typed by a person — `Entity policy, 3 seeds` — and a directory name is
+#: typed at a shell prompt, put in a `--resume` and quoted by nobody, so the two
+#: cannot be the same string. `md.league.make_id` applies the same rule to a
+#: promoted model's directory, for the same reason.
+_ID_UNSAFE = re.compile(r"[^a-z0-9]+")
+
+
+def run_id_for(display_name: str, taken: Iterable[str] = ()) -> str:
+    """A directory name for a run somebody has just named.
+
+    Uniqueness is enforced by suffixing rather than by rejecting: the answer to
+    "that name is taken" is a name that is not, and a dialog that refuses at the
+    moment somebody is trying to start training is a dialog that gets in the
+    way. Case-insensitively, because two directories differing only in case are
+    the same directory on Windows and macOS.
+    """
+    stem = _ID_UNSAFE.sub("-", display_name.strip().lower()).strip("-")
+    if not stem:
+        stem = "run"  # a name made entirely of punctuation is still a run
+    used = {name.strip().lower() for name in taken}
+    if stem not in used:
+        return stem
+    index = 2
+    while f"{stem}-{index}" in used:
+        index += 1
+    return f"{stem}-{index}"
+
+
+def new_run_dir(root: Path, display_name: str) -> Path:
+    """Where a run called ``display_name`` should be written. Creates nothing.
+
+    Unique against **every directory in ``root``**, not only the ones that are
+    runs: a directory a trainer has not written `metrics.csv` into yet is
+    invisible to :func:`discover` and entirely visible to `mkdir`, and a new run
+    that landed on top of one would mix two runs together.
+    """
+    try:
+        taken = [child.name for child in root.iterdir() if child.is_dir()]
+    except OSError:
+        taken = []  # the library directory itself does not exist yet
+    return root / run_id_for(display_name, taken)
 
 
 def default_name(existing: Iterable[str] = (), *, seed: int | None = None) -> str:

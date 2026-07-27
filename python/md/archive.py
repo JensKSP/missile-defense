@@ -474,6 +474,39 @@ def archive_and_remove(
     return written, freed
 
 
+def delete_run(run: library.Run, root: Path) -> int:
+    """Delete a run outright. Returns the bytes freed.
+
+    The one operation here that keeps no copy of anything, which is why it is
+    the one with the shortest implementation and the longest guard. Two refusals
+    stand in front of `rmtree`:
+
+    * anything outside ``root``, for the reason :func:`apply_cleanup` says — a
+      run path arrives from a picker, an environment variable or a command line,
+      and "delete everything under the path I was handed" is a sentence that has
+      ended badly for other programs;
+    * ``root`` **itself**, because `runs/` holding a single run is a shape
+      :func:`library.discover` supports, and deleting that run would take the
+      library with it. That one is not a deletion anybody meant, so it is an
+      error rather than a confirmation.
+
+    Whether the run is still *going* is deliberately not checked here: liveness
+    is a ninety-second-old timestamp, and a layer that unlinks files should
+    refuse on facts rather than on a guess. The console asks that question where
+    it is fresh, before it ever gets this far.
+    """
+    if not library.within(root, run.path):
+        raise ArchiveError(f"{run.path} is outside {root}; refusing to remove it")
+    if run.path.resolve() == root.resolve():
+        raise ArchiveError(
+            f"{run.path} is the library directory itself, not a run inside it; "
+            "refusing to remove it"
+        )
+    freed = library.storage_of(run.path).total
+    shutil.rmtree(run.path)
+    return freed
+
+
 def describe(plan: CleanupPlan) -> str:
     """`14 files · 1.2 GB` — what a button offers to do, before it does it."""
     if plan.empty:
