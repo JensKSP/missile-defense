@@ -78,7 +78,7 @@ jobs:
             qt6-base-dev qt6-base-dev-tools \
             libvulkan-dev glslang-tools mesa-vulkan-drivers \
             libminiaudio-dev catch2 nlohmann-json3-dev \
-            xvfb python3 python3-pip
+            xvfb vulkan-tools python3 python3-pip
 
       - name: Install the Python halves
         # The CPU torch build: this job trains for seconds on four environments,
@@ -97,11 +97,43 @@ jobs:
           cmake --build --preset debug
           python3 -m tools.build_bindings || pip install --break-system-packages -e .
 
+      - name: Find the software Vulkan driver
+        # Named rather than pinned. lavapipe's ICD filename is not stable across
+        # mesa releases — it was `lvp_icd.x86_64.json` and is `lvp_icd.json` on
+        # newer ones — and when the pinned name stopped existing the loader
+        # found no driver at all. Every game test then failed with "no --report
+        # line on stdout", which says nothing whatsoever about a missing ICD.
+        #
+        # Still explicit about *which* driver, which is what the pin was for: a
+        # real GPU driver appearing on the image must not silently change what
+        # this job tested on. It just has to be found rather than assumed.
+        run: |
+          set -euo pipefail
+          icd=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json 2>/dev/null | head -1 || true)
+          if [ -z "$icd" ]; then
+            echo "::error::no lavapipe ICD found — the game cannot render on this runner" >&2
+            ls -la /usr/share/vulkan/icd.d/ || true
+            exit 1
+          fi
+          echo "software Vulkan driver: $icd"
+          # Both spellings: VK_DRIVER_FILES is current, VK_ICD_FILENAMES is what
+          # older loaders read, and the runner image decides which loader it has.
+          {
+            echo "VK_DRIVER_FILES=$icd"
+            echo "VK_ICD_FILENAMES=$icd"
+          } >> "$GITHUB_ENV"
+
+      - name: The game can open Vulkan at all
+        # One line of output that turns "everything failed" into "the driver is
+        # missing". Without it the first symptom is eighteen unrelated-looking
+        # test failures, none of which mentions Vulkan.
+        # Informational, and deliberately unable to fail the job: the step above
+        # already errors out when there is no ICD. A `head` closing the pipe
+        # early must not be the thing that turns the build red.
+        continue-on-error: true
+        run: xvfb-run -a vulkaninfo --summary 2>&1 | head -20 || true
+
       - name: Application end-to-end suite
-        env:
-          # The only ICD installed, but named explicitly so a driver appearing on
-          # the image later cannot silently change what this job tested on.
-          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
         run: poe test-app
 
   wheel:
