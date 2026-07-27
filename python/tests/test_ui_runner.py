@@ -44,6 +44,13 @@ def _stub_ready_runtime(tmp_path: Path) -> runtime.Runtime:
     makes a runtime *ready* — the signed manifest and the current marker — is
     exactly what this is testing the reading of. Only the three commands are
     faked.
+
+    Faked with them: the one probe that is neither a command nor state on disk.
+    `install` refuses before downloading when *this* interpreter cannot import
+    the native binding, which is right in production and turns this test into a
+    question about the machine — it passed on a developer box and failed on the
+    gate and on macOS, where nothing has run `poe bindings`. `test_runtime.py`
+    patches it the same way, and for the same reason.
     """
     root = tmp_path / "runtime"
 
@@ -57,7 +64,8 @@ def _stub_ready_runtime(tmp_path: Path) -> runtime.Runtime:
         return 0
 
     store = runtime.Runtime(root, runner=fake)
-    store.install(runtime.recommend(runtime.SystemInfo.here(), [], root=root))
+    with mock.patch.object(runtime, "_missing_binding", return_value=None):
+        store.install(runtime.recommend(runtime.SystemInfo.here(), [], root=root))
     return store
 
 
