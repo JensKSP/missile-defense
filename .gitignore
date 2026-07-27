@@ -5,6 +5,20 @@
 # Recorded runs (training artifacts)
 /runs/
 
+# What the console writes when a model is promoted or two are put in a match:
+# `models/<name>/{model.json,policy.mdp,results.json}` and
+# `matches/<name>/{left.mdr,match.json,right.mdr}`. Several megabytes each, and
+# one person's local experiments rather than anything the project ships.
+#
+# **`/models/` is deliberately not ignored wholesale.** `models/pretrained.mdp`
+# is tracked and installed into the game package
+# (`debian/missile-defense.install` -> `usr/share/missile-defense/models`), so
+# only the per-model *directories* are ignored here. A future bundled `.mdp`
+# dropped beside it stays visible, which is the behaviour worth having: the
+# thing that ships is never the thing that silently disappears.
+/matches/
+/models/*/
+
 # glslangValidator's default output names. The build never writes these: it
 # compiles app/shaders/quad.{vert,frag} into headers in the build tree, so a
 # .spv beside the sources is always somebody having run the compiler by hand.

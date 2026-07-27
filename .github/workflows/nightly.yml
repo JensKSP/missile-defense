@@ -150,9 +150,34 @@ jobs:
           [latest release](https://github.com/JensKSP/missile-defense/releases/latest).
           NOTES
           } > notes.md
-          gh release delete nightly --yes --cleanup-tag 2>/dev/null || true
-          gh release create nightly dist/* \
-            --prerelease \
-            --target "$GITHUB_SHA" \
-            --title "Nightly — ${SEMVER}" \
-            --notes-file notes.md
+          # Update in place; only fall back to creating when there is nothing to
+          # update. The previous version deleted first and created second, which
+          # guarantees a window with no nightly at all — and on 2026-07-27 the
+          # create half returned 403 while the delete half had already
+          # succeeded, so the page 404'd until a human noticed. A publish step
+          # must never be able to leave the project with less than it started
+          # with.
+          #
+          # `--clobber` replaces assets of the same name; the tag is moved
+          # separately below, because that is the one thing `gh release edit`
+          # will not do.
+          if gh release view nightly >/dev/null 2>&1; then
+            git push --force origin "${GITHUB_SHA}:refs/tags/nightly"
+            gh release edit nightly \
+              --prerelease \
+              --title "Nightly — ${SEMVER}" \
+              --notes-file notes.md
+            gh release upload nightly dist/* --clobber
+            # Assets from an older nightly whose filenames carry the previous
+            # version would otherwise linger beside the new ones for ever.
+            for stale in $(gh release view nightly --json assets \
+                             --jq '.assets[].name' | grep -vFf <(cd dist && ls)); do
+              gh release delete-asset nightly "$stale" --yes
+            done
+          else
+            gh release create nightly dist/* \
+              --prerelease \
+              --target "$GITHUB_SHA" \
+              --title "Nightly — ${SEMVER}" \
+              --notes-file notes.md
+          fi
