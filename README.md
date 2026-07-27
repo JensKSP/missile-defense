@@ -270,7 +270,7 @@ the seed alone reproduces it.
 
 ### Run the pre-trained, packed model
 
-**WATCH AI → RELATIONAL 620** runs the bundled learned policy, natively. There
+**WATCH AI → MODELS → RELATIONAL 620** runs the bundled learned policy, natively. There
 is no Python and no torch anywhere in that path: `models/pretrained.mdp` is a
 data-only file ([docs/API.md](docs/API.md) §7) and `md::agent::Policy` reads and
 evaluates it in C++, which is the entire reason the format exists.
@@ -320,10 +320,39 @@ The recording contains the policy's actions, so playback uses the real
 deterministic simulation and renderer rather than a video. You can take over
 with `T` at any point.
 
+### Play a model you trained yourself
+
+**MODELS** lists every policy this install can run: the bundled one, and
+everything the console has promoted into the Model League. Promotion *is* the
+install step — the game reads the same directory the console writes
+(`$MD_MODELS_DIR`, else a `models/` sibling of the runs directory), so a model
+you promote is playable from the menu without restarting anything.
+
+Each row is the name out of the model's own `.mdp`, never a filename. A model
+this build cannot run — one trained against an older observation, say — is left
+out of the list and the reason printed, rather than offered and then failing the
+moment you choose it.
+
+### Watch two models play the same seed, side by side
+
+The Model League's **Head-to-head…** plays two models over the same seeds,
+records one episode from each, and opens them on one screen and one clock:
+
+```bash
+./build/release/app/md_app --match runs/matches/a-b/match.json
+./build/release/app/md_app --match-left a.mdr --match-right b.mdr   # ad hoc
+```
+
+`Space` pauses, the arrows seek, `R` restarts, `Esc` returns — one transport,
+both sides, always on the same tick. Two recordings of *different* seeds are
+refused rather than shown: two agents on two different problems side by side is
+not a comparison, and it looks exactly like one.
+
 ### Watch replays
 
-Pick one from the **REPLAYS** menu entry, which lists what is in `runs/`, newest
-first:
+Pick one from the **REPLAYS** menu entry, which lists the recordings in `runs/`
+— both the ones sitting directly in it and the ones inside each managed run —
+newest first:
 
 ![The REPLAYS browser listing recorded episodes from a training run, newest first](docs/images/replays.png)
 

@@ -362,6 +362,49 @@ The league sits beside the run list. **Watch it play** opens the game on that
 model against a fresh seed, and **Import .mdp…** takes one somebody else
 produced, validated before anything is written.
 
+Promotion is also the **install step for the game**: `models/` is exactly where
+the game looks, so a promoted model appears under **WATCH AI → MODELS** in the
+menu without restarting anything.
+
+### Ranking models against each other
+
+**Evaluate** scores one model over the canonical held-out seeds — the only
+protocol the league ranks on, stated in the dialog before it starts, because a
+number measured some other way does not belong in the table.
+
+**Head-to-head…** plays two models over the *same* seeds, taken once and handed
+to both. Both run on a worker thread with a progress bar and a cancel; nothing
+is recorded until a contest finishes, so cancelling leaves the league exactly as
+it was.
+
+Two mean scores answer *which* model is better and nothing at all about *how*.
+So a finished head-to-head offers to record one shared seed from each side and
+open them side by side in the game — one screen, one clock, both agents solving
+the same problem. That is the question the table provokes and cannot answer.
+
+## Getting the disk back
+
+Training fills a disk faster than anything else here: a long run is gigabytes of
+checkpoints, most of which nobody will load again. **Storage…** on a run shows
+what it costs, split by what it would cost to lose, and offers three things.
+
+**Clean up** removes checkpoints that are not the newest, not the best-evaluated
+and not pinned. It shows the list first and then removes exactly that list — the
+plan you agreed to, not a fresh one computed at the moment of the click.
+
+**Archive…** writes the run to a ZIP, hashing every file on the way in so the
+archive can be verified later without the original. **Archive and remove…**
+writes, verifies, and only then deletes: the one outcome nobody recovers from is
+a run archived, deleted and then found unreadable.
+
+**Restore…** puts one back, verifying before a single file lands and refusing to
+merge into an existing run — a half-merged run has `metrics.csv` from one and
+checkpoints from another, and nothing downstream would notice.
+
+Neither can be cancelled once started, on purpose. An interrupted write cleans
+itself up; an interrupted *removal* leaves a run nobody can reason about, and a
+stop that only sometimes stops is worse than none.
+
 ## Why a run stopped improving: the STATISTICS tab
 
 The score curve tells you a run has plateaued. It cannot tell you why, and that
@@ -447,6 +490,18 @@ Use validation scores to decide whether update 800 is better than update 400,
 then run this command once for the selected `policy-best.pt`. Choosing among
 checkpoints from repeated canonical results leaks the benchmark back into
 training.
+
+### Holding one run against another in the console
+
+The compare picker on the dashboard overlays a second run's curves and fills the
+STATISTICS tiles with deltas. It only does that when the two runs were evaluated
+under the **same protocol** — the same seed set, decision cadence and tick cap —
+because two numbers measured differently are not two numbers, and a delta
+between them would be a claim the data does not support.
+
+When it cannot compare, it says so and why, in the tab and on the score tile.
+Reading nothing at all and having to guess whether the feature is broken was the
+old behaviour and is the bug this replaced.
 
 ## Breaking an MLP plateau
 
