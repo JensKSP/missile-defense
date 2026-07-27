@@ -1348,9 +1348,6 @@ void Renderer::submit(std::vector<InstanceData>& inst, const std::vector<Pass>& 
 
     dev_->vkCmdEndRenderPass(cb);
     window_->frameReady();
-    if (std::getenv("MD_SERIALIZE_FRAMES") != nullptr) { // TEMPORARY measurement
-        dev_->vkQueueWaitIdle(window_->graphicsQueue());
-    }
     window_->requestUpdate();
 }
 
