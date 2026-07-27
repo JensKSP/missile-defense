@@ -86,4 +86,4 @@ def test_an_unreadable_recording_is_reported_and_does_not_take_the_game_down(
     run = run_app("--replay", str(junk), frames=60, sandbox=tmp_path)
     assert_clean(run)
     assert run.state == "menu"
-    assert "could not read the recording" in run.stderr
+    assert "could not read the recording" in run.output

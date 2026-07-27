@@ -237,7 +237,11 @@ jobs:
         env:
           STAMP: ${{ inputs.package-version && format('-DMD_PACKAGE_VERSION={0}', inputs.package-version) || '' }}
         run: |
+          # Pin the interpreter, or CMake finds the runner's tool-cache CPython
+          # through the registry rather than the CLANG64 one this job installed
+          # nanobind into — see the note on the nanobind step above.
           cmake --preset release -DMD_WERROR=OFF -DMD_PEDANTIC=OFF $STAMP \
+            -DPython_EXECUTABLE="$(cygpath -m "$(command -v python)")" \
             -DMD_BUILD_BINDINGS=ON -DMD_INSTALL_PYTHON_PACKAGE=ON
           cmake --build --preset release
           ctest --preset release

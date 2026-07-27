@@ -342,11 +342,20 @@ if(MD_INSTALL_PYTHON_PACKAGE)
   # (python3-md Depends on the binding), but an installer payload is just files
   # and would ship the hole silently. bindings/ skips itself when Python or
   # nanobind is missing, so this is exactly the case a packaging job hits.
+  #
+  # FATAL, not a warning. It was a warning, and it warned exactly as designed —
+  # into a CI log nobody reads on a green step — while the Windows job shipped
+  # an installer whose console had no `_md_native.pyd`. Only a packaging
+  # assertion three steps later noticed. Asking to install the Python package
+  # and not being able to build it is not a situation with a sensible partial
+  # answer, so it stops the configure instead.
   if(NOT TARGET _md_native)
-    message(WARNING
-      "MD_INSTALL_PYTHON_PACKAGE is ON but the native binding was not built: "
-      "the installed console will not be able to start a training run. "
-      "Enable MD_BUILD_BINDINGS and install Python development files + nanobind.")
+    message(FATAL_ERROR
+      "MD_INSTALL_PYTHON_PACKAGE is ON but the native binding was not built, so "
+      "the installed console could not start a training run. Enable "
+      "MD_BUILD_BINDINGS and install Python development files + nanobind for "
+      "*this* interpreter (${Python_EXECUTABLE}), or turn "
+      "MD_INSTALL_PYTHON_PACKAGE off.")
   endif()
 
   # `python3` unqualified, so the package follows the distribution's Python

@@ -58,9 +58,14 @@ PACKAGE_DESTINATION = Path("lib") / "python3" / "dist-packages" / "md"
 
 def _build_directory() -> Path | None:
     """A configured build tree to stage the game out of, best first."""
+    # A *configured* tree is not enough: `tools/build_bindings.py` configures
+    # `build/release` to compile the extension alone, so the cache file exists
+    # while `app/md_app` never does — and staging from it fails inside CMake
+    # with "file INSTALL cannot find", which reads like a packaging bug rather
+    # than a missing build.
     for preset in ("release", "debug"):
         candidate = PROJECT_ROOT / "build" / preset
-        if (candidate / "CMakeCache.txt").exists():
+        if (candidate / "CMakeCache.txt").exists() and any(candidate.glob("app/md_app*")):
             return candidate
     return None
 

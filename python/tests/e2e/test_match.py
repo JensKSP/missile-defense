@@ -162,8 +162,8 @@ def test_half_a_pairing_is_refused(paired: Path, tmp_path: Path) -> None:
         sandbox=tmp_path,
         expect_report=False,
     )
-    assert run.exit_code == 2, run.stderr
-    assert "both sides" in run.stderr
+    assert run.exit_code == 2, run.output
+    assert "both sides" in run.output
 
 
 def test_two_seeds_are_refused_rather_than_shown(paired: Path, tmp_path: Path) -> None:
@@ -191,8 +191,8 @@ def test_two_seeds_are_refused_rather_than_shown(paired: Path, tmp_path: Path) -
         sandbox=tmp_path,
         expect_report=False,
     )
-    assert run.exit_code == 2, run.stdout
-    assert "same" in run.stderr
+    assert run.exit_code == 2, run.output
+    assert "same" in run.output
 
 
 def test_a_missing_side_says_which_one(paired: Path, tmp_path: Path) -> None:
@@ -205,8 +205,8 @@ def test_a_missing_side_says_which_one(paired: Path, tmp_path: Path) -> None:
     assert run.exit_code == 2
     # With two files in play, "could not read the recording" leaves a person
     # with no idea which one is bad.
-    assert "right" in run.stderr
-    assert "gone.mdr" in run.stderr
+    assert "right" in run.output
+    assert "gone.mdr" in run.output
 
 
 def test_a_promoted_model_becomes_playable_in_the_game(tmp_path: Path) -> None:
@@ -255,4 +255,4 @@ def test_a_model_this_build_cannot_run_is_not_offered(tmp_path: Path) -> None:
     run = run_app(frames=60, sandbox=tmp_path)
     assert run.models == before.models, run.report
     # ...and said so, rather than leaving a promoted model silently missing.
-    assert "retrain or re-export" in run.stderr
+    assert "retrain or re-export" in run.output

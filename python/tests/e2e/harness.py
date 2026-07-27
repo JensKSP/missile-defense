@@ -191,6 +191,22 @@ class AppRun:
     stderr: str
 
     @property
+    def output(self) -> str:
+        """Everything the run printed, both streams.
+
+        **`xvfb-run` runs its command as `"$@" 2>&1`.** The two streams are
+        merged into stdout before this process ever sees them, so `stderr` is
+        empty for every run that goes through the wrapper — which is every run
+        in CI. Assertions about what the game *said* have to read this.
+
+        That is not only a test-ergonomics point: `validation_errors` greps for
+        VUID messages, and reading `stderr` meant it found none and reported
+        every run clean. The renderer check had been inert for as long as the
+        suite has run under Xvfb.
+        """
+        return self.stdout + "\n" + self.stderr
+
+    @property
     def models(self) -> int:
         """How many installed models the game says it can actually run."""
         return int(self.report.get("models", 0))
@@ -359,7 +375,10 @@ KNOWN_VALIDATION_ERRORS = ("VUID-vkAcquireNextImageKHR-semaphore-01779",)
 
 def validation_errors(run: AppRun, *, include_known: bool = False) -> list[str]:
     """Vulkan validation messages from this run, newest last."""
-    lines = [line for line in run.stderr.splitlines() if "VUID" in line]
+    # `output`, not `stderr`: under `xvfb-run` the layer's messages arrive on
+    # stdout. See :attr:`AppRun.output` — this grepping the wrong stream is why
+    # no validation error was ever reported by this suite.
+    lines = [line for line in run.output.splitlines() if "VUID" in line]
     if include_known:
         return lines
     return [line for line in lines if not any(known in line for known in KNOWN_VALIDATION_ERRORS)]
