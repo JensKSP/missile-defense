@@ -141,12 +141,15 @@ endif()
 # data-only file (docs/API.md §7) and `md::agent::Policy` reads it natively.
 # That is the entire reason the format exists.
 #
-# **Optional on purpose.** No model ships today: the observation encoding gained
-# a feature in a100aec and every checkpoint trained before it is unrunnable, so
-# there is nothing honest to bundle until a run on the current simulation
-# produces one. The game handles that state — WATCH AI starts the scripted agent
-# directly rather than offering a choice of one — and this stays a no-op until
-# the file appears. `GameWindow::pretrained_path()` knows these three layouts.
+# **Optional on purpose**, and currently present: `Relational 620`, 1959-feature
+# observation, matching this simulation. It was briefly absent — the observation
+# encoding gained a feature in a100aec and every checkpoint trained before it
+# became unrunnable — which is why this is a conditional rather than a hard
+# dependency. A source tree with no model still builds and still ships; the game
+# handles that state by leaving MODELS out of the WATCH AI menu rather than
+# offering a list with nothing in it. `GameWindow::pretrained_path()` knows
+# these three layouts, and lists this file alongside anything the console has
+# promoted into `models/`.
 include(GNUInstallDirs)
 set(MD_PRETRAINED "${CMAKE_SOURCE_DIR}/models/pretrained.mdp")
 if(EXISTS "${MD_PRETRAINED}")
