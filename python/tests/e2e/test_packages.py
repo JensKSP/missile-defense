@@ -358,7 +358,10 @@ def test_the_game_only_install_can_watch_the_scripted_agent(
     assert run.score > 0
     # And the screen says which agent it is. Asked for directly: watching two
     # agents and being unable to tell them apart makes the feature useless.
-    assert run.report.get("driver") == "SCRIPTED"
+    # `startswith`, because the name carries the skill now: WATCH AI grew a
+    # rung per difficulty and the HUD says which one is playing. Pinning the
+    # bare word asserted the absence of a feature.
+    assert str(run.report.get("driver", "")).startswith("SCRIPTED")
 
 
 @needs_cmake
@@ -414,7 +417,8 @@ def test_a_model_the_game_cannot_run_is_refused_rather_than_swapped_out(
         expect_report=False,
     )
     assert run.exit_code != 0
-    assert "could not load the model" in run.stderr
+    # `output`, not `stderr`: xvfb-run merges the two — see `AppRun.output`.
+    assert "could not load the model" in run.output
 
 
 @needs_cmake

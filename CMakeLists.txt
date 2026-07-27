@@ -349,7 +349,13 @@ if(MD_INSTALL_PYTHON_PACKAGE)
   # assertion three steps later noticed. Asking to install the Python package
   # and not being able to build it is not a situation with a sensible partial
   # answer, so it stops the configure instead.
-  if(NOT TARGET _md_native)
+  # Only when bindings were *asked for*. Installing the sources without the
+  # extension is a real configuration — Debian splits them into two binary
+  # packages, and `tests/e2e/test_packages.py` stages the sources half on its
+  # own — so the fault is not "no extension", it is "an extension was requested
+  # and silently not produced". That is the Windows case: nanobind was missing,
+  # bindings/ skipped itself, and the installer shipped a console without one.
+  if(MD_BUILD_BINDINGS AND NOT TARGET _md_native)
     message(FATAL_ERROR
       "MD_INSTALL_PYTHON_PACKAGE is ON but the native binding was not built, so "
       "the installed console could not start a training run. Enable "
