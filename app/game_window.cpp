@@ -529,6 +529,13 @@ void GameWindow::start_game() {
     fire_latch_.clear();
     ai_driving_ = false;
     ai_assisted_ = false;
+    // A new game has no contestant until one is chosen, and a stale decorator
+    // would point at a driver that is about to be replaced.
+    handicapped_.reset();
+    scripted_driver_.reset();
+    dying_for_ = -1.0F; // and it is certainly not still dying
+    dying_blasts_.clear();
+    dying_explosions_.clear();
     replay_.reset();       // a new game is never still playing back a recording
     watch_driver_.reset(); // ... nor still being driven by the last policy
     driver_name_.clear();
@@ -546,6 +553,10 @@ void GameWindow::start_ai_game(agent::Skill skill) {
     ai_driving_ = true;
     ai_assisted_ = true; // sticky: taking over later does not make it your score
     watch_driver_.reset();
+    // Through the published handicap, so the rung on screen plays the game the
+    // console's ladder was measured on.
+    scripted_driver_.emplace(skill);
+    handicapped_.emplace(*scripted_driver_, agent::canonical_handicap);
     // The rung, on screen. "SCRIPTED" alone was fine when there was one; with
     // three that differ by ~78,000 points it would be the most misleading label
     // in the game — you would have no way to tell which one you were watching.
@@ -585,6 +596,11 @@ void GameWindow::start_model_game(std::optional<agent::Policy> policy) {
     start_game(); // clears watch_driver_, so the move below has to follow it
     driver_name_ = driver.name();
     watch_driver_ = std::move(driver);
+    // A learned policy wears the same handicap the scripted rungs do. Anything
+    // else would make "beat the baseline" a race between a contestant carrying
+    // weights and one that is not.
+    scripted_driver_.reset();
+    handicapped_.emplace(*watch_driver_, agent::canonical_handicap);
     ai_driving_ = true;
     ai_assisted_ = true;
 }
@@ -1187,14 +1203,15 @@ void GameWindow::advance() {
                 continue;
             }
             Action action;
-            if (watch_driver_.has_value()) {
-                // A learned policy, through the evaluator's own driver — so the
-                // agent on screen is the one `md_agent_eval` scores rather than
-                // a second implementation that might steer differently.
-                action = watch_driver_->act(sim_);
+            if (handicapped_.has_value()) {
+                // Whichever contestant, wearing the published handicap — the
+                // same decorator `md_agent_eval` puts on, so the agent on screen
+                // is the one the ladder was measured on rather than a second
+                // implementation that might steer differently.
+                action = handicapped_->act(sim_);
             } else if (ai_driving_) {
-                // The agent is just another driver: same Action, same Sim::step,
-                // same crosshair and trigger limits a hand is held to.
+                // Taking over left the agent driving without a contestant: the
+                // bare heuristic, as before.
                 action = agent_.act(sim_);
             } else {
                 // Keep aiming at the mouse; the sim samples that intent at its

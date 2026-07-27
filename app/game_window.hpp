@@ -8,6 +8,7 @@
 #include "highscores.hpp"
 #include "human_input.hpp"
 #include "md/agent/eval.hpp"
+#include "md/agent/handicap.hpp"
 #include "md/agent/heuristic.hpp"
 #include "md/agent/policy.hpp"
 #include "md/replay/match.hpp"
@@ -348,7 +349,16 @@ class GameWindow : public QVulkanWindow {
     std::optional<agent::Policy> watched_;
     std::optional<agent::PolicyDriver> watch_driver_;
     std::string driver_name_;
-    agent::Heuristic agent_{};             // the scripted agent, at whatever skill was chosen
+    agent::Heuristic agent_{}; // the scripted agent, at whatever skill was chosen
+    //: The scripted agent as a `Driver`, so it can wear the same handicap a
+    //: learned policy does. `agent_` stays for the takeover path, which hands a
+    //: half-played game back to a human rather than to a contestant.
+    std::optional<agent::ScriptedDriver> scripted_driver_;
+    //: What is actually driving a watched game: whichever contestant, wearing
+    //: `md::agent::canonical_handicap`. Without it the game would show HIGH
+    //: scoring what an unhandicapped agent scores while the console reports the
+    //: handicapped number for the same name — two ladders, one label.
+    std::optional<agent::HandicappedDriver> handicapped_;
     std::optional<replay::Player> replay_; // a recorded run being played back
     // Two recordings on one clock. Separate from `replay_` and mutually
     // exclusive with it: a match has no single sim, so nothing that reads
