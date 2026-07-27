@@ -109,7 +109,7 @@ def test_a_run_being_written_to_reads_as_live(tmp_path: Path) -> None:
     assert run.state == "live"
 
 
-def test_a_run_nothing_has_touched_for_a_while_reads_as_stopped(tmp_path: Path) -> None:
+def test_a_run_nothing_has_touched_for_a_while_reads_as_idle(tmp_path: Path) -> None:
     path = make_run(tmp_path, "old")
     stale = time.time() - (library.LIVE_AFTER_S * 3)
     import os  # noqa: PLC0415 — only this test needs to forge a timestamp
@@ -117,7 +117,7 @@ def test_a_run_nothing_has_touched_for_a_while_reads_as_stopped(tmp_path: Path) 
     os.utime(path / "metrics.csv", (stale, stale))
     run = library.load_run(path)
     assert run is not None
-    assert run.state == "stopped"
+    assert run.state == library.STATE_IDLE
 
 
 def test_runs_are_listed_by_when_they_last_moved(tmp_path: Path) -> None:
@@ -383,3 +383,19 @@ def test_metadata_survives_a_round_trip_through_json(tmp_path: Path) -> None:
     stored = json.loads((path / library.LIBRARY_NAME).read_text(encoding="utf-8"))
     assert stored["pinned"] == ["a.mdr", "b.mdr"]  # sorted, so a diff is stable
     assert library.read_metadata(path).display_name == "x"
+
+
+def test_the_library_and_the_dashboard_call_a_stopped_run_the_same_thing() -> None:
+    """One vocabulary for one fact.
+
+    A finished run was "stopped" in the run list and "IDLE" in the dashboard's
+    pill — the same condition under two words, which reads as two facts. The
+    names now live in `md.library` and both views spell them from there; this
+    fails if a third spelling appears.
+    """
+    from md.ui import app
+
+    assert library.STATE_IDLE in app.STATUS
+    assert library.STATE_LIVE in app.STATUS
+    assert app.STATUS[library.STATE_IDLE][0] == "IDLE"
+    assert app.STATUS[library.STATE_LIVE][0] == "LIVE"

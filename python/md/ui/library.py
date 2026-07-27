@@ -219,7 +219,7 @@ class RunTable(QWidget):
         name = run.name if run.name == run.run_id else f"{run.name}  ({run.run_id})"
         return (
             name,
-            "live" if run.live else "stopped",
+            library.STATE_LIVE if run.live else library.STATE_IDLE,
             f"{run.updates:,}",
             "—" if run.best_score is None else f"{run.best_score:,.0f}",
             f"{run.recordings}",

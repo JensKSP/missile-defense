@@ -133,8 +133,10 @@ EVAL_EVERY_UNPUBLISHED = (
 #: so it is one word and a colour.
 STATUS = {
     "none": ("NO RUN", theme.MUTED),
-    "idle": ("IDLE", theme.MUTED),
-    "live": ("LIVE", theme.AHEAD),
+    # The two shared with the run library, by name rather than by spelling: the
+    # same run must not be "stopped" in one view and "IDLE" in the other.
+    run_library.STATE_IDLE: ("IDLE", theme.MUTED),
+    run_library.STATE_LIVE: ("LIVE", theme.AHEAD),
     "paused": ("PAUSED", theme.AMBER),
     "stopping": ("STOPPING", theme.AMBER),
 }
@@ -1302,7 +1304,7 @@ class Console(QMainWindow):
             # Our own child, and it is over: no guessing needed, no pretending a
             # run that just exited is live because its last line is thirty
             # seconds old, and no marker file outliving the process it was for.
-            return "idle"
+            return run_library.STATE_IDLE
         # Our own child first, then the run's own `RUNNING` marker — a PID we can
         # ask the operating system about — and only then the timestamp, which is
         # what a run written by an older trainer leaves us with. The timestamp
@@ -1321,7 +1323,7 @@ class Console(QMainWindow):
             # just after a run ended writes exactly that — and reporting it for
             # ever would disable the Start button that clears it, which is a
             # console wedged by its own status line.
-            return "stopping" if live else "idle"
+            return "stopping" if live else run_library.STATE_IDLE
         if self._control.paused():
             # *Not* qualified the same way: a paused run writes nothing at all,
             # so a metrics.csv that has stopped moving is what being paused
@@ -1329,10 +1331,10 @@ class Console(QMainWindow):
             # proof enough to override the file.
             return "paused"
         if own is not None:
-            return "live"
+            return run_library.STATE_LIVE
         if modified is None:
             return "none"
-        return "live" if live else "idle"
+        return run_library.STATE_LIVE if live else run_library.STATE_IDLE
 
     def _set_status(self, text: str, colour: str) -> None:
         if self._status.text() != text:

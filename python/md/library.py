@@ -63,6 +63,13 @@ LIBRARY_NAME = "LIBRARY.json"
 #: invites someone to start a second trainer in the same directory.
 LIVE_AFTER_S = 90.0
 
+#: What a run's state is called — once, so the library row and the dashboard's
+#: pill cannot describe the same run with two different words. They did: a
+#: finished run was "stopped" in the list and "IDLE" in the corner, which reads
+#: as two facts rather than one.
+STATE_LIVE = "live"
+STATE_IDLE = "idle"
+
 
 @dataclass(frozen=True)
 class Storage:
@@ -115,7 +122,7 @@ class Run:
 
     @property
     def live(self) -> bool:
-        return self.state == "live"
+        return self.state == STATE_LIVE
 
 
 # ---- the console's own per-run file ------------------------------------------
@@ -452,7 +459,7 @@ def load_run(path: Path) -> Run | None:
         path=path,
         run_id=path.name,
         display_name=metadata.display_name,
-        state="live" if _is_live(path, modified) else "stopped",
+        state=STATE_LIVE if _is_live(path, modified) else STATE_IDLE,
         updates=updates,
         best_score=best.mean_score if best else None,
         best_update=best.update if best else None,
