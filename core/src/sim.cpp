@@ -251,7 +251,6 @@ void Sim::spawn_explosion(Vec2 center, float peak_radius) noexcept {
 }
 
 void Sim::advance_explosions() noexcept {
-    const float expand = 0.25f * config_.explosion_lifetime;
     std::uint32_t i = 0;
     while (i < explosion_count_) {
         Explosion& explosion = explosions_[i];
@@ -260,7 +259,7 @@ void Sim::advance_explosions() noexcept {
             explosions_[i] = explosions_[explosion_count_ - 1];
             --explosion_count_;
         } else {
-            explosion.radius = explosion.peak_radius * std::min(1.0f, explosion.age / expand);
+            explosion.radius = explosion_radius(explosion, config_);
             ++i;
         }
     }

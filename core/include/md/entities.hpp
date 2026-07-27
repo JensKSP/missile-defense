@@ -6,6 +6,7 @@
 #include "md/config.hpp"
 #include "md/vec2.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <type_traits>
 
@@ -87,6 +88,15 @@ struct Explosion {
     float radius = 0.0f;
     float peak_radius = 0.0f;
 };
+
+/// Current explosion radius: expands over the first quarter of its lifetime,
+/// then holds. In the header for the same reason `blast_radius` is — the window
+/// keeps the last impact burning after the simulation has stopped, and a second
+/// copy of the curve would drift from this one.
+[[nodiscard]] inline float explosion_radius(const Explosion& explosion, const Config& c) noexcept {
+    const float expand = 0.25F * c.explosion_lifetime;
+    return explosion.peak_radius * std::min(1.0F, explosion.age / expand);
+}
 
 // The determinism / parallelism contract requires every entity to be trivially
 // copyable, so the whole Sim state can be snapshotted with a plain memcpy.

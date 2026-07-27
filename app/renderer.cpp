@@ -536,7 +536,8 @@ void build_backdrop(const Sim& sim, const Terrain& terrain, std::span<const Inst
 /// simulation stops advancing them, and the window keeps the final explosions
 /// burning for a moment so the player sees the hit that ended the game.
 void build_entities(const Sim& sim, const Terrain& terrain, std::span<const Blast> blasts,
-                    std::vector<InstanceData>& inst, float tsec) {
+                    std::span<const Explosion> explosions, std::vector<InstanceData>& inst,
+                    float tsec) {
     for (const auto& threat : sim.threats()) {
         if (threat.type == ThreatType::Mirv) { // splitter — purple, multi-warhead
             inst.push_back(line(threat.origin, threat.pos, 0.4f, 0.6f, 0.3f, 0.85f, 0.5f));
@@ -569,7 +570,7 @@ void build_entities(const Sim& sim, const Terrain& terrain, std::span<const Blas
         add_fireball(inst, blast.center.x, blast.center.y, blast.radius,
                      blast.age / sim.config().blast_lifetime);
     }
-    for (const auto& explosion : sim.explosions()) {
+    for (const auto& explosion : explosions) {
         add_fireball(inst, explosion.center.x, explosion.center.y, explosion.radius,
                      explosion.age / sim.config().explosion_lifetime);
     }
@@ -819,7 +820,8 @@ void Renderer::startNextFrame() {
     build_backdrop(sim, terrain_, ground_, inst);
 
     if (show_game) {
-        build_entities(sim, terrain_, window_->visible_blasts(), inst, tsec);
+        build_entities(sim, terrain_, window_->visible_blasts(), window_->visible_explosions(),
+                       inst, tsec);
         if (!game_over) { // HUD: score / wave / ammo — hidden on the game-over screen
             const float digit_px = world_h * 0.013f;
             const float hud_top = world_h * 0.97f;
@@ -1208,7 +1210,7 @@ void Renderer::draw_match(const replay::MatchPlayer& match, QSize size) {
         build_backdrop(sim, terrain_, ground_, inst);
         // Each side's own blasts. A match has no death throes — neither replay
         // is the window's own game — so there is nothing for the window to hold.
-        build_entities(sim, terrain_, sim.blasts(), inst, tsec);
+        build_entities(sim, terrain_, sim.blasts(), sim.explosions(), inst, tsec);
         passes.push_back(Pass{side, rect_viewport(which == 0 ? 0.0f : half, half, h), first,
                               static_cast<std::uint32_t>(inst.size()) - first});
     }

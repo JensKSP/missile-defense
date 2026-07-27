@@ -382,14 +382,23 @@ class GameWindow : public QVulkanWindow {
 
     //: Counts up during the death throes; negative means not dying.
     float dying_for_ = -1.0F;
-    //: The explosions as they stood when the game was lost, aged by this window.
+    //: The interceptor blasts as they stood when the game was lost.
     std::vector<Blast> dying_blasts_;
+    //: And the ground impacts — including the one that took the last city, which
+    //: is the whole point: that is the explosion the player never got to see.
+    std::vector<Explosion> dying_explosions_;
 
   public:
     /// The explosions to draw: the simulation's, or the dying copy once it has
     /// stopped advancing them.
     [[nodiscard]] std::span<const Blast> visible_blasts() const noexcept {
         return dying_for_ >= 0.0F ? std::span<const Blast>{dying_blasts_} : sim().blasts();
+    }
+
+    /// The ground impacts to draw, on the same terms.
+    [[nodiscard]] std::span<const Explosion> visible_explosions() const noexcept {
+        return dying_for_ >= 0.0F ? std::span<const Explosion>{dying_explosions_}
+                                  : sim().explosions();
     }
 
   private:

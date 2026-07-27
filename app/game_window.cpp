@@ -416,9 +416,17 @@ void GameWindow::advance_death(float seconds) {
     std::erase_if(dying_blasts_, [this](const Blast& blast) {
         return blast.age >= sim().config().blast_lifetime;
     });
+    for (Explosion& explosion : dying_explosions_) {
+        explosion.age += seconds;
+        explosion.radius = explosion_radius(explosion, sim().config());
+    }
+    std::erase_if(dying_explosions_, [this](const Explosion& explosion) {
+        return explosion.age >= sim().config().explosion_lifetime;
+    });
     if (dying_for_ >= death_seconds) {
         dying_for_ = -1.0F;
         dying_blasts_.clear();
+        dying_explosions_.clear();
         end_game();
     }
 }
@@ -1214,6 +1222,8 @@ void GameWindow::advance() {
             dying_for_ = 0.0F;
             const auto live = sim_.blasts();
             dying_blasts_.assign(live.begin(), live.end());
+            const auto impacts = sim_.explosions();
+            dying_explosions_.assign(impacts.begin(), impacts.end());
             break;
         }
     }
