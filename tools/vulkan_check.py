@@ -71,6 +71,28 @@ SCENARIOS: tuple[tuple[str, tuple[str, ...]], ...] = (
 #: then separated out below so it cannot fail the build.
 MESSAGE_MARKERS = ("VUID-", "SYNC-", "UNASSIGNED-", "BestPractices-")
 
+#: The oldest validation layer this project trusts its own results from.
+#:
+#: This is **not** an allow-list by another name, and the distinction matters.
+#: An allow-list ignores findings from a working instrument. This requires a
+#: calibrated one, and reports the reading with the instrument's version.
+#:
+#: The evidence: layer 1.3.275 (Ubuntu 24.04) reports ~1000
+#: `SYNC-HAZARD-WRITE-AFTER-READ` between the presentation engine's acquire read
+#: and `vkCmdBeginRenderPass`'s layout transition; layer 1.4.309 (Debian trixie)
+#: reports none, on the same binary and the same driver. The old layer's own
+#: message lists `read_barriers: COLOR_ATTACHMENT_OUTPUT|BOTTOM_OF_PIPE` — the
+#: synchronization whose absence it is alleging — and the access it blames is
+#: `SYNC_PRESENT_ENGINE_SYNCVAL_PRESENT_ACQUIRE_READ_SYNCVAL`, a synthetic one
+#: the layer invents to model a presentation engine it cannot see.
+#:
+#: That is internally inconsistent, so the older reading is not trusted. It is
+#: not *proven* to be a false positive, and this comment should not pretend
+#: otherwise: if anyone produces evidence the hazard is real, this floor is the
+#: wrong answer and the renderer is. 1.4.309 is simply the oldest version whose
+#: reading has been checked here — not the version where anything was fixed.
+MIN_LAYER_VERSION = (1, 4, 309)
+
 
 def _debug_app() -> Path:
     """The debug binary, which is the one built with the validation layer on."""
@@ -218,7 +240,20 @@ def _require_a_live_layer(wrapper: list[str], env: dict[str, str]) -> None:
             "       Install it (Debian/Ubuntu: `sudo apt install vulkan-validationlayers`; "
             "elsewhere: the Vulkan SDK)."
         )
-    print(f"  layer live, canary sees {report['swapchain_images']} swapchain images")
+    version = report.get("validation_layer_version") or "0"
+    parsed = tuple(int(part) for part in version.split(".") if part.isdigit())
+    if parsed < MIN_LAYER_VERSION:
+        wanted = ".".join(str(part) for part in MIN_LAYER_VERSION)
+        raise SystemExit(
+            f"error: VK_LAYER_KHRONOS_validation is {version}; this gate trusts "
+            f"{wanted} and newer.\n"
+            "       Older layers report presentation-engine WRITE_AFTER_READ hazards "
+            "that name, in the same message, the barrier they claim is missing. See "
+            "MIN_LAYER_VERSION in this file for the evidence.\n"
+            "       Debian trixie and Ubuntu 26.04 package a new enough layer; on "
+            "Ubuntu 24.04 use the LunarG SDK repository."
+        )
+    print(f"  layer {version} live, canary sees {report['swapchain_images']} swapchain images")
 
 
 def check_runtime(*, best_practices: bool) -> list[str]:

@@ -58,6 +58,11 @@ bool g_messenger_installed = false;
 //: existed.
 bool g_layer_available = false;
 
+//: The layer's spec version, reported so a result can be attributed to the
+//: instrument that produced it. 1.3.275 flags ~1000 present-engine
+//: WRITE_AFTER_READ hazards that 1.4.309 does not — on the same binary.
+QVersionNumber g_layer_version;
+
 VKAPI_ATTR VkBool32 VKAPI_CALL on_message(VkDebugUtilsMessageSeverityFlagBitsEXT,
                                           VkDebugUtilsMessageTypeFlagsEXT,
                                           const VkDebugUtilsMessengerCallbackDataEXT* data, void*) {
@@ -88,11 +93,13 @@ class Renderer : public QVulkanWindowRenderer {
             // only one of those means Qt is fixed.
             std::printf(R"({"vuid_01779_reports": %d, "distinct_semaphores": %zu, )"
                         R"("concurrent_frames": %d, "swapchain_images": %d, )"
-                        R"("messenger_installed": %s, "validation_layer_available": %s})"
+                        R"("messenger_installed": %s, "validation_layer_available": %s, )"
+                        R"("validation_layer_version": "%s"})"
                         "\n",
                         g_reports, g_semaphores.size(), window_->concurrentFrameCount(),
                         window_->swapChainImageCount(), g_messenger_installed ? "true" : "false",
-                        g_layer_available ? "true" : "false");
+                        g_layer_available ? "true" : "false",
+                        g_layer_version.toString().toUtf8().constData());
             std::fflush(stdout);
             QGuiApplication::quit();
             return;
@@ -120,7 +127,18 @@ int main(int argc, char** argv) {
     instance.setApiVersion(QVersionNumber(1, 0)); // as app/main.cpp does; see the note there
     // Asked before it is requested, because requesting a layer that is not there
     // fails silently and looks exactly like a clean run.
-    g_layer_available = instance.supportedLayers().contains("VK_LAYER_KHRONOS_validation");
+    //
+    // The version matters as much as the presence: sync validation's model of the
+    // presentation engine has changed a great deal, and an old layer reports
+    // hazards a current one does not. Reporting which instrument produced a
+    // result is the difference between a measurement and an anecdote.
+    for (const QVulkanLayer& layer : instance.supportedLayers()) {
+        if (layer.name == "VK_LAYER_KHRONOS_validation") {
+            g_layer_available = true;
+            g_layer_version = layer.specVersion;
+            break;
+        }
+    }
     instance.setLayers({"VK_LAYER_KHRONOS_validation"});
     instance.setExtensions({"VK_EXT_debug_utils"});
     if (!instance.create()) {
