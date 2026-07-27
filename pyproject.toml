@@ -207,14 +207,27 @@ ignore_errors = true
 module = ["PySide6", "PySide6.*"]
 ignore_missing_imports = true
 
+#
+# **Every module under `md.ui` that imports PySide6 belongs in this list**, and
+# `python/tests/test_typing_policy.py` fails if one is missing. It was a hand-kept
+# enumeration for a while and drifted: `analysis`, `library`, `league` and
+# `storage` arrived without being added, and because the failure only appears
+# where PySide6 is *absent*, every developer machine stayed green while CI went
+# red for days. The test is the fix; the list is just data now.
 [[tool.mypy.overrides]]
 module = [
+  "md.ui.__main__",
+  "md.ui.about",
+  "md.ui.analysis",
   "md.ui.app",
   "md.ui.charts",
   "md.ui.forms",
+  "md.ui.league",
+  "md.ui.library",
   "md.ui.meters",
   "md.ui.model",
   "md.ui.runtime_dialog",
+  "md.ui.storage",
 ]
 ignore_errors = true
 
@@ -232,12 +245,19 @@ ignore = [
   "python/md/train.py",
   # Same reason, one layer out: PySide6 is optional, so the widgets are checked
   # on a machine that has it (`pyright --pythonpath ...`), not pretended clean.
+  # Kept in step with the mypy list above by `tests/test_typing_policy.py`.
+  "python/md/ui/__main__.py",
+  "python/md/ui/about.py",
+  "python/md/ui/analysis.py",
   "python/md/ui/app.py",
   "python/md/ui/charts.py",
   "python/md/ui/forms.py",
+  "python/md/ui/league.py",
+  "python/md/ui/library.py",
   "python/md/ui/meters.py",
   "python/md/ui/model.py",
   "python/md/ui/runtime_dialog.py",
+  "python/md/ui/storage.py",
 ]
 pythonVersion = "3.11"
 typeCheckingMode = "strict"

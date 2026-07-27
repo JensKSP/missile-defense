@@ -1,9 +1,17 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Jens Köhler
 # Assisted-by: OpenAI Codex
-import torch
-from md.auxiliary import targets
-from md.ppo import ObsLayout
+import pytest
+
+# torch is optional — the console and the environment do not need it, and the
+# gate runs where it is absent. Guarded the way `test_ppo.py` and
+# `test_train_eval.py` already guard: a bare `import torch` here took the whole
+# collection down, so *every* Python test failed in CI over one missing optional
+# dependency, and the error named this file rather than the policy behind it.
+torch = pytest.importorskip("torch", reason="torch is optional; see docs/TRAINING.md")
+
+from md.auxiliary import targets  # noqa: E402 — after the skip, by design
+from md.ppo import ObsLayout  # noqa: E402
 
 
 def _layout() -> ObsLayout:

@@ -218,8 +218,13 @@ def test_a_promoted_model_becomes_playable_in_the_game(tmp_path: Path) -> None:
     the two agree on where a model lives — which is precisely the thing that
     breaks when either side's path logic is touched.
     """
+    # Relative to whatever this build already ships. A checkout carries
+    # `models/pretrained.mdp` and the game finds it whatever `MD_MODELS_DIR`
+    # says, so the absolute count is a property of the *package*, not of this
+    # test — asserting it would fail on a tree that bundles a model and pass on
+    # one that does not, which is exactly backwards.
     before = run_app(frames=60, sandbox=tmp_path)
-    assert before.models == 0, "an empty sandbox offered a model from somewhere"
+    baseline = before.models
 
     observation_size, action_count = _shapes()
     installed = tmp_path / "models" / "dddd"
@@ -230,13 +235,15 @@ def test_a_promoted_model_becomes_playable_in_the_game(tmp_path: Path) -> None:
     )
 
     after = run_app(frames=60, sandbox=tmp_path)
-    assert after.models == 1, after.report
+    assert after.models == baseline + 1, after.report
 
 
 def test_a_model_this_build_cannot_run_is_not_offered(tmp_path: Path) -> None:
     # Offering something that fails the moment it is chosen is worse than not
     # offering it. An observation the build no longer produces is the real case:
     # `blast_features` 4 -> 5 moved every existing model out of range at once.
+    before = run_app(frames=60, sandbox=tmp_path)
+
     _, action_count = _shapes()
     installed = tmp_path / "models" / "eeee"
     installed.mkdir(parents=True, exist_ok=True)
@@ -246,6 +253,6 @@ def test_a_model_this_build_cannot_run_is_not_offered(tmp_path: Path) -> None:
     )
 
     run = run_app(frames=60, sandbox=tmp_path)
-    assert run.models == 0, run.report
+    assert run.models == before.models, run.report
     # ...and said so, rather than leaving a promoted model silently missing.
     assert "retrain or re-export" in run.stderr

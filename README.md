@@ -36,7 +36,8 @@ names using [Requirements](#requirements) below:
 sudo apt update
 sudo apt install -y g++-14 cmake ninja-build \
   qt6-base-dev qt6-base-dev-tools \
-  libvulkan-dev glslang-tools mesa-vulkan-drivers libminiaudio-dev
+  libvulkan-dev glslang-tools mesa-vulkan-drivers libminiaudio-dev \
+  nlohmann-json3-dev
 
 # 2 — build (no Python needed, and no install step afterwards)
 git clone https://github.com/JensKSP/missile-defense.git
@@ -124,6 +125,7 @@ Built and tested on Debian (trixie); adjust package names for other distros.
 | Vulkan driver | `mesa-vulkan-drivers` *(or your GPU vendor's Vulkan driver)* |
 | Shader compiler | `glslang-tools` (provides `glslangValidator`) |
 | Audio (single-header) | `libminiaudio-dev` *(else fetched at build; see note)* |
+| JSON (header-only) | `nlohmann-json3-dev` *(else fetched at build; see note)* |
 
 The `apt install` line for exactly these is in the
 [quick start](#quick-start) above, so there is only one copy to keep current.
@@ -131,6 +133,12 @@ The `apt install` line for exactly these is in the
 > **Audio note:** miniaudio is a single-header library. The build prefers the
 > system copy (`libminiaudio-dev`); if it is absent it fetches it via CMake
 > (disable with `-DMD_FETCH_MINIAUDIO=OFF`). Nothing is vendored in-tree.
+
+> **JSON note:** the same arrangement. `nlohmann/json` reads the `.mdp` policy
+> manifest and the match manifest, so the *game* needs it now and not only the
+> training half. The build prefers `nlohmann-json3-dev` and fetches it when that
+> is absent — which works, but turns a package install into a source download,
+> so it is listed above rather than left to the fallback.
 
 > **Compiler note:** the CMake preset pins **clang-21** (Debian package). To use
 > a different compiler, edit `CMakePresets.json` (the `CMAKE_CXX_COMPILER` cache
