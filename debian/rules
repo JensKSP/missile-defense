@@ -18,8 +18,16 @@ export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 # <print> (agent/, bench/) needs libstdc++ 14. Prefer the distribution's default
 # compiler when it is new enough: g++ 15 on Ubuntu 26.04 and g++ 14 on Debian
 # trixie. Ubuntu 24.04's default is 13, so debian/control installs g++-14 there
-# instead and this falls back to its versioned executable.
-export CXX := $(shell command -v g++ || command -v g++-14)
+# instead. devscripts itself can still bring the default g++ into the container,
+# so existence is not enough: ask dpkg to compare the compiler's actual version
+# before choosing it, then fall back to the versioned executable.
+export CXX := $(shell \
+	if command -v g++ >/dev/null && \
+	   dpkg --compare-versions "$$(g++ -dumpfullversion)" ge 14; then \
+		command -v g++; \
+	else \
+		command -v g++-14; \
+	fi)
 
 %:
 	dh $@ --buildsystem=cmake
