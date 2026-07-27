@@ -14,6 +14,7 @@ import json
 import os
 from pathlib import Path
 
+import pytest
 from md.benchmark import (
     CANONICAL_AIM_TRAIL,
     CANONICAL_FRAME_SKIP,
@@ -282,6 +283,23 @@ def test_runs_one_level_down_are_found_newest_first(tmp_path: Path) -> None:
     assert [path.name for path in find_runs(tmp_path)] == ["sweep-b", "sweep-a"]
     assert find_runs(tmp_path / "sweep-a") == []
     assert find_runs(tmp_path / "not-there") == []
+
+
+def test_a_neighbour_that_cannot_be_looked_into_is_not_a_run(tmp_path: Path) -> None:
+    # `/tmp` on a systemd box holds `systemd-private-*` directories owned by
+    # another user. `Path.exists()` inside one raises rather than answering, so a
+    # console opened on a run in `/tmp` died building its picker — before it had
+    # drawn anything, on a machine where nothing was wrong with the run.
+    if os.geteuid() == 0:
+        pytest.skip("root can read anything, so there is no refusal to survive")
+    _run_dir(tmp_path, "mine", 1000)
+    forbidden = tmp_path / "someone-elses"
+    forbidden.mkdir()
+    forbidden.chmod(0o000)
+    try:
+        assert [path.name for path in find_runs(tmp_path)] == ["mine"]
+    finally:
+        forbidden.chmod(0o700)  # or pytest cannot clean up after itself
 
 
 def _run_dir(parent: Path, name: str, when: int) -> Path:

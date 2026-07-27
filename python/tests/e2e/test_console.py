@@ -84,15 +84,35 @@ def test_the_console_describes_the_model_that_was_trained(console) -> None:  # n
 
 @needs_torch
 @needs_native
-def test_a_run_that_just_wrote_reads_as_live(console) -> None:  # noqa: ANN001
+def test_a_run_that_just_wrote_reads_as_live(
+    qt_app: object, trained_run: Path, tmp_path: Path
+) -> None:
     # Liveness is inferred from the files alone — how long ago metrics.csv was
     # written — which is exactly what lets the console tell the truth about a run
     # it never started. A run that wrote a moment ago is *correctly* live even
     # though its process has exited: the console cannot know that, and guessing
     # "stopped" would take Pause and Stop away from a run that is still going.
-    console._tick()
-    assert console._stop.isEnabled()
-    assert console._primary.text() == "Pause"
+    #
+    # Its own copy, freshly dated, rather than the shared fixture: that run is
+    # trained once for the whole session and `LIVE_AFTER_S` is ninety seconds,
+    # so read straight it asks how fast this suite happens to be. It was live
+    # locally and quiet on CI, where the suite takes five minutes — a red test
+    # that said nothing about the console.
+    from md.ui.app import Console  # noqa: PLC0415
+
+    fresh = tmp_path / "fresh"
+    shutil.copytree(trained_run, fresh)
+    now = time.time()
+    for name in ("metrics.csv", "evals.csv"):
+        os.utime(fresh / name, (now, now))
+
+    window = Console(fresh)
+    try:
+        window._tick()
+        assert window._stop.isEnabled()
+        assert window._primary.text() == "Pause"
+    finally:
+        window.close()
 
 
 @needs_torch
@@ -443,6 +463,36 @@ def test_the_run_a_console_would_start_is_a_command_you_could_type(
         assert command[0] == "/usr/bin/python3"
         assert "md.train" in command
         assert str(tmp_path) in command
+    finally:
+        dialog.close()
+
+
+def test_a_default_the_form_cannot_read_leaves_the_dialog_standing(
+    qt_app: object, tmp_path: Path
+) -> None:
+    """The floor under `md.ui.params`, which follows a named default to its value.
+
+    When it cannot — a default that is an expression, a constant moved to a
+    module this cannot see — the form used to call `int()` on the name and raise
+    out of a Qt slot. PySide6 prints that and carries on, so Start became a
+    button that silently did nothing while the reason went to a terminal.
+
+    A field it could not read is left to the trainer instead: untouched, it is
+    not on the command line at all, so the trainer's own default stands.
+    """
+    from md.ui.forms import ParameterDialog  # noqa: PLC0415
+    from md.ui.params import Param  # noqa: PLC0415
+
+    unreadable = [
+        Param(name="reaction_delay", kind="int", default="A_NAME", help="", owner="TrainConfig"),
+        Param(name="aim_trail", kind="float", default="A_NAME", help="", owner="TrainConfig"),
+    ]
+    dialog = ParameterDialog(unreadable, python="/usr/bin/python3", out_dir=tmp_path)
+    try:
+        command = " ".join(dialog.command())
+        assert "--reaction-delay" not in command
+        assert "--aim-trail" not in command
+        assert "A_NAME" not in command, "a name reached the trainer as if it were a value"
     finally:
         dialog.close()
 
@@ -1079,7 +1129,7 @@ def test_the_name_lands_in_the_library_when_the_run_starts(
     monkeypatch.setattr(app_module, "TrainingRun", _Started)
     # This test is about naming, not about torch: without this it would take the
     # "install a runtime" path on any machine that has none, and that is a modal.
-    monkeypatch.setattr(app_module, "can_train", lambda: True)
+    monkeypatch.setattr(app_module, "can_train", lambda **_: True)
 
     window = Console(root)
     try:
@@ -1241,5 +1291,100 @@ def test_a_runtime_that_stopped_working_turns_start_back_into_set_up(
         window._runtime_verified(True, "NVIDIA (CUDA) — torch 2.13.0 on cuda")  # noqa: SLF001
         expected = "Start" if can_train() else "Set up training…"
         assert window._primary.text() == expected  # noqa: SLF001
+    finally:
+        window.close()
+
+
+def test_the_button_that_says_set_up_actually_sets_up(
+    qt_app: object, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The label and the press have to be the same question.
+
+    They were two conditions once. The label asked whether the runtime could
+    prove itself; the press asked only whether an interpreter existed — which it
+    does for a runtime with torch and no numpy. So the button read *Set up
+    training…*, opened the parameter dialog, and started a run that died on its
+    first import: the one dead end this whole path exists to remove.
+    """
+    from md.ui import app as app_module  # noqa: PLC0415 — optional dependency
+    from md.ui.app import Console  # noqa: PLC0415
+
+    opened: list[str] = []
+    monkeypatch.setattr(app_module, "can_train", lambda **_: True)  # an interpreter exists
+    monkeypatch.setattr(Console, "_set_up_runtime", lambda self: opened.append("setup"))
+    monkeypatch.setattr(Console, "_start", lambda self: opened.append("parameters"))
+
+    window = Console(tmp_path)
+    try:
+        window._runtime_verified(False, "the runtime has torch but not numpy")  # noqa: SLF001
+        assert window._primary.text() == "Set up training…"  # noqa: SLF001
+        window._primary_pressed()  # noqa: SLF001
+        assert opened == ["setup"]
+
+        # And once it can prove itself, the same button starts a run again.
+        window._runtime_verified(True, "NVIDIA (CUDA) — torch 2.13.0 on cuda")  # noqa: SLF001
+        window._primary_pressed()  # noqa: SLF001
+        assert opened == ["setup", "parameters"]
+    finally:
+        window.close()
+
+
+def test_the_setup_dialog_offers_a_repair_for_a_runtime_that_fails_its_check(
+    qt_app: object, tmp_path: Path
+) -> None:
+    """The dialog is the way out, so it must not be the last one still fooled.
+
+    A runtime whose manifest is intact and whose torch cannot import reads as
+    ready to `status` and broken to `verify`. The console asks the second and
+    turns Start into *Set up training…*; a dialog still asking the first opened
+    on "Installed and working" and a button offering *Start a run* — two windows
+    disagreeing, and no way from either of them to the reinstall that fixes it.
+    """
+    from typing import cast  # noqa: PLC0415
+
+    from md import runtime  # noqa: PLC0415
+    from md.ui.runtime_dialog import RuntimeDialog  # noqa: PLC0415
+
+    class _Store(runtime.Runtime):
+        """A store that believes its manifest and cannot prove it."""
+
+        def status(self) -> runtime.RuntimeStatus:
+            return runtime.RuntimeStatus(
+                runtime.READY,
+                "NVIDIA (CUDA) — torch 2.13.0 on cuda",
+                python=Path("/usr/bin/python"),
+            )
+
+        def verify(self, *, force: bool = False) -> runtime.RuntimeStatus:
+            return runtime.RuntimeStatus(runtime.BROKEN, "the runtime has torch but not numpy")
+
+    dialog = RuntimeDialog(cast("runtime.Runtime", _Store(tmp_path)), probes=[])
+    try:
+        assert dialog._primary.text() == "Repair and install"  # noqa: SLF001
+        assert "numpy" in dialog._status_label.text()  # noqa: SLF001 — and says why
+    finally:
+        dialog.close()
+
+
+def test_an_unexpected_error_is_shown_rather_than_left_on_a_terminal(
+    qt_app: object, tmp_path: Path
+) -> None:
+    """A console that survives its own bugs silently is a console that is stuck.
+
+    PySide6 prints an exception raised inside a slot and returns to the event
+    loop, so the window lives — but the button that raised is indistinguishable
+    from a button that does nothing, and the traceback goes to a terminal an
+    installed copy was never started from. It cost a session: *Start* opened
+    nothing, twice, for a reason that was on screen nowhere.
+    """
+    from md.ui.app import Console  # noqa: PLC0415 — optional dependency
+
+    window = Console(tmp_path)
+    try:
+        error = ValueError("invalid literal for int() with base 10: 'CANONICAL_REACTION_DELAY'")
+        window.report_unexpected(type(error), error, error.__traceback__)
+        assert "CANONICAL_REACTION_DELAY" in window.statusBar().currentMessage()
+        assert "ValueError" in window._log.toPlainText()  # noqa: SLF001
+        assert window._log_toggle.isChecked(), "the log holding the reason stayed shut"  # noqa: SLF001
     finally:
         window.close()

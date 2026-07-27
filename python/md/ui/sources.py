@@ -726,6 +726,23 @@ def last_modified(path: Path) -> float | None:
         return None
 
 
+def _holds_a_run(path: Path) -> bool:
+    """Whether ``path`` is a directory with a run's curves in it.
+
+    Both halves are questions for the filesystem, and either can be *refused*
+    rather than answered. `/tmp` on a systemd box holds ``systemd-private-*``
+    directories owned by another user, and `Path.exists()` propagates the
+    permission error instead of saying no — so a console opened on a run in
+    `/tmp` died while building its run picker, before it had drawn anything.
+    A directory that cannot be looked into is not a run this console can offer,
+    which is the whole of what is being asked.
+    """
+    try:
+        return path.is_dir() and (path / METRICS_NAME).exists()
+    except OSError:
+        return False
+
+
 def find_runs(directory: Path) -> list[Path]:
     """Sub-directories of ``directory`` that hold a run, newest first.
 
@@ -736,10 +753,10 @@ def find_runs(directory: Path) -> list[Path]:
     out which is which.
     """
     try:
-        children = [path for path in directory.iterdir() if path.is_dir()]
+        children = list(directory.iterdir())
     except OSError:
         return []
-    runs = [path for path in children if (path / METRICS_NAME).exists()]
+    runs = [path for path in children if _holds_a_run(path)]
     runs.sort(key=lambda path: (last_modified(path / METRICS_NAME) or 0.0, path.name), reverse=True)
     return runs
 
