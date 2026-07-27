@@ -84,7 +84,12 @@ jobs:
         # The CPU torch build: this job trains for seconds on four environments,
         # so a CUDA wheel would be gigabytes downloaded to be ignored.
         run: |
-          pip install --break-system-packages poethepoet pytest "numpy<2.5" PySide6 psutil
+          # nanobind because `test_packages.py` stages the *full* install tree —
+          # a second configure with MD_INSTALL_PYTHON_PACKAGE=ON — and a console
+          # payload without the binding is the thing those tests exist to catch.
+          # Configuring that without nanobind is now a hard error rather than a
+          # warning, which is how this job found out it never had it.
+          pip install --break-system-packages poethepoet pytest "numpy<2.5" PySide6 psutil nanobind
           pip install --break-system-packages torch \
             --index-url https://download.pytorch.org/whl/cpu
 

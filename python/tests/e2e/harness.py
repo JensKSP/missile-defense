@@ -116,7 +116,14 @@ def _display_wrapper() -> list[str] | None:
         return []  # Windows and macOS render to an ordinary hidden window
     if wants_visible():
         return [] if os.environ.get("DISPLAY") else None
-    return list(XVFB) if shutil.which("xvfb-run") else None
+    # Resolved to an absolute path, not left as a bare name. The packaging tests
+    # run the staged game on a deliberately minimal `PATH` — proving the install
+    # needs no interpreter — and `subprocess` resolves argv[0] against *that*
+    # PATH, so a bare `xvfb-run` vanished with everything else in /usr/bin.
+    # The wrapper is this suite's own scaffolding, not part of what is under
+    # test, so it should not be subject to the environment being tested.
+    found = shutil.which("xvfb-run")
+    return [found, *XVFB[1:]] if found else None
 
 
 #: Applied to whole modules or single tests. Written as constants rather than
