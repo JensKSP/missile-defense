@@ -958,8 +958,13 @@ class Console(QMainWindow):
         layout.addLayout(head)
 
         self._list = QListWidget()
+        # `itemActivated` alone, and it already covers the double-click. It is
+        # the platform's "the user chose this one": a double-click on Windows and
+        # macOS, a single click on a desktop configured that way, and Enter
+        # everywhere. `itemDoubleClicked` was connected beside it and on Windows
+        # both fire for one gesture — so a double-click on a recording opened the
+        # game twice, two windows playing the same episode.
         self._list.itemActivated.connect(self._open)
-        self._list.itemDoubleClicked.connect(self._open)
         self._list.itemSelectionChanged.connect(self._selection_changed)
         # Four rows, so a network with many layers below cannot squeeze the list
         # down to a scrollbar with one episode in it.

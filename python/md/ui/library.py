@@ -92,9 +92,11 @@ class RunTable(QWidget):
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.setShowGrid(False)
         self._table.setAlternatingRowColors(False)
-        # A double-click opens: the same gesture the recordings list already
-        # uses, so there is one way to mean "this one" in the whole window.
-        self._table.doubleClicked.connect(self._open_selected)
+        # Opening is wired to `itemActivated` further down — the same gesture the
+        # recordings list uses, so there is one way to mean "this one" in the
+        # whole window. A `doubleClicked` connection used to sit here as well and
+        # was a second way to mean it: on Windows the activation gesture *is* a
+        # double-click, so both fired and the run opened twice.
         header = self._table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(len(COLUMNS) - 1, QHeaderView.ResizeMode.Stretch)
