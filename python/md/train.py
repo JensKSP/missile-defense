@@ -65,7 +65,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from . import footprint, modelcard, paths, runconfig, runlog
+from . import cadence, footprint, modelcard, paths, runconfig, runlog
 from .benchmark import (
     CANONICAL_AIM_TRAIL,
     CANONICAL_BASELINE_MEAN_SCORE,
@@ -130,8 +130,15 @@ class TrainConfig:
     #: TUNING.json in the run directory and re-read every update, by the console
     #: or by `echo '{"eval_every": 25}' > runs/TUNING.json` (see md.control).
     eval_every: int = 10
+    #: Where the evaluation gap reaches `eval_every`. Before it, evaluations are
+    #: denser — the first hundred updates are where a policy changes shape, and a
+    #: fixed interval samples the flat part most thoroughly. 0 disables the ramp.
+    eval_ramp_until: int = 120
     #: Drop a watchable episode into runs/ this often (0 disables).
     record_every: int = 25
+    #: The same ramp for recordings. Cheaper than an evaluation — one logged
+    #: environment, ~80 kB — so it can afford to be dense for longer.
+    record_ramp_until: int = 120
     #: Save a checkpoint this often (0 disables).
     checkpoint_every: int = 100
     seed: int = 0
@@ -213,6 +220,11 @@ def _boolean(text: str) -> bool:
     if lowered in ("0", "false", "no", "off"):
         return False
     raise argparse.ArgumentTypeError(f"expected true or false, got {text!r}")
+
+
+def _ramp_note(ramp_until: int) -> str:
+    """`, ramping up to that from update 1 to 120` — or nothing, with no ramp."""
+    return f", ramping up to that from update 1 to {ramp_until}" if ramp_until else ""
 
 
 def train(
@@ -369,7 +381,8 @@ def train(
         f"stop gracefully with `touch {control.stop_file}`"
     )
     print(
-        f"  evaluating every {config.eval_every} updates — change it while the run "
+        f"  evaluating every {config.eval_every} updates{_ramp_note(config.eval_ramp_until)}"
+        f" — change it while the run "
         f"goes in the console, or in {control.tuning_file}"
     )
 
@@ -468,7 +481,9 @@ def train(
             f"| {steps_done / elapsed / 1e3:.0f}k steps/s"
         )
 
-        if config.record_every > 0 and iteration % config.record_every == 0:
+        if cadence.is_due(
+            iteration, interval=config.record_every, ramp_until=config.record_ramp_until
+        ):
             path = out_dir / f"update-{iteration:05d}.mdr"
             if env.save_recording(0, path, update=iteration, label=f"UPDATE {iteration}"):
                 print(f"  recorded {path}")
@@ -483,7 +498,7 @@ def train(
             print(f"  eval interval {eval_every} -> {wanted} updates")
             eval_every = wanted
 
-        if eval_every > 0 and iteration % eval_every == 0:
+        if cadence.is_due(iteration, interval=eval_every, ramp_until=config.eval_ramp_until):
             inference_device = _inference_device(device)
             summary = _score(
                 policy,
@@ -1602,7 +1617,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Episode length cap in ticks; lower it to see episodes finish sooner.",
     )
     parser.add_argument("--eval-every", type=int, default=None)
+    # Where the ramp arrives. 0 turns it off and restores a plain fixed interval.
+    parser.add_argument("--eval-ramp-until", type=int, default=None)
     parser.add_argument("--record-every", type=int, default=None)
+    parser.add_argument("--record-ramp-until", type=int, default=None)
     parser.add_argument("--checkpoint-every", type=int, default=None)
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument(

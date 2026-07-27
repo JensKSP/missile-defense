@@ -14,7 +14,7 @@ namespace md::protocol {
 
 inline constexpr std::uint32_t decision_interval = 4;
 inline constexpr std::uint64_t max_ticks = 120000;
-inline constexpr float aim_trail = 0.875f;
+inline constexpr float aim_trail = 0.877f;
 inline constexpr std::size_t per_split = 32;
 inline constexpr std::size_t validation_offset = 0;
 inline constexpr std::size_t canonical_offset = 32;

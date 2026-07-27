@@ -99,9 +99,9 @@ class Ladder:
 CANONICAL_LADDER = Ladder(
     CANONICAL_SPLIT,
     (
-        Baseline("low", 5_797.5),
-        Baseline("medium", 9_162.28125),
-        Baseline("high", 15_547.1875),
+        Baseline("low", 5_782.34375),
+        Baseline("medium", 8_542.65625),
+        Baseline("high", 16_321.40625),
     ),
 )
 
@@ -114,9 +114,9 @@ CANONICAL_LADDER = Ladder(
 VALIDATION_LADDER = Ladder(
     VALIDATION_SPLIT,
     (
-        Baseline("low", 6_205.0),
-        Baseline("medium", 8_569.84375),
-        Baseline("high", 15_135.78125),
+        Baseline("low", 5_842.1875),
+        Baseline("medium", 8_367.65625),
+        Baseline("high", 14_462.5),
     ),
 )
 
