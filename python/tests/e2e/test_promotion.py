@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from .harness import agent_eval_binary, needs_agent_eval, needs_native, needs_torch
+from .harness import agent_eval_binary, needs_agent_eval, needs_native, needs_qt, needs_torch
 
 pytestmark = [pytest.mark.e2e, needs_torch, needs_native]
 
@@ -124,3 +124,136 @@ def test_a_promoted_model_survives_its_run_being_removed(trained_run: Path, tmp_
     found = league.find(model.model_id, root)
     assert found is not None
     assert policy_format.read(found.policy).action_count > 0
+
+
+@needs_qt
+def test_a_run_can_be_promoted_from_the_run_list(
+    qt_app: object,  # noqa: ARG001 — the QApplication has to exist
+    trained_run: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The short way in: promote from the list, without opening the run first.
+
+    Promotion used to live only inside a run, which put four clicks between
+    "that one won" and the model being in the game — while the comparison that
+    decides it happens in the list, where every run's best score is one column.
+
+    The dialog is not shown: `exec` is replaced by the same `_promote` an OK
+    press would call, so what is under test is the path from the list to a real
+    `.mdp` on disk rather than Qt's ability to draw a form.
+    """
+    from md import league
+    from md.ui.library import LibraryView
+    from PySide6.QtWidgets import QDialog, QMessageBox
+
+    root = tmp_path / "models"
+    monkeypatch.setenv("MD_MODELS_DIR", str(root))
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a, **k: None))
+
+    def straight_to_ok(dialog: object) -> int:
+        dialog._promote()  # noqa: SLF001 — standing in for the button press
+        return (
+            QDialog.DialogCode.Accepted
+            if dialog.promoted is not None
+            else QDialog.DialogCode.Rejected
+        )
+
+    monkeypatch.setattr("md.ui.league.PromoteDialog.exec", straight_to_ok)
+
+    announced: list[int] = []
+    view = LibraryView()
+    view.promoted.connect(lambda: announced.append(1))
+    try:
+        view.attach(trained_run.parent)
+        rows = view.table
+        for index, run in enumerate(rows._runs):  # noqa: SLF001 — what `selected` reads
+            if run.path == trained_run:
+                rows._table.selectRow(index)  # noqa: SLF001
+        assert rows.selected() is not None, "the trained run is not in the list"
+        rows._promote_selected()  # noqa: SLF001 — standing in for the button press
+    finally:
+        view.close()
+
+    assert announced, "the league was never told to re-read itself"
+    installed = league.models(root)
+    assert len(installed) == 1
+    assert installed[0].source_run == trained_run.name
+    assert installed[0].policy.is_file()
+
+
+@needs_agent_eval
+def test_a_league_score_is_the_number_the_published_evaluator_prints(
+    promoted,  # noqa: ANN001
+) -> None:
+    """The league's number and `md_agent_eval`'s are the same number.
+
+    They are now the same *code*: scoring goes through `md_native.LoadedPolicy`,
+    which is `md::agent::Policy` driven by `run_episode` — what the binary runs
+    and what the game runs. Before that, inference was a NumPy forward pass
+    called once per observation from Python, and a canonical block took hours
+    per contestant instead of a minute and a half; a head-to-head looked like a
+    hang, because a progress bar that cannot count seeds has nothing to show.
+
+    One seed and a short cap: what is asserted is that two implementations agree
+    on an episode, not how long an episode is.
+    """
+    from md import tournament  # noqa: PLC0415 — optional dependency
+
+    seed = int(tournament.canonical_protocol().seeds()[0])
+    runner = tournament.load_policy(promoted)
+    episode = runner.play(seed, 1200, 4)
+
+    binary = agent_eval_binary()
+    assert binary is not None
+    result = subprocess.run(
+        [
+            str(binary),
+            "--policy",
+            str(promoted.policy),
+            "--seeds",
+            "1",
+            "--max-ticks",
+            "1200",
+            "--per-episode",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=600,
+        check=False,
+    )
+    assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
+    # The per-episode table's first column is the seed and its second the score.
+    row = next(line for line in result.stdout.splitlines() if line.startswith(str(seed)))
+    assert int(row.split()[1]) == episode.score
+    assert int(row.split()[4]) == episode.ticks
+
+
+def test_evaluating_a_model_counts_the_seeds_it_has_finished(promoted) -> None:  # noqa: ANN001
+    """A progress bar with a number in it, which is what makes a contest waitable.
+
+    The old callback passed a hardcoded zero — every report said "0 of 32 seeds"
+    for however many hours it took. Reported *after* each episode, so the count
+    is of seeds that are in, and so a cancellation raised through it lands on a
+    boundary with nothing recorded.
+    """
+    from md import tournament  # noqa: PLC0415 — optional dependency
+
+    protocol = tournament.Protocol(
+        seed_split=tournament.benchmark.CANONICAL_SPLIT,
+        seed_offset=tournament.benchmark.CANONICAL_SEED_OFFSET,
+        seed_count=2,
+        frame_skip=4,
+        max_ticks=600,
+    )
+    seen: list[tuple[int, int]] = []
+    result = tournament.evaluate_model(
+        promoted,
+        protocol,
+        progress=lambda index, contestants, done, total: seen.append((done, total)),
+        index=1,
+        contestants=2,
+    )
+    assert seen == [(0, 2), (1, 2), (2, 2)]
+    assert result.episodes == 2
+    assert not result.canonical  # two seeds is not the published block

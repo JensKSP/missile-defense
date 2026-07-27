@@ -20,11 +20,22 @@ So this module enforces three rules, and they are the whole reason it exists:
    four seeds is useful and is labelled unranked; `md.benchmark` owns what
    canonical means and this asks it rather than reimplementing it.
 
-Scored through :func:`md.eval.evaluate` with the policy driven by
-:func:`md.export_policy.evaluate`, which is the same `.mdp` the game plays and —
-by `python/tests/e2e/test_parity.py` — chooses the same action the native
-evaluator would, decision for decision. So a Python-orchestrated tournament and
-a native one are the same contest; only the loop is in a different language.
+**Inference is native, and that is what makes this usable at all.**
+:func:`md.export_policy.evaluate` is the reference forward pass — it defines the
+`.mdp` format and `python/tests/e2e/test_parity.py` holds it and the C++ side to
+the same action, decision for decision — but it runs one observation at a time
+from Python, at about 17 ms each for the relational architecture. A canonical
+block is 32 seeds of up to 30,000 decisions, so that is *hours* per contestant,
+against a progress bar with nothing to report; the head-to-head that produced
+this note never finished a single seed in two minutes. The same policy through
+`md_native.LoadedPolicy` is the code the game runs at sixty frames a second, and
+a contestant's canonical block takes about a minute and a half.
+
+Episodes are played **one seed at a time** rather than as a batch. It costs
+nothing — a finished environment in a batch keeps stepping until the slowest one
+is done — and it buys the two things a person in front of a progress bar needs:
+a count that moves, and a cancel that lands on a seed boundary rather than
+mid-episode.
 
 The scripted baseline is a **published constant** rather than a contestant that
 is re-run: `md.benchmark.CANONICAL_BASELINE_MEAN_SCORE` was measured on this
@@ -40,10 +51,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from . import benchmark, league, policy_format
+from . import benchmark, league
 
-if TYPE_CHECKING:  # `md.env` imports the native extension; these are annotations only
-    from .env import Actions, Flags, Observations
+if TYPE_CHECKING:  # these pull in the native extension; annotations only
+    from ._md_native import EpisodeResult, LoadedPolicy, Summary
 
 #: How many seeds a *quick* match uses. Small enough to answer "is this one
 #: obviously worse?" in under a minute, and labelled unranked so it can never be
@@ -180,6 +191,29 @@ class Result:
 Progress = Callable[[int, int, int, int], None]
 
 
+def load_policy(model: league.Model) -> LoadedPolicy:
+    """A league model's weights, loaded once, ready to play.
+
+    The failure this catches is the one a person actually meets: a `.mdp`
+    trained against an older observation, which parses and cannot be run. The
+    native loader refuses it by name and by number, and that arrives here as a
+    :class:`TournamentError` rather than as a crash half-way through a contest.
+    """
+    from ._md_native import LoadedPolicy as Native  # noqa: PLC0415 — the native binding
+
+    try:
+        return Native(str(model.policy))
+    except (RuntimeError, ValueError, OSError) as error:
+        raise TournamentError(f"{model.name}: {error}") from error
+
+
+def _summarize(episodes: Sequence[EpisodeResult]) -> Summary:
+    """The same aggregation the scripted baseline is published with."""
+    from ._md_native import summarize  # noqa: PLC0415 — the native binding
+
+    return summarize(list(episodes))
+
+
 def evaluate_model(
     model: league.Model,
     protocol: Protocol | None = None,
@@ -194,45 +228,30 @@ def evaluate_model(
     ``seeds`` overrides the protocol's own list, which is how a head-to-head
     guarantees rule 1 — it takes the list once and hands the *same* one to each
     contestant, rather than trusting two calls to derive it identically.
+
+    ``progress`` is called after **every seed**, with the count of finished
+    ones. That is a real number and not a liveness tick: it is what tells
+    somebody whether to wait, and it is where a cancellation lands.
     """
-    import numpy as np  # noqa: PLC0415
-
-    from . import eval as md_eval  # noqa: PLC0415 — needs the native binding
-    from . import export_policy  # noqa: PLC0415
-
     chosen = canonical_protocol() if protocol is None else protocol
     seed_list = list(chosen.seeds() if seeds is None else seeds)
     if not seed_list:
         raise TournamentError("a tournament needs at least one seed")
 
-    try:
-        policy = policy_format.read(model.policy)
-    except policy_format.PolicyFormatError as error:
-        raise TournamentError(f"{model.name}: {error}") from error
-
+    runner = load_policy(model)
     if progress is not None:
         progress(index, contestants, 0, len(seed_list))
 
-    def act(observations: Observations, masks: Flags) -> Actions:
-        actions: Actions = np.zeros(len(observations), dtype=np.int32)
-        for i, (observation, mask) in enumerate(zip(observations, masks, strict=True)):
-            actions[i] = export_policy.evaluate(policy, observation, mask).action
+    episodes: list[EpisodeResult] = []
+    for done, seed in enumerate(seed_list, start=1):
+        episodes.append(runner.play(seed, chosen.max_ticks, chosen.frame_skip))
         if progress is not None:
-            # Coarse on purpose: `evaluate` steps every environment together, so
-            # "seeds done" is only knowable at the end. This reports liveness,
-            # which is what a progress bar in front of a four-minute run is for.
-            progress(index, contestants, 0, len(seed_list))
-        return actions
+            # After the episode, so the count is of seeds that are *in*. A
+            # cancellation raises out of here, and rule 2 makes that safe:
+            # nothing is recorded until every seed has been played.
+            progress(index, contestants, done, len(seed_list))
 
-    summary = md_eval.evaluate(
-        act,
-        seeds=seed_list,
-        frame_skip=chosen.frame_skip,
-        max_ticks=chosen.max_ticks,
-        threads=1,
-    )
-    if progress is not None:
-        progress(index, contestants, len(seed_list), len(seed_list))
+    summary = _summarize(episodes)
 
     # Rule 2: a ranking only appears when every seed is in. `summarize` counts
     # what it was given, so a short count is a short evaluation however it got
@@ -391,13 +410,13 @@ def record_episode(
     manifest claims. The saved recording carries that seed in its header, which
     is what `MatchPlayer` checks before it will pair two files.
     """
-    from . import export_policy  # noqa: PLC0415
     from .env import VecEnv  # noqa: PLC0415
 
-    try:
-        policy = policy_format.read(model.policy)
-    except policy_format.PolicyFormatError as error:
-        raise TournamentError(f"{model.name}: {error}") from error
+    # `VecEnv` and not `LoadedPolicy.play`, because what is wanted here is the
+    # *recording* — the action log a `.mdr` is made of — and that is the
+    # environment's to write. Only the inference comes from the native policy,
+    # which is the difference between a minute of waiting and an hour of it.
+    runner = load_policy(model)
 
     env = VecEnv(num_envs=1, frame_skip=frame_skip, max_ticks=max_ticks, seed=seed)
     env.reset_seeds([seed])
@@ -408,7 +427,7 @@ def record_episode(
     while True:
         observation = env.observations[0]
         mask = env.action_masks()[0]
-        action = export_policy.evaluate(policy, observation, mask).action
+        action = runner.act(observation, mask)
         _, _, terminated, truncated, _ = env.step(np.array([action], dtype=np.int32))
         if bool(terminated[0]) or bool(truncated[0]):
             break

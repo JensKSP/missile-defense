@@ -287,6 +287,14 @@ int run(int argc, char** argv) {
     bool report = false;
     std::string match_left;
     std::string match_right;
+    // Seeds are read in a pass of their own, because `--watch-model` starts the
+    // episode as it is parsed: a `--seed` written after it on the command line
+    // would otherwise arrive too late to be the seed of the thing being watched.
+    for (int i = 1; (i + 1) < argc; ++i) {
+        if (std::string_view(argv[i]) == "--seed") {
+            window.set_seed(std::strtoull(argv[i + 1], nullptr, 10));
+        }
+    }
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg(argv[i]);
         if (arg == "--play") {
@@ -309,6 +317,8 @@ int run(int argc, char** argv) {
             if (!window.watch_model(argv[++i])) {
                 return 2; // the reason is already on stderr; do not open a window
             }
+        } else if (arg == "--seed" && (i + 1) < argc) {
+            ++i; // already applied above, before anything could start a game
         } else if (arg == "--replay" && (i + 1) < argc) {
             // Watch a recorded run — e.g. an episode a training run dropped on disk.
             if (!window.watch_replay(argv[++i])) {

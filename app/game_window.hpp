@@ -84,6 +84,21 @@ class GameWindow : public QVulkanWindow {
     /// watching at all, and it is exactly the confusion Step 4b exists to end.
     bool watch_model(const std::string& path);
 
+    /// Play this exact seed instead of a fresh one — `--seed`.
+    ///
+    /// What makes *peeking* at a running contest possible: the evaluator and
+    /// the game are both deterministic, so the same policy on the same seed is
+    /// the same episode, tick for tick. Without it a peek would show a
+    /// different game from the one being scored, which is worse than no peek.
+    ///
+    /// Pinned for the whole session rather than for one game, so `R` and a
+    /// second START replay the episode being watched rather than wandering off
+    /// the seed somebody asked for.
+    void set_seed(std::uint64_t seed) noexcept {
+        seed_ = seed;
+        pinned_seed_ = true;
+    }
+
     /// Play a recorded run (the `--replay` flag). False if it could not be read.
     bool watch_replay(const std::string& path);
 
@@ -337,7 +352,11 @@ class GameWindow : public QVulkanWindow {
     // exclusive with it: a match has no single sim, so nothing that reads
     // `sim()` can be allowed to think it is watching one recording.
     std::optional<replay::MatchPlayer> match_;
-    bool match_paused_ = false;             // SPACE, and where a finished match parks
+    bool match_paused_ = false; // SPACE, and where a finished match parks
+    /// W, and remembered between sessions. On by default: two agents on
+    /// different waves are not answering the same problem, which is the one
+    /// thing a split screen is for. See `replay::MatchPlayer::set_wave_sync`.
+    bool match_wave_sync_ = true;
     std::vector<std::string> replay_files_; // paths offered by the browser screen
     std::vector<std::string> replay_names_; // ...their display names, uppercased
     Browse browse_ = Browse::Replays;       // which of the two that screen is showing
@@ -354,6 +373,7 @@ class GameWindow : public QVulkanWindow {
     bool closing_ = false; // a close is already queued; do not queue a second
     bool silent_ = false;  // --silent: no sound, and no writing that preference
     std::uint64_t seed_ = 1;
+    bool pinned_seed_ = false;  // --seed: every game this process starts is that one
     HumanFireLatch fire_latch_; // a click waits until Sim samples its next action
     bool ai_driving_ = false;   // the scripted agent is at the controls
     bool ai_assisted_ = false;  // ... at any point this game (sticky; blocks highscores)

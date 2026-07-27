@@ -27,6 +27,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QDialog,
     QHBoxLayout,
     QHeaderView,
     QInputDialog,
@@ -63,6 +64,9 @@ class RunTable(QWidget):
     renamed = Signal(Path)
     #: A run's contents changed on disk — cleaned up, or archived and removed.
     changed = Signal()
+    #: A model was promoted out of a run in this list, so the league beside it
+    #: is now out of date. Separate from `changed`, which means the *runs* moved.
+    promoted = Signal()
 
     def __init__(self) -> None:
         super().__init__()
@@ -103,6 +107,16 @@ class RunTable(QWidget):
         self._open = QPushButton("&Open")
         self._open.setProperty("role", "primary")
         self._open.clicked.connect(self._open_selected)
+        # Promotion was only reachable from inside a run, which put four clicks
+        # between "that one won" and the model being in the game — and the
+        # comparison that decides it happens *here*, with every run's best score
+        # in one column. The dialog is the same one; only the way in is new.
+        self._promote = QPushButton("Enter Model &League…")
+        self._promote.setToolTip(
+            "Copy this run's best checkpoint into the league as a .mdp, where it "
+            "outlives the run — and where the game finds it, under WATCH AI → MODELS"
+        )
+        self._promote.clicked.connect(self._promote_selected)
         self._rename = QPushButton("&Rename…")
         self._rename.clicked.connect(self._rename_selected)
         self._note = QPushButton("&Note…")
@@ -124,6 +138,7 @@ class RunTable(QWidget):
         self._delete.clicked.connect(self._delete_selected)
         for button in (
             self._open,
+            self._promote,
             self._rename,
             self._note,
             self._parameters,
@@ -227,13 +242,48 @@ class RunTable(QWidget):
 
     def _selection_changed(self) -> None:
         run = self.selected()
-        for button in (self._open, self._rename, self._note, self._parameters, self._delete):
+        for button in (
+            self._open,
+            self._promote,
+            self._rename,
+            self._note,
+            self._parameters,
+            self._delete,
+        ):
             button.setEnabled(run is not None)
 
     def _open_selected(self) -> None:
         run = self.selected()
         if run is not None:
             self.opened.emit(run.path)
+
+    def _promote_selected(self) -> None:
+        """Put this run's best checkpoint in the league, from the list itself.
+
+        Re-read rather than taken from the row: the table is a snapshot, a live
+        run writes checkpoints while you look at it, and the dialog's whole job
+        is to offer the right one. Enabled even for a run with no checkpoints,
+        because the dialog says *why* there is nothing to promote and a button
+        that is merely grey says nothing at all.
+        """
+        chosen = self.selected()
+        if chosen is None:
+            return
+        from .league import PromoteDialog  # noqa: PLC0415 — beside the dialog it opens
+
+        run = library.load_run(chosen.path) or chosen
+        dialog = PromoteDialog(run, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.promoted is not None:
+            self.promoted.emit()
+            # Where it went *and* that the game can play it now: promotion is
+            # also the install step, and somebody who is not told that has no
+            # reason to go and look in the menu.
+            QMessageBox.information(
+                self,
+                "Promoted",
+                f"{dialog.promoted.name} is in the league — the game can play it "
+                f"from WATCH AI → MODELS.\n\n{dialog.promoted.policy}",
+            )
 
     def _rename_selected(self) -> None:
         run = self.selected()
@@ -345,6 +395,8 @@ class LibraryView(QWidget):
     """The landing screen: the run table, with the league beside it."""
 
     opened = Signal(Path)
+    #: A run in this list was promoted; whatever shows the league must re-read it.
+    promoted = Signal()
 
     def __init__(self, on_new_run: Callable[[], None] | None = None) -> None:
         super().__init__()
@@ -374,6 +426,7 @@ class LibraryView(QWidget):
         self.table.opened.connect(self.opened)
         self.table.renamed.connect(self._renamed)
         self.table.changed.connect(self.refresh)
+        self.table.promoted.connect(self.promoted)
         column.addWidget(self.table, stretch=1)
 
     def _restore_archive(self) -> None:

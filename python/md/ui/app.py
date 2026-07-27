@@ -350,8 +350,14 @@ class Console(QMainWindow):
         self._library = LibraryView(on_new_run=self._new_run_from_library)
         self._library.opened.connect(self._open_run)
         self._league = LeagueView()
+        # Promoting from the run list puts a row in the table next to it. The
+        # two halves of this screen are the same story — a run becomes a model —
+        # so the second half must not need a visit elsewhere to catch up.
+        self._library.promoted.connect(self._league.refresh)
         self._league.watch.connect(self._watch_model)
         self._league.show_match.connect(self._watch_match)
+        self._league.peek.connect(self._peek_at_contest)
+        self._league.peek_pair.connect(self._peek_side_by_side)
         split.addWidget(self._library)
         split.addWidget(self._league)
         split.setStretchFactor(0, 3)
@@ -458,6 +464,32 @@ class Console(QMainWindow):
         """
         try:
             self._launcher.launch_model(policy)
+        except AppNotFound as error:
+            QMessageBox.warning(self, "The game is not built", str(error))
+
+    def _peek_at_contest(self, policy: Path, seed: int) -> None:
+        """Open the game on the episode a running contest is playing right now.
+
+        A spectator, not a view: the game plays its own copy of the same seed —
+        both sides are deterministic, so it is the same episode — and the
+        contest neither waits for it nor notices it close. `[` and `]` speed the
+        watched game up to 8x, because the evaluator is far faster than sixty
+        frames a second and a peek should not have to be watched in real time.
+        """
+        try:
+            self._launcher.launch_model(policy, seed=seed)
+        except AppNotFound as error:
+            QMessageBox.warning(self, "The game is not built", str(error))
+
+    def _peek_side_by_side(self, left: Path, right: Path) -> None:
+        """Both contestants on the seed a head-to-head is playing, one screen.
+
+        No manifest: the contest has not finished, so there are no mean scores
+        to claim yet — the ad-hoc pairing says that by leaving them out. Wave
+        sync is on by default in there, so the two stay on the same wave.
+        """
+        try:
+            self._launcher.launch_pair(left, right)
         except AppNotFound as error:
             QMessageBox.warning(self, "The game is not built", str(error))
 

@@ -131,6 +131,31 @@ def default_seeds(count: int = ...) -> list[int]:
 def summarize(episodes: list[EpisodeResult]) -> Summary:
     """Aggregate outcomes with the same function the scripted baseline uses."""
 
+class LoadedPolicy:
+    """A promoted `.mdp`, ready to play, with inference in C++.
+
+    `md.export_policy.evaluate` is the reference forward pass and stays the
+    definition of the format; this is the implementation the *game* runs, and
+    the only one fast enough to score a model over a whole seed block.
+    """
+
+    def __init__(self, path: str) -> None:
+        """Read and validate a .mdp. Raises if this build cannot run it."""
+
+    @property
+    def observation_size(self) -> int: ...
+    @property
+    def action_count(self) -> int: ...
+    @property
+    def architecture(self) -> str: ...
+    @property
+    def display_name(self) -> str: ...
+    def play(self, seed: int, max_ticks: int = ..., decision_interval: int = ...) -> EpisodeResult:
+        """Play one seed to termination or the cap and return its outcome."""
+
+    def act(self, observation: npt.NDArray[np.float32], legal: npt.NDArray[np.bool_]) -> int:
+        """The action this policy would take, masked to the legal ones."""
+
 class Config:
     """Tunable simulation constants (md::Config)."""
 

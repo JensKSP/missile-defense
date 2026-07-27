@@ -145,6 +145,13 @@ Deeper reading: [design & reward spec](docs/DESIGN.md) ·
 - **Full arcade shell** — menu, pause, help, **options** (audio / music /
   fullscreen), and a persistent **top-10 highscore** table with arcade initials
   entry.
+- **Train an agent, then play against your own** — a PPO trainer, a live
+  training console, and a **Model League**: promote a checkpoint and it is in
+  the game's menu, running native C++ inference with no Python anywhere.
+- **Models you can rank, not just run** — score any model over the canonical
+  held-out seeds, put two of them head-to-head on identical seeds, then watch
+  both episodes **side by side on one clock**. Export and import `.mdp` files to
+  trade agents with somebody else.
 - **Deterministic core** — fixed-timestep, `-ffp-contract=off`, seed + action
   replays are bit-identical (Debug == Release), gated by a golden checksum test.
 - **Zero-warning, tested** — `-Werror`, strict clang-tidy, ruff + mypy, and
@@ -293,6 +300,11 @@ the form in from that run's own settings, and **Parameters…** shows what any r
 was started with and which of those it changed. The full explanation of every
 curve, file and control is in [docs/TRAINING.md](docs/TRAINING.md).
 
+What comes out the far end is not a graph. A finished run is **promoted into the
+[Model League](#put-your-model-in-the-game--the-model-league)** in one step,
+which is the same step that installs it into the game: your agent, in the arcade
+menu, playing the real thing.
+
 ### Set up your machine for AI training
 
 From a checkout, install the development and console dependencies, then PyTorch
@@ -369,38 +381,58 @@ once at 15 Hz, a 120,000-tick cap and CPU inference. Start with
 [the first-run walkthrough](docs/TRAINING.md#your-first-run) before changing
 the knobs.
 
-### Run your own model in the game
+### Put your model in the game — the Model League
 
-Direct live inference in the C++ game is not implemented yet. Score the best
-checkpoint through Python and record an episode, then play that recording in the
-game:
+A checkpoint is a file in a run directory; a **model** is something you keep,
+play and compare. The console's **Model League** is where the second kind lives,
+and getting there is three steps and about ten seconds:
 
-```bash
-poe train -- --load runs/checkpoints/policy-best.pt --record-to runs/mine.mdr
-./build/release/app/md_app --replay runs/mine.mdr
-```
+1. select a run in the console's list — or open it — and press **Enter Model
+   League…**;
+2. take the checkpoint it offers — the best *evaluated* one that still exists on
+   disk, which is often not the last, because PPO peaks and then regresses;
+3. press **Promote**.
 
-The recording contains the policy's actions, so playback uses the real
-deterministic simulation and renderer rather than a video. You can take over
-with `T` at any point.
+That is also the install step for the game. There is no export, no copy, no
+path to remember: the league writes `models/<id>/policy.mdp` and the game reads
+exactly that directory (`$MD_MODELS_DIR`, else a `models/` sibling of `runs/`),
+so the model appears under **WATCH AI → MODELS** in the menu without restarting
+anything — and it plays there **natively**, C++ inference against the real
+simulation, with no Python running anywhere.
 
-### Play a model you trained yourself
+What promotion actually does is convert and prove. The `.pt` is exported to a
+data-only `.mdp`, **read back, and validated before anything is written** — so a
+checkpoint that cannot be loaded is refused at the moment you promote it rather
+than at the moment you pick it from a menu. An architecture with no native
+forward pass (`entity`) is refused the same way. Nothing half-written ever lands
+in the league.
 
-**MODELS** lists every policy this install can run: the bundled one, and
-everything the console has promoted into the Model League. Promotion *is* the
-install step — the game reads the same directory the console writes
-(`$MD_MODELS_DIR`, else a `models/` sibling of the runs directory), so a model
-you promote is playable from the menu without restarting anything.
+Models are then yours to keep tidy. Every entry can be:
 
-Each row is the name out of the model's own `.mdp`, never a filename. A model
-this build cannot run — one trained against an older observation, say — is left
-out of the list and the reason printed, rather than offered and then failing the
-moment you choose it.
+- **renamed** — the name is a label, never a path, so renaming breaks nothing;
+- **deleted** — the only route out of the league, and therefore out of the
+  game's menu, with what it costs stated before it happens;
+- **exported** as a `.mdp` to hand to somebody else, and **imported** back —
+  validated on the way in, because a downloaded file is exactly as trusted as a
+  downloaded file;
+- **replaced** — names are unique, so promoting `Anvil` a second time asks
+  whether you mean *that* Anvil, and replacing swaps the weights in place rather
+  than leaving two rows nobody can tell apart.
 
-### Watch two models play the same seed, side by side
+### Rank your models: canonical scores and head-to-head
 
-The Model League's **Head-to-head…** plays two models over the same seeds,
-records one episode from each, and opens them on one screen and one clock:
+**Evaluate** scores a model over the canonical held-out seeds — the one protocol
+the table ranks on, stated in the dialog before it starts. A result measured any
+other way is shown as `unranked` rather than mixed into the same column, because
+a league table is worth exactly as much as the fairness of the numbers in it.
+
+**Head-to-head…** takes two models and plays them over the *same* seeds, drawn
+once and handed to both. Both run off the event loop with a progress bar and a
+cancel, and nothing is recorded until a contest finishes.
+
+Two mean scores tell you *which* model is better and nothing at all about *how* —
+so a finished head-to-head offers to record one shared seed from each side and
+open them in the game side by side, on one screen and one clock:
 
 ```bash
 ./build/release/app/md_app --match runs/matches/a-b/match.json
@@ -408,9 +440,45 @@ records one episode from each, and opens them on one screen and one clock:
 ```
 
 `Space` pauses, the arrows seek, `R` restarts, `Esc` returns — one transport,
-both sides, always on the same tick. Two recordings of *different* seeds are
-refused rather than shown: two agents on two different problems side by side is
-not a comparison, and it looks exactly like one.
+both sides. Two recordings of *different* seeds are refused rather than shown:
+two agents on two different problems side by side is not a comparison, and it
+looks exactly like one.
+
+**Wave sync** (`W`, on by default) keeps them on the same level. A faster agent
+clears wave 4 while the other is still in it, and from that moment the two
+halves are answering different problems — so whichever side reaches a new wave
+first waits at the threshold, says so on screen, and both play the wave
+together. Turn it off for the strict reading: same tick, same elapsed time,
+whoever got further got further.
+
+While a contest is still running you can also **watch it happen**. `Watch this
+seed` opens the game on the seed being played at that moment — in a head-to-head
+that is **both models side by side**, wave-synced, since half a comparison is
+not what the button is for. It is a spectator, not a view: the game plays its
+own copy of the episodes (everything here is deterministic, so they are the same
+episodes tick for tick), and the contest neither waits for it nor notices it
+close. `[` and `]` fast-forward up to 8x.
+
+```bash
+./build/release/app/md_app --watch-model models/amber-anvil/policy.mdp --seed 7240512240606951997
+```
+
+### Play a model you trained yourself
+
+**MODELS** lists every policy this install can run: the bundled one, and
+everything promoted into the league. Each row is the name out of the model's own
+`.mdp`, never a filename, and no two rows share a name — the league refuses a
+duplicate when it is promoted, and the menu falls back to the directory for
+anything copied in by hand.
+
+A model this build cannot run — one trained against an older observation, say —
+is left out of the list and the reason printed, rather than offered and then
+failing the moment you choose it. Any `.mdp` anywhere on disk can also be played
+directly:
+
+```bash
+./build/release/app/md_app --watch-model models/amber-anvil/policy.mdp
+```
 
 ### Watch replays
 

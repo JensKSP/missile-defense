@@ -24,6 +24,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
+#include <map>
 #include <print>
 #include <system_error>
 
@@ -90,6 +91,7 @@ void GameWindow::load_settings() {
     audio_on_ = settings.value("audio/sfx", audio_on_).toBool();
     music_on_ = settings.value("audio/music", music_on_).toBool();
     fullscreen_ = settings.value("video/fullscreen", fullscreen_).toBool();
+    match_wave_sync_ = settings.value("match/wave_sync", match_wave_sync_).toBool();
     // Clamped rather than trusted: this is a number in a file a person can edit,
     // and an out-of-range one would index a switch that has three arms.
     const int skill = settings.value("ai/skill", static_cast<int>(ai_skill_)).toInt();
@@ -123,6 +125,7 @@ void GameWindow::save_settings() const {
     settings.setValue("audio/sfx", audio_on_);
     settings.setValue("audio/music", music_on_);
     settings.setValue("video/fullscreen", fullscreen_);
+    settings.setValue("match/wave_sync", match_wave_sync_);
     settings.setValue("ai/skill", static_cast<int>(ai_skill_));
 }
 
@@ -488,7 +491,10 @@ void GameWindow::open_options() {
 }
 
 void GameWindow::start_game() {
-    sim_.reset(++seed_);
+    // `++seed_` and not `seed_`: each new game is a new problem. Unless one was
+    // pinned with `--seed`, in which case it is the *same* problem on purpose —
+    // that is what a peek at a running evaluation is.
+    sim_.reset(pinned_seed_ ? seed_ : ++seed_);
     state_ = State::Playing;
     in_progress_ = true;
     started_ = false;
@@ -615,6 +621,7 @@ bool GameWindow::watch_match(const std::string& manifest) {
     } catch (const replay::MatchPlayer::Error& error) {
         return refuse_match(error);
     }
+    match_->set_wave_sync(match_wave_sync_);
     state_ = State::Match;
     match_paused_ = false;
     ai_assisted_ = true; // nothing here is the human's score
@@ -628,6 +635,7 @@ bool GameWindow::watch_match(const std::string& left, const std::string& right) 
     } catch (const replay::MatchPlayer::Error& error) {
         return refuse_match(error);
     }
+    match_->set_wave_sync(match_wave_sync_);
     state_ = State::Match;
     match_paused_ = false;
     ai_assisted_ = true;
@@ -676,6 +684,15 @@ static std::filesystem::path models_directory() {
     return runs_directory().parent_path() / "models";
 }
 
+/// A name as this menu can draw it: the pixel font has no lower case, and no
+/// punctuation but the period.
+static std::string menu_label(std::string name) {
+    std::ranges::transform(name, name.begin(), [](unsigned char c) {
+        return static_cast<char>(c == '_' || c == '-' ? ' ' : std::toupper(c));
+    });
+    return name;
+}
+
 /// Every model this install can play: the bundled one, then whatever the
 /// console has promoted into the league.
 ///
@@ -683,6 +700,15 @@ static std::filesystem::path models_directory() {
 /// should not read eight multi-megabyte tensor blocks and verify eight
 /// checksums. A file that cannot be described is skipped rather than listed —
 /// offering something that will fail on Enter is worse than not offering it.
+///
+/// Names on this screen are made unique, because two rows reading `DEADLINE
+/// 1330` are two rows nobody can choose between. `md.league` refuses a
+/// duplicate display name at the moment a model is promoted, which handles
+/// every model this program put there — but not one copied in by hand, not one
+/// promoted before that rule existed, and not the case this screen creates for
+/// itself: uppercasing folds `Amber Anvil` and `amber-anvil` onto the same
+/// label. So a repeat falls back to the directory, which is unique by
+/// construction.
 static std::vector<std::pair<std::string, std::string>> installed_models() {
     std::vector<std::pair<std::string, std::string>> found;
 
@@ -704,11 +730,7 @@ static std::vector<std::pair<std::string, std::string>> installed_models() {
             std::string name = described.display_name.empty()
                                    ? path.parent_path().filename().string()
                                    : described.display_name;
-            // The pixel font has no lower case, and no punctuation but the period.
-            std::ranges::transform(name, name.begin(), [](unsigned char c) {
-                return static_cast<char>(c == '_' || c == '-' ? ' ' : std::toupper(c));
-            });
-            found.emplace_back(path.string(), std::move(name));
+            found.emplace_back(path.string(), menu_label(std::move(name)));
         } catch (const agent::Policy::Error& error) {
             // Not this build's, or not a policy. Absent from the list rather
             // than offered and then failing on Enter — but said out loud, since
@@ -729,6 +751,21 @@ static std::vector<std::pair<std::string, std::string>> installed_models() {
         const std::filesystem::path policy = entry.path() / "policy.mdp";
         if (std::filesystem::is_regular_file(policy, ec)) {
             add(policy);
+        }
+    }
+
+    // Repeats fall back to the directory the model lives in — `AMBER ANVIL 2`
+    // rather than a second `AMBER ANVIL`. The directory and not a counter,
+    // because `directory_iterator` promises no order: a counter would move
+    // between launches and label a different model each time, which is worse
+    // than the duplicate it fixes.
+    std::map<std::string, int> times_seen;
+    for (const auto& [path, name] : found) {
+        ++times_seen[name];
+    }
+    for (auto& [path, name] : found) {
+        if (times_seen[name] > 1) {
+            name = menu_label(std::filesystem::path{path}.parent_path().filename().string());
         }
     }
     return found;
@@ -1264,6 +1301,13 @@ void GameWindow::keyPressEvent(QKeyEvent* event) {
             scrub_match(-5);
         } else if (key == Qt::Key_Right) {
             scrub_match(5);
+        } else if (key == Qt::Key_W) {
+            // Live, and from wherever the match has reached: the leading side
+            // is already ahead, so switching sync on simply makes it wait at
+            // the next threshold rather than needing a restart to take effect.
+            match_wave_sync_ = !match_wave_sync_;
+            match_->set_wave_sync(match_wave_sync_);
+            save_settings();
         } else if (key == Qt::Key_BracketRight || key == Qt::Key_Plus || key == Qt::Key_Equal) {
             speed_ = std::min(speed_ * 2, 8);
         } else if (key == Qt::Key_BracketLeft || key == Qt::Key_Minus) {

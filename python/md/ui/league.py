@@ -28,6 +28,7 @@ from __future__ import annotations
 import threading
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import (
@@ -53,6 +54,9 @@ from PySide6.QtWidgets import (
 from .. import league, library, policy_format
 from . import sources
 
+if TYPE_CHECKING:  # pulls in the native binding; annotations only
+    from ..tournament import Protocol
+
 NOTHING_PROMOTED = (
     "No models promoted yet.\n\n"
     "Open a stopped run and press Enter Model League to put its best\n"
@@ -63,6 +67,44 @@ NOTHING_PROMOTED = (
 #: never ranks, so a model with only those reads as unranked rather than as
 #: whatever its warm-up happened to score.
 COLUMNS = ("Model", "From", "Updates", "Score", "Results")
+
+
+def ask_about_clash(parent: QWidget, existing: league.Model) -> league.Model | None:
+    """What to do about a name another model already has: replace it, or rename.
+
+    Returns the model to replace, or ``None`` for "let me type a different
+    name" — including when the question is dismissed, because backing out of a
+    destructive choice should land on the harmless one.
+
+    The question is asked *here*, in front of the person, rather than resolved
+    by a rule. Both answers are reasonable and which is right is not knowable
+    from the directory: promoting a better checkpoint of the same experiment
+    wants a replacement, and two experiments that happen to share a working
+    title want two names. What the dialog owes them is the consequence of the
+    destructive one, which is that the old model's results do not survive it.
+    """
+    scored = len([result for result in existing.results if result.get("canonical")])
+    measured = (
+        f" It has {scored} ranked result{'' if scored == 1 else 's'}, which a replacement discards"
+        " — they were measured on the weights that would be going."
+        if scored
+        else ""
+    )
+    question = QMessageBox(parent)
+    question.setIcon(QMessageBox.Icon.Warning)
+    question.setWindowTitle("That name is taken")
+    # Plain text, never rich: a display name is typed by a person and one
+    # containing a `<` must not be able to swallow the sentence after it.
+    question.setText(f"The league already has a model called {existing.name}.")
+    question.setInformativeText(
+        f"Names have to be unique — the game's MODELS menu shows nothing else, so two "
+        f"of them cannot be told apart.{measured}"
+    )
+    replace = question.addButton("Replace it", QMessageBox.ButtonRole.DestructiveRole)
+    rename = question.addButton("Use another name", QMessageBox.ButtonRole.AcceptRole)
+    question.setDefaultButton(rename)
+    question.exec()
+    return existing if question.clickedButton() is replace else None
 
 
 class PromoteDialog(QDialog):
@@ -159,12 +201,30 @@ class PromoteDialog(QDialog):
         )
         try:
             self.promoted = league.promote(plan)
+        except league.DuplicateName as clash:
+            # Refused before the checkpoint was read, so this costs nothing and
+            # the answer is one of two things the person is best placed to pick.
+            replace = ask_about_clash(self, clash.existing)
+            if replace is None:
+                self._retype_the_name()
+                return
+            try:
+                self.promoted = league.promote(plan, replace=replace)
+            except league.LeagueError as error:
+                QMessageBox.warning(self, "Could not promote", str(error))
+                return
         except league.LeagueError as error:
             # The league is untouched — `promote` stages and validates before it
             # renames — so the dialog stays open and the choice can be changed.
             QMessageBox.warning(self, "Could not promote", str(error))
             return
         self.accept()
+
+    def _retype_the_name(self) -> None:
+        """Put the cursor where the work is. The dialog is still open, the name
+        is still wrong, and hunting for the field is a step nobody should take."""
+        self._name.setFocus()
+        self._name.selectAll()
 
 
 class LeagueView(QWidget):
@@ -173,6 +233,10 @@ class LeagueView(QWidget):
     watch = Signal(Path)
     #: A match manifest to open in the game, split-screen (`md_app --match`).
     show_match = Signal(Path)
+    #: A policy and a seed to open *while a contest is running* — the peek.
+    peek = Signal(Path, int)
+    #: ...or both sides of a head-to-head, recorded on the seed in flight.
+    peek_pair = Signal(Path, Path)
 
     def __init__(self) -> None:
         super().__init__()
@@ -234,7 +298,19 @@ class LeagueView(QWidget):
             "can play with no Python anywhere"
         )
         self._export.clicked.connect(self._export_selected)
-        for button in (self._watch, self._evaluate, self._versus, self._rename, self._export):
+        self._delete = QPushButton("&Delete…")
+        self._delete.setToolTip(
+            "Remove this model from the league, and so from the game's MODELS menu"
+        )
+        self._delete.clicked.connect(self._delete_selected)
+        for button in (
+            self._watch,
+            self._evaluate,
+            self._versus,
+            self._rename,
+            self._export,
+            self._delete,
+        ):
             actions.addWidget(button)
         actions.addStretch(1)
         column.addLayout(actions)
@@ -287,7 +363,7 @@ class LeagueView(QWidget):
 
     def _selection_changed(self) -> None:
         model = self.selected()
-        for button in (self._watch, self._evaluate, self._rename, self._export):
+        for button in (self._watch, self._evaluate, self._rename, self._export, self._delete):
             button.setEnabled(model is not None)
         # A contest needs an opponent, and a league of one has none. Disabled
         # with the reason in the tooltip rather than hidden: a button that
@@ -306,6 +382,7 @@ class LeagueView(QWidget):
         if model is None:
             return
         dialog = ContestDialog(model, parent=self)
+        dialog.peek.connect(self.peek)  # one contestant, so one window
         if dialog.exec() == QDialog.DialogCode.Accepted:
             # The result is already recorded on the model — `evaluate_model`
             # writes it — so the table only has to be re-read.
@@ -327,6 +404,8 @@ class LeagueView(QWidget):
         opponent = opponents[names.index(chosen)]
 
         dialog = ContestDialog(model, opponent, parent=self)
+        dialog.peek.connect(self.peek)
+        dialog.peek_pair.connect(self.peek_pair)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         self.refresh()
@@ -373,15 +452,73 @@ class LeagueView(QWidget):
         self.show_match.emit(manifest)
 
     def _rename_selected(self) -> None:
+        """Ask until the name is one no other model has, or until they stop asking.
+
+        A loop rather than a warning-and-close: the answer to "that one is
+        taken" is another name, and a dialog that discards what was typed makes
+        the person start from the beginning to change one word.
+        """
         model = self.selected()
         if model is None:
             return
-        name, accepted = QInputDialog.getText(
-            self, "Rename model", f"A name for {model.model_id}:", text=model.name
-        )
-        if accepted:
-            league.rename(model, name)
+        proposed = model.name
+        while True:
+            name, accepted = QInputDialog.getText(
+                self, "Rename model", f"A name for {model.model_id}:", text=proposed
+            )
+            if not accepted:
+                return
+            try:
+                league.rename(model, name)
+            except league.DuplicateName as clash:
+                QMessageBox.warning(
+                    self,
+                    "That name is taken",
+                    f"{clash.existing.name} already has it. Names have to be unique — "
+                    "the game's MODELS menu shows nothing else, so two of them cannot "
+                    "be told apart.",
+                )
+                proposed = name
+                continue
             self.refresh()
+            return
+
+    def _delete_selected(self) -> None:
+        """Remove a model from the league — which is also how it leaves the game.
+
+        The one irreversible thing this screen does, and the only route out of
+        the MODELS menu, so it says both: what is about to go, and that `Export…`
+        is the version of this you can undo. A promoted model is frequently the
+        *only* surviving artifact of a run that has since been cleaned up.
+        """
+        model = self.selected()
+        if model is None:
+            return
+        named = model.name if model.name == model.model_id else f"{model.name} ({model.model_id})"
+        ranked = len([result for result in model.results if result.get("canonical")])
+        scores = f" and {ranked} ranked result{'' if ranked == 1 else 's'}" if ranked else ""
+        answer = QMessageBox.question(
+            self,
+            "Delete this model?",
+            f"{named}{scores} will be removed from the league and from the game's "
+            "MODELS menu. There is no other copy — the run it came from may not "
+            "even exist any more.\n\nThis cannot be undone. Export… writes a .mdp "
+            "first if there is any chance you will want it back.\n\nRecorded "
+            "matches are kept: a match is evidence about the other model too.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            freed = league.delete(model)
+        except (league.LeagueError, OSError) as error:
+            QMessageBox.warning(self, "Could not delete", str(error))
+            return
+        self.refresh()
+        QMessageBox.information(
+            self, "Deleted", f"{model.name} is gone; {sources.human_size(freed)} freed."
+        )
 
     def _export_selected(self) -> None:
         """Copy a model out of the league, byte for byte.
@@ -425,12 +562,38 @@ class LeagueView(QWidget):
         )
         if not chosen:
             return
-        try:
-            league.import_policy(Path(chosen), "")
-        except league.LeagueError as error:
-            # Validated before anything is written, so the league is untouched.
-            QMessageBox.warning(self, "Could not import", str(error))
-            return
+        source = Path(chosen)
+        name = ""
+        while True:
+            try:
+                league.import_policy(source, name)
+            except league.DuplicateName as clash:
+                # The commonest clash there is: an `.mdp` carries whatever its
+                # author called it, and re-importing one you already have is the
+                # ordinary case rather than the odd one.
+                replace = ask_about_clash(self, clash.existing)
+                if replace is not None:
+                    try:
+                        league.import_policy(source, name, replace=replace)
+                    except league.LeagueError as error:
+                        QMessageBox.warning(self, "Could not import", str(error))
+                        return
+                    break
+                typed, accepted = QInputDialog.getText(
+                    self,
+                    "Import under another name",
+                    "A name for the imported model:",
+                    text=clash.existing.name,
+                )
+                if not accepted:
+                    return
+                name = typed
+                continue
+            except league.LeagueError as error:
+                # Validated before anything is written, so the league is untouched.
+                QMessageBox.warning(self, "Could not import", str(error))
+                return
+            break
         self.refresh()
 
 
@@ -523,6 +686,61 @@ class _Cancelled(Exception):
     """Raised inside the worker to unwind out of `md.tournament`'s progress hook."""
 
 
+class _PeekRecorder(QThread):
+    """Record both contestants on one seed, so a peek can be side by side.
+
+    A head-to-head plays one model's whole block and then the other's, so at any
+    moment only one of them is *being* computed — and one half of a comparison
+    is not the thing anybody pressed the button for. Both episodes are recorded
+    here instead, which costs a couple of seconds now that inference is native
+    and is exact rather than approximate: the same policies on the same seed are
+    the same episodes the contest is scoring.
+
+    Off the event loop for those seconds, because the contest's own progress is
+    still arriving and a frozen dialog is how a person concludes it has hung.
+    """
+
+    done = Signal(object)
+    failed = Signal(str)
+
+    def __init__(
+        self,
+        left: league.Model,
+        right: league.Model,
+        seed: int,
+        directory: Path,
+        max_ticks: int,
+        frame_skip: int,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._left = left
+        self._right = right
+        self._seed = seed
+        self._directory = directory
+        self._max_ticks = max_ticks
+        self._frame_skip = frame_skip
+
+    def run(self) -> None:
+        from .. import tournament  # noqa: PLC0415 — needs the native binding
+
+        try:
+            sides = tuple(
+                tournament.record_episode(
+                    model,
+                    self._seed,
+                    self._directory / f"{side}.mdr",
+                    max_ticks=self._max_ticks,
+                    frame_skip=self._frame_skip,
+                )
+                for side, model in (("left", self._left), ("right", self._right))
+            )
+        except Exception as error:  # noqa: BLE001 — a dialog is the error channel
+            self.failed.emit(str(error))
+            return
+        self.done.emit(sides)
+
+
 class ContestDialog(QDialog):
     """Run a canonical evaluation, or two models against the same seeds.
 
@@ -530,7 +748,24 @@ class ContestDialog(QDialog):
     a league table worth anything is that every row was measured the same way,
     and a person who cannot see which protocol is about to run has no way to
     know whether the number they are about to add belongs in it.
+
+    **You can look inside it.** A contest is a couple of minutes of numbers
+    going up, and the interesting question — *what is it actually doing on this
+    seed?* — has no answer in a progress bar. `Watch this seed` opens the game
+    on the model and seed being played right now. Off unless asked for: it is a
+    second process and a second window, and the point of running a contest is
+    usually the score at the end.
+
+    The spectator is a **copy**, not a view. Both the evaluator and the game are
+    deterministic, so the same policy on the same seed is the same episode tick
+    for tick — the game computes its own and the contest never waits for it.
+    Close the window and the contest carries on; it never knew.
     """
+
+    #: A model and the seed it is on — one contestant, so one window.
+    peek = Signal(Path, int)
+    #: Two recordings of the seed a head-to-head is on, for the split screen.
+    peek_pair = Signal(Path, Path)
 
     def __init__(
         self,
@@ -543,6 +778,9 @@ class ContestDialog(QDialog):
         self._left = left
         self._right = right
         self._worker: _Contest | None = None
+        self._playing: tuple[league.Model, int] | None = None
+        self._seed_list: list[int] | None = None
+        self._recorder: _PeekRecorder | None = None
 
         self.setWindowTitle("Head-to-head" if right is not None else "Evaluate")
         self.setMinimumWidth(460)
@@ -569,8 +807,39 @@ class ContestDialog(QDialog):
         layout.addWidget(self._status)
 
         self._buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
+        self._watch = self._buttons.addButton(
+            "&Watch this seed", QDialogButtonBox.ButtonRole.ActionRole
+        )
+        self._watch.setToolTip(
+            "Open the game on the seed being played right now — both models side "
+            "by side in a head-to-head. It plays its own copy, so the contest "
+            "keeps running and closing it changes nothing"
+        )
+        self._watch.setEnabled(False)  # until the first report says what is in flight
+        self._watch.clicked.connect(self._peek)
         self._buttons.rejected.connect(self._cancel)
         layout.addWidget(self._buttons)
+
+    def _protocol(self) -> Protocol:
+        """The protocol the contest is running. One lookup, used three ways."""
+        from .. import tournament  # noqa: PLC0415 — needs the native binding
+
+        return tournament.canonical_protocol()
+
+    @property
+    def _seeds(self) -> Sequence[int]:
+        """The list the contest is playing, in the order it plays it.
+
+        Derived here rather than reported by the worker: it is the same
+        `canonical_protocol` the contest itself asked for, and a second channel
+        carrying seeds across a thread boundary would be a second thing that
+        could disagree about which episode is on screen.
+        """
+        from .. import tournament  # noqa: PLC0415 — needs the native binding
+
+        if self._seed_list is None:
+            self._seed_list = tournament.canonical_protocol().seeds()
+        return self._seed_list
 
     def _protocol_note(self) -> str:
         from .. import tournament  # noqa: PLC0415 — needs the native binding
@@ -596,8 +865,64 @@ class ContestDialog(QDialog):
     def _advance(self, index: int, contestants: int, done: int, total: int) -> None:
         self._bar.setRange(0, total * contestants)
         self._bar.setValue((index * total) + done)
-        who = self._left.name if index == 0 else (self._right.name if self._right else "")
+        model = self._left if index == 0 else (self._right or self._left)
+        who = model.name
         self._status.setText(f"playing {who} — {done} of {total} seeds")
+        # `done` is how many are *in*, so the one being played is the next along.
+        # At the end of a contestant's block there is none, and the button says
+        # so by going quiet rather than opening the wrong episode.
+        in_flight = self._seeds[done] if done < len(self._seeds) else None
+        self._playing = None if in_flight is None else (model, in_flight)
+        self._watch.setEnabled(self._playing is not None)
+
+    def _peek(self) -> None:
+        """Open the episode being played — side by side when there are two of them.
+
+        A contest computes one contestant at a time, so the *other* side of this
+        seed has not been played yet (or was played minutes ago and not kept).
+        Both are recorded here before the window opens, which is the difference
+        between watching a comparison and watching half of one.
+        """
+        if self._playing is None:
+            return
+        model, seed = self._playing
+        if self._right is None:
+            self.peek.emit(model.policy, seed)
+            return
+
+        self._watch.setEnabled(False)
+        self._watch.setText("recording…")
+        protocol = self._protocol()
+        self._recorder = _PeekRecorder(
+            self._left,
+            self._right,
+            seed,
+            league.matches_dir() / f"peek-{self._left.model_id}-{self._right.model_id}",
+            protocol.max_ticks,
+            protocol.frame_skip,
+            self,
+        )
+        self._recorder.done.connect(self._recorded)
+        self._recorder.failed.connect(self._not_recorded)
+        self._recorder.start()
+
+    def _recorded(self, sides: object) -> None:
+        self._restore_watch()
+        assert isinstance(sides, tuple)
+        left, right = sides
+        assert isinstance(left, Path)
+        assert isinstance(right, Path)
+        self.peek_pair.emit(left, right)
+
+    def _not_recorded(self, message: str) -> None:
+        self._restore_watch()
+        QMessageBox.warning(self, "The seed could not be recorded", message)
+
+    def _restore_watch(self) -> None:
+        self._watch.setText("&Watch this seed")
+        # Enabled only if something is still in flight: a contest that finished
+        # while the recording ran has no seed to open.
+        self._watch.setEnabled(self._playing is not None)
 
     def _finished(self, outcome: object) -> None:
         self.result_of = outcome

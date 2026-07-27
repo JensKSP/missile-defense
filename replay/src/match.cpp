@@ -139,8 +139,30 @@ bool MatchPlayer::tick() {
     // Both, or neither. A side that has already finished is skipped rather than
     // stopping the clock: the tick number has to keep meaning "the same moment"
     // for the side still playing, which is exactly the unequal-endings case.
-    const bool left_played = !left_.player.finished() && left_.player.tick();
-    const bool right_played = !right_.player.finished() && right_.player.tick();
+    const auto step = [](Side& side) { return !side.player.finished() && side.player.tick(); };
+
+    // Under wave sync the side that got to the next wave first waits at its
+    // threshold. Only while *both* are still playing: a finished side has no
+    // wave to reach, and holding for it would end the match early.
+    bool hold_left = false;
+    bool hold_right = false;
+    if (wave_sync_ && !left_.player.finished() && !right_.player.finished()) {
+        const std::uint32_t left_wave = left_.player.sim().wave();
+        const std::uint32_t right_wave = right_.player.sim().wave();
+        hold_left = left_wave > right_wave;
+        hold_right = right_wave > left_wave;
+    }
+
+    bool left_played = !hold_left && step(left_);
+    bool right_played = !hold_right && step(right_);
+    if (!left_played && !right_played) {
+        // A hold is only ever *for* the other side, and that side has just run
+        // out of recording. The wait is over now rather than one frame later:
+        // a frame in which nothing moved is one the caller reads as the end of
+        // the match.
+        left_played = hold_left && step(left_);
+        right_played = hold_right && step(right_);
+    }
     if (!left_played && !right_played) {
         return false;
     }
@@ -155,6 +177,19 @@ void MatchPlayer::restart() {
 }
 
 void MatchPlayer::seek(std::uint64_t to_tick) {
+    if (wave_sync_) {
+        // Under sync the two sides are deliberately *not* on the same tick — a
+        // held side spends frames without spending ticks — so seeking each of
+        // them to `to_tick` would tear apart the alignment the mode exists to
+        // create. Replayed from the start instead, which is what `Player::seek`
+        // does internally for a backwards seek anyway; a match is a few
+        // thousand ticks of a simulation that runs far faster than it draws.
+        restart();
+        while (tick_ < to_tick && tick()) {
+            // the loop is the seek
+        }
+        return;
+    }
     // `Player::seek` clamps to its own length, so a side shorter than `to_tick`
     // lands on its own end — which is the frozen-final-frame behaviour, arrived
     // at by seeking rather than by a second code path that could disagree.
@@ -175,6 +210,14 @@ float MatchPlayer::progress() const noexcept {
     // than the rounding it would have avoided.
     if (finished()) {
         return 1.0F;
+    }
+    if (wave_sync_) {
+        // The clock and the recordings no longer share a scale: a held side
+        // spends frames without spending ticks, so `tick_` outruns both
+        // recordings and the bar would reach the end long before the match
+        // does. How far the further side has got through its own episode is
+        // the fraction that stays true either way.
+        return std::min(1.0F, std::max(left_.player.progress(), right_.player.progress()));
     }
     const std::uint64_t total = total_ticks();
     if (total == 0) {

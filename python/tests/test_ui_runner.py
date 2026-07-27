@@ -223,6 +223,56 @@ def test_every_way_of_opening_the_game_builds_its_own_command(tmp_path: Path) ->
     ]
 
 
+def test_peeking_at_a_contest_pins_the_seed_being_played(tmp_path: Path) -> None:
+    """What makes watching a *running* evaluation possible.
+
+    The game plays its own copy of the episode rather than viewing the
+    evaluator's — they are both deterministic, so the same policy on the same
+    seed is the same episode. Without `--seed` the peek would open a different
+    game from the one being scored, which is worse than no peek at all.
+    """
+    binary = _build_app(tmp_path)
+    spawn = FakeSpawn()
+    launcher = ReplayLauncher(root=tmp_path, environ={}, spawn=spawn)
+    policy = tmp_path / "models" / "aaaa" / "policy.mdp"
+
+    launcher.launch_model(policy, seed=7240512240606951997)
+    assert spawn.calls[-1][0] == [
+        str(binary),
+        "--watch-model",
+        str(policy),
+        "--seed",
+        "7240512240606951997",
+    ]
+
+    # And without one, nothing is pinned: `Watch it play` asks "how does this
+    # model play?", which a fresh seed answers and a fixed one does not.
+    launcher.launch_model(policy)
+    assert spawn.calls[-1][0] == [str(binary), "--watch-model", str(policy)]
+
+
+def test_peeking_at_a_head_to_head_opens_both_sides(tmp_path: Path) -> None:
+    """Half a comparison is not what anybody pressed the button for.
+
+    A contest computes one contestant at a time, so the other side of the seed
+    in flight has to be recorded before it can be shown. Ad hoc rather than
+    through a manifest: the contest has not finished, so there are no mean
+    scores to claim and the screen must not invent any.
+    """
+    binary = _build_app(tmp_path)
+    spawn = FakeSpawn()
+    launcher = ReplayLauncher(root=tmp_path, environ={}, spawn=spawn)
+
+    launcher.launch_pair(tmp_path / "peek" / "left.mdr", tmp_path / "peek" / "right.mdr")
+    assert spawn.calls[-1][0] == [
+        str(binary),
+        "--match-left",
+        str(tmp_path / "peek" / "left.mdr"),
+        "--match-right",
+        str(tmp_path / "peek" / "right.mdr"),
+    ]
+
+
 def test_an_unbuilt_game_says_how_to_build_it(tmp_path: Path) -> None:
     launcher = ReplayLauncher(root=tmp_path, environ={"PATH": str(tmp_path)}, spawn=FakeSpawn())
     # Every entry point, not just the first: an unbuilt game is the normal state

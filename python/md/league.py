@@ -22,6 +22,16 @@ is where the game reads it for the HUD and the league reads it for the table:
 paths are not names, and `policy-best.pt` says nothing about which run produced
 it.
 
+**Display names are unique, and that is enforced here rather than asked for.**
+The name is the only thing a person sees — in the league table, in the game's
+MODELS menu, in a head-to-head result — so two models called `deadline-1330` are
+two rows nobody can tell apart, and picking the wrong one is silent. Ids stay
+unique by suffixing, because an id is a path and a path must always resolve;
+names cannot do the same, since `deadline-1330-2` is not a name anybody chose. So
+a colliding name is refused with :class:`DuplicateName`, and the caller decides:
+pick another name, or **replace** the model that has it (`replace=`), which is
+the same swap done atomically and takes the old model's results with it.
+
 Every write is atomic and validated. A half-written league entry is one the game
 finds and refuses at the worst possible moment, so an entry either exists whole
 or does not exist.
@@ -53,6 +63,23 @@ RESULTS_NAME = "results.json"
 
 class LeagueError(Exception):
     """A promotion or an import that could not be completed, and why."""
+
+
+class DuplicateName(LeagueError):
+    """The chosen name is already a model's — and this is which model.
+
+    Carries the entry rather than only its name because every caller has the
+    same next question: *replace that one, or pick another name?* Neither can be
+    answered without knowing what is already there — when it was promoted, what
+    it scored — and re-finding it from a message would be a second lookup that
+    could disagree with the first.
+    """
+
+    def __init__(self, existing: Model) -> None:
+        super().__init__(
+            f"the league already has a model called {existing.name!r} ({existing.model_id})"
+        )
+        self.existing = existing
 
 
 @dataclass(frozen=True)
@@ -116,6 +143,34 @@ def make_id(display_name: str, taken: Sequence[str] = ()) -> str:
     while f"{stem}-{index}" in taken:
         index += 1
     return f"{stem}-{index}"
+
+
+def same_name(left: str, right: str) -> bool:
+    """Whether two display names are the same name to a person.
+
+    Case-insensitively and with runs of whitespace flattened, because `Amber
+    Anvil`, `amber anvil` and `Amber  Anvil` are one name on a menu and telling
+    them apart is a job for a machine, not for someone choosing a model to play.
+    `casefold` and not `lower`, so this holds for names that are not ASCII.
+    """
+    return " ".join(left.split()).casefold() == " ".join(right.split()).casefold()
+
+
+def find_by_name(display_name: str, root: Path | None = None) -> Model | None:
+    """The model already called ``display_name``, if any. Asked before writing.
+
+    Compares against the name a person *reads* — the display name, falling back
+    to the id for an entry that has none — since that is the string the clash is
+    about. Two models whose ids differ and whose names match are exactly the
+    confusion this prevents.
+    """
+    name = display_name.strip()
+    if not name:
+        return None
+    for model in models(root):
+        if same_name(model.name, name):
+            return model
+    return None
 
 
 # ---- reading -----------------------------------------------------------------
@@ -183,11 +238,21 @@ def matches_dir(root: Path | None = None) -> Path:
 
 
 def models(root: Path | None = None) -> list[Model]:
-    """Every promoted model, newest first."""
+    """Every promoted model, newest first.
+
+    Dot-directories are skipped: a promotion in flight is a whole model sitting
+    in `.<id>.incoming`, and a replacement holds the superseded one in
+    `.<id>.superseded` for as long as the swap takes. Both are complete enough
+    to load, and neither is in the league — listing one would put a row on
+    screen that vanishes a moment later, or worse, a duplicate of the row beside
+    it.
+    """
     directory = paths.models_dir() if root is None else root
     found: list[Model] = []
     try:
-        children = sorted(child for child in directory.iterdir() if child.is_dir())
+        children = sorted(
+            child for child in directory.iterdir() if child.is_dir() and child.name[:1] != "."
+        )
     except OSError:
         return []
     for child in children:
@@ -226,7 +291,65 @@ class Promotion:
     metadata: dict[str, str | int | float] = field(default_factory=dict[str, "str | int | float"])
 
 
-def promote(plan: Promotion, root: Path | None = None) -> Model:
+def _destination_id(display_name: str, directory: Path, replace: Model | None) -> str:
+    """Which directory this entry will occupy, refusing a name already in use.
+
+    Asked *before* a checkpoint is read or a byte is written, so a name clash
+    costs nothing and can be answered by typing a different name. The two
+    outcomes are the whole of the naming policy: a free name gets a fresh id, a
+    taken one either raises or — when the caller has been told and chose to go
+    ahead — reuses the id of the model it is replacing.
+    """
+    clash = find_by_name(display_name, directory)
+    if replace is None:
+        if clash is not None:
+            raise DuplicateName(clash)
+        taken = [child.name for child in directory.iterdir() if child.is_dir()]
+        return make_id(display_name, taken)
+    if clash is not None and clash.path != replace.path:
+        # Renaming onto a *third* model's name while replacing a second. The
+        # league would end up with the duplicate this whole path exists to
+        # prevent, so it is refused as if no replacement had been asked for.
+        raise DuplicateName(clash)
+    if load_model(replace.path) is None:
+        raise LeagueError(f"{replace.model_id} is no longer in the league; nothing to replace")
+    return replace.model_id
+
+
+def _install(staging: Path, destination: Path, *, replacing: bool) -> None:
+    """Move a validated staging directory into place, replacing at most one entry.
+
+    The old entry is moved aside before the new one is moved in and is only
+    deleted once that has succeeded, so the failure mode is a leftover
+    `.superseded` directory — invisible to :func:`models` — rather than a league
+    with a hole in it. Two renames cannot be made one atomic step on any
+    filesystem here, so the ordering is chosen to make the *reachable* states
+    the harmless ones.
+    """
+    if not destination.exists():
+        if replacing:  # pragma: no cover — `_destination_id` just loaded it
+            raise LeagueError(f"{destination} disappeared while it was being replaced")
+        staging.rename(destination)
+        return
+    if not replacing:
+        # `make_id` already avoided every name it could see, so this is a
+        # second promotion racing the first rather than a collision.
+        raise LeagueError(f"{destination} appeared while promoting; try again")
+
+    superseded = destination.with_name(f".{destination.name}.superseded")
+    shutil.rmtree(superseded, ignore_errors=True)
+    destination.rename(superseded)
+    try:
+        staging.rename(destination)
+    except OSError:
+        destination_gone = not destination.exists()
+        if destination_gone:
+            superseded.rename(destination)  # put the old one back; nothing was lost
+        raise
+    shutil.rmtree(superseded, ignore_errors=True)
+
+
+def promote(plan: Promotion, root: Path | None = None, *, replace: Model | None = None) -> Model:
     """Export ``plan.checkpoint`` into the league, atomically.
 
     The whole operation happens in a temporary directory beside the destination
@@ -235,14 +358,20 @@ def promote(plan: Promotion, root: Path | None = None) -> Model:
     checkpoint from a different simulator — leaves the league exactly as it was,
     and a success is an entry the game can load.
 
+    ``replace`` names the model this one supersedes, which is what a caller
+    passes after :class:`DuplicateName` and the person said yes. It keeps that
+    model's **id**, so a path anybody wrote down still resolves, and drops its
+    **results**, because those were measured on the weights being replaced and
+    carrying them over would be a table that lies. Without it, a name already in
+    the league raises :class:`DuplicateName` before the checkpoint is even read.
+
     Raises :class:`LeagueError`, with the reason, for anything that stops it.
     """
     from . import export_policy  # noqa: PLC0415 — pulls in torch; only promotion does
 
     directory = paths.models_dir() if root is None else root
     directory.mkdir(parents=True, exist_ok=True)
-    existing = [child.name for child in directory.iterdir() if child.is_dir()]
-    model_id = make_id(plan.display_name, existing)
+    model_id = _destination_id(plan.display_name, directory, replace)
 
     staging = directory / f".{model_id}.incoming"
     shutil.rmtree(staging, ignore_errors=True)
@@ -276,13 +405,7 @@ def promote(plan: Promotion, root: Path | None = None) -> Model:
             **plan.metadata,
         }
         (staging / CARD_NAME).write_text(json.dumps(card, indent=1) + "\n", encoding="utf-8")
-
-        destination = directory / model_id
-        if destination.exists():
-            # `make_id` already avoided every name it could see, so this is a
-            # second promotion racing the first rather than a collision.
-            raise LeagueError(f"{destination} appeared while promoting; try again")
-        staging.rename(destination)
+        _install(staging, directory / model_id, replacing=replace is not None)
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
         raise
@@ -293,12 +416,19 @@ def promote(plan: Promotion, root: Path | None = None) -> Model:
     return model
 
 
-def import_policy(source: Path, display_name: str, root: Path | None = None) -> Model:
+def import_policy(
+    source: Path, display_name: str, root: Path | None = None, *, replace: Model | None = None
+) -> Model:
     """Add an `.mdp` somebody else produced, after checking this build can run it.
 
     The same validation promotion does and in the same order, because the file
     is *more* suspect here, not less: it may have been downloaded. Nothing is
     written until `policy_format.read` has accepted it.
+
+    Names collide here more often than anywhere else — a downloaded `.mdp`
+    carries whatever its author called it, and re-importing one you already have
+    is the ordinary case — so ``replace`` means the same as it does in
+    :func:`promote`, and an unnamed clash raises :class:`DuplicateName`.
     """
     try:
         policy = policy_format.read(source)
@@ -307,9 +437,8 @@ def import_policy(source: Path, display_name: str, root: Path | None = None) -> 
 
     directory = paths.models_dir() if root is None else root
     directory.mkdir(parents=True, exist_ok=True)
-    existing = [child.name for child in directory.iterdir() if child.is_dir()]
     name = display_name.strip() or str(policy.metadata.get("display_name", "")) or source.stem
-    model_id = make_id(name, existing)
+    model_id = _destination_id(name, directory, replace)
 
     staging = directory / f".{model_id}.incoming"
     shutil.rmtree(staging, ignore_errors=True)
@@ -327,7 +456,7 @@ def import_policy(source: Path, display_name: str, root: Path | None = None) -> 
             "note": "imported",
         }
         (staging / CARD_NAME).write_text(json.dumps(card, indent=1) + "\n", encoding="utf-8")
-        staging.rename(directory / model_id)
+        _install(staging, directory / model_id, replacing=replace is not None)
     except (OSError, policy_format.PolicyFormatError) as error:
         shutil.rmtree(staging, ignore_errors=True)
         raise LeagueError(f"{source}: could not be imported ({error})") from error
@@ -342,9 +471,19 @@ def import_policy(source: Path, display_name: str, root: Path | None = None) -> 
 
 
 def rename(model: Model, display_name: str) -> Model:
-    """Change what a model is called. The id, and every reference to it, stands."""
+    """Change what a model is called. The id, and every reference to it, stands.
+
+    Refuses a name another model already has, for the reason the module header
+    gives: the name is the only thing anyone sees, so two of them are two rows
+    nobody can tell apart. Renaming a model to the name it already has is not a
+    collision with itself and is allowed to be a no-op.
+    """
+    name = display_name.strip()
+    clash = find_by_name(name, model.path.parent)
+    if clash is not None and clash.path != model.path:
+        raise DuplicateName(clash)
     card = _read_json(model.path / CARD_NAME)
-    card["display_name"] = display_name.strip()
+    card["display_name"] = name
     temporary = model.path / f"{CARD_NAME}.tmp"
     temporary.write_text(json.dumps(card, indent=1) + "\n", encoding="utf-8")
     temporary.replace(model.path / CARD_NAME)
@@ -352,6 +491,52 @@ def rename(model: Model, display_name: str) -> Model:
     if found is None:  # pragma: no cover
         raise LeagueError(f"{model.model_id} disappeared while being renamed")
     return found
+
+
+def size_of(model: Model) -> int:
+    """What this entry occupies on disk: weights, card and recorded results."""
+    total = 0
+    for entry in model.path.rglob("*"):
+        try:
+            if entry.is_file():
+                total += entry.stat().st_size
+        except OSError:
+            continue  # deleted between listing and stat'ing
+    return total
+
+
+def delete(model: Model, root: Path | None = None) -> int:
+    """Remove a model from the league for good. Returns the bytes freed.
+
+    **This is also how a model leaves the game**: the MODELS menu lists exactly
+    what is in this directory, so an entry deleted here stops being offered the
+    next time that screen is opened. There is nowhere else to remove it from,
+    and no second copy — `Export…` first if the weights are worth keeping, since
+    a promoted model is often the only surviving artifact of a run that has been
+    cleaned up.
+
+    Recorded matches are deliberately left alone. They live in `matches/`
+    precisely because a match belongs to *two* models, and taking the comparison
+    away with one contestant would delete evidence about the other.
+
+    Two guards stand in front of `rmtree`, for the reason
+    :func:`md.archive.delete_run` gives at greater length — a path that arrived
+    from a picker or an environment variable is not automatically a thing you
+    may recursively delete:
+
+    * the entry must be a direct child of the league directory, so a `Model`
+      built from somewhere else cannot be removed through this door;
+    * it must not *be* that directory, which would take the whole league.
+    """
+    directory = (paths.models_dir() if root is None else root).resolve()
+    path = model.path.resolve()
+    if path == directory:
+        raise LeagueError(f"{model.path} is the league directory itself; refusing to remove it")
+    if path.parent != directory:
+        raise LeagueError(f"{model.path} is not in {directory}; refusing to remove it")
+    freed = size_of(model)
+    shutil.rmtree(model.path)
+    return freed
 
 
 def record_result(model: Model, result: Mapping[str, object]) -> Model:

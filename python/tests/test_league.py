@@ -18,6 +18,7 @@ intended outcome rather than a limitation.
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -192,18 +193,104 @@ def test_an_architecture_the_game_cannot_run_is_refused(tmp_path: Path) -> None:
     assert league.models(tmp_path / "models") == []
 
 
-def test_promoting_the_same_run_twice_produces_two_entries(
+def test_promoting_the_same_run_twice_keeps_both_under_different_names(
     tmp_path: Path, checkpoint: Path
 ) -> None:
     """A run gets promoted again after another thousand updates, and both stay."""
     root = tmp_path / "models"
-    first = league.promote(league.Promotion(checkpoint, "Anvil"), root=root)
-    second = league.promote(league.Promotion(checkpoint, "Anvil"), root=root)
+    first = league.promote(league.Promotion(checkpoint, "Anvil @800"), root=root)
+    second = league.promote(league.Promotion(checkpoint, "Anvil @1800"), root=root)
     assert first.model_id != second.model_id
     assert {model.model_id for model in league.models(root)} == {
         first.model_id,
         second.model_id,
     }
+
+
+# ---- unique names ------------------------------------------------------------
+
+
+def test_a_name_already_in_the_league_is_refused_and_says_which_model(
+    tmp_path: Path, checkpoint: Path
+) -> None:
+    """The name is all anyone sees — in the table, and in the game's MODELS menu.
+
+    Two rows called `Anvil` cannot be told apart, so the second promotion stops
+    and hands back the entry it collided with; deciding what to do about it is
+    the caller's, and it needs to know what is already there.
+    """
+    root = tmp_path / "models"
+    first = league.promote(league.Promotion(checkpoint, "Anvil"), root=root)
+
+    with pytest.raises(league.DuplicateName) as raised:
+        league.promote(league.Promotion(checkpoint, "  anvil  "), root=root)
+
+    assert raised.value.existing.model_id == first.model_id
+    assert [model.model_id for model in league.models(root)] == [first.model_id]
+
+
+def test_a_refused_name_costs_nothing_and_leaves_no_directory(
+    tmp_path: Path, checkpoint: Path
+) -> None:
+    """Refused before the checkpoint is read, so retyping the name is the whole fix."""
+    root = tmp_path / "models"
+    league.promote(league.Promotion(checkpoint, "Anvil"), root=root)
+    with pytest.raises(league.DuplicateName):
+        league.promote(league.Promotion(checkpoint, "Anvil"), root=root)
+    assert sorted(child.name for child in root.iterdir()) == ["anvil"]
+
+
+def test_replacing_keeps_the_id_and_drops_the_results(tmp_path: Path, checkpoint: Path) -> None:
+    """Overwrite is a real swap, not a second entry with the same name.
+
+    The id stays so a path somebody wrote down still resolves; the results go,
+    because they were measured on the weights that just left.
+    """
+    root = tmp_path / "models"
+    first = league.promote(league.Promotion(checkpoint, "Anvil"), root=root)
+    league.record_result(first, {"mean_score": 1234.0, "canonical": True})
+
+    replaced = league.promote(
+        league.Promotion(checkpoint, "Anvil", note="second attempt"),
+        root=root,
+        replace=first,
+    )
+    assert replaced.model_id == first.model_id
+    assert replaced.note == "second attempt"
+    assert replaced.results == ()  # the old scores belonged to the old weights
+    assert [model.model_id for model in league.models(root)] == [first.model_id]
+    assert not list(root.glob(".*"))  # nothing left staged or superseded
+
+
+def test_replacing_a_model_that_is_gone_is_refused(tmp_path: Path, checkpoint: Path) -> None:
+    """Two consoles, and the other one deleted it. Better an error than a ghost."""
+    root = tmp_path / "models"
+    model = league.promote(league.Promotion(checkpoint, "Anvil"), root=root)
+    shutil.rmtree(model.path)
+    with pytest.raises(league.LeagueError, match="no longer in the league"):
+        league.promote(league.Promotion(checkpoint, "Anvil"), root=root, replace=model)
+
+
+def test_replacing_cannot_take_a_third_models_name(tmp_path: Path, checkpoint: Path) -> None:
+    """Renaming onto someone else's name while replacing would recreate the duplicate."""
+    root = tmp_path / "models"
+    anvil = league.promote(league.Promotion(checkpoint, "Anvil"), root=root)
+    beacon = league.promote(league.Promotion(checkpoint, "Beacon"), root=root)
+    with pytest.raises(league.DuplicateName) as raised:
+        league.promote(league.Promotion(checkpoint, "Beacon"), root=root, replace=anvil)
+    assert raised.value.existing.model_id == beacon.model_id
+    assert len(league.models(root)) == 2
+
+
+def test_a_staging_directory_is_never_listed_as_a_model(tmp_path: Path) -> None:
+    """A promotion in flight is a whole, loadable model that is not in the league."""
+    root = tmp_path / "models"
+    staging = root / ".anvil.incoming"
+    staging.mkdir(parents=True)
+    policy_format.write(staging / league.POLICY_NAME, fixture_policy())
+    (staging / league.CARD_NAME).write_text('{"display_name": "Anvil"}', encoding="utf-8")
+    assert league.models(root) == []
+    assert league.find_by_name("Anvil", root) is None
 
 
 # ---- listing -----------------------------------------------------------------
@@ -236,6 +323,28 @@ def test_renaming_a_model_keeps_its_id(tmp_path: Path, checkpoint: Path) -> None
     assert renamed.model_id == model.model_id
     assert renamed.display_name == "Amber Anvil"
     assert league.find(model.model_id, root) is not None
+
+
+def test_renaming_onto_another_models_name_is_refused(tmp_path: Path, checkpoint: Path) -> None:
+    """The back door into duplicate names, closed where promotion's is."""
+    root = tmp_path / "models"
+    anvil = league.promote(league.Promotion(checkpoint, "Anvil"), root=root)
+    beacon = league.promote(league.Promotion(checkpoint, "Beacon"), root=root)
+    with pytest.raises(league.DuplicateName) as raised:
+        league.rename(beacon, "anvil")
+    assert raised.value.existing.model_id == anvil.model_id
+    assert league.find(beacon.model_id, root) is not None
+    assert (league.find(beacon.model_id, root) or beacon).display_name == "Beacon"
+
+
+def test_renaming_a_model_to_the_name_it_already_has_is_allowed(
+    tmp_path: Path, checkpoint: Path
+) -> None:
+    """It is not a collision with itself, and a dialog prefilled with the current
+    name must not refuse the obvious Enter."""
+    root = tmp_path / "models"
+    model = league.promote(league.Promotion(checkpoint, "Anvil"), root=root)
+    assert league.rename(model, "Anvil").display_name == "Anvil"
 
 
 def test_a_model_with_no_display_name_shows_its_id(tmp_path: Path) -> None:
@@ -343,3 +452,65 @@ def test_matches_live_beside_the_league_not_inside_a_model(tmp_path: Path) -> No
     matches = league.matches_dir(tmp_path / "models")
     assert matches == tmp_path / "matches"
     assert matches.parent == (tmp_path / "models").parent
+
+
+# ---- removing ----------------------------------------------------------------
+
+
+def test_deleting_a_model_removes_it_from_the_league_and_the_game(tmp_path: Path) -> None:
+    """The league directory *is* the game's MODELS menu, so this is one act.
+
+    There is no second copy anywhere: what is deleted here is gone from both.
+    """
+    root = tmp_path / "models"
+    (root / "m").mkdir(parents=True)
+    policy_format.write(root / "m" / league.POLICY_NAME, fixture_policy())
+    (root / "m" / league.CARD_NAME).write_text('{"display_name": "M"}', encoding="utf-8")
+    model = league.find("m", root)
+    assert model is not None
+
+    freed = league.delete(model, root)
+    assert freed > 0
+    assert league.models(root) == []
+    assert not (root / "m").exists()
+    assert root.is_dir()  # the league itself survives losing its last model
+
+
+def test_deleting_leaves_the_recorded_matches_alone(tmp_path: Path) -> None:
+    """A match is evidence about *two* models; one leaving must not take it."""
+    root = tmp_path / "models"
+    (root / "m").mkdir(parents=True)
+    policy_format.write(root / "m" / league.POLICY_NAME, fixture_policy())
+    (root / "m" / league.CARD_NAME).write_text("{}", encoding="utf-8")
+    match = league.matches_dir(root) / "m-other"
+    match.mkdir(parents=True)
+    (match / "match.json").write_text("{}", encoding="utf-8")
+
+    model = league.find("m", root)
+    assert model is not None
+    league.delete(model, root)
+    assert (match / "match.json").is_file()
+
+
+def test_deleting_refuses_anything_that_is_not_an_entry_in_this_league(
+    tmp_path: Path,
+) -> None:
+    """`rmtree` on a path that arrived from elsewhere is how other programs have
+    deleted a home directory. Both refusals are checked before any of it goes."""
+    root = tmp_path / "models"
+    elsewhere = tmp_path / "elsewhere"
+    (elsewhere / "m").mkdir(parents=True)
+    policy_format.write(elsewhere / "m" / league.POLICY_NAME, fixture_policy())
+    (elsewhere / "m" / league.CARD_NAME).write_text("{}", encoding="utf-8")
+    outsider = league.find("m", elsewhere)
+    assert outsider is not None
+
+    with pytest.raises(league.LeagueError, match="refusing to remove"):
+        league.delete(outsider, root)
+    assert (elsewhere / "m").is_dir()
+
+    root.mkdir(parents=True)
+    itself = league.Model(path=root, model_id=root.name, display_name="")
+    with pytest.raises(league.LeagueError, match="league directory itself"):
+        league.delete(itself, root)
+    assert root.is_dir()

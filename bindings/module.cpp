@@ -9,6 +9,7 @@
 //   * the batch step releases the GIL, so the C++ worker pool actually runs in
 //     parallel instead of taking turns.
 #include "md/agent/eval.hpp"
+#include "md/agent/policy.hpp"
 #include "md/config.hpp"
 #include "md/observation.hpp"
 #include "md/replay/recording.hpp"
@@ -33,9 +34,53 @@ namespace nb = nanobind;
 namespace {
 
 using FloatArray = nb::ndarray<float, nb::numpy, nb::c_contig>;
+using ConstFloatArray = nb::ndarray<const float, nb::numpy, nb::c_contig>;
 using IntArray = nb::ndarray<const std::int32_t, nb::numpy, nb::c_contig>;
 using BoolArray = nb::ndarray<bool, nb::numpy, nb::c_contig>;
+using ConstBoolArray = nb::ndarray<const bool, nb::numpy, nb::c_contig>;
 using OutIntArray = nb::ndarray<std::int32_t, nb::numpy, nb::c_contig>;
+
+/// One `.mdp`, loaded once and played many times.
+///
+/// Scoring a model over the canonical 32 seeds is 32 episodes against the same
+/// weights, and six megabytes re-read per episode would be most of the run.
+///
+/// It exists at all because inference has to happen **in C++**. A reference
+/// forward pass in NumPy (`md.export_policy.evaluate`) is what defines the
+/// format and what the parity test holds the two implementations to, but it
+/// runs one observation at a time from Python — measured at ~17 ms for the
+/// relational architecture, which is four hours for one contestant's canonical
+/// block. The same policy through `md::agent::Policy` is the code the game runs
+/// at sixty frames a second, so a league contest takes minutes and a league
+/// score is a number somebody will actually wait for.
+class LoadedPolicy {
+  public:
+    explicit LoadedPolicy(const std::filesystem::path& path)
+        : policy_(md::agent::Policy::load(path)) {
+        // Built and thrown away: `PolicyDriver`'s constructor is where an
+        // observation or action-count mismatch is caught, and that refusal
+        // belongs at load time rather than part-way through the first episode
+        // of a contest somebody is waiting on.
+        const md::agent::PolicyDriver check{policy_, md::ObsSpec{}};
+        (void) check;
+    }
+
+    /// Play one seed to termination or ``max_ticks``. Same `run_episode` the
+    /// scripted baseline and `md_agent_eval` use, so the two are comparable by
+    /// construction rather than by agreement.
+    [[nodiscard]] md::agent::EpisodeResult play(std::uint64_t seed, std::uint64_t max_ticks,
+                                                unsigned decision_interval) const {
+        md::Config config{};
+        config.decision_interval = decision_interval;
+        md::agent::PolicyDriver driver{policy_, md::ObsSpec{}};
+        return md::agent::run_episode(config, seed, driver, max_ticks);
+    }
+
+    [[nodiscard]] const md::agent::Policy& policy() const noexcept { return policy_; }
+
+  private:
+    md::agent::Policy policy_;
+};
 
 void require(bool ok, const char* what) {
     if (!ok) {
@@ -127,6 +172,65 @@ NB_MODULE(_md_native, m) {
         },
         nb::arg("episodes"),
         "Aggregate episode outcomes with the same function the scripted baseline uses.");
+
+    nb::class_<LoadedPolicy>(m, "LoadedPolicy", R"doc(
+A promoted `.mdp`, ready to play, with inference in C++.
+
+`md.export_policy.evaluate` is the reference forward pass and stays the
+definition of the format; this is the implementation the *game* runs, and the
+only one fast enough to score a model over a whole seed block. The parity test
+holds the two to the same action, decision for decision.
+)doc")
+        // A `str`, not a `std::filesystem::path`: nanobind's path caster needs
+        // `nanobind/stl/filesystem.h`, and every caller here already has the
+        // string form. One conversion, in one place.
+        .def(
+            "__init__",
+            [](LoadedPolicy* self, const std::string& path) {
+                new (self) LoadedPolicy{std::filesystem::path{path}};
+            },
+            nb::arg("path"), "Read and validate a .mdp. Raises if this build cannot run it.")
+        .def_prop_ro("observation_size",
+                     [](const LoadedPolicy& self) { return self.policy().observation_size(); })
+        .def_prop_ro("action_count",
+                     [](const LoadedPolicy& self) { return self.policy().action_count(); })
+        .def_prop_ro(
+            "architecture",
+            [](const LoadedPolicy& self) { return std::string(self.policy().architecture()); })
+        .def_prop_ro(
+            "display_name",
+            [](const LoadedPolicy& self) { return std::string(self.policy().display_name()); })
+        .def(
+            "play",
+            [](const LoadedPolicy& self, std::uint64_t seed, std::uint64_t max_ticks,
+               unsigned decision_interval) {
+                require(max_ticks > 0, "max_ticks must be positive");
+                require(decision_interval > 0, "decision_interval must be positive");
+                nb::gil_scoped_release release; // minutes of simulation, no Python in it
+                return self.play(seed, max_ticks, decision_interval);
+            },
+            nb::arg("seed"), nb::arg("max_ticks") = 120000U, nb::arg("decision_interval") = 4U,
+            "Play one seed to termination or the cap and return its outcome.")
+        .def(
+            "act",
+            [](const LoadedPolicy& self, ConstFloatArray observation, ConstBoolArray legal) {
+                require(observation.size() == self.policy().observation_size(),
+                        "observation must be (observation_size,) float32");
+                require(legal.size() == self.policy().action_count(),
+                        "legal must be (action_count,) bool");
+                // Copied rather than reinterpreted: `bool` and `std::uint8_t`
+                // are the same width here and are still different types, and
+                // `md::agent::PolicyDriver` copies for the same reason.
+                std::vector<std::uint8_t> mask(legal.size());
+                for (std::size_t i = 0; i < legal.size(); ++i) {
+                    mask[i] = static_cast<std::uint8_t>(legal.data()[i]);
+                }
+                const std::span<const float> features{observation.data(), observation.size()};
+                nb::gil_scoped_release release;
+                return self.policy().act(features, mask).action;
+            },
+            nb::arg("observation"), nb::arg("legal"),
+            "The action this policy would take, masked to the legal ones.");
 
     m.attr("MAX_CITIES") = md::max_cities;
     m.attr("BASE_COUNT") = md::base_count;

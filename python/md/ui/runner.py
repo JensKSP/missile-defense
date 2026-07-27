@@ -264,15 +264,33 @@ class ReplayLauncher:
         """
         self._launch("--match", manifest)
 
-    def launch_model(self, policy: Path) -> None:
+    def launch_pair(self, left: Path, right: Path) -> None:
+        """Open two recordings side by side, with no manifest. Raises if unbuilt.
+
+        The ad-hoc half of :meth:`launch_match`: two episodes exist and nothing
+        wrote a tournament record for them, which is exactly the case while the
+        tournament is *still running*. The names come from the recordings' own
+        labels, and the screen claims no scores because there are none yet.
+        """
+        self._launch("--match-left", left, "--match-right", str(right))
+
+    def launch_model(self, policy: Path, *, seed: int | None = None) -> None:
         """Open the game watching a promoted model. Raises if the game is absent.
 
         `--watch-model` and not a recording: the league's question is "how does
         this one play?", and a stored episode answers "how did it play once".
-        """
-        self._launch("--watch-model", policy)
 
-    def _launch(self, flag: str, target: Path) -> None:
+        ``seed`` pins the episode, which is what makes it possible to *watch a
+        contest that is still running*: the evaluator and the game are both
+        deterministic, so the same policy on the same seed is the same episode
+        tick for tick. The window is a spectator and nothing more — it computes
+        its own copy, the contest never waits for it, and closing it changes
+        nothing.
+        """
+        extra = () if seed is None else ("--seed", str(seed))
+        self._launch("--watch-model", policy, *extra)
+
+    def _launch(self, flag: str, target: Path, *extra: str) -> None:
         """One spawn, however the game is being opened.
 
         Three copies of this drifted apart once already — the flag is the only
@@ -288,7 +306,7 @@ class ReplayLauncher:
         self._children = [child for child in self._children if child.poll() is None]
         self._children.append(
             self._spawn(
-                [str(binary), flag, str(target)],
+                [str(binary), flag, str(target), *extra],
                 self._root,
                 launch_environ(self._environ),
             )

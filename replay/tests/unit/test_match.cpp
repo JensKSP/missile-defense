@@ -81,6 +81,62 @@ std::filesystem::path write_recording(const std::filesystem::path& path, std::ui
     return path;
 }
 
+/// A recording that actually shoots, and clears waves at a pace of its own.
+///
+/// The sequence above is enough for the transport tests and useless for the
+/// wave ones: it sprays across the whole action space, so every stride of it
+/// dies in wave 2 at the identical tick and two of them cannot drift apart.
+/// This one keeps firing battery 0 at a rotating threat slot, which kills
+/// things — and `spread` changes how *well*, which is what makes one side
+/// reach wave 3 while the other is still finishing wave 2. That gap is the
+/// situation wave sync exists for.
+std::filesystem::path write_targeting(const std::filesystem::path& path, std::uint64_t seed,
+                                      std::size_t spread, std::size_t steps = 8000) {
+    Recording recording;
+    recording.seed = seed;
+    recording.frame_skip = 4;
+    recording.config.decision_interval = 4;
+    recording.set_label("side");
+    const auto count = static_cast<std::size_t>(md::action_count(recording.spec));
+    recording.actions.resize(steps);
+    for (std::size_t i = 0; i < steps; ++i) {
+        recording.actions[i] = static_cast<std::int32_t>(1 + ((i % spread) % (count - 1)));
+    }
+    REQUIRE(md::replay::save(recording, path));
+    return path;
+}
+
+/// How many frames both sides *played* while standing in different waves.
+///
+/// The property, from the only angle that says anything: a wave-number gap on
+/// its own is not the complaint — a side waiting at the threshold of wave 5
+/// while the other finishes 4 shows 5 and 4, and that is the mode working. What
+/// matters is whether the two are ever *playing* different waves at the same
+/// moment, because that is when the split screen stops being a comparison.
+struct Drift {
+    std::uint64_t apart = 0;
+    std::uint64_t frames = 0;
+};
+
+Drift play_out(MatchPlayer& match) {
+    Drift drift;
+    while (true) {
+        const std::uint32_t left_wave = match.left().player.sim().wave();
+        const std::uint32_t right_wave = match.right().player.sim().wave();
+        const std::uint64_t left_at = match.left().player.ticks_played();
+        const std::uint64_t right_at = match.right().player.ticks_played();
+        if (!match.tick()) {
+            return drift;
+        }
+        REQUIRE(++drift.frames < 200000u); // a match that never ends is the bug, not a hang
+        const bool both_played = match.left().player.ticks_played() != left_at &&
+                                 match.right().player.ticks_played() != right_at;
+        if (both_played && left_wave != right_wave) {
+            ++drift.apart;
+        }
+    }
+}
+
 std::filesystem::path write_manifest(const std::filesystem::path& path, const std::string& body) {
     std::ofstream out{path, std::ios::trunc};
     out << body;
@@ -246,4 +302,84 @@ TEST_CASE("A manifest that is not one is refused", "[replay][match]") {
     CHECK_THROWS_AS(MatchPlayer::load(write_manifest(
                         dir / "future.json", R"({"version": 99, "left": {}, "right": {}})")),
                     MatchPlayer::Error);
+}
+
+TEST_CASE("Wave sync keeps both sides playing the same wave", "[replay][match]") {
+    // The same tick is the *fair* comparison and not always the legible one: a
+    // faster agent clears wave 2 while the other is still in it, and from then
+    // on one half of the screen is answering a different problem from the
+    // other. With sync on, the side that reaches a new wave waits at the
+    // threshold, so no frame is ever played with the two in different waves.
+    const TempDir dir{"wave-sync"};
+    write_targeting(dir / "a.mdr", 11, 3);
+    write_targeting(dir / "b.mdr", 11, 40);
+    MatchPlayer match =
+        MatchPlayer::load(write_manifest(dir / "m.json", manifest_for("a.mdr", "b.mdr", 11)));
+    CHECK(match.wave_sync()); // on unless a caller says otherwise
+
+    const Drift drift = play_out(match);
+    CHECK(match.finished());
+    CHECK(drift.frames > 0u);
+    CHECK(drift.apart == 0u);
+}
+
+TEST_CASE("Without wave sync the two do drift apart", "[replay][match]") {
+    // The control. If these two recordings stayed in step on their own, the
+    // test above would be asserting a property of the fixture rather than of
+    // the code — so this states how far apart they go when nothing holds them.
+    const TempDir dir{"wave-drift"};
+    write_targeting(dir / "a.mdr", 11, 3);
+    write_targeting(dir / "b.mdr", 11, 40);
+    MatchPlayer match =
+        MatchPlayer::load(write_manifest(dir / "m.json", manifest_for("a.mdr", "b.mdr", 11)));
+    match.set_wave_sync(false);
+
+    const Drift drift = play_out(match);
+    CHECK(match.finished());
+    // Hundreds of frames of one side fighting wave 3 beside the other's wave 2.
+    CHECK(drift.apart > 100u);
+}
+
+TEST_CASE("A finished side never holds the other under wave sync", "[replay][match]") {
+    // Unequal endings are the interesting case, and waiting for a contestant
+    // who is already dead would simply stop the match.
+    const TempDir dir{"wave-sync-end"};
+    write_targeting(dir / "a.mdr", 5, 3);
+    write_recording(dir / "b.mdr", 5, 30, 5); // gives up almost immediately
+    MatchPlayer match =
+        MatchPlayer::load(write_manifest(dir / "m.json", manifest_for("a.mdr", "b.mdr", 5)));
+
+    const Drift drift = play_out(match);
+    CHECK(match.finished());
+    // The long side played its whole episode rather than stalling behind the
+    // short one's last frame.
+    CHECK(match.left().player.ticks_played() > match.right().player.ticks_played());
+    CHECK(drift.frames > match.right().player.ticks_played());
+    CHECK(match.progress() == 1.0F);
+}
+
+TEST_CASE("Seeking under wave sync lands on the aligned state", "[replay][match]") {
+    // A seek that moved each side to the same tick would tear apart exactly the
+    // alignment this mode exists to create, so it replays instead.
+    const TempDir dir{"wave-seek"};
+    write_targeting(dir / "a.mdr", 11, 3);
+    write_targeting(dir / "b.mdr", 11, 40);
+    MatchPlayer match =
+        MatchPlayer::load(write_manifest(dir / "m.json", manifest_for("a.mdr", "b.mdr", 11)));
+
+    match.seek(900);
+    CHECK(match.tick_count() == 900u);
+    // The held side is *behind* on ticks by exactly the frames it spent waiting,
+    // which is the mode working rather than a transport bug.
+    CHECK(match.left().player.ticks_played() <= 900u);
+    CHECK(match.right().player.ticks_played() <= 900u);
+
+    // And the same seek reaches the same place: playback is deterministic, so
+    // scrubbing back and forth cannot land on two different states.
+    const std::int32_t score = match.left().player.sim().score();
+    const std::uint64_t played = match.left().player.ticks_played();
+    match.seek(0);
+    match.seek(900);
+    CHECK(match.left().player.sim().score() == score);
+    CHECK(match.left().player.ticks_played() == played);
 }

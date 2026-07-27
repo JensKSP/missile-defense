@@ -503,9 +503,13 @@ differ. A name already taken gains a `-2` rather than being refused. Nothing is
 written until the run actually starts, so a parameter form you cancel leaves no
 empty directory behind. From a terminal the same decision is `--out-dir`.
 
-**Enter Model League** (on the run screen, under the model panel) copies a
-checkpoint into `models/<id>/` as a `policy.mdp` — the data-only format the game
-and the native evaluator read (docs/API.md §7). Three things about it:
+**Enter Model League** copies a checkpoint into `models/<id>/` as a
+`policy.mdp` — the data-only format the game and the native evaluator read
+(docs/API.md §7). It is in both places the decision gets made: on the **run
+list**, where every run's best score is one column and the comparison actually
+happens, and on the **run screen** under the model panel, where it is something
+you do *to* the thing described right above it. Same dialog either way. Three
+things about it:
 
 * it defaults to the best *evaluated checkpoint that still exists*, which is
   often not the best score: checkpoints and evaluations happen on different
@@ -516,12 +520,36 @@ and the native evaluator read (docs/API.md §7). Three things about it:
   the game cannot load would be worse.
 
 The league sits beside the run list. **Watch it play** opens the game on that
-model against a fresh seed, and **Import .mdp…** takes one somebody else
-produced, validated before anything is written.
+model against a fresh seed, **Export…** writes the `.mdp` out for somebody else,
+and **Import .mdp…** takes one in, validated before anything is written.
 
 Promotion is also the **install step for the game**: `models/` is exactly where
 the game looks, so a promoted model appears under **WATCH AI → MODELS** in the
 menu without restarting anything.
+
+**Names are unique, and that is enforced.** A model's name is the only thing
+shown — in the table, in the game's menu, in a head-to-head result — so two
+called `deadline-1330` are two rows nobody can tell apart and picking the wrong
+one is silent. Promoting, importing or renaming onto a name already in the
+league therefore stops and offers the two answers worth having:
+
+* **Use another name**, which is the default and leaves everything alone;
+* **Replace it**, which swaps the weights in place. The model keeps its **id**,
+  so any path written down still resolves, and loses its **results**, because
+  those were measured on the weights that just left.
+
+The id — the directory name — stays unique by suffixing (`anvil`, `anvil-2`),
+since a path must always resolve. A *name* cannot be fixed up that way, because
+`anvil-2` is not a name anybody chose.
+
+**Delete…** removes a model from the league, and that is the same act as
+removing it from the game: the menu lists exactly this directory and nothing
+else. It says what goes before it goes, and there is no second copy anywhere —
+a promoted model is frequently the only surviving artifact of a run that has
+since been cleaned up, so **Export…** first if there is any chance you want it
+back. Recorded matches are deliberately kept: a match is evidence about the
+*other* model too, which is why they live in `matches/` beside the league rather
+than inside either contestant.
 
 ### Ranking models against each other
 
@@ -532,12 +560,40 @@ number measured some other way does not belong in the table.
 **Head-to-head…** plays two models over the *same* seeds, taken once and handed
 to both. Both run on a worker thread with a progress bar and a cancel; nothing
 is recorded until a contest finishes, so cancelling leaves the league exactly as
-it was.
+it was. The bar counts **seeds that are in**, and a canonical block is about a
+minute and a half per contestant: inference runs through the same C++ policy the
+game does, not the NumPy reference forward pass, which is a hundred times slower
+and turned a contest into something that looked like a hang.
+
+**Watch this seed** (in the same dialog) opens the game on the seed being played
+*right now*. In a head-to-head that is both models **side by side**: a contest
+plays one contestant's whole block and then the other's, so only one side of the
+seed has been computed when you ask — both are recorded first, which takes a
+couple of seconds and happens off the event loop so the contest's own progress
+keeps arriving. An `Evaluate` has one contestant, so it opens one window.
+
+Either way the game plays its own copy — it and the evaluator are both
+deterministic, so the same policy on the same seed is the same episode, tick for
+tick — which means the contest never waits for it and closing the window changes
+nothing. `[` and `]` fast-forward up to 8x. The single-model case from a
+terminal:
+
+```bash
+./build/release/app/md_app --watch-model models/<id>/policy.mdp --seed <n>
+```
 
 Two mean scores answer *which* model is better and nothing at all about *how*.
 So a finished head-to-head offers to record one shared seed from each side and
 open them side by side in the game — one screen, one clock, both agents solving
 the same problem. That is the question the table provokes and cannot answer.
+
+In that split screen, **wave sync** (`W`, on by default) holds whichever side
+reaches a new wave first until the other arrives, and says so under its score.
+Without it a stronger agent is fighting wave 7 beside the other's wave 5 within
+a minute, and the two halves stop being comparable — with it, every wave is
+played by both at once. Off gives the strict reading, where the tick number
+alone says where both sides are and getting further in the same time is the
+whole point.
 
 ## Getting the disk back
 

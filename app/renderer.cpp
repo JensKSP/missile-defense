@@ -1249,6 +1249,16 @@ void Renderer::draw_match(const replay::MatchPlayer& match, QSize size) {
             draw_stat(inst, "MEAN", mean, centre + (row * 0.5f) - (mean_w * 0.5f), row_y, small_px,
                       0.42f, 0.47f, 0.55f);
         }
+
+        // A side held at a wave threshold is stopped on purpose, and stopped on
+        // purpose looks exactly like stopped by accident. Saying so is the
+        // difference between "it is waiting for the other one" and "it broke".
+        const auto& rival = which == 0 ? match.right() : match.left();
+        if (match.wave_sync() && !entry.player.finished() && !rival.player.finished() &&
+            sim.wave() > other.wave()) {
+            draw_text(inst, "WAITING FOR THE OTHER SIDE", centre, world_h * 0.845f, small_px, 0.72f,
+                      0.64f, 0.36f, true);
+        }
     }
 
     // The shared transport, at the foot of the window and spanning both halves —
@@ -1267,10 +1277,18 @@ void Renderer::draw_match(const replay::MatchPlayer& match, QSize size) {
         inst.push_back(rect((world_w * 0.5f) - bar_w + (bar_w * done), bar_y, bar_w * done, 0.22f,
                             0.45f, 0.75f, 0.95f));
     }
-    draw_text(inst,
-              match.finished() ? "MATCH COMPLETE   R RESTART   ESC BACK"
-                               : "SPACE PAUSE   ARROWS SEEK   R RESTART   ESC BACK",
-              world_w * 0.5f, world_h * 0.105f, world_h * 0.0060f, 0.46f, 0.53f, 0.62f, true);
+    // Wave sync is stated rather than implied. A held side looks like a frozen
+    // one, and a viewer who cannot see that the mode is on has every reason to
+    // think the match has broken — which is what the key that turns it off is
+    // for, and the reason it is named here rather than in a help screen.
+    const char* caption = "MATCH COMPLETE   R RESTART   ESC BACK";
+    if (!match.finished()) {
+        caption = match.wave_sync()
+                      ? "SPACE PAUSE   ARROWS SEEK   R RESTART   W WAVE SYNC ON   ESC BACK"
+                      : "SPACE PAUSE   ARROWS SEEK   R RESTART   W WAVE SYNC OFF   ESC BACK";
+    }
+    draw_text(inst, caption, world_w * 0.5f, world_h * 0.105f, world_h * 0.0060f, 0.46f, 0.53f,
+              0.62f, true);
 
     passes.push_back(Pass{full, whole(size), chrome_first,
                           static_cast<std::uint32_t>(inst.size()) - chrome_first});
