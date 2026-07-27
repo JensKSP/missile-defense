@@ -10,16 +10,20 @@ Qt: pytest writes a CSV a fragment at a time and asserts what comes back.
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
 from md.benchmark import (
     CANONICAL_FRAME_SKIP,
     CANONICAL_INFERENCE_DEVICE,
+    CANONICAL_LADDER,
     CANONICAL_MAX_TICKS,
     CANONICAL_SEED_OFFSET,
     CANONICAL_SPLIT,
+    NO_LADDER,
     SEEDS_PER_SPLIT,
+    VALIDATION_LADDER,
     VALIDATION_SEED_OFFSET,
     VALIDATION_SPLIT,
 )
@@ -30,13 +34,17 @@ from md.ui.sources import (
     RECENT_POINTS,
     EvalRow,
     Peak,
+    baseline_lines,
     checkpoint_note,
     curve_note,
     eval_protocol_label,
     evals_tail,
     find_runs,
     human_age,
+    human_duration,
+    human_rate,
     human_size,
+    ladder_note,
     last_modified,
     list_checkpoints,
     list_recordings,
@@ -45,9 +53,12 @@ from md.ui.sources import (
     metrics_tail,
     next_run_dir,
     peak_note,
+    planned_updates,
     readout_note,
+    row_ladder,
     run_choices,
     same_eval_series,
+    shared_ladder,
 )
 
 HEADER = "update,samples,return,entropy,policy_loss,value_loss,clip_fraction,steps_per_second\r\n"
@@ -421,7 +432,7 @@ def test_the_model_note_scores_the_checkpoint_by_its_own_update(tmp_path: Path) 
     }
     note = checkpoint_note(list_checkpoints(tmp_path), evals)
     assert f"scored {BASELINE_MEAN_SCORE + 1964:,.0f}" in note
-    assert "1,964 ahead of baseline" in note
+    assert "beats HIGH by 1,964" in note
     assert f"{BASELINE_MEAN_SCORE - 5000:,.0f}" not in note
 
 
@@ -447,6 +458,104 @@ def test_validation_checkpoint_note_never_claims_a_baseline_delta(tmp_path: Path
     note = checkpoint_note(list_checkpoints(tmp_path), {200: row})
     assert f"validation score {row.mean_score:,.0f}" in note
     assert "baseline" not in note
+    # It is placed on a ladder — the one its own block was measured on. Ten
+    # thousand above canonical HIGH is 10,372 above validation HIGH, and that
+    # difference is exactly what makes the wrong ladder a lie worth catching.
+    assert "beats HIGH by 10,372" in note
+    assert "beats HIGH by 10,000" not in note, "a validation score got the canonical ladder"
+
+
+def _eval_row(update: int, split: str, offset: int, device: str) -> EvalRow:
+    """A protocol-complete eval row, at the cadence and cap both blocks use."""
+    return EvalRow(
+        update,
+        50_000.0,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        seed_split=split,
+        seed_offset=offset,
+        seed_count=SEEDS_PER_SPLIT,
+        frame_skip=CANONICAL_FRAME_SKIP,
+        max_ticks=CANONICAL_MAX_TICKS,
+        inference_device=device,
+    )
+
+
+def test_the_ladder_is_three_ascending_rungs_topped_by_the_published_baseline() -> None:
+    # What the score chart draws. Ascending because the chart styles them in
+    # that order — faintest first — and topped by the published number because
+    # everything else in the project quotes it as *the* baseline.
+    lines = baseline_lines(CANONICAL_LADDER)
+    assert [value for value, _ in lines] == sorted(value for value, _ in lines)
+    assert [value for value, _ in lines] == [rung.mean_score for rung in CANONICAL_LADDER.rungs]
+    assert lines[-1][0] == BASELINE_MEAN_SCORE
+    assert [label for _, label in lines] == [
+        "scripted low 19,585 · canonical",
+        "scripted medium 63,296 · canonical",
+        "scripted high 98,542 · canonical",
+    ]
+
+
+def test_every_line_says_which_block_it_was_measured_on() -> None:
+    # The two ladders are a few hundred points apart, so a legend that named
+    # only the skill would let a validation line be read as the published
+    # benchmark — the one confusion this whole protocol machinery exists to stop.
+    labels = [label for _, label in baseline_lines(VALIDATION_LADDER)]
+    assert labels == [
+        "scripted low 19,050 · validation",
+        "scripted medium 60,339 · validation",
+        "scripted high 98,170 · validation",
+    ]
+    assert baseline_lines(NO_LADDER) == ()
+
+
+def test_the_ladder_note_says_what_is_beaten_and_what_is_left() -> None:
+    low, medium, high = (rung.mean_score for rung in CANONICAL_LADDER.rungs)
+
+    # Below the first rung there is nothing to celebrate, only a distance.
+    assert ladder_note(low - 1_585.46875, CANONICAL_LADDER) == "1,585 to LOW"
+    # In the middle, both halves: a run 2,000 short of MEDIUM has still learned
+    # something, and "behind the baseline" would have said only that it had not.
+    assert ladder_note(medium - 2_000, CANONICAL_LADDER) == "beats LOW · 2,000 to MEDIUM"
+    assert ladder_note(medium, CANONICAL_LADDER) == "beats MEDIUM · 35,247 to HIGH"
+    # And past the top, the one claim the project makes.
+    assert ladder_note(high + 1_457.65625, CANONICAL_LADDER) == "beats HIGH by 1,458"
+    assert ladder_note(high, CANONICAL_LADDER) == "beats HIGH by 0"
+
+
+def test_a_score_is_measured_against_its_own_block_and_no_other() -> None:
+    # 98,400 beats HIGH on the validation block and does not on the canonical
+    # one. Reading it against the wrong ladder is not a rounding difference; it
+    # is the opposite verdict, which is why the ladder comes from the row.
+    assert ladder_note(98_400, VALIDATION_LADDER) == "beats HIGH by 230"
+    assert ladder_note(98_400, CANONICAL_LADDER) == "beats MEDIUM · 142 to HIGH"
+
+
+def test_a_run_scoring_itself_on_validation_gets_the_validation_ladder() -> None:
+    # What the console draws for the hours a run is actually training. The
+    # backend is not part of it: the scripted agent has none, and pinning CPU
+    # would blank the ladder for every GPU run.
+    rows = [
+        _eval_row(update, VALIDATION_SPLIT, VALIDATION_SEED_OFFSET, "cuda") for update in (10, 20)
+    ]
+    assert shared_ladder(rows) == VALIDATION_LADDER
+    assert row_ladder(rows[0]) == VALIDATION_LADDER
+
+
+def test_no_ladder_spans_two_blocks_or_an_unmeasured_protocol() -> None:
+    validation = _eval_row(10, VALIDATION_SPLIT, VALIDATION_SEED_OFFSET, "cuda")
+    canonical = _eval_row(20, CANONICAL_SPLIT, CANONICAL_SEED_OFFSET, CANONICAL_INFERENCE_DEVICE)
+    assert shared_ladder([validation, canonical]) == NO_LADDER
+    assert shared_ladder([]) == NO_LADDER
+    # A cadence nothing was measured at, and a row from before protocols were
+    # recorded at all.
+    assert row_ladder(EvalRow(**{**validation.__dict__, "frame_skip": 1})) == NO_LADDER
+    assert row_ladder(EvalRow(10, 50_000, None, None, None, None, None, None, None)) == NO_LADDER
 
 
 def test_run_scores_only_compare_when_every_protocol_field_matches() -> None:
@@ -595,3 +704,47 @@ def test_the_readout_carries_the_compared_run_when_there_is_one() -> None:
     # Named but with nothing at that update: the other run says nothing, and the
     # readout does not invent a value for it.
     assert readout_note(812, 4.87, "%.2f", "runs-2", None) == "update 812 · 4.87"
+
+
+def test_a_rate_reads_in_the_unit_the_trainer_prints_it_in() -> None:
+    # The one number that answers "is the accelerator doing anything?". 42k is a
+    # saturated 5090 on the relational architecture; 446k is the flat one.
+    assert human_rate(38_930.6) == "39k steps/s"
+    assert human_rate(446_000) == "446k steps/s"
+    assert human_rate(1_250_000) == "1.2M steps/s"
+    assert human_rate(812) == "812 steps/s"
+    # Nothing to say rather than "0 steps/s", which reads as a stalled run.
+    assert human_rate(None) == ""
+    assert human_rate(0.0) == ""
+
+
+def test_a_duration_gets_coarser_the_longer_it_is() -> None:
+    # Nobody plans around the minutes of a thirty-hour run.
+    assert human_duration(45) == "45 s"
+    assert human_duration(117) == "2 min"
+    assert human_duration(6_241) == "1 h 44 min"  # `good`, measured
+    assert human_duration(99_864) == "1 d 3 h"  # `best`, measured
+    assert human_duration(7_200) == "2 h"  # exact hours drop the minutes
+    assert human_duration(-5) == "0 s"
+
+
+def test_the_horizon_comes_from_the_run_that_wrote_it(tmp_path: Path) -> None:
+    assert planned_updates(tmp_path) is None  # no config.json at all
+
+    (tmp_path / "config.json").write_text(
+        json.dumps({"train": {"updates": 4000, "resume": None}}), encoding="utf-8"
+    )
+    assert planned_updates(tmp_path) == 4000
+
+    # A resumed run's `updates` counts *additional* updates, and the iteration it
+    # continued from lives in a checkpoint this module cannot open. Half an
+    # answer would put a confident "4 h left" on a run with a day to go.
+    (tmp_path / "config.json").write_text(
+        json.dumps({"train": {"updates": 4000, "resume": "checkpoints/policy-final.pt"}}),
+        encoding="utf-8",
+    )
+    assert planned_updates(tmp_path) is None
+
+    for broken in ("", "not json", "[]", '{"train": 7}', '{"train": {"updates": 0}}'):
+        (tmp_path / "config.json").write_text(broken, encoding="utf-8")
+        assert planned_updates(tmp_path) is None

@@ -27,11 +27,14 @@ import pytest
 from md.benchmark import (
     CANONICAL_BASELINE_MEAN_SCORE,
     CANONICAL_FRAME_SKIP,
+    CANONICAL_LADDER,
     CANONICAL_MAX_TICKS,
     CANONICAL_SEED_OFFSET,
     SEEDS_PER_SPLIT,
+    VALIDATION_LADDER,
     VALIDATION_SEED_OFFSET,
     VALIDATION_SPLIT,
+    Ladder,
 )
 from md.control import TUNING_NAME, Control
 
@@ -189,6 +192,58 @@ def test_the_default_evaluator_is_the_published_held_out_benchmark() -> None:
     assert f"seed stream offset {CANONICAL_SEED_OFFSET}" in result.stdout
     assert re.search(r"last wave\s+15\.75", result.stdout)
     assert re.search(r"shots fired.*1\.09 kills/shot", result.stdout)
+
+
+@needs_agent_eval
+@pytest.mark.parametrize(
+    ("ladder", "seed_offset"),
+    [
+        (CANONICAL_LADDER, CANONICAL_SEED_OFFSET),
+        (VALIDATION_LADDER, VALIDATION_SEED_OFFSET),
+    ],
+    ids=["canonical", "validation"],
+)
+def test_every_rung_of_a_ladder_is_what_the_scripted_agent_scores_on_that_block(
+    ladder: Ladder, seed_offset: int
+) -> None:
+    # The console draws three lines per block and tells a learner which one it
+    # has beaten; each rung is a promise about what `--skill <name>` actually
+    # does on those seeds. A rung that has drifted from its agent is worse than
+    # no rung at all — the console would be measuring a run against a number
+    # nothing in the project produces. The two blocks are checked separately
+    # because they are genuinely different numbers, which is the entire reason
+    # a score is only ever read against its own.
+    for rung in ladder.rungs:
+        result = agent_eval(
+            "--skill",
+            rung.skill,
+            "--seeds",
+            str(SEEDS_PER_SPLIT),
+            "--seed-offset",
+            str(seed_offset),
+            "--frame-skip",
+            str(CANONICAL_FRAME_SKIP),
+            "--max-ticks",
+            str(CANONICAL_MAX_TICKS),
+        )
+        assert result.returncode == 0, result.stderr
+        match = re.search(r"mean score\s+([0-9.]+)", result.stdout)
+        assert match is not None, f"--skill {rung.skill} printed no mean score"
+        assert float(match.group(1)) == pytest.approx(rung.mean_score, abs=0.05), (
+            f"the {ladder.block} {rung.label} rung is {rung.mean_score}, "
+            f"but --skill {rung.skill} scores {match.group(1)} on that block"
+        )
+
+    scores = [rung.mean_score for rung in ladder.rungs]
+    assert scores == sorted(scores), f"the {ladder.block} ladder is not a ladder"
+
+
+@needs_agent_eval
+def test_the_published_baseline_is_the_top_canonical_rung() -> None:
+    # Everything outside the console quotes one number. It has to keep being the
+    # top of the canonical ladder, or the two would drift apart silently.
+    assert CANONICAL_LADDER.rungs[-1].mean_score == CANONICAL_BASELINE_MEAN_SCORE
+    assert CANONICAL_LADDER.rungs[-1].skill == "high"
 
 
 def test_a_run_records_what_it_was_started_with(trained_run: Path) -> None:

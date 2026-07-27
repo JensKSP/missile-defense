@@ -57,6 +57,13 @@ MODELS_NAME = "models"
 #: One override, mirroring the runs one. A shared box wants a shared league.
 MODELS_ENV = "MD_MODELS_DIR"
 
+#: Named sets of training options, saved from the console's Start dialog.
+PRESETS_NAME = "presets.json"
+
+#: One override, so a test — or a second machine sharing a home directory — can
+#: point the console at another file.
+PRESETS_ENV = "MD_PRESETS_FILE"
+
 #: Where the console installs a training runtime it manages itself.
 RUNTIME_NAME = "runtime"
 
@@ -124,6 +131,28 @@ def models_dir(
     # Siblings: `runs/` and `models/`. A checkout that has one gets the other
     # in the obvious place, with no second rule to remember.
     return runs.parent / MODELS_NAME
+
+
+def presets_file(
+    *,
+    environ: Mapping[str, str] | None = None,
+    cwd: Path | None = None,
+    platform: str = sys.platform,
+) -> Path:
+    """The user's saved training-option sets. Creates nothing.
+
+    Beside the runs and the models, by the same rules: a checkout keeps its
+    presets next to the runs it starts with them, and an installed copy keeps
+    all three under the per-user data directory. A file rather than a directory
+    because the whole point is that it is small, hand-editable and easy to copy
+    to another machine — a preset is a dozen numbers, not an artifact.
+    """
+    env = os.environ if environ is None else environ
+    override = env.get(PRESETS_ENV)
+    if override:
+        return Path(override)
+    runs = runs_dir(environ=env, cwd=cwd, platform=platform)
+    return runs.parent / PRESETS_NAME
 
 
 def runtime_dir(

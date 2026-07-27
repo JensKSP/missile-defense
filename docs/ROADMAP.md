@@ -359,14 +359,24 @@ surface.
 
 1. **Run** — parameter form (the `TrainConfig` / `PPOConfig` fields, each with the
    reasoning already written beside them in code as tooltips), start/pause/stop/reset,
-   live status.
+   live status. Named **presets** sit above the form: `fast` / `good` / `best` ship
+   with it and are read-only, and your own are saved, updated and deleted there
+   (`md.presets`, stored beside the runs). They hold only what differs from the
+   trainer's defaults, so a preset stays readable as the command line it produces.
 2. **Curves** — return, entropy, value loss, clip fraction, from `metrics.csv`, plus
-   split-labelled evaluation scores. The **98,542 canonical baseline** is drawn only
-   for held-out rows produced by that same protocol.
+   split-labelled evaluation scores. The **skill ladder** — LOW, MEDIUM, HIGH — is
+   drawn as three reference lines, measured on the block the plotted curve was
+   scored on (canonical 19,585 / 63,296 / 98,542; validation 19,050 / 60,339 /
+   98,170) and on no other; the score tile names the rung and the block. Three
+   lines rather than one because progress toward a yardstick a run cannot reach
+   yet is still progress, and a single line reports it as failure.
 3. **Model** — parameter count, layer shapes, observation/action sizes, the iteration a
-   checkpoint came from, and its eval summary against the baseline.
+   checkpoint came from, and its eval summary against the ladder.
 4. **Recordings** — browse `runs/`, play in the app, delete. Newest first.
-5. **System** — CPU and RAM via `psutil`; GPU through a **pluggable probe**.
+5. **System** — CPU, RAM, GPU load and VRAM. The first two via `psutil`; the GPU
+   through a **pluggable probe**. VRAM is a meter rather than a caption: it is
+   the resource that ends a long run, and the one to check before starting a
+   second run beside the first.
 
    There is no cross-vendor Python API for GPU telemetry, so rather than pick one
    vendor or skip the feature, the panel talks to a small protocol and discovers

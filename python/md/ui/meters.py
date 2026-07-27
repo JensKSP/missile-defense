@@ -5,10 +5,19 @@
 """The machine's own row: CPU, memory, and the GPU when something can read it.
 
 It lives under the recordings list rather than in the tile row, because that
-column already had the space and the curve must not lose any. Three thin bars
-answer three questions at a glance — is the CPU saturated, is memory about to
-run out, is the accelerator doing anything at all — and nothing here needs to be
-read precisely, so the numbers stay small and the bars do the talking.
+column already had the space and the curve must not lose any. Four thin bars
+answer four questions at a glance — is the CPU saturated, is memory about to run
+out, is the accelerator doing anything at all, and is its memory about to run out
+— and nothing here needs to be read precisely, so the numbers stay small and the
+bars do the talking.
+
+**VRAM gets a bar of its own, under the GPU's load.** It was a fragment of the
+caption line underneath for a long time, which is the wrong weight for it: GPU
+*utilisation* is a curiosity — it tells you the card is busy, which you knew,
+because you started a run — while GPU *memory* is the number that ends a run
+eight hours in. It is also the one you check before starting a second one
+(docs/TRAINING.md, how much GPU memory a run needs), and a figure you have to
+read out of a sentence is a figure you do not check.
 
 A bar changes colour as it fills. That is the only thing on this strip worth
 looking up from the curve for: amber means the machine is working hard, red
@@ -83,7 +92,10 @@ class SystemPanel(QWidget):
         self._cpu = Meter("cpu")
         self._memory = Meter("ram")
         self._gpu = Meter("gpu")
-        for meter in (self._cpu, self._memory, self._gpu):
+        # Directly under the load it belongs to, and captioned as the thing a
+        # trainer actually says ("vram"), not as "gpu ram".
+        self._vram = Meter("vram")
+        for meter in (self._cpu, self._memory, self._gpu, self._vram):
             layout.addWidget(meter)
 
         # One line for whichever of the two is not available. It names the
@@ -98,7 +110,7 @@ class SystemPanel(QWidget):
     def refresh(self) -> None:
         sample = self._monitor.sample()
         if sample is None:
-            for meter in (self._cpu, self._memory, self._gpu):
+            for meter in (self._cpu, self._memory, self._gpu, self._vram):
                 meter.set(None, "—")
             self._note.setText(NO_PSUTIL)
             return
@@ -113,18 +125,34 @@ class SystemPanel(QWidget):
         gpu = sample.gpu
         if gpu is None:
             self._gpu.set(None, "—")
+            self._vram.set(None, "—")
             self._note.setText(self._monitor.gpu_note)
             return
         busy = "—" if gpu.utilisation is None else f"{gpu.utilisation:.0f}%"
         self._gpu.set(gpu.utilisation, busy)
+        self._vram.set(*_vram_reading(gpu))
         self._note.setText(_gpu_detail(gpu))
 
 
+def _vram_reading(gpu: GpuSample) -> tuple[float | None, str]:
+    """The VRAM bar's fill and its label, in the same shape as the RAM row.
+
+    A card that reports a total but no usage gets its size and no bar: "32 GB,
+    and nobody will say how much of it is left" is a truer thing to show than a
+    bar sitting at zero, which reads as an empty card.
+    """
+    if not gpu.memory_total:
+        return None, "—"
+    total = gpu.memory_total / GB
+    if gpu.memory_used is None:
+        return None, f"— / {total:.0f} GB"
+    used = gpu.memory_used / GB
+    return 100.0 * gpu.memory_used / gpu.memory_total, f"{used:.1f} / {total:.0f} GB"
+
+
 def _gpu_detail(gpu: GpuSample) -> str:
-    """The card, its VRAM and its temperature — whichever of those it reports."""
+    """The card and its temperature. Its memory is a meter of its own now."""
     parts = [gpu.name]
-    if gpu.memory_total:
-        parts.append(f"{(gpu.memory_used or 0) / GB:.1f} / {gpu.memory_total / GB:.0f} GB")
     if gpu.temperature is not None:
         parts.append(f"{gpu.temperature:.0f} °C")
     return " · ".join(parts)

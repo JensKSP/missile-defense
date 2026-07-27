@@ -299,3 +299,20 @@ def test_resume_does_not_claim_an_unavailable_earlier_best(tmp_path: Path) -> No
         expected_ppo=ppo,
     )
     assert not destination.exists()
+
+
+def test_an_out_of_memory_crash_names_the_knob_that_fixes_it() -> None:
+    # A CUDA OOM traceback names a tensor nobody chose and a byte count nobody
+    # can act on. The knobs that caused it are all in this config, and the
+    # cheapest fix — the same data in smaller pieces — is the one nobody guesses,
+    # because every instinct says the *batch* is the problem.
+    advice = trainer._out_of_memory_advice(
+        TrainConfig(envs=4096, steps=512),
+        PPOConfig(minibatches=8, architecture="entity"),
+    )
+    assert "out of GPU memory" in advice
+    assert "batch 2,097,152 samples (4,096 envs x 512 steps)" in advice
+    assert "minibatch 262,144 (--minibatches 8)" in advice
+    assert "--minibatches 16" in advice, "the advice does not offer the cheapest fix"
+    # And what it would have taken, so the number is comparable with a card's size.
+    assert "Estimated peak for this configuration: 152." in advice

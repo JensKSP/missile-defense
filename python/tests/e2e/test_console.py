@@ -27,10 +27,12 @@ from md.benchmark import (
     CANONICAL_BASELINE_MEAN_SCORE,
     CANONICAL_FRAME_SKIP,
     CANONICAL_INFERENCE_DEVICE,
+    CANONICAL_LADDER,
     CANONICAL_MAX_TICKS,
     CANONICAL_SEED_OFFSET,
     CANONICAL_SPLIT,
     SEEDS_PER_SPLIT,
+    VALIDATION_LADDER,
     VALIDATION_SEED_OFFSET,
     VALIDATION_SPLIT,
 )
@@ -226,7 +228,72 @@ def test_the_eval_slider_greys_out_when_no_run_publishes_one(
         window.close()
 
 
-def test_a_protocol_change_starts_a_new_score_curve_and_controls_the_baseline(
+METRICS_HEADER = (
+    "update,samples,return,entropy,policy_loss,value_loss,clip_fraction,steps_per_second\n"
+)
+EVALS_HEADER = (
+    "update,mean_score,seed_split,seed_offset,seed_count,frame_skip,max_ticks,inference_device\n"
+)
+
+
+def _canonical_eval(update: int, score: float) -> str:
+    return (
+        f"{update},{score},{CANONICAL_SPLIT},{CANONICAL_SEED_OFFSET},{SEEDS_PER_SPLIT},"
+        f"{CANONICAL_FRAME_SKIP},{CANONICAL_MAX_TICKS},{CANONICAL_INFERENCE_DEVICE}\n"
+    )
+
+
+def test_a_new_run_starts_the_tiles_at_nothing_notes_included(
+    qt_app: object, tmp_path: Path
+) -> None:
+    # A tile's *note* is the line that describes one particular measurement, so
+    # it is the one that goes stale. "—" over "262,144,000 samples" reads as a
+    # fresh run that has somehow already seen a quarter of a billion samples.
+    from md.ui.app import Console  # noqa: PLC0415
+
+    first = tmp_path / "first"
+    first.mkdir()
+    (first / "metrics.csv").write_text(
+        METRICS_HEADER + "500,262144000,38.2,0.81,-0.003,0.42,0.05,214000.0\n", encoding="utf-8"
+    )
+    (first / "evals.csv").write_text(
+        EVALS_HEADER + _canonical_eval(500, CANONICAL_BASELINE_MEAN_SCORE + 100), encoding="utf-8"
+    )
+    window = Console(first)
+    try:
+        window._tick()
+        assert window._tile_update._value.text() == "500"
+        assert "262,144,000 samples" in window._tile_update._note.text()
+        assert "beats HIGH" in window._tile_score._note.text()
+
+        # Reset… aimed somewhere new, which is how a new run begins.
+        fresh = tmp_path / "fresh"
+        fresh.mkdir()
+        window._attach(fresh)
+        window._tick()
+        assert window._tile_update._value.text() == "—"
+        assert "samples" not in window._tile_update._note.text()
+        assert window._tile_score._value.text() == "—"
+        assert "beats" not in window._tile_score._note.text()
+
+        # And the other way a run restarts: the same directory, written afresh.
+        (fresh / "metrics.csv").write_text(
+            METRICS_HEADER + "700,367001600,39.1,0.78,-0.002,0.40,0.05,214000.0\n",
+            encoding="utf-8",
+        )
+        window._tick()
+        assert "367,001,600 samples" in window._tile_update._note.text()
+        (fresh / "metrics.csv").write_text(
+            METRICS_HEADER, encoding="utf-8"
+        )  # truncated: a new run in the same place
+        window._tick()
+        assert window._tile_update._value.text() == "—"
+        assert "samples" not in window._tile_update._note.text()
+    finally:
+        window.close()
+
+
+def test_a_protocol_change_starts_a_new_score_curve_and_controls_the_ladder(
     qt_app: object, tmp_path: Path
 ) -> None:
     from md.ui.app import Console  # noqa: PLC0415
@@ -245,9 +312,11 @@ def test_a_protocol_change_starts_a_new_score_curve_and_controls_the_baseline(
     try:
         window._tick()
         assert window._score._count == 1
-        assert window._score._baseline is None
+        # A validation curve gets the ladder measured on the validation block —
+        # not the canonical one, whose rungs are a few hundred points away.
+        assert window._score._baselines == [rung.mean_score for rung in VALIDATION_LADDER.rungs]
         assert "validation" in window._tile_score._note.text()
-        assert "baseline" not in window._tile_score._note.text()
+        assert "beats HIGH" in window._tile_score._note.text()
 
         with path.open("a", encoding="utf-8") as handle:
             handle.write(
@@ -261,8 +330,40 @@ def test_a_protocol_change_starts_a_new_score_curve_and_controls_the_baseline(
         # internally comparable segment remains on screen.
         assert window._score._count == 1
         assert window._peak_score.update == 100
-        assert window._score._baseline == CANONICAL_BASELINE_MEAN_SCORE
-        assert "ahead of" in window._tile_score._note.text()
+        # The ladder switched blocks with the curve: all three canonical rungs,
+        # ascending, and the tile says where on them it sits and which they are.
+        assert window._score._baselines == [rung.mean_score for rung in CANONICAL_LADDER.rungs]
+        assert window._score._baselines[-1] == CANONICAL_BASELINE_MEAN_SCORE
+        note = window._tile_score._note.text()
+        assert "beats HIGH by 100" in note
+        assert "held-out canonical" in note
+    finally:
+        window.close()
+
+
+def test_a_protocol_nothing_was_measured_under_gets_no_ladder(
+    qt_app: object, tmp_path: Path
+) -> None:
+    # Frame skip 1 is a different game — the agent reacts four times as often —
+    # so no rung on either block applies, and a chart that drew one anyway would
+    # be comparing two different measurements.
+    from md.ui.app import Console  # noqa: PLC0415
+
+    (tmp_path / "evals.csv").write_text(
+        "update,mean_score,seed_split,seed_offset,seed_count,frame_skip,"
+        "max_ticks,inference_device\n"
+        f"50,70000,{VALIDATION_SPLIT},{VALIDATION_SEED_OFFSET},{SEEDS_PER_SPLIT},"
+        f"1,{CANONICAL_MAX_TICKS},cuda\n",
+        encoding="utf-8",
+    )
+    window = Console(tmp_path)
+    try:
+        window._tick()
+        assert window._score._count == 1
+        assert window._score._baselines == []
+        note = window._tile_score._note.text()
+        assert "beats" not in note
+        assert "frame skip 1" in note  # and it says what makes it incomparable
     finally:
         window.close()
 
@@ -334,6 +435,271 @@ def test_the_run_a_console_would_start_is_a_command_you_could_type(
         assert command[0] == "/usr/bin/python3"
         assert "md.train" in command
         assert str(tmp_path) in command
+    finally:
+        dialog.close()
+
+
+def test_a_preset_fills_the_form_and_editing_it_stops_claiming_to_be_one(
+    qt_app: object, tmp_path: Path
+) -> None:
+    # The picker is the whole point of naming a set of options: choosing "good"
+    # has to produce the run that recipe describes, and the moment a value is
+    # edited by hand the form is no longer that preset and must stop saying so.
+    from md import presets  # noqa: PLC0415
+    from md.ui.forms import ParameterDialog, _read  # noqa: PLC0415
+    from md.ui.params import read_params  # noqa: PLC0415
+    from md.ui.runner import PACKAGE_PATH  # noqa: PLC0415
+
+    file = tmp_path / "presets.json"
+    dialog = ParameterDialog(
+        read_params(PACKAGE_PATH / "md"),
+        python="/usr/bin/python3",
+        out_dir=tmp_path,
+        presets_file=file,
+    )
+    shown = lambda name: _read(dialog._editors[name])  # noqa: E731 — one expression, used often
+    try:
+        assert dialog._presets.itemText(0) == presets.CUSTOM
+        assert [dialog._presets.itemText(i) for i in range(1, 4)] == ["fast", "good", "best"]
+
+        dialog._presets.setCurrentIndex(dialog._presets.findData("good"))
+        assert (shown("architecture"), shown("envs"), shown("steps"), shown("updates")) == (
+            "entity",
+            "1024",
+            "256",
+            "1000",
+        )
+        # The command line still only carries the *difference* from the trainer's
+        # defaults, which is what makes it readable — three of `good`'s four
+        # values are the defaults, so one flag describes the run exactly. The
+        # preset pins all four anyway, so the recipe survives a default changing.
+        assert " ".join(dialog.command()).count("--") == 2  # --architecture, --out-dir
+        assert dialog.values() == {"architecture": "entity"}
+
+        # Switching presets replaces what the last one set rather than layering
+        # on top of it: `fast` is an mlp run, and `entity` must not survive it.
+        dialog._presets.setCurrentIndex(dialog._presets.findData("fast"))
+        assert (shown("architecture"), shown("envs"), shown("steps")) == ("mlp", "4096", "128")
+        assert "--architecture" not in " ".join(dialog.command())  # mlp is the default
+
+        # A value typed by hand: still fast's numbers, no longer called "fast".
+        dialog._editors["updates"].setValue(37)  # type: ignore[attr-defined]
+        assert dialog._presets.currentIndex() == 0
+        assert dialog.values()["updates"] == "37"
+        assert dialog.values()["envs"] == "4096"
+    finally:
+        dialog.close()
+
+
+def test_the_update_tile_says_how_fast_it_is_going_and_how_long_is_left(
+    qt_app: object, tmp_path: Path
+) -> None:
+    # "Is the GPU actually being used?" was unanswerable from this window: the
+    # trainer prints steps/s every update and the console kept it to itself,
+    # leaving a samples counter as the only sign of life. 42k steps/s is a
+    # saturated 5090 on the relational architecture — ten times slower than the
+    # flat one, and that difference is what looks like an idle card.
+    import json  # noqa: PLC0415
+
+    from md.ui.app import Console  # noqa: PLC0415
+
+    (tmp_path / "config.json").write_text(
+        json.dumps({"train": {"updates": 4000, "resume": None}}), encoding="utf-8"
+    )
+    (tmp_path / "metrics.csv").write_text(
+        METRICS_HEADER
+        + "1,1048576,nan,1.6399,-0.000364,4.930708,0.0017,38774.6\n"
+        + "2,2097152,54.0783,1.8301,-0.000491,12.290598,0.0047,38894.0\n",
+        encoding="utf-8",
+    )
+    window = Console(tmp_path)
+    try:
+        window._tick()
+        note = window._tile_update._note.text()
+        assert "2,097,152 samples" in note
+        assert "39k steps/s" in note
+        # 3,998 updates left at 1,048,576 samples each, at 38,894 steps/s —
+        # very nearly the 30 hours `best` was measured at.
+        assert "~1 d 5 h left" in note
+    finally:
+        window.close()
+
+
+def test_a_run_that_cannot_know_its_horizon_still_says_how_fast_it_is_going(
+    qt_app: object, tmp_path: Path
+) -> None:
+    # A resumed run's `updates` counts additional updates from an iteration that
+    # lives in a checkpoint. The rate is still worth showing; a confident "4 h
+    # left" on a run with a day to go is not.
+    import json  # noqa: PLC0415
+
+    from md.ui.app import Console  # noqa: PLC0415
+
+    (tmp_path / "config.json").write_text(
+        json.dumps({"train": {"updates": 4000, "resume": "checkpoints/policy-final.pt"}}),
+        encoding="utf-8",
+    )
+    (tmp_path / "metrics.csv").write_text(
+        METRICS_HEADER + "812,212860928,54.0783,1.83,-0.0004,12.29,0.0047,38894.0\n",
+        encoding="utf-8",
+    )
+    window = Console(tmp_path)
+    try:
+        window._tick()
+        note = window._tile_update._note.text()
+        assert "39k steps/s" in note
+        assert "left" not in note
+    finally:
+        window.close()
+
+
+def test_vram_gets_a_meter_of_its_own_under_the_gpu_load(qt_app: object) -> None:
+    # GPU utilisation tells you the card is busy, which you knew — you started
+    # the run. GPU *memory* is what ends a run eight hours in, and it used to be
+    # a fragment of the caption line under the bars.
+    from md.ui.meters import GB, SystemPanel  # noqa: PLC0415
+    from md.ui.system import GpuSample, Sample  # noqa: PLC0415
+
+    class _Monitor:
+        gpu_note = "no GPU"
+
+        def __init__(self, gpu: GpuSample | None) -> None:
+            self._gpu = gpu
+
+        def sample(self) -> Sample:
+            return Sample(cpu=11.0, memory_used=16 * GB, memory_total=62 * GB, gpu=self._gpu)
+
+    card = GpuSample(
+        name="NVIDIA GeForce RTX 5090",
+        utilisation=10.0,
+        memory_used=int(17.4 * GB),
+        memory_total=32 * GB,
+        temperature=34.0,
+    )
+    panel = SystemPanel(_Monitor(card))  # type: ignore[arg-type]
+    try:
+        panel.refresh()
+        assert panel._vram._value.text() == "17.4 / 32 GB"
+        assert panel._vram._bar.value() == 54  # 17.4 of 32, as a bar like ram's
+        assert panel._gpu._value.text() == "10%"
+        # The caption line keeps the card and its temperature and stops
+        # duplicating what now has a bar.
+        assert panel._note.text() == "NVIDIA GeForce RTX 5090 · 34 °C"
+    finally:
+        panel.close()
+
+    # A card that reports a size but not its usage: the size, and no bar. A bar
+    # at zero would read as an empty card rather than as an unanswered question.
+    quiet = SystemPanel(_Monitor(GpuSample(name="card", memory_total=8 * GB)))  # type: ignore[arg-type]
+    try:
+        quiet.refresh()
+        assert quiet._vram._value.text() == "— / 8 GB"
+        assert not quiet._vram._bar.isVisible()
+    finally:
+        quiet.close()
+
+    # And no card at all leaves both GPU rows empty rather than at zero.
+    headless = SystemPanel(_Monitor(None))  # type: ignore[arg-type]
+    try:
+        headless.refresh()
+        assert headless._vram._value.text() == "—"
+        assert headless._gpu._value.text() == "—"
+    finally:
+        headless.close()
+
+
+def test_the_dialog_says_what_a_run_will_cost_the_card_before_it_starts(
+    qt_app: object, tmp_path: Path
+) -> None:
+    # `best` shipped in a state that ran out of memory on the card it was
+    # designed for, and nothing on this dialog hinted at it. The estimate is
+    # shown whether or not it fits, because 17 GiB is the difference between
+    # "start it and go to bed" and "start it and stop using the machine".
+    from md import footprint  # noqa: PLC0415
+    from md.ui.forms import ParameterDialog  # noqa: PLC0415
+    from md.ui.params import read_params  # noqa: PLC0415
+    from md.ui.runner import PACKAGE_PATH  # noqa: PLC0415
+
+    def dialog_with(free_gib: float) -> ParameterDialog:
+        return ParameterDialog(
+            read_params(PACKAGE_PATH / "md"),
+            python="/usr/bin/python3",
+            out_dir=tmp_path,
+            presets_file=tmp_path / "presets.json",
+            free_vram_bytes=int(free_gib * footprint.GIB),
+        )
+
+    roomy = dialog_with(30)
+    try:
+        roomy._presets.setCurrentIndex(roomy._presets.findData("best"))
+        assert roomy._memory is not None
+        text = roomy._memory.text()
+        assert "GiB of GPU memory" in text
+        assert "30.0 GiB free" in text
+        assert roomy._memory.property("role") == "note"
+        assert "⚠" not in text
+    finally:
+        roomy.close()
+
+    cramped = dialog_with(8)
+    try:
+        cramped._presets.setCurrentIndex(cramped._presets.findData("best"))
+        assert cramped._memory is not None
+        warning = cramped._memory.text()
+        assert warning.startswith("⚠")
+        assert "run out" in warning
+        assert "--minibatches" in warning, "the warning does not name the cheapest fix"
+        assert cramped._memory.property("role") == "warning"
+
+        # And `fast` fits in the same 8 GiB, so the warning is about the
+        # configuration rather than a permanent scold on a small card.
+        cramped._presets.setCurrentIndex(cramped._presets.findData("fast"))
+        assert "⚠" not in cramped._memory.text()
+    finally:
+        cramped.close()
+
+
+def test_the_dialog_saves_a_preset_and_refuses_to_overwrite_a_built_in(
+    qt_app: object, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from md import presets  # noqa: PLC0415
+    from md.ui import forms as forms_module  # noqa: PLC0415
+    from md.ui.forms import ParameterDialog  # noqa: PLC0415
+    from md.ui.params import read_params  # noqa: PLC0415
+    from md.ui.runner import PACKAGE_PATH  # noqa: PLC0415
+
+    warned: list[str] = []
+    monkeypatch.setattr(
+        forms_module.QMessageBox,
+        "warning",
+        staticmethod(lambda _parent, _title, text: warned.append(text)),
+    )
+
+    file = tmp_path / "presets.json"
+    dialog = ParameterDialog(
+        read_params(PACKAGE_PATH / "md"),
+        python="/usr/bin/python3",
+        out_dir=tmp_path,
+        presets_file=file,
+    )
+    try:
+        dialog._editors["envs"].setValue(8192)  # type: ignore[attr-defined]
+        dialog._store("overnight", "the long one")
+        # Saved, listed, and selected — the name you just gave it is what the
+        # picker should be showing, not "custom".
+        assert presets.find("overnight", file) is not None
+        assert dialog._presets.currentText() == "overnight"
+        assert dialog._update_preset.isEnabled()
+        assert dialog._delete_preset.isEnabled()
+
+        # A built-in is read-only: selecting one disables both, and saving over
+        # its name is refused with a reason rather than silently ignored.
+        dialog._presets.setCurrentIndex(dialog._presets.findData("good"))
+        assert not dialog._update_preset.isEnabled()
+        assert not dialog._delete_preset.isEnabled()
+        dialog._store("good", "")
+        assert warned and "built-in" in warned[0]
+        assert presets.find("good", file) == presets.find("good")
     finally:
         dialog.close()
 

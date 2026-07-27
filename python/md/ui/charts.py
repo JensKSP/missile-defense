@@ -14,12 +14,14 @@ imply the run passed through values that do not exist.
 Qt Charts ships with PySide6 under the same LGPLv3, so this costs nothing to
 install and nothing to vet — and at one point every few seconds, the performance
 argument that would push toward pyqtgraph does not arise. Everything still goes
-through this wrapper (``append`` / ``set_baseline`` / ``clear``), so swapping the
+through this wrapper (``append`` / ``set_baselines`` / ``clear``), so swapping the
 library later touches this file and no other (docs/ROADMAP.md, M8, risk 1).
 
-For a canonical benchmark row, a horizontal line at 98,542 turns a number going
-up into "am I winning yet"; validation and mismatched protocols hide it. The
-line has to keep spanning the plot as a canonical segment grows.
+For a canonical benchmark row, horizontal lines at the scripted ladder's three
+rungs turn a number going up into "am I winning yet"; validation and mismatched
+protocols hide them. They have to keep spanning the plot as a canonical segment
+grows. Faintest-first, so the hardest target is the strongest line: a policy at
+64,000 has cleared two of them and is being read against the third.
 
 A curve can carry a **second run** as well (M8 phase 5). Overlaid rather than in
 a second chart beside it: two plots with independent axes make you compare by
@@ -65,9 +67,14 @@ COMPARISON_ALPHA = 90
 #: dropping its last statistic. The title has the rest of that row.
 STATS_WIDTH = 0.58
 
+#: Out of 255, for the lowest of several reference lines. A ladder of targets is
+#: drawn faintest-first so the hardest one carries the most ink; a chart with a
+#: single reference line draws it at full strength and this never applies.
+LADDER_MIN_ALPHA = 90
+
 
 class CurveView(QChartView):
-    """A single metric against the update number, with an optional baseline.
+    """A single metric against the update number, over optional reference lines.
 
     ``None`` values are gaps, not zeroes: the trainer writes ``nan`` for the mean
     return until the first episodes finish, and drawing that as zero would invent
@@ -83,6 +90,7 @@ class CurveView(QChartView):
         markers: bool = False,
         series_name: str = "",
         from_zero: bool = False,
+        baselines: int = 0,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -97,7 +105,8 @@ class CurveView(QChartView):
         self._y_max = 0.0
         self._count = 0
         self._last: float | None = None
-        self._baseline: float | None = None
+        #: The reference values currently drawn, in the order they were given.
+        self._baselines: list[float] = []
         self._x_hint = 0.0
         # The points, again, beside the series that draws them. Qt hands its own
         # copy back as a list of QPointF, which is a copy of the whole run every
@@ -127,13 +136,14 @@ class CurveView(QChartView):
         self._compare_max = 0.0
         self._compare_count = 0
 
-        # Drawn first so the curve sits on top of it, and dashed so it reads as a
-        # target rather than as another measurement.
-        self._baseline_series = QLineSeries()
-        pen = QPen(QColor(theme.BASELINE), 1.4)
-        pen.setStyle(Qt.PenStyle.DashLine)
-        self._baseline_series.setPen(pen)
-        self._baseline_series.setVisible(False)
+        # Dashed, so they read as targets rather than as more measurements, and
+        # made here — before the chart exists — so they can be added under the
+        # curve. Qt draws series in the order they were added and offers no way
+        # to restack them, so a line that appeared later would sit *over* the run
+        # it is a reference for. The capacity is reserved rather than grown for
+        # the same reason: which rungs are shown changes with the protocol, and
+        # the z-order must not change with it.
+        self._baseline_series = [_baseline_line(index, baselines) for index in range(baselines)]
 
         # Where the pointer is, in the plot's own units — a vertical hairline at
         # the point the readout is reporting. Without it the chip says "update
@@ -158,7 +168,8 @@ class CurveView(QChartView):
         self._chart.legend().setAlignment(Qt.AlignmentFlag.AlignTop)
         self._chart.legend().setLabelColor(QColor(theme.MUTED))
         self._chart.legend().setFont(_caption_font())
-        self._chart.addSeries(self._baseline_series)
+        for baseline in self._baseline_series:
+            self._chart.addSeries(baseline)
         self._chart.addSeries(self._crosshair)
         self._chart.addSeries(self._compare)  # under the attached run, not over it
         self._chart.addSeries(self._series)
@@ -167,7 +178,12 @@ class CurveView(QChartView):
         self._y_axis = _axis(value_format)
         self._chart.addAxis(self._x_axis, Qt.AlignmentFlag.AlignBottom)
         self._chart.addAxis(self._y_axis, Qt.AlignmentFlag.AlignLeft)
-        for series in (self._series, self._baseline_series, self._compare, self._crosshair):
+        for series in (
+            self._series,
+            *self._baseline_series,
+            self._compare,
+            self._crosshair,
+        ):
             series.attachAxis(self._x_axis)
             series.attachAxis(self._y_axis)
         self._show_compare_marker(False)
@@ -256,30 +272,39 @@ class CurveView(QChartView):
         self.clear_comparison()
         self._compare.setVisible(False)
         self._show_compare_marker(False)
-        self._chart.legend().setVisible(self._baseline is not None)
+        self._chart.legend().setVisible(bool(self._baselines))
 
     def _show_compare_marker(self, shown: bool) -> None:
-        for marker in self._chart.legend().markers(self._compare):
-            marker.setVisible(shown)
+        self._show_marker(self._compare, shown)
 
-    def set_baseline(self, value: float | None, label: str = "") -> None:
-        """Draw a valid reference line, or hide it when protocols do not match."""
-        self._baseline = value
-        if value is None:
-            self._baseline_series.clear()
-            self._baseline_series.setVisible(False)
-            self._show_baseline_marker(False)
-            self._chart.legend().setVisible(self._compare.isVisible())
-            self._rescale()
-            return
-        self._baseline_series.setName(label)
-        self._baseline_series.setVisible(True)
-        self._show_baseline_marker(True)
-        self._chart.legend().setVisible(True)
+    # ---- the reference lines ------------------------------------------------
+    def set_baselines(self, baselines: Sequence[tuple[float, str]]) -> None:
+        """Draw these ``(value, label)`` reference lines and no others.
+
+        Ascending, please — they were styled in that order, so a descending list
+        would put the heaviest line at the bottom of the plot. An empty sequence
+        is how a chart says "these are not comparable with what is plotted", and
+        is the honest state whenever the protocol does not match.
+        """
+        if len(baselines) > len(self._baseline_series):
+            raise ValueError(
+                f"{len(baselines)} reference lines on a chart that reserved "
+                f"{len(self._baseline_series)}"
+            )
+        self._baselines = [value for value, _ in baselines]
+        for index, series in enumerate(self._baseline_series):
+            shown = index < len(baselines)
+            if shown:
+                series.setName(baselines[index][1])
+            else:
+                series.clear()
+            series.setVisible(shown)
+            self._show_marker(series, shown)
+        self._chart.legend().setVisible(bool(baselines) or self._compare.isVisible())
         self._rescale()
 
-    def _show_baseline_marker(self, shown: bool) -> None:
-        for marker in self._chart.legend().markers(self._baseline_series):
+    def _show_marker(self, series: QLineSeries, shown: bool) -> None:
+        for marker in self._chart.legend().markers(series):
             marker.setVisible(shown)
 
     def set_x_extent(self, x: float) -> None:
@@ -400,11 +425,11 @@ class CurveView(QChartView):
 
     # ---- layout -------------------------------------------------------------
     def _rescale(self) -> None:
-        """Fit both axes around the data, the baseline included.
+        """Fit both axes around the data, the reference lines included.
 
-        When present, the baseline has to be inside the y range or the whole
-        point of it is invisible — a canonical score may be nowhere near 98,542,
-        and that gap *is* the information.
+        When present, they have to be inside the y range or the whole point of
+        them is invisible — a canonical score may be nowhere near 98,542, and
+        that gap *is* the information.
         """
         x_min, x_max = (0.0, 10.0) if self._count == 0 else (self._x_min, self._x_max)
         if self._x_hint:  # a hinted axis spans the whole run, points or not
@@ -418,8 +443,7 @@ class CurveView(QChartView):
             # The comparison shares the axis, so a run that went somewhere this
             # one did not must still fit — that difference is the whole point.
             seen += [self._compare_min, self._compare_max]
-        if self._baseline is not None:
-            seen.append(self._baseline)
+        seen += self._baselines
         if self._from_zero:
             seen.append(0.0)
         if seen:
@@ -427,10 +451,8 @@ class CurveView(QChartView):
         else:
             _fit(self._y_axis, 0.0, 1.0)
 
-        if self._baseline is not None:
-            self._baseline_series.replace(
-                [QPointF(x_low, self._baseline), QPointF(x_high, self._baseline)]
-            )
+        for value, series in zip(self._baselines, self._baseline_series, strict=False):
+            series.replace([QPointF(x_low, value), QPointF(x_high, value)])
         self._placeholder.setVisible(bool(self._placeholder.text()) and self._count == 0)
 
     def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802 — Qt's name
@@ -674,6 +696,25 @@ def _nice_step(span: float) -> float:
         if rough <= factor * magnitude:
             return factor * magnitude
     return 10.0 * magnitude
+
+
+def _baseline_line(index: int, count: int) -> QLineSeries:
+    """One hidden dashed reference line, ``index`` rungs up a ladder of ``count``.
+
+    Fading with height so a ladder reads as one yardstick at several settings
+    rather than as several measurements — and so the hardest target, the one the
+    project actually publishes, is the strongest line on the plot. A lone
+    reference line has nothing to be read against and stays at full strength.
+    """
+    colour = QColor(theme.BASELINE)
+    if count > 1:
+        colour.setAlpha(LADDER_MIN_ALPHA + round((255 - LADDER_MIN_ALPHA) * index / (count - 1)))
+    pen = QPen(colour, 1.4)
+    pen.setStyle(Qt.PenStyle.DashLine)
+    series = QLineSeries()
+    series.setPen(pen)
+    series.setVisible(False)
+    return series
 
 
 def _axis(label_format: str) -> QValueAxis:

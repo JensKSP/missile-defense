@@ -59,6 +59,7 @@ from PySide6.QtWidgets import (
 
 from .. import library as run_library
 from .. import modelcard, paths
+from ..benchmark import CANONICAL_LADDER, Ladder, ladder_standing
 from ..control import Control
 from . import about, sources, theme
 from .analysis import AnalysisView
@@ -79,7 +80,7 @@ from .runner import (
     training_python,
 )
 from .runtime_dialog import RuntimeDialog
-from .sources import BASELINE_MEAN_SCORE, EvalRow, MetricRow, Recording
+from .sources import EvalRow, MetricRow, Recording
 
 #: Where the trainer's dataclasses live, for the parameter form's tooltips.
 TRAINER_SOURCES = PACKAGE_PATH / "md"
@@ -162,6 +163,10 @@ class StatTile(QFrame):
         self._peak = QLabel()
         self._peak.setProperty("role", "note")
         self._peak.setVisible(False)
+        #: What the note says before any run has filled it in, kept so a reset
+        #: can put it back. A tile's note is the only line that describes a
+        #: *particular* measurement, so it is the one that goes stale.
+        self._initial_note = note
         self._note = QLabel(note)
         self._note.setProperty("role", "note")
         # The same number from the run being compared against. A line of its own
@@ -195,6 +200,17 @@ class StatTile(QFrame):
         if text != self._compare.text():
             self._compare.setText(text)
         self._compare.setVisible(bool(text))
+
+    def reset(self) -> None:
+        """Forget the run that was here: value, peak **and** note together.
+
+        The note is the one that is easy to leave behind and the only one that
+        can lie — "—" over "262,144,000 samples" is a tile describing the
+        previous run, and a new run starts at nothing.
+        """
+        self.set_value("—")
+        self.set_peak("")
+        self.set_note(self._initial_note)
 
 
 class Console(QMainWindow):
@@ -263,6 +279,12 @@ class Console(QMainWindow):
         self._updates = 0
         self._last_metric: MetricRow | None = None
         self._last_eval: EvalRow | None = None
+        #: The update this run's metrics start at, and how many it means to do.
+        #: Together they are "how much is left", which the samples counter alone
+        #: cannot say — and a run that continues someone else's numbering must
+        #: not be reported as nearly finished before it starts.
+        self._first_update: int | None = None
+        self._planned_updates = sources.planned_updates(run_dir)
         #: The high-water mark of each headline number, so a tile says what the
         #: run has *managed* and not only what it is doing this second. Per run,
         #: so they are made here with everything else that re-attaching resets.
@@ -282,10 +304,9 @@ class Console(QMainWindow):
         self._compare_eval_rows: list[EvalRow] = []
         for curve in (self._score, self._return, self._entropy, self._value):
             curve.clear()
-        self._score.set_baseline(None)
+        self._score.set_baselines(())
         for tile in (self._tile_update, self._tile_score, self._tile_return, self._tile_entropy):
-            tile.set_value("—")
-            tile.set_peak("")
+            tile.reset()
 
         self.setWindowTitle(f"Missile Defense — training console · {run_dir}")
         self._refresh_model()  # not on the next rescan: it would be the old run's
@@ -623,8 +644,8 @@ class Console(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
 
-        # The hero. Its rows carry protocol metadata; the held-out baseline is
-        # drawn only when every plotted score actually used that protocol.
+        # The hero. Its rows carry protocol metadata; a ladder is drawn only
+        # when every plotted score was produced on the block it was measured on.
         self._score = CurveView(
             "policy evaluation score",
             theme.SCORE,
@@ -632,6 +653,7 @@ class Console(QMainWindow):
             markers=True,  # an eval every --eval-every updates is dots, not a line
             series_name="learned policy",
             from_zero=True,
+            baselines=len(CANONICAL_LADDER.rungs),
         )
         self._score.set_placeholder(NO_EVALS)
         layout.addWidget(self._score, stretch=3)
@@ -789,10 +811,15 @@ class Console(QMainWindow):
             self._last_metric = None
             self._peak_return.clear()
             self._peak_entropy.clear()
+            # A different run writes into the same file, so where it starts
+            # counting and how far it means to go are both somebody else's now.
+            self._first_update = None
+            self._planned_updates = sources.planned_updates(self._run_dir)
             for tile in (self._tile_update, self._tile_return, self._tile_entropy):
-                tile.set_value("—")
-                tile.set_peak("")
+                tile.reset()
         for row in batch.rows:
+            if self._first_update is None:
+                self._first_update = row.update
             self._return.append(row.update, row.mean_return)
             self._entropy.append(row.update, row.entropy)
             self._value.append(row.update, row.value_loss)
@@ -806,24 +833,53 @@ class Console(QMainWindow):
         row = self._last_metric = batch.rows[-1]
         self._score.set_x_extent(row.update)  # the eval chart spans the run too
         self._tile_update.set_value(f"{row.update:,}")
-        self._tile_update.set_note(f"{row.samples:,} samples")
+        self._tile_update.set_note(self._progress_note(row))
         self._tile_return.set_value(_number(row.mean_return, "{:,.1f}"))
         self._tile_entropy.set_value(_number(row.entropy, "{:.3f}"))
         self._tile_return.set_peak(sources.peak_note(self._peak_return, "{:,.1f}"))
         self._tile_entropy.set_peak(sources.peak_note(self._peak_entropy, "{:.3f}"))
 
+    def _progress_note(self, row: MetricRow) -> str:
+        """``262,144 samples · 42k steps/s · ~28 h left``.
+
+        The rate is what answers "is the accelerator doing anything?" — the
+        trainer has printed it since M6 and this window used to keep it to
+        itself, which left the samples counter as the only sign of life. The
+        remaining time is what answers the question straight after it, and it is
+        computed from the run's *own* observed rate rather than from a model of
+        the hardware: at 42k steps/s the relational architecture is saturating a
+        5090, and no table here would know that about someone else's card.
+        """
+        parts = [f"{row.samples:,} samples", sources.human_rate(row.steps_per_second)]
+        left = self._updates_left(row.update)
+        if left is not None and row.steps_per_second:
+            samples_left = left * (row.samples // max(row.update, 1))
+            parts.append(f"~{sources.human_duration(samples_left / row.steps_per_second)} left")
+        return " · ".join(part for part in parts if part)
+
+    def _updates_left(self, update: int) -> int | None:
+        """Updates still to come, or ``None`` when the horizon is not knowable.
+
+        The run's first update is read off its own metrics rather than assumed to
+        be 1, so a run that continues someone else's numbering is not reported as
+        nearly finished before it starts.
+        """
+        planned = self._planned_updates
+        if planned is None or self._first_update is None:
+            return None
+        return max(planned - (update - self._first_update + 1), 0)
+
     def _read_evals(self) -> None:
         batch = self._evals.poll()
         if batch.restarted:
             self._score.clear()
-            self._score.set_baseline(None)
+            self._score.set_baselines(())
             self._rewind_comparison_evals()
             self._last_eval = None
             self._eval_rows.clear()
             self._display_eval_rows.clear()
             self._peak_score.clear()
-            self._tile_score.set_value("—")
-            self._tile_score.set_peak("")
+            self._tile_score.reset()
             self._refresh_analysis()
         for row in batch.rows:
             if self._last_eval is not None and not sources.same_eval_series(self._last_eval, row):
@@ -831,7 +887,7 @@ class Console(QMainWindow):
                 # only the newest contiguous protocol segment and start its peak
                 # again; the CSV still retains every historical row.
                 self._score.clear()
-                self._score.set_baseline(None)
+                self._score.set_baselines(())
                 self._rewind_comparison_evals()
                 self._display_eval_rows.clear()
                 self._peak_score.clear()
@@ -845,25 +901,22 @@ class Console(QMainWindow):
         self._tile_score.set_peak(sources.peak_note(self._peak_score, "{:,.0f}"))
         row = batch.rows[-1]
 
-        all_canonical = bool(self._display_eval_rows) and all(
-            sources.is_canonical_benchmark(item) for item in self._display_eval_rows
-        )
-        if all_canonical:
-            self._score.set_baseline(
-                BASELINE_MEAN_SCORE, f"scripted baseline {BASELINE_MEAN_SCORE:,.0f}"
-            )
-        else:
-            self._score.set_baseline(None)
+        # One ladder for the whole plotted segment or none at all: the rows on
+        # screen share a protocol, and a curve cannot carry two sets of rungs.
+        ladder = sources.shared_ladder(self._display_eval_rows)
+        self._score.set_baselines(sources.baseline_lines(ladder))
 
-        if sources.is_canonical_benchmark(row):
-            delta = row.mean_score - BASELINE_MEAN_SCORE
-            ahead = delta > 0
+        if ladder:
             self._tile_score.set_value(
-                f"{row.mean_score:,.0f}", theme.AHEAD if ahead else theme.BEHIND
+                f"{row.mean_score:,.0f}", _ladder_colour(row.mean_score, ladder)
             )
+            # The block as well as the standing. Two ladders exist and they are
+            # a few hundred points apart, so "beats MEDIUM" alone would be half
+            # a sentence — and on validation rows it is emphatically not the
+            # published claim.
             self._tile_score.set_note(
-                f"{abs(delta):,.0f} {'ahead of' if ahead else 'behind'} baseline "
-                f"· update {row.update}"
+                f"{sources.ladder_note(row.mean_score, ladder)} · "
+                f"{sources.eval_protocol_label(row)} · update {row.update}"
             )
         else:
             self._tile_score.set_value(f"{row.mean_score:,.0f}")
@@ -1254,6 +1307,9 @@ class Console(QMainWindow):
             # What is already in this directory, so continuing a run is a choice
             # from a list rather than a path typed from memory.
             checkpoints=sources.list_checkpoints(out_dir),
+            # Beside the runs, not inside this one: a preset outlives the run it
+            # started, which is the whole reason for naming it.
+            presets_file=paths.presets_file(),
             parent=self,
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
@@ -1466,6 +1522,21 @@ def _number(value: float | None, spec: str) -> str:
 def _compare_note(name: str, value: float | None, spec: str) -> str:
     """``runs-2 13.4`` — the other run's value under this one's."""
     return f"{name} {_number(value, spec)}"
+
+
+def _ladder_colour(score: float, ladder: Ladder) -> str:
+    """Red under the first rung, amber climbing, green past the top one.
+
+    Three colours because the ladder has three rungs and a learner watching this
+    tile has one question — *is it getting anywhere* — that a red number gives
+    the wrong answer to for the whole middle of a run. Green stays reserved for
+    beating HIGH, the only rung worth the colour the rest of the console uses
+    for "done" (on the canonical block, that is also the published claim).
+    """
+    cleared, remaining = ladder_standing(score, ladder)
+    if cleared is None:
+        return theme.BEHIND
+    return theme.AHEAD if remaining is None else theme.AMBER
 
 
 def main(argv: list[str] | None = None) -> int:

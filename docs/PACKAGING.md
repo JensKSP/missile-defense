@@ -76,6 +76,13 @@ Rule 3 is what keeps a checkout behaving exactly as it always has, without a
 build-time switch: the same binary does the obvious thing in a source tree and in
 `/usr/games` without being told which one it is in.
 
+Two things live *beside* the runs rather than in one, because both must outlive
+the run that produced them: promoted models in `models/`, and the console's saved
+training presets in `presets.json` (`$MD_MODELS_DIR` and `$MD_PRESETS_FILE`
+override). The presets file is a small, indented JSON list meant to be opened in
+an editor and copied between machines; a missing or damaged one costs you the
+saved names and nothing else.
+
 **Why data and not state or cache.** `~/.local/state` is for things you would
 shrug at losing and `~/.cache` for things that regenerate. A checkpoint is the
 output of hours of compute and regenerates only by spending them again, so it

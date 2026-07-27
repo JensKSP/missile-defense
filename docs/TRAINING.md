@@ -62,6 +62,22 @@ each is worth is measurable — and the answer is lopsided. Ammunition memory
 shots) is worth **~78,000 points**; the `cluster_bonus` that waits for MIRV
 spreads to converge is worth **~1,500**. See the README's skill table.
 
+The console draws that ladder as three reference lines. Because a score may only
+be read against seeds it was actually played on, the same three agents are also
+measured on the validation block below, and the console picks the ladder that
+matches the curve:
+
+| Skill | Canonical (offset 32) | Validation (offset 0) |
+|---|---|---|
+| LOW | 19,585.46875 | 19,049.6875 |
+| MEDIUM | 63,295.625 | 60,339.0625 |
+| HIGH | **98,542.34375** | 98,170.15625 |
+
+Only the canonical column is a claim about anything; the validation column is a
+progress marker for a run in flight, and the trainer never selects on it either.
+Both are reproducible with `md_agent_eval --skill <name> --seed-offset <0|32>`,
+and a test fails if any of the six drifts from what the agent scores.
+
 There are two fixed, disjoint 32-seed blocks from the same deterministic stream:
 
 * **Validation, offset 0:** the historical first 32 seeds. Routine evaluations
@@ -148,8 +164,9 @@ follows the same rule so it finds what the trainer wrote. The order is in
 Those last two are deliberately separate files. `metrics.csv` is the training
 return, which as above is *not* a score; `evals.csv` contains sparse game-score
 summaries. Each row records its seed split and offset, seed count, frame skip,
-tick cap, and inference device. The console draws the scripted baseline only for
-a canonical row whose entire protocol matches.
+tick cap, and inference device. That metadata is what lets the console draw the
+scripted ladder — LOW, MEDIUM and HIGH — from the row's own seed block, and draw
+nothing when the agent was never measured under its protocol.
 
 **Take `policy-best.pt`, not `policy-final.pt`.** PPO does not improve
 monotonically — a moving target destabilises the critic and entropy collapses —
@@ -265,6 +282,25 @@ count, the observation and action sizes and a line per layer, read out of
 torch, and the console deliberately cannot. Beside it, which checkpoint is newest
 and what it scored.
 
+**Three dashed lines cross the score chart** — the scripted agent at LOW, MEDIUM
+and HIGH, faintest first, so the hardest target carries the most ink. The EVAL
+SCORE tile says the same thing in words — *beats MEDIUM · 31,961 to HIGH ·
+validation* — and is red under LOW, amber climbing, green once it is past HIGH.
+One yardstick would answer the only question a learner has, *am I getting
+anywhere*, with "no" for the whole middle of a run; three answer it honestly.
+LOW is the first target, MEDIUM the normal one for a trained policy, and HIGH on
+the canonical block alone is the **published** baseline that "beat the scripted
+agent" means.
+
+**The lines come from the same seed block as the curve** ([the two blocks
+above](#the-yardstick)), and every legend entry says which. A run scoring itself
+on validation gets the validation ladder, which is what you watch for the hours a
+run takes; a canonical benchmark row gets the published one. The two are a few
+hundred points apart, so they are never mixed: a segment carrying both blocks, a
+changed cadence or cap, a seed count that is not 32, or a row from before
+protocols were recorded gets **no** lines at all, and the tile says what makes it
+incomparable.
+
 Each headline number carries the **peak** it has reached and the update it
 reached it on, under the value it is at now. A run is not monotone — PPO peaks
 and then falls back, which is exactly why the trainer keeps a `policy-best.pt`
@@ -309,15 +345,106 @@ command line is shown, so nothing here is a thing only the UI can do.
 directory — a picker rather than a path you type, since the file has to exist —
 which passes `--resume` and carries the optimizer state with it.
 
+### Presets: naming a set of options
+
+At the top of that form is a **preset** picker. Three ship with the console, and
+what each is for matters more than what each contains:
+
+| Preset | What it is | On a 5090 | VRAM |
+|---|---|---|---|
+| `fast` | Throughput first — 4,096 envs (the [saturation point](NVIDIA.md#getting-the-most-out-of-this-hardware)), a 128-step rollout, 100 updates, the flat `mlp`. For checking the loop turns and the machine is set up. | ~2 min | ~6 GiB |
+| `good` | **The recipe that produced the bundled model**: `entity`, 1,024 × 256, 1,000 updates — 90,866 on the held-out block, beating MEDIUM and approaching HIGH. | ~2 h | ~19 GiB |
+| `best` | Four times the samples an update — `entity`, 2,048 × 512 for the late-wave credit [The knobs](#the-knobs) recommends — over 4,000 updates annealed across the whole run, in **64** minibatches rather than 8. | **~30 h** | ~17 GiB |
+
+Those times are measured, and the two `entity` presets are **GPU-bound at about
+42,000 steps/s** — a tenth of what `fast` reports, because the relational network
+is ten times the compute per sample. A slow-looking steps/s on `good` or `best`
+is a saturated card, not an idle one; the [comparison is in
+NVIDIA.md](NVIDIA.md#the-relational-architecture-is-a-different-machine), and the
+console shows your own card's rate and the time remaining on the update tile.
+
+Only `good` has a measured result behind it. `best` is a considered bet, and its
+description in the console says so — a preset promising a number nobody has
+measured would be the expensive kind of wrong, paid for in GPU hours. Note that
+`best` needs *less* memory than `good` despite training on four times the data:
+see below, because that is the part everyone gets wrong.
+
+**Save as…** keeps whatever is in the form under a name of your own; **Update**
+and **Delete** work on your own presets only. The three above are read-only
+because their names are quoted here and in the console's help, so `good` has to
+keep meaning what this table says — take a copy and change that instead.
+
+Saved presets live in `presets.json` beside `runs/` (`$MD_PRESETS_FILE`
+overrides; see [PACKAGING.md](PACKAGING.md#where-a-runs-files-go)). They store
+only the values that differ from the trainer's own defaults, which is also why
+picking `good` shows a command line of just `--architecture entity`: the other
+three of its four values *are* the defaults today. The preset pins all four
+regardless, so the recipe survives a default changing under it.
+
+### How much GPU memory a run needs
+
+**Peak memory follows the minibatch, not the batch.** This is the one piece of
+arithmetic worth doing before starting a long run, and the intuition everybody
+brings to it is wrong.
+
+The rollout buffer is `envs × steps` samples at 8,245 bytes each — an
+observation, a mask and five small columns. That part scales with the batch and
+is what people expect. But the *update* pushes `batch ÷ minibatches` samples
+through the network at a time, and on the relational `entity` architecture each
+of those samples costs about **547 KiB** of working memory: its entity encoders
+and the [auxiliary targets](#what-the-agent-is-paid-for) build per-sample
+threat×entity tensors. That is sixty times the buffer's cost per sample, so the
+minibatch dominates completely:
+
+```
+peak ≈ envs × steps × 8 KiB   +   (envs × steps ÷ minibatches) × 547 KiB
+```
+
+Measured on an RTX 5090 with `torch.cuda.max_memory_allocated()`, two updates
+each — the model in `python/md/footprint.py` is a straight line through these to
+within 1%, and a test holds it there:
+
+| Architecture | envs × steps | minibatches | minibatch | Peak |
+|---|---|---|---|---|
+| `entity` | 1,024 × 256 | 8 | 32,768 | 18.95 GiB |
+| `entity` | 2,048 × 256 | 16 | 32,768 | 20.97 GiB |
+| `entity` | 4,096 × 256 | 32 | 32,768 | **out of memory** |
+| `entity` | 4,096 × 256 | 64 | 16,384 | 16.61 GiB |
+| `entity` | 2,048 × 512 | 64 | 16,384 | 16.59 GiB |
+| `entity` | 4,096 × 512 | 64 | 32,768 | **out of memory** |
+| `mlp` | 1,024 × 256 | 8 | 32,768 | 2.81 GiB |
+| `mlp` | 4,096 × 128 | 8 | 65,536 | 5.56 GiB |
+
+So the fix for a run that will not fit is almost never fewer envs:
+
+* **`--minibatches × 2` halves the peak** and costs nothing — the same samples,
+  the same update, in smaller pieces. It does change the optimisation slightly
+  (more, smaller gradient steps per epoch), which is a trade worth making
+  knowingly rather than a free lunch.
+* Fewer `--envs` or `--steps` shrinks the buffer *and* the minibatch, but it
+  also shrinks the run: less data per update, for the same wall-clock cost per
+  sample.
+* PyTorch *reserves* 10–30% more than it allocates, and your desktop is holding a
+  gigabyte or two before you start. Leave headroom.
+
+The console shows this estimate under the command line whenever a card is
+visible, and warns before you start a run that will not fit. If one runs out
+anyway, the trainer prints the same arithmetic and names the knob.
+
 Training runs as a separate process throughout, so closing the console (or
 crashing it) leaves the run alone. **Log** shows what it has printed, whichever
 way it was started: the trainer writes `runs/train.log` itself, so a run you
 started in a terminal has one too.
 
 Down the right-hand side, under the recordings, is what the machine is doing:
-CPU, memory, and the GPU. That last row appears only when a vendor backend
+CPU, memory, GPU load and **VRAM**. That last one has a bar of its own rather
+than a fragment of the caption line, because it is the number that ends a run
+eight hours in — GPU utilisation only tells you the card is busy, which you knew
+when you pressed Start. Read it against [what a run
+needs](#how-much-gpu-memory-a-run-needs) before starting a second one alongside
+the first. The two GPU rows appear only when a vendor backend
 works — `nvidia-ml-py` (imported as `pynvml`) for CUDA cards, `amdsmi` (or
-`pyrsmi`) for ROCm — and says which one would fill it in when neither is there.
+`pyrsmi`) for ROCm — and say which one would fill them in when neither is there.
 If a binding imports but its driver does not answer, the row shows that error
 instead of claiming the binding is missing. Adding a vendor is one file in
 `md/ui/probes/`.
@@ -500,7 +627,8 @@ records an episode. It defaults to CPU and pins the canonical seed offset, count
 frame skip, and tick cap. A different `--device` is allowed for diagnosis, but
 the output explicitly disables the published ahead/behind comparison. For a
 checkpoint under a run's `checkpoints/` directory, the result is appended to that
-run's `evals.csv`, which is when the console can honestly draw the baseline.
+run's `evals.csv`, which is when the console can draw the *published* ladder
+rather than the validation one it uses while a run is in flight.
 
 Use validation scores to decide whether update 800 is better than update 400,
 then run this command once for the selected `policy-best.pt`. Choosing among

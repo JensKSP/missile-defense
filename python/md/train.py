@@ -53,6 +53,7 @@ import dataclasses
 import json
 import os
 import shutil
+import sys
 import tempfile
 import time
 from collections.abc import Callable
@@ -64,7 +65,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from . import modelcard, paths, runlog
+from . import footprint, modelcard, paths, runlog
 from .benchmark import (
     CANONICAL_BASELINE_MEAN_SCORE,
     CANONICAL_FRAME_SKIP,
@@ -407,7 +408,11 @@ def train(
                 torch.from_numpy(env.action_masks()).to(device),
             )
         advantages, returns = rollout.advantages(last_value, ppo.gamma, ppo.gae_lambda)
-        stats = update(policy, optimizer, rollout, advantages, returns, update_config)
+        try:
+            stats = update(policy, optimizer, rollout, advantages, returns, update_config)
+        except torch.OutOfMemoryError:
+            print(_out_of_memory_advice(config, update_config), file=sys.stderr, flush=True)
+            raise
 
         recent = episode_returns[-200:]
         elapsed = time.perf_counter() - started
@@ -1040,6 +1045,30 @@ def _validate_resume_policy_config(
             f"{'; '.join(differences)}. Resume with matching --architecture and --hidden, "
             "or start a new run"
         )
+
+
+def _out_of_memory_advice(config: TrainConfig, ppo: PPOConfig) -> str:
+    """What to change when the update runs out of GPU memory.
+
+    A CUDA OOM traceback names a tensor nobody chose and a number of bytes
+    nobody can act on. The knobs that caused it are all in this config, and the
+    cheapest fix — more, smaller minibatches over exactly the same data — is the
+    one nobody guesses, because every instinct says the *batch* is the problem.
+    """
+
+    shape = {
+        "envs": config.envs,
+        "steps": config.steps,
+        "minibatches": ppo.minibatches,
+        "architecture": ppo.architecture,
+    }
+    estimate = footprint.estimate_gib(**shape)
+    return (
+        f"\nout of GPU memory during the update.\n"
+        f"  {footprint.advice(**shape)}\n"
+        f"  Estimated peak for this configuration: {estimate:.1f} GiB "
+        f"(docs/TRAINING.md#how-much-gpu-memory-a-run-needs).\n"
+    )
 
 
 def _resolve_schedule(

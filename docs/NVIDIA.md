@@ -138,9 +138,11 @@ device-dependent.
 ### What the GPU buys you here
 
 Measured on this box (RTX 5090, Ryzen 9 9950X3D), steady-state throughput once
-CUDA warm-up is amortised:
+CUDA warm-up is amortised. **These are the flat `mlp` network** — see the next
+section for the relational one, which is an order of magnitude slower per sample
+and is what the presets `good` and `best` train:
 
-| Config | steps/s | vs CPU | VRAM | ~time for 1000 updates |
+| Config (`mlp`) | steps/s | vs CPU | VRAM | ~time for 1000 updates |
 |---|---|---|---|---|
 | CPU, 1024 envs (the [TRAINING.md](TRAINING.md) baseline) | ~7,600 | 1× | — | ~5 hours |
 | GPU, 1024 envs | ~330,000 | **~43×** | 4.1 GB | **~7 min** |
@@ -158,6 +160,40 @@ Two things fall out of that table:
 * **At the CPU's own 1024-env batch, the GPU is ~43× faster** — the five-hour run
   becomes a coffee break. That is the number to quote when someone asks whether
   the card is worth it for this workload.
+
+### The relational architecture is a different machine
+
+`--architecture entity` is **about ten times the compute per sample** — its
+per-threat cross-attention and the training-only [auxiliary
+targets](TRAINING.md#what-the-agent-is-paid-for) build tensors the flat network
+never touches. Measured the same way, four updates each, sampling per-process SM
+utilisation:
+
+| Config | steps/s | GPU busy | Peak VRAM |
+|---|---|---|---|
+| `mlp`, 4096 × 128 (the `fast` preset) | ~446,000 | 50% | 5.6 GiB |
+| `entity`, 1024 × 256 (the `good` preset) | ~42,000 | **93%** | 18.9 GiB |
+| `entity`, 4096 × 256, 64 minibatches | ~42,000 | **95%** | 16.6 GiB |
+| `entity`, 2048 × 512, 64 minibatches (the `best` preset) | ~42,000 | **94%** | 16.6 GiB |
+
+**42k steps/s on this card is a saturated GPU, not an idle one.** That number
+looks alarming next to the 446k above it, and the instinct — "the card is not
+being used" — is exactly backwards: the flat network is the one that leaves the
+GPU half idle, because it is small enough that the C++ simulation becomes the
+bottleneck. The relational network is GPU-bound, and its rate barely moves with
+`--envs` for that reason.
+
+What that costs in wall clock, for the shipped presets:
+
+| Preset | Samples | At ~42k / ~446k steps/s |
+|---|---|---|
+| `fast` | 100 × 524,288 = 52M | ~2 minutes |
+| `good` | 1000 × 262,144 = 262M | ~1 h 45 (plus evaluations) |
+| `best` | 4000 × 1,048,576 = 4.2B | **~30 hours** (plus evaluations) |
+
+The console shows the observed rate and the remaining time on its update tile,
+from the run's own `metrics.csv` rather than from this table — your card is not
+this card.
 
 ### Getting the most out of this hardware
 
@@ -179,6 +215,13 @@ The knobs that matter (all in [TRAINING.md](TRAINING.md#the-knobs)):
 
 * **`--device cuda`** — only needed to *force* the GPU if autodetection is ever
   wrong; normally leave it off.
+* **`--minibatches`** — the VRAM figures in the table above are the flat `mlp`
+  network. The relational `entity` architecture is a different order of
+  magnitude: 1,024 × 256 peaks at **18.9 GiB**, because its per-sample
+  threat×entity tensors make peak memory follow the *minibatch* rather than the
+  batch. Raising `--minibatches` in step with `--envs` is what keeps a bigger
+  batch affordable — the arithmetic, and the measurements behind it, are in
+  [TRAINING.md](TRAINING.md#how-much-gpu-memory-a-run-needs).
 
 Watch the card work in another terminal while a run is going:
 

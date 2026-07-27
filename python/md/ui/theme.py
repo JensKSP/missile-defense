@@ -107,6 +107,13 @@ def stylesheet() -> str:
         border-radius: 4px;
         padding: 3px 6px;
     }}
+    /* A note that is telling you something is about to go wrong. Amber rather
+       than red: the estimate behind it is a model, and the button it sits above
+       is still the right one to press if you know better than the model. */
+    QLabel[role="warning"] {{
+        color: {AMBER};
+        font-size: 11px;
+    }}
     QLabel[role="placeholder"] {{
         color: {MUTED};
         font-size: 12px;

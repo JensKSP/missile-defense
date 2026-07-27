@@ -29,21 +29,28 @@ Being Qt-free, all three are pytest-able against a CSV written a line at a time.
 from __future__ import annotations
 
 import csv
+import json
 import math
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from statistics import fmean, pstdev
-from typing import Generic, TypeVar
+from typing import Generic, TypeVar, cast
 
 from ..benchmark import (
     CANONICAL_BASELINE_MEAN_SCORE,
+    NO_LADDER,
     VALIDATION_SPLIT,
+    Ladder,
     canonical_baseline_comparable,
+    ladder_for,
+    ladder_standing,
 )
 
 #: Files a run writes, relative to its output directory (``--out-dir``).
 METRICS_NAME = "metrics.csv"
+#: What the trainer was started with, written once at start-up.
+CONFIG_NAME = "config.json"
 EVALS_NAME = "evals.csv"
 RECORDING_SUFFIX = ".mdr"
 CHECKPOINTS_NAME = "checkpoints"
@@ -203,6 +210,72 @@ def eval_protocol_note(row: EvalRow) -> str:
     if row.inference_device is not None:
         parts.append(row.inference_device)
     return " · ".join(parts)
+
+
+# ---- the scripted ladder ----------------------------------------------------
+
+
+def row_ladder(row: EvalRow) -> Ladder:
+    """The scripted ladder ``row``'s score may be read against, if any."""
+
+    return ladder_for(
+        seed_split=row.seed_split,
+        seed_offset=row.seed_offset,
+        seed_count=row.seed_count,
+        frame_skip=row.frame_skip,
+        max_ticks=row.max_ticks,
+        inference_device=row.inference_device,
+    )
+
+
+def shared_ladder(rows: Sequence[EvalRow]) -> Ladder:
+    """The one ladder every row in ``rows`` may be read against.
+
+    Nothing at all when they disagree. The score curve is a single line and
+    takes a single set of reference lines, so a segment that mixes blocks has no
+    honest ladder — and the caller must not fall back on the newest row's,
+    which would silently re-label every older point.
+    """
+
+    ladders = {row_ladder(row) for row in rows}
+    return ladders.pop() if len(ladders) == 1 else NO_LADDER
+
+
+def baseline_lines(ladder: Ladder) -> tuple[tuple[float, str], ...]:
+    """``ladder`` as the score chart wants it: ``(value, legend label)``.
+
+    Ascending, which is the order the chart styles them in. Each label carries
+    the number *and* the block: the number because a legend read from across the
+    room should not need the axis to say what "medium" is worth, and the block
+    because the two ladders differ by a few hundred points and a line that did
+    not say which one it was would be the easiest possible thing to misread.
+    """
+
+    return tuple(
+        (rung.mean_score, f"scripted {rung.skill} {rung.mean_score:,.0f} · {ladder.block}")
+        for rung in ladder.rungs
+    )
+
+
+def ladder_note(score: float, ladder: Ladder) -> str:
+    """Where ``score`` stands on ``ladder``, in one phrase.
+
+    Always two facts where there are two to give — what it has beaten and what
+    is left — because "behind the baseline" is the same sentence for a policy
+    that has learned nothing and for one that is 2,000 points short of an expert
+    agent, and those are not the same run.
+
+    ``ladder`` must be the one measured on this score's own seed block
+    (:func:`row_ladder`); against any other the arithmetic is invented.
+    """
+
+    cleared, remaining = ladder_standing(score, ladder)
+    if remaining is not None:
+        to_next = f"{remaining.mean_score - score:,.0f} to {remaining.label}"
+        return f"beats {cleared.label} · {to_next}" if cleared is not None else to_next
+    if cleared is None:  # the empty ladder has nothing to say about anything
+        return ""
+    return f"beats {cleared.label} by {score - cleared.mean_score:,.0f}"
 
 
 @dataclass(frozen=True)
@@ -739,6 +812,69 @@ def readout_note(
     return text
 
 
+def human_rate(steps_per_second: float | None) -> str:
+    """``"39k steps/s"`` — how fast the run is collecting and learning.
+
+    The one number that answers "is the accelerator actually doing anything?",
+    which the trainer has printed since M6 and this window did not show at all.
+    Read against docs/NVIDIA.md: the relational architecture is GPU-bound at
+    around 42k on a 5090, and the flat one runs ten times that.
+    """
+    if steps_per_second is None or steps_per_second <= 0:
+        return ""
+    if steps_per_second >= 1_000_000:
+        return f"{steps_per_second / 1_000_000:.1f}M steps/s"
+    if steps_per_second >= 1_000:
+        return f"{steps_per_second / 1_000:.0f}k steps/s"
+    return f"{steps_per_second:.0f} steps/s"
+
+
+def human_duration(seconds: float) -> str:
+    """``"2 min"``, ``"1 h 45 min"``, ``"1 d 4 h"`` — how long something has left.
+
+    Coarser the longer it is, because nobody plans around the minutes of a
+    thirty-hour run, and two units at most: the point is "go to bed" or "wait for
+    it", not a countdown.
+    """
+    seconds = max(seconds, 0.0)
+    if seconds < 90:
+        return f"{seconds:.0f} s"
+    minutes = seconds / 60
+    if minutes < 90:
+        return f"{minutes:.0f} min"
+    hours = int(minutes // 60)
+    if hours < 24:
+        remainder = int(minutes - hours * 60)
+        return f"{hours} h {remainder} min" if remainder else f"{hours} h"
+    days, hours = divmod(hours, 24)
+    return f"{days} d {hours} h" if hours else f"{days} d"
+
+
+def planned_updates(run_dir: Path) -> int | None:
+    """How many updates this run was started to do, from its own `config.json`.
+
+    ``None`` when the file is missing, unreadable, or records a `--resume`: a
+    resumed run's `updates` is a count of *additional* updates, and the iteration
+    it continued from is in a checkpoint this module deliberately cannot open
+    (that would need torch). Half an answer would be worse than none — it would
+    put a confident "4 h left" on a run with a day to go.
+    """
+    try:
+        raw: object = json.loads((run_dir / CONFIG_NAME).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(raw, dict):
+        return None
+    section = cast("dict[str, object]", raw).get("train")
+    if not isinstance(section, dict):
+        return None
+    train = cast("dict[str, object]", section)
+    if train.get("resume") is not None:
+        return None
+    updates = train.get("updates")
+    return updates if isinstance(updates, int) and updates > 0 else None
+
+
 def human_age(seconds: float) -> str:
     """``"just now"``, ``"12 s ago"``, ``"4 min ago"``, ``"2 h ago"``, ``"6 d ago"``.
 
@@ -787,9 +923,13 @@ def checkpoint_note(checkpoints: Sequence[Checkpoint], evals: Mapping[int, EvalR
     row = evals.get(newest.iteration) if newest.iteration is not None else None
     if row is not None:
         if is_canonical_benchmark(row):
-            delta = row.mean_score - BASELINE_MEAN_SCORE
-            verdict = "ahead of" if delta > 0 else "behind"
-            parts.append(f"scored {row.mean_score:,.0f}, {abs(delta):,.0f} {verdict} baseline")
+            parts.append(f"scored {row.mean_score:,.0f}")
         else:
             parts.append(f"{eval_protocol_label(row)} score {row.mean_score:,.0f}")
+        # Whichever ladder its own block was measured on, and nothing when that
+        # block has none: the panel says what the model *is*, so a rung it was
+        # never measured against has no business in the sentence.
+        ladder = row_ladder(row)
+        if ladder:
+            parts.append(ladder_note(row.mean_score, ladder))
     return " · ".join(parts)

@@ -228,14 +228,17 @@ score to enter your initials, arcade style.
 ## AI training
 
 The training console puts the policy's real game score beside the scripted
-baseline, with the learning diagnostics, recordings, model and hardware on the
-same screen:
+agent's three skill levels — LOW, MEDIUM and HIGH — with the learning
+diagnostics, recordings, model and hardware on the same screen:
 
 ![The AI training console showing a live run's score and diagnostic curves, recordings, model and system use](docs/images/training-console.png)
 
 It can start, pause, resume and stop a run without owning the training process;
-close the window and training carries on. The full explanation of every curve,
-file and control is in [docs/TRAINING.md](docs/TRAINING.md).
+close the window and training carries on. Runs are configured from named
+**presets** — `fast` to check the machinery, `good` for the recipe that produced
+the bundled model, `best` for an overnight bet — and you can save, update and
+delete your own. The full explanation of every curve, file and control is in
+[docs/TRAINING.md](docs/TRAINING.md).
 
 ### Set up your machine for AI training
 
