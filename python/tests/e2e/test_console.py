@@ -84,24 +84,28 @@ def test_the_console_describes_the_model_that_was_trained(console) -> None:  # n
 
 @needs_torch
 @needs_native
-def test_a_run_that_just_wrote_reads_as_live(
+def test_a_run_with_no_marker_is_live_while_its_files_are_moving(
     qt_app: object, trained_run: Path, tmp_path: Path
 ) -> None:
-    # Liveness is inferred from the files alone — how long ago metrics.csv was
-    # written — which is exactly what lets the console tell the truth about a run
-    # it never started. A run that wrote a moment ago is *correctly* live even
-    # though its process has exited: the console cannot know that, and guessing
-    # "stopped" would take Pause and Stop away from a run that is still going.
+    # The timestamp fallback, and the one case still left for it: a run written
+    # by a trainer old enough not to leave a `RUNNING` marker. There the console
+    # has nothing but how long ago metrics.csv moved, and a run that wrote a
+    # moment ago is live — guessing "stopped" would take Pause and Stop away
+    # from a run that is still going.
     #
-    # Its own copy, freshly dated, rather than the shared fixture: that run is
-    # trained once for the whole session and `LIVE_AFTER_S` is ninety seconds,
-    # so read straight it asks how fast this suite happens to be. It was live
-    # locally and quiet on CI, where the suite takes five minutes — a red test
-    # that said nothing about the console.
+    # Where there *is* a marker it is not a guess at all: a dead PID says
+    # finished immediately and for ever (`md.control.RUNNING_NAME`), which is
+    # the bug the marker replaced. This test asserted that bug — against the
+    # session's finished run, marker and all — and so failed on CI for as long
+    # as the marker has existed. Hence its own copy, without one, freshly dated:
+    # read straight it also asked how fast this suite happens to be, since
+    # `LIVE_AFTER_S` is ninety seconds and app-e2e takes five minutes.
+    from md.control import RUNNING_NAME  # noqa: PLC0415
     from md.ui.app import Console  # noqa: PLC0415
 
     fresh = tmp_path / "fresh"
     shutil.copytree(trained_run, fresh)
+    (fresh / RUNNING_NAME).unlink(missing_ok=True)
     now = time.time()
     for name in ("metrics.csv", "evals.csv"):
         os.utime(fresh / name, (now, now))
@@ -111,6 +115,34 @@ def test_a_run_that_just_wrote_reads_as_live(
         window._tick()
         assert window._stop.isEnabled()
         assert window._primary.text() == "Pause"
+    finally:
+        window.close()
+
+
+@needs_torch
+@needs_native
+def test_a_finished_run_reads_as_idle_however_fresh_its_files_are(
+    qt_app: object, trained_run: Path, tmp_path: Path
+) -> None:
+    # The other half, and why the marker is worth having: this run wrote a
+    # moment ago by every timestamp in the directory, and it is over. The
+    # timestamp alone would call it live for another ninety seconds and offer
+    # Pause and Stop for a process that has exited.
+    from md.control import RUNNING_NAME  # noqa: PLC0415
+    from md.ui.app import Console  # noqa: PLC0415
+
+    finished = tmp_path / "finished"
+    shutil.copytree(trained_run, finished)
+    assert (finished / RUNNING_NAME).exists(), "the trainer left no marker to be finished by"
+    now = time.time()
+    for name in ("metrics.csv", "evals.csv"):
+        os.utime(finished / name, (now, now))
+
+    window = Console(finished)
+    try:
+        window._tick()
+        assert window._updates > 0, "the rows were still read"
+        assert not window._stop.isEnabled()
     finally:
         window.close()
 
