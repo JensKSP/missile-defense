@@ -487,7 +487,7 @@ class CurveView(QChartView):
         """Fit both axes around the data, the reference lines included.
 
         When present, they have to be inside the y range or the whole point of
-        them is invisible — a canonical score may be nowhere near 98,542, and
+        them is invisible — a canonical score may be nowhere near 13,687, and
         that gap *is* the information.
         """
         x_min, x_max = (0.0, 10.0) if self._count == 0 else (self._x_min, self._x_max)

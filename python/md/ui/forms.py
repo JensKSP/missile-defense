@@ -81,7 +81,7 @@ PRESET_HELP = (
     "A named set of training options.\n\n"
     "fast — throughput first: saturates the card, finishes in minutes, and is for "
     "checking the loop turns rather than for producing a policy.\n"
-    "good — the recipe that produced the bundled model (90,866 on the held-out "
+    "good — the recipe that produced the bundled model (23,067 on the held-out "
     "block). The one preset with a measured result behind it.\n"
     "best — that recipe scaled up along the axes the documentation recommends. A "
     "considered bet on a long run, not a measured result.\n\n"

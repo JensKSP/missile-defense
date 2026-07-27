@@ -132,7 +132,7 @@ def test_a_score_from_before_the_handicap_is_not_assumed_comparable() -> None:
     Every evaluation written before the handicap existed carries no reaction
     delay at all. Those runs were scored against an agent that never mis-clicked
     and never forgot a shot; treating a missing field as "probably canonical"
-    would put a 90,866 beside a 9,000 as though they answered the same question.
+    would put a 90,866 beside a 13,687 as though they answered the same question.
     """
     assert not _protocol(aim_trail=None)
     assert not _protocol(reaction_delay=None)

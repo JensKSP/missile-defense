@@ -13,9 +13,9 @@ Three come with the console, and their values are not invented:
 * **fast** is the throughput configuration from `docs/NVIDIA.md` — the batch
   size at which the card saturates — over a short horizon. It is for watching
   the loop turn and for checking a machine, not for producing a policy.
-* **good** is exactly the recipe that produced the bundled `pretrained.mdp`
+* **good** is exactly the recipe that produced the bundled `learned-high.mdp`
   (`docs/ROADMAP.md`): relational architecture, 1,024 envs × 256 steps, 1,000
-  updates, scoring 90,866 on the held-out block. It is the one preset with a
+  updates, scoring 23,067 on the held-out block. It is the one preset with a
   *measured* outcome attached to it.
 * **best** scales that recipe along the axes the documentation recommends — four
   times the samples per update and four times the updates — and is therefore a
@@ -111,8 +111,8 @@ BUILTIN: tuple[Preset, ...] = (
     Preset(
         name="good",
         summary=(
-            "The recipe that produced the bundled model: 90,866 on the held-out "
-            "block, beating MEDIUM and approaching HIGH. About two hours on a 5090."
+            "The recipe that produced the bundled model: 23,067 on the held-out "
+            "block, clearing HIGH by 1.69x. About two hours on a 5090."
         ),
         options={
             # Exactly docs/ROADMAP.md's reference run. Changing any of these

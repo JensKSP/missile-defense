@@ -226,7 +226,7 @@ about *surviving deep* rather than playing early waves cleanly — at the cap a
 surviving city is worth 600 and a smart bomb 750. A version of this simulation
 without the multiplier flattened that incentive completely, and the scripted
 baseline's score increased several-fold when it was restored. On the held-out
-canonical protocol, the current paced baseline averages 98,542.34375.
+canonical protocol, the current handicapped baseline averages 13,687.28125.
 
 ### The trap: at 60 Hz, discounting erases the city bonus
 
@@ -351,7 +351,7 @@ is the entire reason the architecture is named in the file.
 ### Running one: `md::agent::Policy`
 
 ```cpp
-const auto policy = md::agent::Policy::load("models/pretrained.mdp");
+const auto policy = md::agent::Policy::load("models/learned-high.mdp");
 md::agent::PolicyDriver driver{policy, md::ObsSpec{}};
 const auto result = md::agent::run_episode(config, seed, driver);
 ```
@@ -476,6 +476,7 @@ offset 32, count 32. That canonical run is pinned to 4 ticks per decision,
 exactly 120,000 ticks, and CPU inference. Both drivers feed the same C++
 episode records into the same `summarize` implementation, so "beat the
 baseline" remains a concrete claim without using the test set to choose a model.
-Current held-out baseline: mean score 98,542.34375 (83,525–108,920), mean wave
-15.75, 0/6 cities surviving, and 1.0853 kills per interceptor
+Current held-out baseline: mean score 13,687.28125 (8,040–20,270), mean wave
+7.16, 0/6 cities surviving, and 0.73 kills per interceptor, all under the
+published handicap
 ([ROADMAP.md](ROADMAP.md#m4--algorithmic-reference-ai--implemented--ready-for-sign-off)).

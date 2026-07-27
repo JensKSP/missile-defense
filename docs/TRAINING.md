@@ -38,16 +38,16 @@ under the published protocol and scores:
 
 | Metric | Baseline |
 |---|---|
-| Mean score | **13,687.28125** (range 83,525–108,920) |
-| Mean wave reached | **15.75** |
+| Mean score | **13,687.28125** (range 8,040–20,270) |
+| Mean wave reached | **7.16** |
 | Cities surviving | **0.00** of 6 |
-| Kills per interceptor | **1.09** |
+| Kills per interceptor | **0.73** |
 
 That last row is where the headroom is. A blast that catches two warheads scores
 twice for one interceptor, and the scripted agent manages that only occasionally.
-Ammunition — not aim — is what runs out. **A perfect-marksmanship agent still
-loses every game around wave 16**, which is exactly why this is worth learning
-on: the problem is allocation under a budget, not reflexes.
+Ammunition — not aim — is what runs out. **Even an agent that never misses still
+loses every game**, which is exactly why this is worth learning on: the problem
+is allocation under a budget, not reflexes.
 
 The budget is worth stating precisely, because it is the whole game. Wave *N*
 sends `2N + 6` threats at three batteries holding ten interceptors each,
@@ -192,28 +192,28 @@ stream the agent itself observes — no privileged look inside the simulation:
 | `shots`, `kills`, `hits`, `mirv_splits` | how the ammunition went |
 | **`kills_per_shot[]`** — bins 0, 1, 2, 3, 4+ | the distribution behind the average |
 
-The histogram is the one worth learning to read. "1.09 kills per interceptor" is
+The histogram is the one worth learning to read. "0.73 kills per interceptor" is
 a mean, and a mean cannot distinguish an agent that reliably takes one threat per
 shot from one that wastes half its ammunition and catches pairs with the rest.
 The distribution separates them at a glance: bin 0 is wasted shots, and weight in
 bins 2+ is the only evidence of *catching clusters*, which is where a score above
 the baseline has to come from. On the canonical block, the scripted baseline sits
-at 4% wasted, 83% single kills and 13% multiples — a learned policy that beats it
+at 36% wasted, 56% single kills and 8% multiples — a learned policy that beats it
 will not look like that.
 
 Two places show them. `poe eval` prints the canonical block for the scripted
 baseline:
 
 ```
-mean score          98542.3   [83525 .. 108920]
-survived              15427 ticks (257.1 s)   0 / 32 reached the cap
-last wave             15.75   (14.81 cleared)
-cities                 0.00 left   14.03 lost   8.03 rebuilt   (of 6)
-bases                  0.75 left   5.94 lost   (of 3)
-ammo unfired           0.00   (interceptors still loaded at the end)
-targets killed       342.78   (9.53 MIRV splits)
-shots fired          315.81   301.69 hit (96%)   1.09 kills/shot
-kills per shot   0:452 (4%)  1:8395 (83%)  2:1204 (12%)  3:54 (1%)  4+:1 (0%)
+mean score          13687.3   [8040 .. 20270]
+survived               5068 ticks (84.5 s)   0 / 32 reached the cap
+last wave              7.16   (6.25 cleared)
+cities                 0.00 left   6.91 lost   0.91 rebuilt   (of 6)
+bases                  0.56 left   5.75 lost   (of 3)
+ammo unfired           1.28   (interceptors still loaded at the end)
+targets killed        82.78   (4.50 MIRV splits)
+shots fired          114.28   72.94 hit (64%)   0.73 kills/shot
+kills per shot   0:1315 (36%)  1:2039 (56%)  2:276 (8%)  3:18 (0%)  4+:1 (0%)
 survived cap              0 / 32
 ```
 
@@ -375,7 +375,7 @@ what each is for matters more than what each contains:
 | Preset | What it is | On a 5090 | VRAM |
 |---|---|---|---|
 | `fast` | Throughput first — 4,096 envs (the [saturation point](NVIDIA.md#getting-the-most-out-of-this-hardware)), a 128-step rollout, 100 updates, the flat `mlp`. For checking the loop turns and the machine is set up. | ~2 min | ~6 GiB |
-| `good` | **The recipe that produced the bundled model**: `entity`, 1,024 × 256, 1,000 updates — 90,866 on the held-out block, beating MEDIUM and approaching HIGH. | ~2 h | ~19 GiB |
+| `good` | **The recipe that produced the bundled model**: `entity`, 1,024 × 256, 1,000 updates — 23,067 on the held-out block, clearing HIGH by 1.69x. | ~2 h | ~19 GiB |
 | `best` | Four times the samples an update — `entity`, 2,048 × 512 for the late-wave credit [The knobs](#the-knobs) recommends — over 4,000 updates annealed across the whole run, in **64** minibatches rather than 8. | **~30 h** | ~17 GiB |
 
 Those times are measured, and the two `entity` presets are **GPU-bound at about

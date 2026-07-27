@@ -58,7 +58,7 @@ class Shaping:
     genuinely change the objective, which is the only way to change what the
     policy converges to — and the reason they must be judged first on validation
     rather than on themselves. Neither touches the game score, so the final
-    98,542.34375 scripted yardstick is unaffected.
+    13,687.28125 scripted yardstick is unaffected.
     """
 
     city_weight: float = 100.0
@@ -179,8 +179,10 @@ class VecEnv:
         """How far the crosshair lags behind the policy's chosen aim point.
 
         A handicap, and one that has to be *trained* under rather than only
-        evaluated under: `models/pretrained.mdp` scores 90,866 without it and
-        320 with it, because a policy is a closed loop and a delay opens it.
+        evaluated under: the policy that used to ship as `pretrained.mdp` was
+        trained without it, and scored 90,866 without it and 320 with it —
+        because a policy is a closed loop and a delay opens it. The models
+        bundled now were trained under it and are scored under it.
         """
         return float(self._native.aim_trail)
 

@@ -20,9 +20,9 @@ interpretable rather than just a number going up:
   policy is scored on a fixed 32-seed validation split and appended to
   ``runs/evals.csv``. That split chooses ``policy-best.pt``; the disjoint
   canonical seeds are held back for an explicit ``--load`` score, so repeated
-  training decisions cannot tune against the final 98,542 scripted yardstick.
+  training decisions cannot tune against the final 13,687 scripted yardstick.
 * **Watchable episodes.** Every `record_every` updates one episode is written to
-  ``runs/`` as ``update-<n>.mdr``. Open it from the app's REPLAYS menu and watch
+  ``runs/`` as ``update-<n>.mdr``. Watch it with ``md_app --replay <file>`` and see
   what the policy is actually doing; a reward curve will not tell you that it has
   learned to ignore MIRVs.
 * **A run you can stop without losing it.** ``touch runs/STOP`` and the loop
@@ -120,8 +120,9 @@ class TrainConfig:
     max_ticks: int = 120_000
     #: Ticks between the policy deciding and the simulation acting — the human
     #: handicap (`md::agent::Handicap`). **Train under it or do not use it**: a
-    #: policy is a closed loop, and `models/pretrained.mdp` drops from 90,866 to
-    #: 320 when a delay it never saw is switched on at evaluation time.
+    #: policy is a closed loop, and the policy that used to ship as
+    #: `pretrained.mdp` — trained without it — drops from 90,866 to 320 when a
+    #: delay it never saw is switched on at evaluation time.
     #: Defaults to the published protocol so a run is comparable by default;
     #: `--reaction-delay 0` opts out and marks the run as non-canonical.
     aim_trail: float = CANONICAL_AIM_TRAIL

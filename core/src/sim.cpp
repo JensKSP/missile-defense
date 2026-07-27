@@ -315,7 +315,7 @@ std::int32_t Sim::resolve_blast_hits() noexcept {
         }
         if (killed) {
             // Every kill after a blast's first costs no extra ammunition — which
-            // is the whole of the headroom over the scripted agent's 1.09 kills
+            // is the whole of the headroom over the scripted agent's 0.73 kills
             // per interceptor, so it is counted separately.
             if (blasts_[by].kills > 0) {
                 ++tick_multi_kills_;

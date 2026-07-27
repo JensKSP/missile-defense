@@ -71,7 +71,7 @@ class Ladder:
     """The scripted agent at three settings, measured on **one** seed block.
 
     A ladder belongs to the block it was played on and to no other. The two
-    blocks are close but not equal — HIGH is 98,542 canonical and 98,170 on
+    blocks are close but not equal — HIGH is 13,687 canonical and 13,824 on
     validation — so a score may only ever be read against the ladder from its
     own block. That is the whole reason this is a type rather than a module
     constant: the wrong ladder is a plausible-looking lie, and passing one

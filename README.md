@@ -110,7 +110,7 @@ into a game driven by the scripted agent — held to the same crosshair speed an
 trigger interval and 15 Hz decision rate as your hand and a trained model. `]`
 fast-forwards to 8×; `T` takes the controls back mid-game. On the held-out
 canonical benchmark it averages **13,687** points and still loses every game
-around wave 16, because this game is about spending ammunition, not about
+around wave 7, because this game is about spending ammunition, not about
 aiming.
 → [More](#run-the-scripted-ai)
 
@@ -372,14 +372,16 @@ the seed alone reproduces it.
 
 ### Run the pre-trained, packed model
 
-**WATCH AI → MODELS → RELATIONAL 620** runs the bundled learned policy, natively. There
-is no Python and no torch anywhere in that path: `models/pretrained.mdp` is a
-data-only file ([docs/API.md](docs/API.md) §7) and `md::agent::Policy` reads and
-evaluates it in C++, which is the entire reason the format exists.
+**WATCH AI → MODELS → LEARNED HIGH** runs the bundled learned policy, natively.
+There is no Python and no torch anywhere in that path: `models/learned-high.mdp`
+is a data-only file ([docs/API.md](docs/API.md) §7) and `md::agent::Policy` reads
+and evaluates it in C++, which is the entire reason the format exists.
 
 It is the `policy-best.pt` of a 1,000-update relational run, selected on the
 validation split and scored **once** on the held-out canonical block:
-**90,866** against the scripted agent's 13,687.
+**23,067** against the scripted agent's 13,687. Two more rungs are bundled with
+it — `learned-low` and `learned-medium` — so the menu offers a ladder rather
+than one number.
 
 The two implementations are held to agreeing exactly. `tools/make_policy_fixture.py`
 writes a fixture whose logits, value and chosen action come from the Python
@@ -535,47 +537,52 @@ weigh 4–40 kB and can be dropped every few updates to watch the policy improve
 | `R` | Restart the recording |
 | `T` | Take over from where it has reached |
 
-### What it taught: if you can write the algorithm, write it
+### What it taught: the handicap decides who wins
 
 The scripted agent is a few hundred lines of geometry. The learned one is PPO
 with a relational attention network over threats, interceptors and blasts — a
 1,959-float observation, 385 actions, an hour on an RTX 5090. On the same
-held-out block the scripted agent scores **13,687** and the learned policy
-scores **90,866**. The interesting part is not the gap but its *shape*:
+held-out block, both under the published handicap, the scripted agent scores
+**13,687** and the learned policy scores **23,067**. The interesting part is not
+the gap but its *shape*:
 
-| | Scripted | Learned |
+| | Scripted HIGH | Learned |
 |---|---|---|
-| Mean wave reached | 15.75 | 15.38 |
-| Kills per interceptor | **1.09** | **0.86** |
-| Wasted shots | **4%** | **23%** |
+| Mean wave reached | 7.16 | **8.91** |
+| Kills per interceptor | **0.73** | 0.61 |
+| Wasted shots | **36%** | 44% |
 
-**It matched the depth and lost on marksmanship.** That is not bad luck. Putting
-a blast where a warhead is going to be is a closed-form intercept problem: a
-human writes it once, exactly, and it is right in every wave from the first to
-the sixteenth. A network has to recover the same geometry from a scalar reward —
-a spectacularly indirect way to learn ballistics — and it never quite does.
+**It wins on depth while still losing on marksmanship.** Putting a blast where a
+warhead is going to be is a closed-form intercept problem, and a human writes it
+once, exactly; a network has to recover the same geometry from a scalar reward,
+which is a spectacularly indirect way to learn ballistics, and it never quite
+does. What it does instead is spend: it fires more, hits less often, and gets
+two waves deeper for it.
 
-The skill ladder above sharpens the point rather than softening it. The scripted
-agent's entire advantage turned out to be *one* idea — remember which warheads
-you have already fired at — worth 78,000 of its 13,687 points. The learned
-policy, given no hint that such an idea exists, rediscovered enough of it to
-reach wave 15 and not enough to stop wasting a quarter of its ammunition. It
-landed between MEDIUM and HIGH: better than an agent with a third of a second of
-memory, worse than one with a perfect one.
+That reads the other way round without the handicap, and this is the finding
+worth carrying out of the project. Given an agent that never mis-clicks and
+never waits, the geometry *is* the game: the same comparison ran 98,542 to
+90,866 in the scripted agent's favour, and the whole of its advantage was one
+idea — remember which warheads you have already fired at, worth 78,000 of those
+98,542 points. Give both a human hand instead, and precise placement stops being
+free. Ammunition memory is still the scripted ladder's entire spread, but it is
+worth **8,663** of 13,687 now, and an allocator that shoots more and aims worse
+comes out ahead.
 
-So the conclusion this project arrived at is the unfashionable one: **where a
-good algorithmic solution exists, write it.** Learning should earn its keep on
-the part with no closed form — allocation under a fixed ammunition budget — and
-on this evidence it has not won there either.
+So the conclusion is narrower than "write the algorithm" and more useful:
+**where a good algorithmic solution exists it wins exactly as far as its
+preconditions hold**, and a closed-form aimer's precondition is a perfect hand.
+Learning earns its keep on the part with no closed form — allocation under a
+fixed ammunition budget — and under the handicap that is enough to win.
 
-Two things stop that from being the whole story. The learned policy got within a
-few percent with **no game-specific knowledge at all** — nobody told it what a
-MIRV is, or that ammunition is scarce — and it would retrain unchanged against a
-game whose wave table or weapons you altered, where the scripted agent would
-have to be rewritten by hand. And the strongest version of this system is
-probably neither one alone: a scripted aimer under a learned allocator, each
-owning the half it is actually good at. That is the experiment this repository
-is now set up to run and has not run yet.
+Two things stop that from being the whole story. The learned policy got there
+with **no game-specific knowledge at all** — nobody told it what a MIRV is, or
+that ammunition is scarce — and it would retrain unchanged against a game whose
+wave table or weapons you altered, where the scripted agent would have to be
+rewritten by hand. And the strongest version of this system is probably neither
+one alone: a scripted aimer under a learned allocator, each owning the half it
+is actually good at. That is the experiment this repository is now set up to run
+and has not run yet.
 
 ### Pick how well the scripted agent plays
 
@@ -591,23 +598,27 @@ so what each one costs is attributable. Measured on the canonical block:
 
 | Skill | Mean score | Wave | Kills/shot | Wasted shots |
 |---|---|---|---|---|
-| LOW | 19,586 | 8.4 | 0.50 | 56% |
-| MEDIUM | 8,296 | 13.2 | 0.75 | 33% |
-| **HIGH** (the baseline) | **13,687** | 15.8 | 1.09 | 4% |
+| LOW | 5,024 | 5.16 | 0.33 | 71% |
+| MEDIUM | 8,296 | 6.22 | 0.49 | 57% |
+| **HIGH** (the baseline) | **13,687** | 7.16 | 0.73 | 36% |
 
 `Params::coverage_horizon` is the dial: **how many seconds ahead the agent
 remembers the shots it has already fired**. At HIGH it tracks every interceptor
 in flight and never fires twice at a warhead that is already dead; at LOW it
-tracks none and wastes over half its ammunition.
+tracks none and wastes over two thirds of its ammunition.
 
-Two things fell out of measuring this that are worth knowing before you tune it.
-The response is a **cliff, not a slope** — 0.30 s scores ~34k and 0.40 s ~85k,
-because that is where the dial crosses a typical interceptor's flight time and
-the agent either remembers a shot before it lands or does not. And the
-sophisticated-looking part of the agent is worth almost nothing: switching off
-`cluster_bonus`, which deliberately waits for MIRV spreads to converge, costs
-about **1,500 points**, while ammunition memory is worth about **78,000**. The
-whole scripted baseline is one idea — *do not shoot what is already dead*.
+Two things fell out of measuring this that are worth knowing before you tune it,
+both measured *before* the handicap became part of the protocol — so the
+absolute figures below are from the unhandicapped game and the shape is what
+carries over. The response is a **cliff, not a slope**: 0.30 s scored ~34k and
+0.40 s ~85k, because that is where the dial crosses a typical interceptor's
+flight time and the agent either remembers a shot before it lands or does not.
+And the sophisticated-looking part of the agent is worth almost nothing —
+switching off `cluster_bonus`, which deliberately waits for MIRV spreads to
+converge, cost about **1,500 points**, while ammunition memory was worth about
+**78,000**. Under the handicap that one idea is still the ladder's entire
+spread, at **8,663** of HIGH's 13,687. The whole scripted baseline is one idea —
+*do not shoot what is already dead*.
 
 ## Development
 
