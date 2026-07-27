@@ -525,6 +525,8 @@ def train(
                 frame_skip=config.frame_skip,
                 max_ticks=config.max_ticks,
                 inference_device=inference_device,
+                aim_trail=config.aim_trail,
+                reaction_delay=config.reaction_delay,
             )
             print(format_summary(summary))
             print(
@@ -696,6 +698,13 @@ EVAL_COLUMNS = (
     "frame_skip",
     "max_ticks",
     "inference_device",
+    # The handicap the score was measured under. Appended late, and required:
+    # `md.ui.sources.is_canonical_benchmark` compares these two, so a row
+    # without them cannot be shown against the scripted ladder at all — every
+    # run read as "nonstandard protocol" and no score could ever say it beat
+    # HIGH. Older files are widened by `_migrate_eval_schema`.
+    "aim_trail",
+    "reaction_delay",
 )
 
 
@@ -710,6 +719,8 @@ def _log_eval(
     frame_skip: int,
     max_ticks: int,
     inference_device: str,
+    aim_trail: float,
+    reaction_delay: int,
 ) -> None:
     """Append one scored evaluation and the protocol that produced it.
 
@@ -758,6 +769,8 @@ def _log_eval(
                 frame_skip,
                 max_ticks,
                 inference_device,
+                aim_trail,
+                reaction_delay,
             ]
         )
 
@@ -1387,7 +1400,12 @@ def score_checkpoint(path: Path, device_name: str | None = None, record: Path | 
             seed_count=SEEDS_PER_SPLIT,
             frame_skip=CANONICAL_FRAME_SKIP,
             max_ticks=CANONICAL_MAX_TICKS,
+            # The canonical constants, not the caller's: this row *is* the claim
+            # against the published ladder, so it records the handicap that
+            # claim is defined at.
             inference_device=inference_device,
+            aim_trail=CANONICAL_AIM_TRAIL,
+            reaction_delay=CANONICAL_REACTION_DELAY,
         )
         print(f"  benchmark row -> {eval_path}")
     return 0

@@ -33,8 +33,8 @@ import sys
 import time
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QKeyEvent
+from PySide6.QtCore import Qt, QThread, QTimer, Signal
+from PySide6.QtGui import QCloseEvent, QKeyEvent
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -58,7 +58,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import library as run_library
-from .. import modelcard, paths, runconfig
+from .. import modelcard, paths, runconfig, runtime
 from ..benchmark import CANONICAL_LADDER, Ladder, ladder_standing
 from ..control import Control
 from . import about, sources, theme
@@ -87,6 +87,14 @@ POLL_MS = 1000
 #: Recordings arrive every `--record-every` updates; scanning a directory every
 #: poll would be wasted work.
 RESCAN_EVERY = 3
+
+#: How long closing the window waits for a runtime check still in flight. Qt
+#: aborts the process when a running QThread is destroyed, so this cannot be
+#: zero; it is bounded because a console that will not close is worse than one
+#: that closes a second late. The check normally takes about a second, and the
+#: slow case — the first CUDA start after an install — is exactly the one where
+#: waiting it out would be unreasonable.
+VERIFY_WAIT_MS = 2000
 #: If metrics.csv has not moved in this long, the run is not running.
 LIVE_AFTER_S = 90.0
 
@@ -212,6 +220,30 @@ class StatTile(QFrame):
         self.set_note(self._initial_note)
 
 
+class _VerifyRuntime(QThread):
+    """Ask the installed runtime to prove it works, off the event loop.
+
+    Off the event loop for one measured reason. The check itself costs about a
+    second — but the first `torch.cuda.is_available()` after a *fresh* CUDA
+    install takes minutes while the driver builds its caches, and that is
+    precisely when this runs: right after somebody pressed Install. On the UI
+    thread that is a frozen window at the worst possible moment.
+
+    Reports the reason as well as the verdict, because "your runtime does not
+    work" without a next sentence is a dead end.
+    """
+
+    done = Signal(bool, str)
+
+    def __init__(self, store: runtime.Runtime, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._store = store
+
+    def run(self) -> None:
+        status = self._store.verify()
+        self.done.emit(status.ready, status.detail)
+
+
 class Console(QMainWindow):
     """Everything the console is, in one window."""
 
@@ -219,6 +251,13 @@ class Console(QMainWindow):
         super().__init__()
         self._launcher = ReplayLauncher()
         self._ticks = 0
+        #: What the runtime last proved: `None` until the first check finishes.
+        #: `False` turns Start into Set up — `md.runtime.Runtime.status` only
+        #: reads a manifest and looks for a file, both of which stay true of a
+        #: runtime whose torch was deleted or whose driver moved under it.
+        self._runtime_ok: bool | None = None
+        self._runtime_detail = ""
+        self._verifier: _VerifyRuntime | None = None
 
         self.setCentralWidget(self._build())
         self._attach(run_dir)
@@ -244,6 +283,45 @@ class Console(QMainWindow):
         self._timer.timeout.connect(self._tick)
         self._timer.start(POLL_MS)
         self._tick()
+        self._verify_runtime()
+
+    def _verify_runtime(self) -> None:
+        """Start a background check of the installed runtime, if one is idle.
+
+        Called at start-up and again whenever the runtime dialog closes, which
+        are the two moments the answer can have changed. Never more than one at
+        a time: this spawns a subprocess, and the poll loop must not be able to
+        queue a fresh one every second.
+        """
+        if self._verifier is not None and self._verifier.isRunning():
+            return
+        self._verifier = _VerifyRuntime(runtime.Runtime(), self)
+        self._verifier.done.connect(self._runtime_verified)
+        self._verifier.start()
+
+    def _runtime_verified(self, ok: bool, detail: str) -> None:
+        self._runtime_ok = ok
+        self._runtime_detail = detail
+        self._refresh_status()  # the button's meaning may have just changed
+
+    def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 — Qt's spelling
+        """Wait for the runtime check before letting the window go.
+
+        Qt aborts the process outright when a running `QThread` is destroyed,
+        and this one outlives a quick open-and-close: the check is a subprocess,
+        and the first one after a fresh CUDA install takes minutes. Closing the
+        console during it used to take the process down with it.
+
+        Waited on rather than killed, because there is nothing to kill safely —
+        the subprocess is a health check that ends on its own, and the bounded
+        wait is the honest way to say so. The bound matters more than its exact
+        value: a console that will not close is worse than one that closes a
+        second late.
+        """
+        verifier = self._verifier
+        if verifier is not None and verifier.isRunning():
+            verifier.wait(VERIFY_WAIT_MS)
+        super().closeEvent(event)
 
     def _attach(self, run_dir: Path) -> None:
         """Point the whole window at a run directory — including a fresh one.
@@ -1253,11 +1331,26 @@ class Console(QMainWindow):
         # run from a machine with no torch stays a supported way to use this, and
         # only starting one was ever gated.
         idle_label = "Continue" if self._checkpoints else "Start"
-        if not can_train():
+        # `can_train` answers cheaply enough to poll: a manifest and a file that
+        # exists. `_runtime_ok` is the same question actually put to the runtime,
+        # answered in the background, and it is the one that catches a runtime
+        # that has stopped working since it was installed. Offering Start for
+        # something that cannot run is the failure this pair exists to prevent —
+        # a button that appears to do nothing is worse than one that says what
+        # to do instead.
+        if not can_train() or self._runtime_ok is False:
             idle_label = "Set up training…"
         self._primary.setText({"paused": "Resume", "live": "Pause"}.get(state, idle_label))
         self._primary.setEnabled(state != "stopping")
         self._stop.setEnabled(state in ("live", "paused"))
+
+        # A refused runtime outranks whatever else the bar would have said: the
+        # button just changed under the person's hands, and "Set up training…"
+        # on its own does not say that something they already installed has
+        # stopped working.
+        if self._runtime_ok is False and state not in ("live", "paused"):
+            self.statusBar().showMessage(f"training runtime unusable — {self._runtime_detail}")
+            return
 
         if modified is None:
             self.statusBar().showMessage(self._nothing_here())
@@ -1367,6 +1460,12 @@ class Console(QMainWindow):
         """
         dialog = RuntimeDialog(parent=self)
         accepted = dialog.exec() == QDialog.DialogCode.Accepted
+        # A fresh install has already proved itself — that is what the install's
+        # own health check is — so trust it here rather than making the person
+        # wait through a cold CUDA start a second time. The background check
+        # runs anyway and will correct this if it disagrees.
+        self._runtime_ok = None
+        self._verify_runtime()
         self._refresh_status()  # the button's meaning has probably just changed
         if accepted and can_train():
             self._start()

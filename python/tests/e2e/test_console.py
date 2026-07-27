@@ -24,11 +24,13 @@ from pathlib import Path
 
 import pytest
 from md.benchmark import (
+    CANONICAL_AIM_TRAIL,
     CANONICAL_BASELINE_MEAN_SCORE,
     CANONICAL_FRAME_SKIP,
     CANONICAL_INFERENCE_DEVICE,
     CANONICAL_LADDER,
     CANONICAL_MAX_TICKS,
+    CANONICAL_REACTION_DELAY,
     CANONICAL_SEED_OFFSET,
     CANONICAL_SPLIT,
     SEEDS_PER_SPLIT,
@@ -231,15 +233,20 @@ def test_the_eval_slider_greys_out_when_no_run_publishes_one(
 METRICS_HEADER = (
     "update,samples,return,entropy,policy_loss,value_loss,clip_fraction,steps_per_second\n"
 )
+#: The handicap columns are part of the protocol: `is_canonical_benchmark`
+#: compares them, so a row without them is not comparable with the ladder no
+#: matter what else it says.
 EVALS_HEADER = (
-    "update,mean_score,seed_split,seed_offset,seed_count,frame_skip,max_ticks,inference_device\n"
+    "update,mean_score,seed_split,seed_offset,seed_count,frame_skip,max_ticks,"
+    "inference_device,aim_trail,reaction_delay\n"
 )
 
 
 def _canonical_eval(update: int, score: float) -> str:
     return (
         f"{update},{score},{CANONICAL_SPLIT},{CANONICAL_SEED_OFFSET},{SEEDS_PER_SPLIT},"
-        f"{CANONICAL_FRAME_SKIP},{CANONICAL_MAX_TICKS},{CANONICAL_INFERENCE_DEVICE}\n"
+        f"{CANONICAL_FRAME_SKIP},{CANONICAL_MAX_TICKS},{CANONICAL_INFERENCE_DEVICE},"
+        f"{CANONICAL_AIM_TRAIL},{CANONICAL_REACTION_DELAY}\n"
     )
 
 
@@ -1199,3 +1206,39 @@ def test_continuing_restates_the_original_run_rather_than_the_defaults(
         assert dialog._go.text() == "Start run"
     finally:
         dialog.close()
+
+
+def test_a_runtime_that_stopped_working_turns_start_back_into_set_up(
+    qt_app: object, tmp_path: Path
+) -> None:
+    """The button must not offer what the machine can no longer do.
+
+    `md.runtime.Runtime.status` reads a manifest and checks that a file exists,
+    and both stay true of a runtime whose torch was deleted to reclaim disk or
+    whose driver moved under it. The console believed that, showed Start, and
+    the press appeared to do nothing — the failure surfacing later and somewhere
+    unrelated. A background check now asks the runtime to prove it; this is what
+    its "no" has to do to the window.
+
+    Deliberately not on the `console` fixture: that one trains, so it needs
+    torch and skips wherever torch is absent — which is the quality gate, and
+    every machine a first-time reader has. An empty directory is enough to ask
+    what a button says.
+    """
+    from md.ui.app import Console  # noqa: PLC0415 — optional dependency
+    from md.ui.runner import can_train  # noqa: PLC0415
+
+    window = Console(tmp_path)
+    try:
+        window._runtime_verified(False, "torch will not import")  # noqa: SLF001 — the seam
+        assert window._primary.text() == "Set up training…"  # noqa: SLF001
+        # …and says so, because a changed button with no reason is a dead end.
+        assert "torch will not import" in window.statusBar().currentMessage()
+
+        # A runtime that proves itself puts the offer back — unless nothing is
+        # installed at all, which is a different "no" and already had a label.
+        window._runtime_verified(True, "NVIDIA (CUDA) — torch 2.13.0 on cuda")  # noqa: SLF001
+        expected = "Start" if can_train() else "Set up training…"
+        assert window._primary.text() == expected  # noqa: SLF001
+    finally:
+        window.close()
