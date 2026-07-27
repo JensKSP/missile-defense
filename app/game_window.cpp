@@ -183,19 +183,23 @@ QVulkanWindowRenderer* GameWindow::createRenderer() {
 }
 
 int GameWindow::menu_count() const noexcept {
-    // Nine on a full install, eight on a game-only one. TRAIN AI is *absent*
+    // Eight on a full install, seven on a game-only one. TRAIN AI is *absent*
     // rather than disabled: on the game-only package there is no console to
     // enable, so an item explaining that would be advertising a product the
     // person did not install. The layout follows — menu_item_top_y() derives
-    // its row step from active_count(), so a ninth item shrinks the list
+    // its row step from active_count(), so one more item shrinks the list
     // instead of pushing START into the byline.
     //
-    // Starting a game *adds* RESUME and removes nothing. WATCH AI, TRAIN AI,
-    // REPLAYS and ABOUT used to disappear here, which made the pause menu a
-    // different menu wearing the same frame: every item below the first moved,
-    // so the muscle memory built in the main menu was wrong exactly when a
-    // player was mid-game and least willing to re-read it.
-    return (in_progress_ ? 1 : 0) + (can_train() ? 9 : 8);
+    // Starting a game *adds* RESUME and removes nothing. WATCH AI, TRAIN AI
+    // and ABOUT used to disappear here, which made the pause menu a different
+    // menu wearing the same frame: every item below the first moved, so the
+    // muscle memory built in the main menu was wrong exactly when a player was
+    // mid-game and least willing to re-read it.
+    //
+    // REPLAYS is withdrawn for now — see `action_at`. Everything behind it is
+    // still here and still reachable, so this is one number and one line in the
+    // table below rather than a feature to put back.
+    return (in_progress_ ? 1 : 0) + (can_train() ? 8 : 7);
 }
 
 GameWindow::MenuAction GameWindow::action_at(int index) const {
@@ -208,10 +212,21 @@ GameWindow::MenuAction GameWindow::action_at(int index) const {
     }
     // TRAIN AI sits next to WATCH AI, which is the other thing in this menu
     // about the agent rather than about playing.
-    const std::array<MenuAction, 9> acts{
-        MenuAction::NewGame,    MenuAction::WatchAi, MenuAction::TrainAi,
-        MenuAction::Replays,    MenuAction::Help,    MenuAction::Options,
-        MenuAction::Highscores, MenuAction::About,   MenuAction::Exit};
+    //
+    // REPLAYS is commented out rather than deleted: the browser, the discovery
+    // and the playback all still work and are still tested, and the MODELS
+    // browser reaches the same screen through WATCH AI. What it has no answer
+    // for yet is the person who opens it on a machine that has never trained
+    // anything — an empty list is the *only* thing it can say, and it is the
+    // common case. Put the line back when there is something to show there.
+    const std::array<MenuAction, 8> acts{MenuAction::NewGame,
+                                         MenuAction::WatchAi,
+                                         MenuAction::TrainAi,
+                                         /* MenuAction::Replays, */ MenuAction::Help,
+                                         MenuAction::Options,
+                                         MenuAction::Highscores,
+                                         MenuAction::About,
+                                         MenuAction::Exit};
     return acts[can_train() || slot < 2 ? slot : slot + 1];
 }
 

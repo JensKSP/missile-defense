@@ -411,10 +411,18 @@ class LibraryView(QWidget):
         caption.setProperty("role", "caption")
         heading.addWidget(caption)
         heading.addStretch(1)
-        self._restore = QPushButton("Res&tore…")
-        self._restore.setToolTip("Put an archived run back into this library")
-        self._restore.clicked.connect(self._restore_archive)
-        heading.addWidget(self._restore)
+        # Restore is withdrawn from this heading for now. It was the only
+        # archive control at library level — the way *out*, `Storage… →
+        # Archive`, is a run selection and a dialog away — so the screen offered
+        # to put back something it never visibly took. `_restore_archive` and
+        # `md.ui.storage.restore` are untouched and still tested end to end
+        # (python/tests/e2e/test_storage.py); this is one button to put back
+        # once archiving and restoring are one story told in one place.
+        #
+        # self._restore = QPushButton("Res&tore…")
+        # self._restore.setToolTip("Put an archived run back into this library")
+        # self._restore.clicked.connect(self._restore_archive)
+        # heading.addWidget(self._restore)
         if on_new_run is not None:
             new_run = QPushButton("&New run…")
             new_run.setProperty("role", "primary")

@@ -133,8 +133,9 @@ turn over.
   it should fall as the actor learns time pressure, existing blast/interceptor
   coverage, and which threats form useful clusters.
 
-Every 25 updates an episode is written to `runs/`. **Go and watch one.** Open the
-app, choose **REPLAYS**, pick the newest. This is the single most useful habit in
+Every 25 updates an episode is written to `runs/`. **Go and watch one.** The
+REPLAYS menu entry is commented out for now, so name the newest one directly:
+`md_app --replay runs/update-00100.mdr`. This is the single most useful habit in
 the whole loop: a return curve cannot tell you that your agent has learned to
 ignore MIRVs, or that it is dumping three interceptors into one warhead. Watching
 it for thirty seconds will.

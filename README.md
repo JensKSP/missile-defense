@@ -304,9 +304,10 @@ your three batteries.
 | `M` | Toggle music |
 | `A` | Toggle audio (SFX) |
 
-Menu: **START** a new game, **WATCH AI**, **REPLAYS**, **HELP**, **OPTIONS**
+Menu: **START** a new game, **WATCH AI**, **HELP**, **OPTIONS**
 (audio / music / fullscreen), **HIGHSCORES**, **ABOUT**, **EXIT**. Beat a high
-score to enter your initials, arcade style.
+score to enter your initials, arcade style. (A **TRAIN AI** entry appears where
+the training console is installed beside the game.)
 
 ## AI training
 
@@ -507,13 +508,15 @@ directly:
 
 ### Watch replays
 
-Pick one from the **REPLAYS** menu entry, which lists the recordings in `runs/`
-— both the ones sitting directly in it and the ones inside each managed run —
-newest first:
+The browser that lists the recordings in `runs/` — both the ones sitting
+directly in it and the ones inside each managed run, newest first — is built and
+tested, but its **REPLAYS** menu entry is commented out for now
+(`GameWindow::action_at`): on a machine that has never trained anything, an
+empty list is the only thing it can say, and that is the common case.
 
 ![The REPLAYS browser listing recorded episodes from a training run, newest first](docs/images/replays.png)
 
-Or name one directly:
+So name a recording directly:
 
 ```bash
 ./build/release/app/md_app --replay runs/update-01000.mdr
