@@ -44,12 +44,31 @@ overrides whose absence means something else.
 from __future__ import annotations
 
 import json
+import os
 import time
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import cast
 
 #: Marker file names, relative to a run's ``--out-dir``.
+#: The PID of the trainer that owns this run. The console reads it to answer "is
+#: anything actually running in here?" rather than guessing from how long ago a
+#: file was touched — a guess that lags by however long the threshold is and,
+#: worse, calls a *slow* run dead.
+#:
+#: **Deliberately never deleted.** Removing it on a clean exit sounds tidier and
+#: is worse: the file's absence would then mean either "an old trainer that never
+#: wrote one" or "a new one that finished", and the console cannot tell those
+#: apart — so it would fall back to the timestamp and go on claiming a finished
+#: run was live for another ninety seconds, which is the bug this replaces. A
+#: dead PID says "finished" immediately and says it for ever.
+#:
+#: The cost is PID reuse: if the operating system hands this number to something
+#: else, a finished run reads as live again. That needs a wrap-around of the PID
+#: space between a run ending and someone looking, and the consequence is a
+#: stale label rather than a wrong action.
+RUNNING_NAME = "RUNNING"
+
 PAUSE_NAME = "PAUSE"
 STOP_NAME = "STOP"
 #: The one control that carries numbers. Upper case like the markers, because it
@@ -70,6 +89,43 @@ class Control:
     @property
     def pause_file(self) -> Path:
         return self.run_dir / PAUSE_NAME
+
+    @property
+    def running_file(self) -> Path:
+        return self.run_dir / RUNNING_NAME
+
+    def claim(self) -> None:
+        """Record that this process owns the run. Call once at start-up."""
+        self.running_file.parent.mkdir(parents=True, exist_ok=True)
+        self.running_file.write_text(f"{os.getpid()}\n", encoding="utf-8")
+
+    def owner(self) -> int | None:
+        """The PID that claimed this run, or None if nobody has."""
+        try:
+            return int(self.running_file.read_text(encoding="utf-8").strip())
+        except (OSError, ValueError):
+            return None
+
+    def running(self) -> bool:
+        """Whether a live process owns this run.
+
+        The PID is checked, not merely the file: a trainer killed with SIGKILL,
+        or a machine that lost power, leaves the marker behind. A marker whose
+        process is gone is a leftover, and reporting it as a running run would
+        be the same lie in the other direction.
+        """
+        pid = self.owner()
+        if pid is None:
+            return False
+        try:
+            os.kill(pid, 0)  # signal 0 asks "does it exist?" and sends nothing
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True  # alive, just not ours to signal
+        except OSError:
+            return False
+        return True
 
     @property
     def stop_file(self) -> Path:

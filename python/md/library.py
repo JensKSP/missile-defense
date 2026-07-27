@@ -37,6 +37,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import modelcard
+from .control import Control
 
 # `md.ui.sources` and not a copy of it: it is where the knowledge of a run's
 # file names and formats already lives, it is Qt-free by test
@@ -52,9 +53,14 @@ from .ui import sources
 #: than the trainer — the run's own artifacts are all lower case.
 LIBRARY_NAME = "LIBRARY.json"
 
-#: How long since the last write before a run counts as no longer going. The
-#: console's own liveness threshold, so a row in the library and the pill in the
-#: dashboard cannot disagree about whether the same run is running.
+#: How long since the last write before a run counts as no longer going.
+#:
+#: Only a fallback now, for runs written by a trainer old enough not to leave a
+#: `RUNNING` marker. Asking the operating system is both faster and more honest:
+#: this threshold lags a finished run by up to ninety seconds, and — the worse
+#: half — calls a *slow* run dead. An update that takes longer than this is a
+#: perfectly healthy large model on a modest card, and reporting it as stopped
+#: invites someone to start a second trainer in the same directory.
 LIVE_AFTER_S = 90.0
 
 
@@ -401,6 +407,21 @@ def best_evaluated_checkpoint(run: Path) -> tuple[Path, sources.EvalRow] | None:
     return best
 
 
+def _is_live(path: Path, modified: float) -> bool:
+    """Whether something is writing this run, asked of the OS where possible.
+
+    The `RUNNING` marker names the trainer's PID, so a finished run reads as
+    finished immediately and a killed one does too — the marker outlives the
+    process, the process does not outlive the check. Only a run with no marker
+    at all falls back to the timestamp, which is what an older trainer's output
+    looks like.
+    """
+    control = Control(path)
+    if control.owner() is not None:
+        return control.running()
+    return (time.time() - modified) < LIVE_AFTER_S
+
+
 def load_run(path: Path) -> Run | None:
     """Read one run directory, or ``None`` if there is no run in it.
 
@@ -431,7 +452,7 @@ def load_run(path: Path) -> Run | None:
         path=path,
         run_id=path.name,
         display_name=metadata.display_name,
-        state="live" if (time.time() - modified) < LIVE_AFTER_S else "stopped",
+        state="live" if _is_live(path, modified) else "stopped",
         updates=updates,
         best_score=best.mean_score if best else None,
         best_update=best.update if best else None,

@@ -347,6 +347,9 @@ def train(
     # last one must not kill this one before its first update.
     control = Control(out_dir)
     control.clear()
+    # Say who is running this, so the console can answer "is it going?" by asking
+    # the operating system rather than by timing how long ago a file was touched.
+    control.claim()
     # And what it is *using*, for the settings it will keep re-reading. Published
     # from the command line so the file always answers "what cadence is this run
     # on?", and so a leftover file cannot outrank a flag someone just typed.
@@ -1282,6 +1285,7 @@ def _score(
     frame_skip: int,
     max_ticks: int,
     aim_trail: float = 0.0,
+    reaction_delay: int = 0,
 ) -> object:
     """Score the current policy on the fixed validation split, greedily.
 
@@ -1301,6 +1305,7 @@ def _score(
         frame_skip=frame_skip,
         max_ticks=max_ticks,
         aim_trail=aim_trail,
+        reaction_delay=reaction_delay,
     )
 
 

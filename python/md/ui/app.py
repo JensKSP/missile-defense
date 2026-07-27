@@ -1303,7 +1303,17 @@ class Console(QMainWindow):
             # run that just exited is live because its last line is thirty
             # seconds old, and no marker file outliving the process it was for.
             return "idle"
-        live = own is not None or (modified is not None and time.time() - modified < LIVE_AFTER_S)
+        # Our own child first, then the run's own `RUNNING` marker — a PID we can
+        # ask the operating system about — and only then the timestamp, which is
+        # what a run written by an older trainer leaves us with. The timestamp
+        # lags a finished run by up to ninety seconds and, worse, calls a slow
+        # one dead; it is a fallback, not the answer.
+        if own is not None:
+            live = True
+        elif self._control.owner() is not None:
+            live = self._control.running()
+        else:
+            live = modified is not None and time.time() - modified < LIVE_AFTER_S
         if self._control.stopping():
             # Qualified by liveness, because a stop is obeyed within one update:
             # a STOP still sitting in a directory nothing is writing to is a

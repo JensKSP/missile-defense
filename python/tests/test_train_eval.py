@@ -316,3 +316,32 @@ def test_an_out_of_memory_crash_names_the_knob_that_fixes_it() -> None:
     assert "--minibatches 16" in advice, "the advice does not offer the cheapest fix"
     # And what it would have taken, so the number is comparable with a card's size.
     assert "Estimated peak for this configuration: 152." in advice
+
+
+def test_the_handicap_reaches_the_validation_eval(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Both halves of the handicap, forwarded from the run's config.
+
+    A policy trained under a limit and scored without it is being asked a
+    different question — and the answer flatters it, because the limit is what
+    made the task hard. This is also the signature the trainer got wrong once:
+    `_score` took `aim_trail` but not `reaction_delay`, and every run configured
+    with one died at its first evaluation.
+    """
+    captured: dict[str, object] = {}
+
+    def fake_evaluate(policy: object, **kwargs: object) -> object:
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setattr(trainer, "evaluate", fake_evaluate)
+    trainer._score(
+        nn.Identity(),
+        torch.device("cpu"),
+        frame_skip=4,
+        max_ticks=1_000,
+        aim_trail=0.5,
+        reaction_delay=7,
+    )
+
+    assert captured["aim_trail"] == 0.5
+    assert captured["reaction_delay"] == 7
