@@ -368,8 +368,7 @@ TEST_CASE("a partial final frame records exactly the ticks that ran", "[rl][vec_
     CHECK(recording->frame_skip == 1u);
     CHECK(recording->config.decision_interval == 4u);
     CHECK(recording->actions.size() == max_ticks);
-    CHECK(recording->actions ==
-          std::vector<std::int32_t>{0, 0, 0, 0, 1, 1, 1, 1, 2, 2});
+    CHECK(recording->actions == std::vector<std::int32_t>{0, 0, 0, 0, 1, 1, 1, 1, 2, 2});
 
     md::replay::Player player{*recording};
     while (player.tick()) {

@@ -5,6 +5,12 @@
 # Recorded runs (training artifacts)
 /runs/
 
+# glslangValidator's default output names. The build never writes these: it
+# compiles app/shaders/quad.{vert,frag} into headers in the build tree, so a
+# .spv beside the sources is always somebody having run the compiler by hand.
+/app/*.spv
+*.spv
+
 # Capture outputs
 /shot*.png
 /clip*.mp4
