@@ -56,7 +56,7 @@ import shutil
 import sys
 import tempfile
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -65,7 +65,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from . import footprint, modelcard, paths, runlog
+from . import footprint, modelcard, paths, runconfig, runlog
 from .benchmark import (
     CANONICAL_BASELINE_MEAN_SCORE,
     CANONICAL_FRAME_SKIP,
@@ -92,6 +92,10 @@ BASELINE_MEAN_SCORE = CANONICAL_BASELINE_MEAN_SCORE
 
 class CheckpointCompatibilityError(ValueError):
     """A checkpoint belongs to a different observation or action schema."""
+
+
+class ResumeError(ValueError):
+    """``--resume`` was pointed at something that is not a checkpoint."""
 
 
 @dataclass
@@ -322,7 +326,8 @@ def train(
     # from the command line so the file always answers "what cadence is this run
     # on?", and so a leftover file cannot outrank a flag someone just typed.
     control.publish_tuning({"eval_every": config.eval_every})
-    _write_config(out_dir / "config.json", config, ppo, schedule, out_dir, shaping)
+    payload = _config_payload(config, ppo, schedule, out_dir, shaping)
+    _write_config(out_dir / runconfig.FILENAME, config, ppo, schedule, out_dir, shaping)
     # Beside it, what the run is *training* — the console reads this rather than
     # a checkpoint, because opening one needs torch and it must never import it
     # (docs/ROADMAP.md, M8, risk 3). Written once: within a run the shapes never
@@ -343,6 +348,13 @@ def train(
         f"= {config.envs * config.steps:,} samples/update | "
         f"validation {SEEDS_PER_SPLIT} seeds"
     )
+    # Every knob this run resolved to, on the way past. Two reasons it is printed
+    # and not only written: a terminal is where a mistyped flag is caught, in the
+    # first second rather than the third hour — and this goes through the run's
+    # own log (md.runlog), so the console's log pane answers "what is this run
+    # actually doing?" for a run it never started.
+    for line in runconfig.describe(payload):
+        print(line)
     print(
         f"  pause with `touch {control.pause_file}`, "
         f"stop gracefully with `touch {control.stop_file}`"
@@ -564,6 +576,31 @@ def train(
     return policy
 
 
+def _config_payload(
+    config: TrainConfig,
+    ppo: PPOConfig,
+    schedule: LinearSchedule,
+    out_dir: Path,
+    shaping: Shaping | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Every setting this run resolved to, in :data:`md.runconfig.GROUPS` order.
+
+    One structure, two readers: it is written to ``config.json`` and printed at
+    start-up, and those must not be able to disagree about what the run is doing.
+    """
+    settings = dataclasses.asdict(config) | {"out_dir": str(out_dir)}
+    return {
+        "train": settings,
+        "ppo": dataclasses.asdict(ppo),
+        # What the agent was *paid for*. Now that these are settable, a run whose
+        # config.json omitted them would be one nobody could reproduce — and the
+        # two non-potential terms genuinely change what the policy converges to,
+        # so they are the last thing to leave out of the record.
+        "shaping": dataclasses.asdict(shaping or Shaping()),
+        "schedule": dataclasses.asdict(schedule),
+    }
+
+
 def _write_config(
     path: Path,
     config: TrainConfig,
@@ -579,19 +616,12 @@ def _write_config(
     question "what were the settings" is asked of whichever run turned out to be
     interesting. The *resolved* output directory is recorded rather than the
     ``None`` that asked for it, so the file says where the run actually went.
+
+    :mod:`md.runconfig` reads it back — for the console's parameter view, and to
+    fill in what a ``--resume`` should inherit.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    settings = dataclasses.asdict(config) | {"out_dir": str(out_dir)}
-    payload = {
-        "train": settings,
-        "ppo": dataclasses.asdict(ppo),
-        # What the agent was *paid for*. Now that these are settable, a run whose
-        # config.json omitted them would be one nobody could reproduce — and the
-        # two non-potential terms genuinely change what the policy converges to,
-        # so they are the last thing to leave out of the record.
-        "shaping": dataclasses.asdict(shaping or Shaping()),
-        "schedule": dataclasses.asdict(schedule),
-    }
+    payload = _config_payload(config, ppo, schedule, out_dir, shaping)
     path.write_text(json.dumps(payload, indent=2, default=str) + "\n", encoding="utf-8")
 
 
@@ -1326,27 +1356,236 @@ def score_checkpoint(path: Path, device_name: str | None = None, record: Path | 
     return 0
 
 
+# ---- continuing a run that stopped -------------------------------------------
+
+#: Where a run keeps its checkpoints, and the names the trainer gives them.
+CHECKPOINTS_DIR = "checkpoints"
+FINAL_CHECKPOINT = "policy-final.pt"
+BEST_CHECKPOINT = "policy-best.pt"
+
+
+@dataclass(frozen=True)
+class Continuation:
+    """What ``--resume <run>`` works out for itself, before any flag is applied.
+
+    A stopped run is the ordinary case — a graceful ``STOP``, a reboot, a horizon
+    that turned out too short — and continuing one used to mean restating every
+    non-default flag from memory. Getting one wrong is either a rejected
+    checkpoint (the loud failure) or a continuation that is quietly a different
+    experiment under the same run's name (the expensive one). So the run answers
+    for itself, and anything typed on the command line still wins.
+    """
+
+    #: The checkpoint to continue from.
+    checkpoint: Path
+    #: The run it belongs to — where the continuation writes unless told otherwise.
+    run_dir: Path
+    #: The update that checkpoint stopped at.
+    iteration: int
+    #: Inherited settings, by dataclass, ready to be overridden by real flags.
+    train: dict[str, Any]
+    ppo: dict[str, Any]
+    shaping: dict[str, Any]
+    #: Updates left of the *original* annealing horizon, or ``None`` when the run
+    #: finished it (or predates schedules). This is what makes "carry on" mean
+    #: "finish what was planned" rather than "run another thousand".
+    remaining: int | None
+    #: The `config.json` this was read from, if the run still has one.
+    stored: runconfig.RunConfig | None
+
+
+def resolve_checkpoint(target: Path) -> Path:
+    """The checkpoint ``--resume`` means: a file, or the latest one in a run.
+
+    "The latest" is by stored iteration rather than by file name or timestamp.
+    ``policy-final.pt`` has no number in its name, and ``policy-best.pt`` is
+    usually an *earlier* update than the last one — resuming that would silently
+    rewind the run by however far it regressed after its peak.
+    """
+    if target.is_file():
+        return target
+    if not target.exists():
+        raise ResumeError(
+            f"{target} does not exist — pass a run directory, or a checkpoint under its "
+            f"{CHECKPOINTS_DIR}/"
+        )
+
+    directory = target / CHECKPOINTS_DIR if (target / CHECKPOINTS_DIR).is_dir() else target
+    # At most three files are opened, whatever the run's length: the highest
+    # numbered one, and the two named checkpoints that carry no number.
+    numbered = sorted(directory.glob("policy-[0-9]*.pt"))
+    candidates = [*numbered[-1:], directory / FINAL_CHECKPOINT, directory / BEST_CHECKPOINT]
+
+    latest: tuple[int, Path] | None = None
+    for candidate in candidates:
+        if not candidate.is_file():
+            continue
+        iteration = _stored_iteration(candidate)
+        if iteration is None:
+            continue
+        if latest is None or iteration > latest[0]:
+            latest = (iteration, candidate)
+    if latest is None:
+        raise ResumeError(
+            f"no checkpoint to continue from in {directory} — a run leaves one every "
+            f"--checkpoint-every updates, and a {FINAL_CHECKPOINT} when it stops"
+        )
+    return latest[1]
+
+
+def _stored_iteration(path: Path) -> int | None:
+    """The update a checkpoint stopped at, or ``None`` if it cannot be read.
+
+    Unreadable is not fatal here: a truncated checkpoint from a run that died
+    mid-write should lose *itself*, not the resume — the one before it is still
+    good. Loading it for real, in ``train``, is where a bad file is allowed to
+    raise.
+    """
+    try:
+        payload = torch.load(path, map_location="cpu", weights_only=True)
+        return int(payload["iteration"])
+    except Exception:  # noqa: BLE001 — every way a file fails to load means the same
+        return None
+
+
+def continuation(target: Path) -> Continuation:
+    """Everything a resume can work out from the run it is continuing."""
+    checkpoint = resolve_checkpoint(target)
+    run_dir = (
+        checkpoint.parent.parent if checkpoint.parent.name == CHECKPOINTS_DIR else checkpoint.parent
+    )
+    stored = runconfig.read(run_dir)
+    payload: dict[str, Any] = torch.load(checkpoint, map_location="cpu", weights_only=True)
+    iteration = int(payload["iteration"])
+
+    train_values = _inherit(TrainConfig, stored.train if stored else {})
+    ppo_values = _inherit(PPOConfig, stored.ppo if stored else {})
+    shaping_values = _inherit(Shaping, stored.shaping if stored else {})
+    # This run's identity, not its recipe: where the last one wrote, and which
+    # checkpoint *it* continued. Both are decided here instead.
+    for name in runconfig.NOT_A_RECIPE:
+        train_values.pop(name, None)
+
+    # The checkpoint outranks the file wherever the two could disagree. A
+    # `config.json` can be stale, hand-edited, or describe a later run in the
+    # same directory; the weights cannot, and these are exactly the values a
+    # resume is checked against (`_validate_resume_policy_config`).
+    ppo_values["architecture"] = str(payload.get("architecture", "mlp"))
+    if "hidden" in payload:
+        ppo_values["hidden"] = int(payload["hidden"])
+
+    remaining: int | None = None
+    schedule = payload.get("schedule")
+    if isinstance(schedule, dict):
+        try:
+            ppo_values["learning_rate"] = float(schedule["learning_rate_start"])
+            ppo_values["entropy_coef"] = float(schedule["entropy_coef_start"])
+            train_values["learning_rate_final"] = float(schedule["learning_rate_final"])
+            train_values["entropy_coef_final"] = float(schedule["entropy_coef_final"])
+            left = int(schedule["end_update"]) - iteration
+        except (KeyError, TypeError, ValueError):
+            pass  # `_resolve_schedule` rejects it properly, with the reason
+        else:
+            # The stored endpoints *are* the schedule. Restating its length as a
+            # flag could only disagree with them, and disagreeing is an error.
+            train_values.pop("schedule_updates", None)
+            remaining = left if left >= 1 else None
+
+    return Continuation(
+        checkpoint=checkpoint,
+        run_dir=run_dir,
+        iteration=iteration,
+        train=train_values,
+        ppo=ppo_values,
+        shaping=shaping_values,
+        remaining=remaining,
+        stored=stored,
+    )
+
+
+def _inherit(config_class: type, stored: Mapping[str, Any]) -> dict[str, Any]:
+    """The stored settings this dataclass actually has fields for.
+
+    Filtered rather than splatted: a run trained by a newer trainer carries
+    fields this one has never heard of, and a continuation should ignore them
+    rather than fail to start. ``None`` is dropped too — it is the way every
+    optional field spells "decide at run time", which is what leaving it out does.
+    """
+    inherited: dict[str, Any] = {}
+    for field in dataclasses.fields(config_class):
+        value = stored.get(field.name)
+        if value is None:
+            continue
+        # A hand-edited `100` for a float field is a number, not a type error.
+        if (
+            isinstance(field.default, float)
+            and isinstance(value, int)
+            and not isinstance(value, bool)
+        ):
+            value = float(value)
+        inherited[field.name] = value
+    return inherited
+
+
+def show_config(target: Path) -> int:
+    """Print the settings a run was started with. ``poe train -- --show-config``.
+
+    The other half of writing `config.json`: until something read it back, "what
+    was this run trained with?" was a file you opened in an editor and a JSON
+    object you scrolled through.
+    """
+    config = runconfig.read(target)
+    if config is None:
+        print(
+            f"no {runconfig.FILENAME} in {target} — the trainer writes one at start-up, "
+            "so a directory without one is not a run (or predates it)",
+            file=sys.stderr,
+        )
+        return 2
+    print(config.path)
+    if config.resumed_from is not None:
+        # Then its `updates` is a count of *additional* updates and its first
+        # update number is somebody else's last plus one — worth saying before
+        # anyone reads 600 as the length of the run.
+        print(f"  continued {config.resumed_from}")
+    for line in runconfig.describe(config.payload):
+        print(line)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Train a Missile Defense policy with PPO.")
     defaults = TrainConfig()
-    parser.add_argument("--envs", type=int, default=defaults.envs)
-    parser.add_argument("--steps", type=int, default=defaults.steps)
-    parser.add_argument("--updates", type=int, default=defaults.updates)
-    parser.add_argument("--frame-skip", type=int, default=defaults.frame_skip)
+    # `None` unless given, exactly like the PPO and reward flags below, and for
+    # one more reason than they have: a `--resume` fills the gaps from the run it
+    # continues, and a flag that had already been given its dataclass default
+    # here would be indistinguishable from one somebody typed.
+    parser.add_argument("--envs", type=int, default=None)
+    parser.add_argument("--steps", type=int, default=None)
+    parser.add_argument(
+        "--updates",
+        type=int,
+        default=None,
+        help=(
+            f"How many updates to run (default {defaults.updates}); on --resume, how many "
+            "more, defaulting to what is left of the original schedule."
+        ),
+    )
+    parser.add_argument("--frame-skip", type=int, default=None)
     parser.add_argument(
         "--max-ticks",
         type=int,
-        default=defaults.max_ticks,
+        default=None,
         help="Episode length cap in ticks; lower it to see episodes finish sooner.",
     )
-    parser.add_argument("--eval-every", type=int, default=defaults.eval_every)
-    parser.add_argument("--record-every", type=int, default=defaults.record_every)
-    parser.add_argument("--checkpoint-every", type=int, default=defaults.checkpoint_every)
-    parser.add_argument("--seed", type=int, default=defaults.seed)
+    parser.add_argument("--eval-every", type=int, default=None)
+    parser.add_argument("--record-every", type=int, default=None)
+    parser.add_argument("--checkpoint-every", type=int, default=None)
+    parser.add_argument("--seed", type=int, default=None)
     parser.add_argument(
         "--device",
         type=str,
-        default=defaults.device,
+        default=None,
         help=(
             "Training device (default: auto); with --load, the held-out benchmark "
             f"defaults to {CANONICAL_INFERENCE_DEVICE}."
@@ -1356,14 +1595,23 @@ def main(argv: list[str] | None = None) -> int:
         "--out-dir",
         type=Path,
         default=None,
-        help="Where the run writes (default: ./runs in a checkout, else the user data dir).",
+        help=(
+            "Where the run writes (default: ./runs in a checkout, else the user data dir; "
+            "on --resume, the run being continued)."
+        ),
     )
     parser.add_argument(
-        "--resume", type=Path, default=None, help="Continue training from a checkpoint."
+        "--resume",
+        type=Path,
+        default=None,
+        help=(
+            "Continue a run: a run directory — whose latest checkpoint and settings are "
+            "used — or one particular checkpoint under it."
+        ),
     )
-    parser.add_argument("--learning-rate-final", type=float, default=defaults.learning_rate_final)
-    parser.add_argument("--entropy-coef-final", type=float, default=defaults.entropy_coef_final)
-    parser.add_argument("--schedule-updates", type=int, default=defaults.schedule_updates)
+    parser.add_argument("--learning-rate-final", type=float, default=None)
+    parser.add_argument("--entropy-coef-final", type=float, default=None)
+    parser.add_argument("--schedule-updates", type=int, default=None)
     parser.add_argument(
         "--load",
         type=Path,
@@ -1372,6 +1620,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--record-to", type=Path, default=None, help="With --load, also write a watchable episode."
+    )
+    parser.add_argument(
+        "--show-config",
+        type=Path,
+        nargs="?",
+        const=None,
+        default=argparse.SUPPRESS,
+        metavar="RUN",
+        help="Print the settings a run was started with, and exit.",
     )
     # Every PPO hyperparameter as a flag, generated from the dataclass so the two
     # cannot drift apart. They are `None` unless given, so an unspecified one
@@ -1402,8 +1659,22 @@ def main(argv: list[str] | None = None) -> int:
         )
     args = parser.parse_args(argv)
 
+    if hasattr(args, "show_config"):
+        # `None` when the flag was given without a path: the run directory this
+        # machine would train into, which is the one somebody standing in a
+        # checkout means.
+        return show_config(args.show_config or paths.runs_dir(None))
+
     if args.load is not None:
         return score_checkpoint(args.load, args.device, args.record_to)
+
+    carry: Continuation | None = None
+    if args.resume is not None:
+        try:
+            carry = continuation(args.resume)
+        except ResumeError as error:
+            print(f"cannot resume: {error}", file=sys.stderr)
+            return 2
 
     given = {
         field.name: getattr(args, field.name)
@@ -1415,29 +1686,58 @@ def main(argv: list[str] | None = None) -> int:
         for field in dataclasses.fields(Shaping)
         if getattr(args, f"reward_{field.name}") is not None
     }
+    # Three layers, innermost wins: the dataclass defaults, then what the run
+    # being continued was doing, then what was actually typed. Nothing is
+    # silently *changed* by a resume — a flag that conflicts with the checkpoint
+    # is still rejected, by name, further in.
+    settings = dict(carry.train) if carry is not None else {}
+    settings |= {
+        field.name: getattr(args, field.name)
+        for field in dataclasses.fields(TrainConfig)
+        if field.name not in runconfig.NOT_A_RECIPE and getattr(args, field.name) is not None
+    }
+    if carry is not None and carry.remaining is not None and args.updates is None:
+        # "Carry on" means finish what was planned. The stored `updates` is the
+        # *original* horizon, so inheriting it would run the whole run again.
+        settings["updates"] = carry.remaining
+
     config = TrainConfig(
-        envs=args.envs,
-        steps=args.steps,
-        updates=args.updates,
-        frame_skip=args.frame_skip,
-        max_ticks=args.max_ticks,
-        eval_every=args.eval_every,
-        record_every=args.record_every,
-        checkpoint_every=args.checkpoint_every,
-        seed=args.seed,
-        device=args.device,
-        out_dir=args.out_dir,
-        resume=args.resume,
-        learning_rate_final=args.learning_rate_final,
-        entropy_coef_final=args.entropy_coef_final,
-        schedule_updates=args.schedule_updates,
+        **settings,
+        # Into the run it is continuing, unless told otherwise — continuing into
+        # a fresh directory is how a run is forked rather than extended.
+        out_dir=args.out_dir or (carry.run_dir if carry is not None else None),
+        resume=carry.checkpoint if carry is not None else None,
     )
     # A copy of everything below goes to runs/train.log as well as the terminal.
     # That is what lets the console show a log pane for a run it did not start
     # — the case the whole out-of-process design exists for (md.runlog).
+    ppo = PPOConfig(**({**carry.ppo, **given} if carry is not None else given))
+    shaping = Shaping(**({**carry.shaping, **weights} if carry is not None else weights))
     with runlog.teed(paths.runs_dir(config.out_dir)):
-        train(config, PPOConfig(**given), Shaping(**weights))
+        if carry is not None:
+            _announce(carry, config)
+        train(config, ppo, shaping)
     return 0
+
+
+def _announce(carry: Continuation, config: TrainConfig) -> None:
+    """Say what a continuation worked out, before it acts on any of it."""
+    print(
+        f"continuing {carry.run_dir.name} from {carry.checkpoint.name} (update {carry.iteration})"
+    )
+    if carry.stored is not None:
+        print(f"  settings inherited from {carry.stored.path} — flags given here win")
+    else:
+        print(
+            f"  no {runconfig.FILENAME} beside it, so only what the checkpoint "
+            "carries could be inherited"
+        )
+    if carry.remaining is not None:
+        plural = "" if config.updates == 1 else "s"
+        print(
+            f"  {config.updates:,} update{plural} to run, "
+            f"of {carry.remaining:,} left in its schedule"
+        )
 
 
 if __name__ == "__main__":

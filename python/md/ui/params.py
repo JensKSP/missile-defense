@@ -25,8 +25,17 @@ from __future__ import annotations
 import ast
 import io
 import tokenize
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+
+from .. import runconfig
+
+#: Where the trainer's dataclasses live, for the tooltips and the defaults —
+#: ``python/md``, beside the ``md/ui`` this file is in. Here rather than in the
+#: window, because the library screen reads them too and importing the window
+#: from a panel inside it is a circle.
+TRAINER_SOURCES = Path(__file__).resolve().parents[1]
 
 #: The four that change a run's character. Everything else is behind *Advanced*
 #: (docs/ROADMAP.md, M8, phase 3) — defaults that are good and reasoned should
@@ -225,6 +234,77 @@ def _help_above(comments: dict[int, str], line: int) -> str:
         lines.append(comments[cursor])
         cursor -= 1
     return " ".join(reversed(lines))
+
+
+# ---- what a run was actually started with ------------------------------------
+
+#: Which `config.json` group each config dataclass was written into, so a stored
+#: setting can be paired with the field — and the reasoning — it came from.
+GROUP_OF = {"TrainConfig": "train", "PPOConfig": "ppo", "Shaping": "shaping"}
+
+
+@dataclass(frozen=True)
+class Setting:
+    """One knob of a run that has already been started.
+
+    The stored value, the default it was chosen against, and whether those two
+    differ — which is the question a parameter view is really asked. Twenty-six
+    numbers are unreadable; the four that this run *changed* are the run.
+    """
+
+    group: str
+    name: str
+    value: str
+    #: The trainer's own default, as its source spells it. Empty when this
+    #: console has no trainer beside it to read, or the field is not one.
+    default: str
+    changed: bool
+    help: str
+
+
+def settings_of(config: runconfig.RunConfig | None, fields: Sequence[Param] = ()) -> list[Setting]:
+    """Everything a run recorded about itself, in the order the trainer wrote it.
+
+    Driven by the *stored* file rather than by the field list: a run trained by a
+    newer trainer carries knobs this console has never heard of, and hiding them
+    would be answering "what was this trained with?" with "the part I recognise".
+    Those simply arrive without a default or a tooltip.
+    """
+    if config is None:
+        return []
+    known = {(GROUP_OF.get(field.owner, ""), field.name): field for field in fields}
+    settings: list[Setting] = []
+    for group, values in config.payload.items():
+        for name, value in values.items():
+            field = known.get((group, name))
+            text = runconfig.format_value(value)
+            settings.append(
+                Setting(
+                    group=group,
+                    name=name,
+                    value=text,
+                    default=field.default if field else "",
+                    changed=field is not None and not same_value(text, field.default),
+                    help=field.help if field else "",
+                )
+            )
+    return settings
+
+
+def same_value(stored: str, default: str) -> bool:
+    """Whether two spellings of a setting mean the same thing.
+
+    Textually where they are text, numerically where they are numbers: the
+    trainer's source says ``3.0e-4`` and its own `config.json` says ``0.0003``,
+    and a view that called that a change would mark every run as having altered
+    the learning rate.
+    """
+    if stored == default:
+        return True
+    try:
+        return float(stored) == float(default)
+    except ValueError:
+        return False
 
 
 def flag_for(name: str) -> str:

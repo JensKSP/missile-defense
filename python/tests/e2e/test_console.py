@@ -37,7 +37,7 @@ from md.benchmark import (
     VALIDATION_SPLIT,
 )
 
-from .harness import needs_native, needs_qt, needs_torch
+from .harness import TINY_RUN, needs_native, needs_qt, needs_torch
 
 pytestmark = [pytest.mark.e2e, needs_qt]
 
@@ -1103,3 +1103,99 @@ def test_the_console_and_the_trainer_agree_on_what_a_run_directory_is(
     # shows is the one the trainer wrote, not a plausible number of its own.
     card = json.loads((trained_run / "model.json").read_text(encoding="utf-8"))
     assert f"{card['parameters']:,}" in console._model._headline.text()
+
+
+# ---- what a run was started with, and continuing it --------------------------
+
+
+@needs_torch
+@needs_native
+def test_the_console_shows_what_the_run_was_started_with(console) -> None:  # noqa: ANN001
+    """`config.json` has been written since there were runs; nothing read it.
+
+    The button beside Log is the answer to "what was this one trained with?" —
+    asked of whichever run turned out to be interesting, usually well after the
+    terminal that started it has gone. A dialog rather than a panel, because it
+    is read once and closed and must cost the curve no space at all.
+    """
+    console._tick()
+    dialog = console._parameters_dialog()
+    settings = {row.name: row for row in dialog.panel.settings}
+
+    assert settings["envs"].value == TINY_RUN["--envs"]
+    # And the reasoning written beside the field in the trainer's own source,
+    # so the panel teaches rather than listing twenty-six unexplained numbers.
+    assert "Environments stepped in parallel" in settings["envs"].help
+    # The tiny run is four envs against a default of 1,024: marked, because what
+    # a run *changed* is the only readable summary of what it is.
+    assert settings["envs"].changed
+    dialog.close()
+
+
+@needs_torch
+@needs_native
+def test_a_stopped_run_with_checkpoints_offers_to_continue(
+    qt_app: object, trained_run: Path, tmp_path: Path
+) -> None:
+    """Idle in a directory that already has checkpoints is not "start"."""
+    from md.ui.app import LIVE_AFTER_S, Console  # noqa: PLC0415
+    from md.ui.runner import can_train  # noqa: PLC0415
+
+    if not can_train():
+        pytest.skip("no training runtime on this machine, so the button says so instead")
+    quiet = tmp_path / "stopped"
+    shutil.copytree(trained_run, quiet)
+    stale = time.time() - (LIVE_AFTER_S * 2)
+    for path in quiet.rglob("*"):
+        os.utime(path, (stale, stale))
+
+    window = Console(quiet)
+    try:
+        window._tick()
+        assert window._primary.text() == "Continue"
+    finally:
+        window.close()
+
+
+@needs_torch
+@needs_native
+def test_continuing_restates_the_original_run_rather_than_the_defaults(
+    qt_app: object, trained_run: Path
+) -> None:
+    """The dialog behind *Continue*, filled in from the run it would continue.
+
+    Restated on the command line rather than left to the trainer's inheritance:
+    the preview in that dialog is supposed to be a command you could paste into
+    a terminal, and `--resume x` alone is a command whose meaning lives in a
+    file.
+    """
+    from md import runconfig  # noqa: PLC0415
+    from md.ui import sources as ui_sources  # noqa: PLC0415
+    from md.ui.forms import ParameterDialog  # noqa: PLC0415
+    from md.ui.params import TRAINER_SOURCES, read_params  # noqa: PLC0415
+
+    checkpoints = ui_sources.list_checkpoints(trained_run)
+    assert checkpoints, "the trained run left no checkpoint to continue from"
+    dialog = ParameterDialog(
+        read_params(TRAINER_SOURCES),
+        python="/usr/bin/python3",
+        out_dir=trained_run,
+        checkpoints=checkpoints,
+        initial=runconfig.options(runconfig.read(trained_run)),
+        resume=checkpoints[0].path,
+    )
+    try:
+        command = " ".join(dialog.command())
+        assert f"--envs {TINY_RUN['--envs']}" in command
+        assert f"--max-ticks {TINY_RUN['--max-ticks']}" in command
+        assert f"--resume {checkpoints[0].path}" in command
+        # And the button says which of the two things it is about to do.
+        assert dialog._go.text() == "Continue run"
+
+        # Choosing to start over instead is still one click, and the dialog
+        # stops calling itself a continuation the moment it is.
+        dialog._resume.setCurrentIndex(0)
+        assert "--resume" not in " ".join(dialog.command())
+        assert dialog._go.text() == "Start run"
+    finally:
+        dialog.close()

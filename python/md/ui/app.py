@@ -58,20 +58,20 @@ from PySide6.QtWidgets import (
 )
 
 from .. import library as run_library
-from .. import modelcard, paths
+from .. import modelcard, paths, runconfig
 from ..benchmark import CANONICAL_LADDER, Ladder, ladder_standing
 from ..control import Control
 from . import about, sources, theme
 from .analysis import AnalysisView
 from .charts import CurveView
+from .config import ConfigDialog, settings_for
 from .forms import ParameterDialog
 from .league import LeagueView, PromoteDialog
 from .library import LibraryView
 from .meters import SystemPanel
 from .model import ModelPanel
-from .params import read_params
+from .params import TRAINER_SOURCES, read_params
 from .runner import (
-    PACKAGE_PATH,
     PROJECT_ROOT,
     AppNotFound,
     ReplayLauncher,
@@ -81,9 +81,6 @@ from .runner import (
 )
 from .runtime_dialog import RuntimeDialog
 from .sources import EvalRow, MetricRow, Recording
-
-#: Where the trainer's dataclasses live, for the parameter form's tooltips.
-TRAINER_SOURCES = PACKAGE_PATH / "md"
 
 #: An update takes seconds, so a second is a smooth refresh and not a busy loop.
 POLL_MS = 1000
@@ -276,6 +273,11 @@ class Console(QMainWindow):
         #: None until the first scan, so "still empty" is distinguishable from
         #: "not looked yet" — otherwise the empty state never gets drawn.
         self._listed: list[Recording] | None = None
+        #: What this run has already saved, from the last rescan. Emptied here
+        #: rather than left over: a different directory has different ones, and
+        #: offering the last run's checkpoints to continue would be offering to
+        #: continue the wrong run.
+        self._checkpoints: list[sources.Checkpoint] = []
         self._updates = 0
         self._last_metric: MetricRow | None = None
         self._last_eval: EvalRow | None = None
@@ -537,10 +539,21 @@ class Console(QMainWindow):
         self._stop.clicked.connect(self._stop_pressed)
         self._reset = QPushButton("Reset…")
         self._reset.clicked.connect(self._reset_pressed)
+        # Beside Log, and deliberately the same size as it: the two are the pair
+        # of read-only questions about a run — what it *printed*, and what it was
+        # *started with*. Neither is watched, both are asked at odd moments, and
+        # neither is worth a panel that takes space from the curve. So a button
+        # and a window you close again, rather than a third tab.
+        self._parameters = QPushButton("Parameters…")
+        self._parameters.setToolTip(
+            "What this run was started with — every setting, and which of them it "
+            "changed from the trainer's defaults"
+        )
+        self._parameters.clicked.connect(self._show_parameters)
         self._log_toggle = QPushButton("Log")
         self._log_toggle.setCheckable(True)
         self._log_toggle.toggled.connect(self._show_log)
-        for button in (self._primary, self._stop, self._reset, self._log_toggle):
+        for button in (self._primary, self._stop, self._reset, self._parameters, self._log_toggle):
             row.addWidget(button)
         return row
 
@@ -1032,11 +1045,10 @@ class Console(QMainWindow):
         than something done once on attach. It is a small JSON and one directory
         listing, and the panel repaints only when the text actually changed.
         """
-        self._model.show_run(
-            modelcard.read(self._run_dir),
-            sources.list_checkpoints(self._run_dir),
-            self._eval_rows,
-        )
+        # Kept, because something else asks: the primary button says *Continue*
+        # rather than *Start* where there is a checkpoint to continue from.
+        self._checkpoints = sources.list_checkpoints(self._run_dir)
+        self._model.show_run(modelcard.read(self._run_dir), self._checkpoints, self._eval_rows)
 
     def _refresh_picker(self) -> None:
         """Rebuild the run list, without disturbing anyone reading it.
@@ -1187,11 +1199,17 @@ class Console(QMainWindow):
 
         state = self._state(modified)
         self._set_status(*STATUS[state])
-        # Idle with nothing that could train is the fourth meaning of the primary
-        # button: it offers to fix that rather than being a dead control with an
-        # explanation on it. Watching a run from a machine with no torch stays a
-        # supported way to use this — only Start was ever gated.
-        idle_label = "Start" if can_train() else "Set up training…"
+        # Idle has three readings, and the button says which one it is looking
+        # at. A directory with checkpoints in it is not "start": it is a run that
+        # stopped, and carrying it on is what is almost always wanted — saying so
+        # is what makes that one click rather than a dialog you have to know to
+        # change. And idle with nothing that *could* train offers to fix that,
+        # rather than being a dead control with an explanation on it; watching a
+        # run from a machine with no torch stays a supported way to use this, and
+        # only starting one was ever gated.
+        idle_label = "Continue" if self._checkpoints else "Start"
+        if not can_train():
+            idle_label = "Set up training…"
         self._primary.setText({"paused": "Resume", "live": "Pause"}.get(state, idle_label))
         self._primary.setEnabled(state != "stopping")
         self._stop.setEnabled(state in ("live", "paused"))
@@ -1300,13 +1318,25 @@ class Console(QMainWindow):
 
     def _start(self) -> None:
         out_dir = self._run_dir.resolve()
+        # What is already in this directory, so continuing a run is a choice from
+        # a list rather than a path typed from memory. Re-listed rather than
+        # taken from the last rescan: this one is about to be acted on.
+        checkpoints = sources.list_checkpoints(out_dir)
         dialog = ParameterDialog(
             read_params(TRAINER_SOURCES),
             python=training_python(),
             out_dir=out_dir,
-            # What is already in this directory, so continuing a run is a choice
-            # from a list rather than a path typed from memory.
-            checkpoints=sources.list_checkpoints(out_dir),
+            checkpoints=checkpoints,
+            # A run in this directory already answered every one of these
+            # questions, and its answers are the ones a continuation has to keep:
+            # the trainer rejects a resume whose architecture, hidden size or
+            # annealing schedule disagrees with the checkpoint. Restating them
+            # from memory is exactly the step that used to cost a run.
+            initial=runconfig.options(runconfig.read(out_dir)),
+            # And the newest checkpoint pre-picked, because that is what pressing
+            # *Continue* on a stopped run means. `start from scratch` is still
+            # the first entry in the picker for when it does not.
+            resume=checkpoints[0].path if checkpoints else None,
             # Beside the runs, not inside this one: a preset outlives the run it
             # started, which is the whole reason for naming it.
             presets_file=paths.presets_file(),
@@ -1360,6 +1390,21 @@ class Console(QMainWindow):
         # After attaching, which clears it: this name is for the directory the
         # window is looking at *now*.
         self._pending_name = name if name != target.name else ""
+
+    def _parameters_dialog(self) -> ConfigDialog:
+        """The run's settings, read fresh.
+
+        Read at the moment it is asked for rather than polled: nothing in a run
+        directory changes `config.json` after start-up, and a panel kept up to
+        date once a second for a question asked twice a week is work nobody
+        benefits from.
+        """
+        run = run_library.load_run(self._run_dir)
+        name = run.name if run is not None else self._run_dir.name
+        return ConfigDialog(name, *settings_for(self._run_dir, TRAINER_SOURCES), self)
+
+    def _show_parameters(self) -> None:
+        self._parameters_dialog().exec()
 
     def _show_about(self) -> None:
         """Who wrote this, which build it is, and what it is standing on.

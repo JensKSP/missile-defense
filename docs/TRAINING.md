@@ -151,7 +151,7 @@ Everything under `runs/` (`--out-dir` to change it):
 | `runs/update-<n>.mdr` | a watchable episode, ~80 kB |
 | `runs/metrics.csv` | one row per update, for plotting afterwards |
 | `runs/evals.csv` | validation rows, plus a final canonical row after `--load` |
-| `runs/config.json` | every setting the run was started with |
+| `runs/config.json` | every setting the run was started with (`--show-config` reads it back) |
 | `runs/model.json` | the network it is training — layers, shapes, parameter count |
 | `runs/train.log` | a copy of everything it printed, flushed line by line |
 
@@ -333,17 +333,38 @@ starts a new score segment and peak instead of drawing a line between unlike
 measurements.
 
 The bar across the top is deliberately small: one button that changes meaning
-(**Start** → **Pause** → **Resume**), **Stop**, and **Reset**, which asks what to
-call a fresh run directory, attaches to it, and never deletes the old one.
-**Start** opens the parameter
-form — the four fields that change a run's character, everything else behind
-*Advanced*, each carrying as its tooltip the reasoning written beside it in
-`TrainConfig` and `PPOConfig`. Only what you change is passed, and the resulting
-command line is shown, so nothing here is a thing only the UI can do.
+(**Start** / **Continue** → **Pause** → **Resume**), **Stop**, and **Reset**,
+which asks what to call a fresh run directory, attaches to it, and never deletes
+the old one. Beside them sit the two read-only questions about a run —
+**Parameters…**, what it was started with, and **Log**, what it printed.
 
-**Start** also offers to *continue from* any checkpoint already in the run
-directory — a picker rather than a path you type, since the file has to exist —
-which passes `--resume` and carries the optimizer state with it.
+The primary button opens the parameter form — the four fields that change a run's
+character, everything else behind *Advanced*, each carrying as its tooltip the
+reasoning written beside it in `TrainConfig` and `PPOConfig`. Only what you
+change is passed, and the resulting command line is shown, so nothing here is a
+thing only the UI can do.
+
+It also offers to *continue from* any checkpoint already in the run directory — a
+picker rather than a path you type, since the file has to exist — which passes
+`--resume` and carries the optimizer state with it. In a directory that already
+has checkpoints the button reads **Continue**, the newest one is pre-picked, and
+the form opens filled in from that run's own `config.json`, so continuing a run
+does not mean retyping it.
+
+### What a run was started with
+
+**Parameters…** opens it: every setting, grouped as the trainer wrote it, with
+the ones this run *changed* from the defaults marked and counted — twenty-six
+numbers are unreadable, and the four that differ are the run. Each row's tooltip
+is the sentence written beside that field in the trainer's source, the same text
+the Start dialog shows. The library has the same button, so the question can be
+asked of a run without opening it, which is what comparing eleven of them
+actually looks like.
+
+It is read-only and always available, including while a run is going. In a
+terminal the same answer is `poe train -- --show-config runs/amber-anvil`, and
+every run prints the block into its own `train.log` as it starts — which is why
+the console's **Log** pane shows it too, even for a run started from a terminal.
 
 ### Presets: naming a set of options
 
@@ -597,18 +618,33 @@ column renamed on one side of that join.
 ## Picking up where you left off
 
 ```bash
-poe train -- --resume runs/checkpoints/policy-00400.pt
+poe train -- --resume runs/amber-anvil                          # carry on
+poe train -- --resume runs/amber-anvil/checkpoints/policy-00400.pt   # from there
 ```
+
+**Point it at the run, and it works the rest out.** Which checkpoint is the
+latest — by the update stored inside it, not by file name or timestamp, since
+`policy-best.pt` is usually an *earlier* update and resuming that would silently
+rewind the run. What the run was configured with, from its own `config.json`.
+And how much of the annealing horizon is left, so a run stopped at update 400 of
+1,000 does the remaining 600 rather than another thousand. It writes into the
+same run directory, so `metrics.csv` is appended and the history stays one story.
+
+Anything you type still wins — `--updates 200` shortens it, `--out-dir runs/fork`
+forks it into a fresh directory instead of extending it — and a flag that
+contradicts the checkpoint is still rejected by name rather than silently
+changing the run.
 
 Checkpoints carry the optimizer, not just the weights. That matters: Adam keeps
 momentum estimates, and resuming without them makes the next few updates behave
 unlike the ones before — which looks like a mysterious kink in your curve rather
 than the artefact it is. They also carry the original learning-rate and entropy
 schedule, so update 401 resumes with update 401's coefficients instead of
-restarting the decay. If the original run used custom start, final, or schedule
-length flags, pass those same flags when resuming; incompatible settings are
-rejected rather than silently changing the run. `metrics.csv` is appended, so
-the history stays whole.
+restarting the decay.
+
+In the console this is the **Continue** button: a run directory that already has
+checkpoints says *Continue* rather than *Start*, and the dialog behind it opens
+with that run's own settings filled in and its newest checkpoint picked.
 
 The blast lifetime phase enlarged the observation from 1,895 to 1,959 floats.
 Older checkpoints use the previous input schema and are intentionally rejected

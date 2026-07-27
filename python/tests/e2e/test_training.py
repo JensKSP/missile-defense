@@ -21,6 +21,8 @@ from __future__ import annotations
 import csv
 import json
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -39,6 +41,7 @@ from md.benchmark import (
 from md.control import TUNING_NAME, Control
 
 from .harness import (
+    PROJECT_ROOT,
     TINY_RUN,
     TRAIN_TIMEOUT_S,
     agent_eval,
@@ -47,6 +50,7 @@ from .harness import (
     needs_torch,
     recordings,
     start_training,
+    train_environ,
     wait_until,
 )
 
@@ -347,3 +351,91 @@ def test_a_run_logs_itself_so_a_console_can_attach_later(trained_run: Path) -> N
     # started in a terminal a log pane in a console that never started it.
     log = (trained_run / "train.log").read_text(encoding="utf-8")
     assert "update" in log.lower()
+
+
+def test_a_stopped_run_is_continued_from_its_own_directory(
+    trained_run: Path, tmp_path: Path
+) -> None:
+    """The whole point of `--resume <run>`: no flag of the original restated.
+
+    The tiny run is deliberately non-default in eight places (`TINY_RUN`), and
+    every one of them has to come back — `--envs 4` above all, because a
+    continuation that quietly used the default 1,024 would be a different
+    experiment wearing the same run's name, and nothing on screen would say so.
+    """
+    import shutil  # noqa: PLC0415 — this test copies the shared run before writing
+
+    run = tmp_path / "continued"
+    shutil.copytree(trained_run, run)
+    before = len((run / "metrics.csv").read_text(encoding="utf-8").splitlines())
+
+    result = subprocess.run(
+        [sys.executable, "-m", "md.train", "--resume", str(run), "--updates", "1"],
+        capture_output=True,
+        text=True,
+        timeout=TRAIN_TIMEOUT_S,
+        env=train_environ(),
+        cwd=str(PROJECT_ROOT),
+        check=False,
+    )
+
+    assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
+    assert "continuing" in result.stdout
+    # Into the same run, not into ./runs: the history stays one story.
+    assert len((run / "metrics.csv").read_text(encoding="utf-8").splitlines()) == before + 1
+    config = json.loads((run / "config.json").read_text(encoding="utf-8"))
+    assert int(config["train"]["envs"]) == int(TINY_RUN["--envs"])
+    assert int(config["train"]["max_ticks"]) == int(TINY_RUN["--max-ticks"])
+    assert config["train"]["resume"].endswith(".pt")
+
+
+def test_a_continuation_picks_up_at_the_update_the_run_stopped_on(
+    trained_run: Path, tmp_path: Path
+) -> None:
+    import shutil  # noqa: PLC0415 — this test copies the shared run before writing
+
+    run = tmp_path / "numbering"
+    shutil.copytree(trained_run, run)
+
+    result = subprocess.run(
+        [sys.executable, "-m", "md.train", "--resume", str(run), "--updates", "1"],
+        capture_output=True,
+        text=True,
+        timeout=TRAIN_TIMEOUT_S,
+        env=train_environ(),
+        cwd=str(PROJECT_ROOT),
+        check=False,
+    )
+
+    assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
+    # The run did `--updates 8`, so the continuation is update 9 — not update 1
+    # again. Restarting the numbering would draw a curve that folds back on
+    # itself and make `metrics.csv` unreadable as one history.
+    updates = int(TINY_RUN["--updates"])
+    assert f"update {updates + 1:>5}" in result.stdout
+
+
+def test_the_settings_of_a_run_can_be_read_back_without_opening_the_file(
+    trained_run: Path,
+) -> None:
+    result = subprocess.run(
+        [sys.executable, "-m", "md.train", "--show-config", str(trained_run)],
+        capture_output=True,
+        text=True,
+        timeout=TRAIN_TIMEOUT_S,
+        env=train_environ(),
+        cwd=str(PROJECT_ROOT),
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert f"envs={TINY_RUN['--envs']}" in result.stdout
+    assert "architecture=" in result.stdout
+
+
+def test_a_run_prints_the_settings_it_resolved_to(trained_run: Path) -> None:
+    """In the log as well as the terminal, which is where the console reads it."""
+    log = (trained_run / "train.log").read_text(encoding="utf-8")
+
+    assert f"envs={TINY_RUN['--envs']}" in log
+    assert "shaping" in log

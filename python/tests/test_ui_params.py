@@ -15,7 +15,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import md
-from md.ui.params import HEADLINE, Param, command_line, read_params
+from md import runconfig
+from md.ui.params import HEADLINE, Param, command_line, read_params, settings_of
 
 TRAINER = Path(md.__file__).parent
 
@@ -229,3 +230,64 @@ def test_a_reward_weight_reaches_the_command_line_under_its_real_flag() -> None:
     assert "--reward-city-weight" in command
     assert "--city-weight" not in command
     assert "--envs" in command  # unprefixed groups are untouched
+
+
+# ---- pairing a finished run with the reasoning behind its knobs ---------------
+
+
+def _stored(tmp_path: Path, payload: object) -> runconfig.RunConfig:
+    import json
+
+    (tmp_path / runconfig.FILENAME).write_text(json.dumps(payload), encoding="utf-8")
+    config = runconfig.read(tmp_path)
+    assert config is not None
+    return config
+
+
+def test_a_stored_setting_carries_the_reasoning_written_beside_the_field(
+    tmp_path: Path,
+) -> None:
+    config = _stored(tmp_path, {"train": {"envs": 4096}})
+
+    settings = {setting.name: setting for setting in settings_of(config, read_params(TRAINER))}
+
+    assert settings["envs"].value == "4096"
+    assert settings["envs"].changed  # against the trainer's own 1024
+    assert "Environments stepped in parallel" in settings["envs"].help
+
+
+def test_a_run_that_kept_a_default_is_not_marked_as_having_changed_it(
+    tmp_path: Path,
+) -> None:
+    config = _stored(tmp_path, {"ppo": {"learning_rate": 0.0003}})
+
+    settings = {setting.name: setting for setting in settings_of(config, read_params(TRAINER))}
+
+    # The trainer's source spells it `3.0e-4` and its own config.json spells it
+    # `0.0003`. Comparing those as text marks every run as having changed it.
+    assert not settings["learning_rate"].changed
+
+
+def test_a_knob_this_console_has_never_heard_of_is_still_shown(tmp_path: Path) -> None:
+    """A run trained by a newer trainer is still a run somebody has to read."""
+    config = _stored(tmp_path, {"train": {"curriculum": "waves"}})
+
+    settings = settings_of(config, read_params(TRAINER))
+
+    assert [(s.name, s.value, s.changed) for s in settings] == [("curriculum", "waves", False)]
+
+
+def test_settings_keep_the_order_and_grouping_the_trainer_wrote(tmp_path: Path) -> None:
+    config = _stored(tmp_path, {"train": {"envs": 8, "steps": 4}, "schedule": {"start_update": 1}})
+
+    settings = settings_of(config, read_params(TRAINER))
+
+    assert [(s.group, s.name) for s in settings] == [
+        ("train", "envs"),
+        ("train", "steps"),
+        ("schedule", "start_update"),
+    ]
+
+
+def test_nothing_stored_is_nothing_to_show() -> None:
+    assert settings_of(None, read_params(TRAINER)) == []

@@ -41,6 +41,7 @@ from PySide6.QtWidgets import (
 
 from .. import library
 from . import sources, theme
+from .params import TRAINER_SOURCES
 
 #: What the screen says on a machine that has never trained anything. Names the
 #: thing that would change it, like every other empty state in this console.
@@ -106,6 +107,12 @@ class RunTable(QWidget):
         self._rename.clicked.connect(self._rename_selected)
         self._note = QPushButton("&Note…")
         self._note.clicked.connect(self._note_selected)
+        # Here as well as on the run screen, because the question is asked *while
+        # comparing*: which of these eleven was the one with the wider rollout.
+        # Opening each run to find out is four clicks per answer.
+        self._parameters = QPushButton("&Parameters…")
+        self._parameters.setToolTip("What this run was started with, and what it changed")
+        self._parameters.clicked.connect(self._parameters_selected)
         self._storage = QPushButton("&Storage…")
         self._storage.setToolTip(
             "What this run costs on disk, and how to clean it up, archive it, "
@@ -115,7 +122,14 @@ class RunTable(QWidget):
         self._delete = QPushButton("&Delete…")
         self._delete.setToolTip("Remove this run and everything in it from disk, for good")
         self._delete.clicked.connect(self._delete_selected)
-        for button in (self._open, self._rename, self._note, self._storage, self._delete):
+        for button in (
+            self._open,
+            self._rename,
+            self._note,
+            self._parameters,
+            self._storage,
+            self._delete,
+        ):
             actions.addWidget(button)
         actions.addStretch(1)
         self._summary = QLabel()
@@ -213,7 +227,7 @@ class RunTable(QWidget):
 
     def _selection_changed(self) -> None:
         run = self.selected()
-        for button in (self._open, self._rename, self._note, self._delete):
+        for button in (self._open, self._rename, self._note, self._parameters, self._delete):
             button.setEnabled(run is not None)
 
     def _open_selected(self) -> None:
@@ -231,6 +245,15 @@ class RunTable(QWidget):
         if accepted:
             library.rename(run.path, name)
             self.renamed.emit(run.path)
+
+    def _parameters_selected(self) -> None:
+        run = self.selected()
+        if run is None:
+            return
+        from .config import ConfigDialog, settings_for  # noqa: PLC0415 — optional dependency
+
+        config, settings = settings_for(run.path, TRAINER_SOURCES)
+        ConfigDialog(run.name, config, settings, self).exec()
 
     def _storage_selected(self) -> None:
         run = self.selected()

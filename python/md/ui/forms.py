@@ -20,12 +20,18 @@ Three things here are deliberate:
   that already exists, so a text box would only be a way to mistype one. It is
   also the first question about a run rather than a twenty-first — start over,
   or carry on? — so it sits above the parameters instead of in with them.
+* **Continuing a run opens on that run's own settings.** They arrive as
+  ``initial`` (from its ``config.json``, via :mod:`md.runconfig`) and are poured
+  in the way a preset is. Retyping them from memory was the step that used to
+  cost a run: the trainer rejects a resume whose architecture, hidden size or
+  annealing schedule disagrees with the checkpoint, and quietly accepts a
+  different rollout length as a different experiment under the same run's name.
 """
 
 from __future__ import annotations
 
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from PySide6.QtCore import QLocale, Qt
@@ -172,6 +178,8 @@ class ParameterDialog(QDialog):
         python: str,
         out_dir: Path,
         checkpoints: Sequence[Checkpoint] = (),
+        initial: Mapping[str, str] | None = None,
+        resume: Path | None = None,
         presets_file: Path | None = None,
         free_vram_bytes: int | None = None,
         parent: QWidget | None = None,
@@ -223,7 +231,7 @@ class ParameterDialog(QDialog):
         # a dialog you dismiss, not a panel you leave open, and "you cannot
         # continue a run that has not happened" is not news.
         if checkpoints:
-            layout.addWidget(self._resume_row(checkpoints))
+            layout.addWidget(self._resume_row(checkpoints, resume))
 
         headline = [field for field in fields if field.headline]
         advanced = [field for field in fields if not field.headline]
@@ -258,12 +266,14 @@ class ParameterDialog(QDialog):
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
-        start = buttons.button(QDialogButtonBox.StandardButton.Ok)
-        start.setText("Start run")
-        start.setDefault(True)
+        self._go = buttons.button(QDialogButtonBox.StandardButton.Ok)
+        self._go.setDefault(True)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+        # Last, so every editor exists to pour into. Not before the preview
+        # either: what this fills in is exactly what the preview has to show.
+        self._apply_initial(initial or {})
         self._refresh_preview()
 
     # ---- presets ------------------------------------------------------------
@@ -428,8 +438,15 @@ class ParameterDialog(QDialog):
         self._reload_presets()
 
     # ---- construction -------------------------------------------------------
-    def _resume_row(self, checkpoints: Sequence[Checkpoint]) -> QWidget:
-        """The checkpoints this run directory already holds, newest first."""
+    def _resume_row(self, checkpoints: Sequence[Checkpoint], chosen: Path | None) -> QWidget:
+        """The checkpoints this run directory already holds, newest first.
+
+        ``chosen`` is pre-picked where there is one — pressing *Continue* on a
+        stopped run should not then have to be told, in a dropdown, which run it
+        meant. *Start from scratch* stays the first entry, so training over a
+        directory that already has checkpoints is still one click away and still
+        a thing you choose rather than a thing that happens.
+        """
         frame = QFrame()
         frame.setProperty("role", "panel")
         form = QFormLayout(frame)
@@ -445,6 +462,10 @@ class ParameterDialog(QDialog):
                 f"{human_size(checkpoint.size)}",
                 str(checkpoint.path),
             )
+        if chosen is not None:
+            index = self._resume.findData(str(chosen))
+            if index > 0:
+                self._resume.setCurrentIndex(index)
         self._resume.currentIndexChanged.connect(self._refresh_preview)
 
         label = QLabel("continue from")
@@ -548,6 +569,27 @@ class ParameterDialog(QDialog):
         edit.textChanged.connect(self._edited)
         return edit
 
+    def _apply_initial(self, initial: Mapping[str, str]) -> None:
+        """Fill the form in from a run that has already answered these questions.
+
+        Poured in the way a preset is, and for the same reason — but *without*
+        being recorded as what the editors started on, so `values()` still
+        reports them as set and the command line restates them. That matters:
+        the command shown here has to be one you can paste into a terminal, and
+        `--resume` alone would be a run whose settings came from a file rather
+        than from anything on screen.
+        """
+        if not initial:
+            return
+        self._applying = True
+        try:
+            for name, value in initial.items():
+                editor = self._editors.get(name)
+                if editor is not None:
+                    _write(editor, value)
+        finally:
+            self._applying = False
+
     # ---- what came out of it ------------------------------------------------
     def values(self) -> dict[str, str]:
         """Only the fields whose value differs from the trainer's default."""
@@ -587,6 +629,12 @@ class ParameterDialog(QDialog):
     def _refresh_preview(self) -> None:
         self._preview.setText(" ".join(self.command()))
         self._refresh_memory()
+        # Two different acts behind one button, so it says which it is about to
+        # do. Re-read from the picker rather than set once, because continuing
+        # is a choice that can be changed while the dialog is open.
+        continuing = self.resume() is not None
+        self.setWindowTitle("Continue a training run" if continuing else "Start a training run")
+        self._go.setText("Continue run" if continuing else "Start run")
 
     # ---- what it will cost --------------------------------------------------
     def _number(self, name: str, fallback: int) -> int:
