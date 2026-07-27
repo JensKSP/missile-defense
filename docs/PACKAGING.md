@@ -6,25 +6,37 @@ below are what the game and the trainer do on every platform.
 
 ## What ships today
 
-One binary package, the game only:
+**Three binary packages from one source package.** The split described further
+down has landed; `debian/*.install` is the authority for which file goes where.
 
-| Path | What |
-|---|---|
-| `/usr/games/missile-defense` | the game (renamed from `md_app`) |
-| `/usr/share/applications/missile-defense.desktop` | menu entry |
-| `/usr/share/icons/hicolor/…` | icons the desktop entry resolves |
-| `/usr/share/man/man6/missile-defense.6.gz` | man page (section 6: games) |
-| `/usr/share/doc/missile-defense/…` | licence and third-party notices |
+| Package | Path | What |
+|---|---|---|
+| `missile-defense` | `/usr/games/missile-defense` | the game (renamed from `md_app`) |
+| | `/usr/share/missile-defense/models/` | the bundled learned policy (`.mdp`) |
+| | `/usr/share/applications/missile-defense.desktop` | menu entry |
+| | `/usr/share/icons/hicolor/…` | icons the desktop entry resolves |
+| | `/usr/share/man/man6/missile-defense.6.gz` | man page (section 6: games) |
+| | `/usr/share/doc/missile-defense/…` | licence and third-party notices |
+| `python3-md` | `/usr/lib/python3*/dist-packages/md/` | the environment, its native extension |
+| `missile-defense-training` | `/usr/bin/md-console`, `/usr/bin/md-train` | the console and the trainer |
+| | `/usr/share/applications/missile-defense-training.desktop` | menu entry for the console |
 
-There is no runtime data directory at all: the SPIR-V shaders are compiled into
-the executable at build time (`app/CMakeLists.txt`), so nothing is loaded from
-disk and nothing can go missing.
+The game package still contains **no Python at all** — that is the boundary the
+split exists to make into a packaging fact rather than a rule people remember,
+and `test_packages.py` holds it.
+
+There is one runtime data directory, and only one: `/usr/share/missile-defense/models/`,
+holding the bundled `.mdp` policy the game plays natively with no interpreter in
+the process. The SPIR-V shaders are still compiled into the executable at build
+time (`app/CMakeLists.txt`), so nothing about *rendering* is loaded from disk.
+The model is optional — a build without one ships without one, and the game omits
+MODELS from its WATCH AI menu rather than offering an empty list.
 
 Two build paths exist and that is deliberate: `debian/` (debhelper) is the
 authority for Linux, and CPack produces the Windows NSIS installer and ZIP, plus
 the macOS disk image. `poe deb` runs CPack's DEB generator, which is a
 convenience for testing a local package — it cannot express the multi-binary
-split below, so when that lands, `debian/` is where it lands.
+split, so `debian/` is where that lives.
 
 On macOS, `poe dmg` builds a drag-to-Applications image containing `md_app.app`
 with the Qt frameworks *and* MoltenVK inside it, so it depends on nothing but

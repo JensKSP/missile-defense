@@ -10,7 +10,9 @@ headless, deterministic `md::core` simulation.
 >
 > **Acceptance gate:** a milestone is *passed* only when **the human confirms it** by
 > playing/using it. "Implementation complete + gate green" is not "passed" — it means
-> *ready for human sign-off*.
+> *ready for human sign-off*. The checklist to sign off against, including the
+> platform and hardware rows no CI run can cover, is
+> [`docs/ACCEPTANCE.md`](ACCEPTANCE.md).
 
 ## M1 — Human can play ✅ *(passed — accepted by Jens, 2026-07-24)*
 

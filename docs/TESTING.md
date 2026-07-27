@@ -29,14 +29,18 @@ If a claim can be checked by calling a function, it is a unit test and belongs
 beside the code — the distinction is the process boundary, not the size of the
 assertion.
 
-They cover four subjects, three of which exist today:
+They cover four subjects:
 
 | Subject | Driven as | The claim |
 |---|---|---|
 | The game | `md_app` with a frame budget | boots, renders, plays, watches, replays, exits 0 |
 | A training run | `md-train` into a temp `--out-dir` | writes every artifact it owes |
 | The console | `md.ui` offscreen on that directory | attaches, reads, controls, sets up a runtime |
-| The contest | league + tournament | *(not built yet — see the journey plan)* |
+| The contest | promotion, pairing, `--match` split screen | a promoted model is playable, a pairing plays as one screen, a broken one is refused |
+
+The contest row was marked *not built yet* long after it was; `test_promotion.py`
+and `test_match.py` cover it. What is **not** yet covered end to end is the full
+league journey as a packaged user meets it — see the 1.0 completion plan.
 
 The one worth knowing about is **the replay round-trip**. A recording is
 `(seed, config, action indices)` and nothing else, so replaying one correctly
