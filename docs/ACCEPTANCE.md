@@ -45,6 +45,35 @@ The single most valuable route, and the one no unit test covers, because every
 gap in it has been *between* features rather than inside one. Do it in order, on
 a clean machine, without a terminal.
 
+### The route, step by step
+
+Budget **about 30 minutes**, excluding the training run's own wall time. Follow
+it in order without skipping: the point is the joins between steps, and a step
+taken out of order stops testing the join that precedes it.
+
+Two rules while walking it. **Do not use a terminal** — if you reach for one, the
+step has failed, and *that* is the finding. **Do not use knowledge you have from
+building this project**; if a screen does not tell you what to do next, note it
+rather than supplying the answer yourself.
+
+| Step | Do this | Expect to see | Row |
+|---|---|---|---|
+| 1 | Install both packages. Launch **Missile Defense** from the desktop menu — not from a shell | The menu: START, WATCH AI, REPLAYS, TRAIN AI, OPTIONS, HIGHSCORES, ABOUT | 2.1 |
+| 2 | **START**. Play one game to the end | Cities fall, the wave counter climbs, game over — and initials entry if you qualified | 2.2 |
+| 3 | **OPTIONS → AI SKILL LOW**, back, **WATCH AI → SCRIPTED**. Then repeat at **HIGH** | Two visibly different agents. LOW double-fires at warheads already doomed; HIGH does not. The difference must read as *behaviour*, not as a number | 2.3 |
+| 4 | **WATCH AI → MODELS**, choose the bundled model | It plays, and it plays unlike either scripted rung — deeper, looser, more shots | 2.4 |
+| 5 | Back to the menu, **TRAIN AI**. Then close the trainer and open it again from the desktop menu | The same window both ways. If a runtime must be installed first, the screen says so and offers **Set up training…** | 2.5 |
+| 6 | Start a run from a preset, without opening **Advanced** | A run starts having asked you for nothing you could not answer | 2.6 |
+| 7 | Read the estimate it gave you before starting, and note the clock | Whatever it promised about wall time and disk is what happens | 2.7 |
+| 8 | Watch the curves for a few updates | Score, return, entropy and value move. What each one means is legible from the screen, not from this document | 2.8 |
+| 9 | Let it reach a checkpoint. **Evaluate** it | A score *and* its protocol: which seed block, how many episodes, ranked or unranked | 2.9 |
+| 10 | Promote the checkpoint, then **Head-to-head…** against the bundled model | Both on identical seeds, with the shared protocol named | 2.10 |
+| 11 | **Watch the match?** → the split screen | Two viewports, one transport. Whose side is whose, both scores, the seed. Afterwards you can say *why* one side won | 2.11 |
+| 12 | **Archive…** the run. Then **Restore a run** from the archive | The archive verifies before it offers to remove anything, and the restored run still has its curves, config and recordings | 2.12 |
+| 13 | Look back over the whole walk | — | 2.13 |
+
+Record the result of each step in the matching row below.
+
 | # | Item | Build | Who / when | Evidence | Result |
 |---|---|---|---|---|---|
 | 2.1 | Install the full package set and launch the game from the desktop menu | | | | |
@@ -155,7 +184,12 @@ a silent no-op, or a corrupted artifact.
 
 ## What is already machine-checked
 
-So that this list is not re-testing what CI covers. As of 2026-07-27:
+So that this list is not re-testing what CI covers. As of 2026-07-28:
+
+- Documentation **links, `poe` task names and cited repository paths** all
+  resolve, and no maintained document quotes a retired unhandicapped score as if
+  it were current (`python/tests/test_docs.py`). That check cannot read prose, so
+  §2 and §5 remain entirely a person's job.
 
 - Debian trixie, Ubuntu 26.04 and Ubuntu 24.04 packages **build**, and the
   installed game starts under a virtual X server on a software Vulkan device.

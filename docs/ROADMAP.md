@@ -162,38 +162,43 @@ The dial is `Params::coverage_horizon` — how many seconds ahead the agent
 remembers the shots it has already fired — calibrated by sweeping it against
 this block (`medium` = 0.36 s). Two results worth keeping:
 
-* **Ammunition memory is worth ~78,000 points; MIRV-cluster planning is worth
-  ~1,500.** Switching off `cluster_bonus`, which deliberately waits for spreads
+* **Ammunition memory is the whole ladder; MIRV-cluster planning is worth almost
+  nothing.** Switching off `cluster_bonus`, which deliberately waits for spreads
   to converge, barely moves the score. The whole baseline is one idea: *do not
-  shoot what is already dead.*
-* **The response is a cliff, not a slope.** 0.30 s scores ~34k and 0.40 s ~85k,
-  because that is where the dial crosses a typical interceptor's flight time.
-  Re-sweep it if `interceptor_speed` or the world box changes.
+  shoot what is already dead* — worth **8,663** of HIGH's 13,687.
+* **The response is a cliff, not a slope**, because that is where the dial
+  crosses a typical interceptor's flight time and the agent either remembers a
+  shot before it lands or does not. Re-sweep it if `interceptor_speed` or the
+  world box changes.
+
+> Both effects were first measured **unhandicapped**, where they were worth
+> ~78,000 and ~1,500 points against a 98,542 HIGH. Those absolute figures are
+> retired — [FINDINGS.md](FINDINGS.md) keeps them, and says why the *shape*
+> carries over even though the numbers do not.
 
 #### The learned policy, on the same block
 
 One relational run (`--architecture entity`, 1,024 envs × 256 steps, 1,000
-updates), checkpoint selected on the validation split and scored **once** here:
+updates), checkpoint selected on the validation split and scored **once** here.
+A 1,959-float observation, 385 actions, about an hour on an RTX 5090:
 
-> **These learned figures predate the handicap and are not comparable with
-> anything measured now.** They were earned against an agent that never
-> mis-clicked and never reacted late; the bundled policy is being retrained under
-> `canonical_handicap` and this table is rewritten from that run's one-shot
-> canonical evaluation. The scripted column is current.
-
-| Metric | Scripted | Learned |
+| Metric | Scripted HIGH | Learned |
 |---|---|---|
-| Mean score | **13,687.3** | *(retraining)* |
-| Mean wave reached | 7.16 | *(retraining)* |
-| Kills per shot | 0.73 | *(retraining)* |
-| Wasted shots | 4% | 23% |
+| Mean score | 13,687.3 | **23,067** |
+| Mean wave reached | 7.16 | **8.91** |
+| Kills per interceptor | **0.73** | 0.61 |
+| Wasted shots | **36%** | 44% |
 
-It matches the depth and loses the 7,676 entirely on marksmanship. It **easily
-beats MEDIUM** and approaches HIGH: it rediscovered much of the ammunition
-discipline nobody told it about, but not all of it. That is the 1.0 progression
-shown to learners; HIGH remains the challenge rather than a milestone the
-bundled model is falsely claimed to have beaten. `models/pretrained.mdp` is this
-checkpoint, and the game runs it natively.
+**It wins on depth while still losing on marksmanship.** It fires more, hits
+less often, and gets nearly two waves deeper for it — so it beats every rung of
+the scripted ladder, HIGH included, without ever matching HIGH's aim.
+`models/pretrained.mdp` is this checkpoint, and the game runs it natively.
+
+That result is specific to the handicap every contestant now wears. Take the
+handicap away and it reverses: the closed-form aimer wins comfortably, because a
+perfect hand is exactly its precondition. The full argument is in
+[FINDINGS.md](FINDINGS.md), and it is the most interesting thing in the
+repository.
 
 **This settles the question the design turned on.** A perfect-marksmanship agent — one
 that solves the lead-intercept exactly and never misses — still loses *every* game, with
@@ -201,7 +206,7 @@ every city gone, around wave 16. The difficulty is not aiming; it is allocation 
 ammunition budget that goes negative as waves grow. Exact velocity information does not
 trivialise the game, which is why the observation gives raw state rather than hiding it.
 
-Kills-per-interceptor of about 1.09 is where the visible headroom is: blasts are catching a
+Kills per interceptor is where the visible headroom remains on both sides: blasts catch a
 cluster only occasionally. Waiting for MIRV spreads to converge, and spending the
 end-of-wave ammo bonus wisely, are exactly the judgement calls a learned policy can beat a
 greedy one at.
