@@ -296,6 +296,40 @@ def test_a_reward_weight_reaches_the_command_line_under_its_real_flag() -> None:
     assert "--envs" in command  # unprefixed groups are untouched
 
 
+def test_the_discount_is_written_to_both_config_classes() -> None:
+    """`gamma` names a field of `PPOConfig` *and* one of `Shaping`.
+
+    They have to agree: one discounts the return and the other the potential,
+    and `missile_defense.sim.env.Shaping` says the invariance proof assumes they
+    are the same. Since the dialog's editors are keyed by field name there has
+    only ever been one box for both, so the one value it produces must reach
+    both flags.
+
+    The bug this guards: `flag_for` resolved the name through `REWARD_FIELDS`,
+    which contains `gamma`, so the command carried `--reward-gamma` alone.
+    `--gamma` was unreachable from the trainer entirely, and every run whose
+    discount was set here trained with the potential discounted at one rate and
+    the return at another — the one state the proof excludes, reached silently.
+    """
+    command = command_line("python", {"gamma": "0.997"}, out_dir=Path("runs"))
+
+    assert "--gamma" in command
+    assert "--reward-gamma" in command
+    # Both carry the value the form was given, rather than one of them keeping
+    # the dataclass default — which is the disagreement itself.
+    assert command[command.index("--gamma") + 1] == "0.997"
+    assert command[command.index("--reward-gamma") + 1] == "0.997"
+
+
+def test_a_field_owned_by_one_class_still_writes_one_flag() -> None:
+    """The shared-flag rule is for `gamma` and must not leak to its neighbours."""
+    from missile_defense.ui.params import flags_for  # noqa: PLC0415
+
+    assert flags_for("envs") == ("--envs",)
+    assert flags_for("city_weight") == ("--reward-city-weight",)
+    assert flags_for("gamma") == ("--gamma", "--reward-gamma")
+
+
 # ---- pairing a finished run with the reasoning behind its knobs ---------------
 
 

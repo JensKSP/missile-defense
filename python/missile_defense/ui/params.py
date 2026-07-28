@@ -465,14 +465,39 @@ def same_value(stored: str, default: str) -> bool:
         return False
 
 
-def flag_for(name: str) -> str:
-    """The command-line flag for a config field, prefix and all.
+#: The one field name that belongs to two config classes at once, and what a
+#: form setting it has to write.
+#:
+#: `PPOConfig.gamma` discounts the return, `Shaping.gamma` discounts the
+#: potential, and `Shaping`'s own docstring is explicit that the invariance
+#: proof — the entire reason shaping is safe to add — assumes the two are equal.
+#: So the form offers *one* discount and it reaches both. That is also what the
+#: dialog has always physically done: its editors are keyed by field name, so
+#: the two fields have only ever had one box between them.
+SHARED_FLAGS = {"gamma": ("--gamma", "--reward-gamma")}
+
+
+def flags_for(name: str) -> tuple[str, ...]:
+    """Every command-line flag one form field has to write. Usually exactly one.
 
     Derived from `SOURCES` rather than from the field name alone, so the one
     place that knows a group is prefixed is the same place that declares it.
+
+    This was `flag_for`, singular, and resolved a name through `REWARD_FIELDS`
+    alone. `gamma` is in that set, so *both* discounts came back as
+    `--reward-gamma` and `--gamma` could not be produced at all: the PPO
+    discount was unreachable from the trainer, and a run whose discount was set
+    here trained with the two halves disagreeing. Silently — neither side
+    checks, and the only symptom is that a shaping term everybody believes is
+    optimality-neutral quietly is not.
+
+    `Param.flag` was right about this all along, because it asks the owner. The
+    two answers disagreeing is what let the bug sit behind a passing test.
     """
+    if name in SHARED_FLAGS:
+        return SHARED_FLAGS[name]
     prefix = PREFIXES["Shaping"] if name in REWARD_FIELDS else ""
-    return f"--{prefix}{name.replace('_', '-')}"
+    return (f"--{prefix}{name.replace('_', '-')}",)
 
 
 def command_line(
@@ -496,11 +521,16 @@ def command_line(
     """
     command = [python, "-u", "-m", module]
     for name, value in values.items():
-        # `flag_for`, not a local `--` + name: `Shaping`'s flags are prefixed
+        # `flags_for`, not a local `--` + name: `Shaping`'s flags are prefixed
         # (`--reward-city-weight`), and rebuilding them here would emit
         # `--city-weight`, which the trainer rejects — a Start button that
         # produces an unparseable command line.
-        command += [flag_for(name), value]
+        #
+        # Plural because one form field can owe two flags: the discount belongs
+        # to both config classes and has to be written to both, or the run
+        # trains with them disagreeing.
+        for flag in flags_for(name):
+            command += [flag, value]
     command += ["--out-dir", str(out_dir)]
     if resume is not None:
         command += ["--resume", str(resume)]
