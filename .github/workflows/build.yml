@@ -340,12 +340,24 @@ jobs:
           # path since a second interpreter joined the job: `command -v python`
           # answers whichever of the two PATH happens to favour, which is a
           # function of step order rather than of intent.
+          # Exactly one wheel, and it says so if there is not. A glob that matches
+          # two expands to both paths in one string, and CMake then reports a
+          # file that does not exist whose name is two names — which is what the
+          # 32-bit Windows wheel did before it was retired.
+          md_one_wheel() {
+            local found=("$GITHUB_WORKSPACE"/wheel/*.whl)
+            if [ "${#found[@]}" -ne 1 ]; then
+              echo "::error::expected one wheel, found ${#found[@]}: ${found[*]}" >&2
+              exit 1
+            fi
+            printf '%s' "${found[0]}"
+          }
           # No MD_INSTALL_PYTHON_PACKAGE, no bindings and no prebuilt module:
           # what shipped the trainer here was a Python payload beside the exe,
           # and it is a wheel now — built by the `wheels` job against a real
           # CPython, which is what MD_PREBUILT_PYTHON_MODULE was working around.
           cmake --preset release -DMD_WERROR=OFF -DMD_PEDANTIC=OFF $STAMP \
-            -DMD_TRAINER_WHEEL="$(cygpath -m "$(echo "$GITHUB_WORKSPACE"/wheel/*.whl)")"
+            -DMD_TRAINER_WHEEL="$(cygpath -m "$(md_one_wheel)")"
           cmake --build --preset release
           ctest --preset release
 

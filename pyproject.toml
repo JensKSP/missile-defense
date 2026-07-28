@@ -97,8 +97,13 @@ MD_PEDANTIC = "OFF"
 # it is one line if that stops being good enough.
 build = "cp312-*"
 # musl is left out rather than forgotten: nothing here has been built against it
-# and an untested wheel is worse than no wheel, because pip will prefer it.
-skip = "*-musllinux_*"
+# and an untested wheel is worse than no wheel, because pip will prefer it. The
+# same argument retires 32-bit Windows: `cp312-*` selected win32 as well as
+# win_amd64, nothing in this project has ever been built or run there, and the
+# game it belongs to is x64 only. It cost more than a wasted build — two targets
+# in one job is what exposed the shared build directory above, and it left the
+# packaging job with two wheels where it expected one.
+skip = "*-musllinux_* *-win32"
 # The default manylinux image is manylinux2014, whose GCC is far too old for
 # C++23. 2_28 ships GCC 14.2 and CMake 4.4 — verified, not assumed — which is
 # exactly the floor CMakeLists.txt asks for.
