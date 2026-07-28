@@ -490,7 +490,7 @@ class Trainer(QMainWindow):
         layout.addWidget(title)
 
         split = QSplitter(Qt.Orientation.Horizontal)
-        self._library = LibraryView(on_new_run=self._new_run_from_library)
+        self._library = LibraryView(on_new_run=self._new_run_from_library, on_play=self._play_game)
         self._library.opened.connect(self._open_run)
         self._league = LeagueView()
         # Promoting from the run list puts a row in the table next to it. The
@@ -597,6 +597,31 @@ class Trainer(QMainWindow):
         from `paths.runs_dir()`, which would show a list of somebody else's runs.
         """
         return self._library_dir
+
+    def _play_game(self) -> None:
+        """Go to the game — the `Play` button over the run list.
+
+        A window this trainer already opened is *not* replaced by a second one.
+        Raising it is the part that cannot be done from here: the game is a
+        separate process with no single-instance channel, and no portable way
+        exists to bring another process's window forward. So the honest
+        behaviour is to say it is already open rather than to quietly stack a
+        duplicate on top of it, which is what launching again would do.
+        """
+        if self._launcher.running:
+            QMessageBox.information(
+                self,
+                "Missile Defense is open",
+                "The game is already running — switch to its window.\n\n"
+                "This trainer cannot raise it for you: it is a separate process, "
+                "and bringing another program's window forward is not something "
+                "the desktop lets an application do to itself.",
+            )
+            return
+        try:
+            self._launcher.launch_game()
+        except AppNotFound as error:
+            QMessageBox.warning(self, "The game is not built", str(error))
 
     def _watch_model(self, policy: Path) -> None:
         """Open the game on a promoted model — the league's `Watch it play`.

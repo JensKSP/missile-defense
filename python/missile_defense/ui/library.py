@@ -400,7 +400,11 @@ class LibraryView(QWidget):
     #: A run in this list was promoted; whatever shows the league must re-read it.
     promoted = Signal()
 
-    def __init__(self, on_new_run: Callable[[], None] | None = None) -> None:
+    def __init__(
+        self,
+        on_new_run: Callable[[], None] | None = None,
+        on_play: Callable[[], None] | None = None,
+    ) -> None:
         super().__init__()
         self._root: Path | None = None
 
@@ -425,6 +429,15 @@ class LibraryView(QWidget):
         # self._restore.setToolTip("Put an archived run back into this library")
         # self._restore.clicked.connect(self._restore_archive)
         # heading.addWidget(self._restore)
+        # The other half of the project, one click from the screen that lists
+        # runs. Everything else here opens the game *on* something — a
+        # recording, a model, a match — so there was no way to simply go and
+        # play, which is the reason most of these runs exist.
+        if on_play is not None:
+            self._play = QPushButton("&Play")
+            self._play.setToolTip("Open Missile Defense")
+            self._play.clicked.connect(on_play)
+            heading.addWidget(self._play)
         if on_new_run is not None:
             new_run = QPushButton("&New run…")
             new_run.setProperty("role", "primary")

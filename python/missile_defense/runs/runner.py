@@ -409,13 +409,26 @@ class ReplayLauncher:
         extra = () if seed is None else ("--seed", str(seed))
         self._launch("--watch-model", policy, *extra)
 
+    def launch_game(self) -> None:
+        """Open the game on its own menu. Raises :class:`AppNotFound` if unbuilt.
+
+        No flag and no target, which is what makes it different from everything
+        else here: the rest open the game *on* something — this one is "take me
+        to the game", for the half of the project that is not a run.
+        """
+        self._spawn_game()
+
     def _launch(self, flag: str, target: Path, *extra: str) -> None:
-        """One spawn, however the game is being opened.
+        """One spawn, however the game is being opened *on something*.
 
         Three copies of this drifted apart once already — the flag is the only
         thing that differs, and the "is it built?" message is the part a person
         actually reads.
         """
+        self._spawn_game(flag, str(target), *extra)
+
+    def _spawn_game(self, *args: str) -> None:
+        """Start the game, with or without something to open."""
         binary = app_binary(self._environ, root=self._root)
         if binary is None:
             raise AppNotFound(
@@ -424,11 +437,7 @@ class ReplayLauncher:
             )
         self._children = [child for child in self._children if child.poll() is None]
         self._children.append(
-            self._spawn(
-                [str(binary), flag, str(target), *extra],
-                self._root,
-                launch_environ(self._environ),
-            )
+            self._spawn([str(binary), *args], self._root, launch_environ(self._environ))
         )
 
     @property

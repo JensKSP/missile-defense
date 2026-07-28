@@ -520,6 +520,15 @@ Every run has two names. The **directory** never changes — it is what a
 is yours, editable at any time including while the run is going, and it is what
 the list shows. Notes are for the sentence you will want in a fortnight.
 
+**Play** opens the game on its own menu. Everything else that reaches the game
+from here opens it *on* something — a recording, a promoted model, a
+head-to-head — and there was no way to simply go and play the thing all this is
+training for. It starts one window and not a stack of them: press it while a
+game the trainer opened is still up and it says so rather than launching a
+second. Raising that window for you is not something it can do — the game is a
+separate process, and no desktop lets one application pull another's window
+forward.
+
 **New run…** asks for the name before it asks for anything else, prefilled with
 a generated one so Enter is still a whole answer. What you type becomes the
 directory, lowercased and hyphenated — `Entity policy, 3 seeds` writes into
