@@ -155,12 +155,11 @@ add_custom_target(md_native_beside_package ALL
   DEPENDS "${md_native_beside}/${md_native_built}")
 
 # ---- Installing it -----------------------------------------------------------
-# Until now the module only ever landed in the build tree, which is right for
-# in-place development (`poe bindings` copies it beside the package) and leaves
-# nothing for a *package* to install. Both consumers want the same thing in
-# different places, so the destination is a variable:
+# The module only ever landed in the build tree, which is right for in-place
+# development and leaves nothing for a *package* to install. Consumers want the
+# same thing in different places, so the destination is a variable:
 #
-#   scikit-build-core  takes the install tree as the wheel root, so the default
+#   scikit-build-core  takes the install tree as the wheel root, so a relative
 #                      `md` puts the module inside the package.
 #   debian/rules       passes an absolute dist-packages path.
 #
@@ -170,6 +169,21 @@ add_custom_target(md_native_beside_package ALL
 # `MD_PYTHON_INSTALL_DIR` is declared by the top-level CMakeLists, before this
 # directory is added. It has to be: the install rule below is registered when
 # this file is read, so a destination set afterwards never reaches it.
+#
+# Empty means nobody has said where the Python half goes — an ordinary
+# `cmake --install` on Linux, where only the distribution knows. Then there is
+# no rule to register: the extension is built and placed beside python/md/ for
+# development, and installing the tree quietly leaves it alone. Guessing instead
+# is what produced `/usr/local/md/_md_native.abi3.so`, a module in a directory
+# no interpreter looks in. Everything below is the install; nothing follows it,
+# so this returns rather than nesting the file in an `if`.
+if(NOT MD_PYTHON_INSTALL_DIR)
+  message(STATUS
+    "md bindings: _md_native is built but will not be installed — set "
+    "MD_PYTHON_INSTALL_DIR to the interpreter's site-packages to install it "
+    "(debian/rules does; a wheel does not need to).")
+  return()
+endif()
 
 # ---- Installing a module built somewhere else --------------------------------
 # Windows needs this, and only Windows. The game is built in MSYS2/CLANG64 —

@@ -376,9 +376,24 @@ if(APPLE)
   # Inside the bundle: nothing beside an .app is ever on sys.path.
   set(md_console_bundle "Missile Defense Training.app")
   set(md_python_install_default "${md_console_bundle}/Contents/Resources/md")
-else()
-  # Windows installs flat beside md_app.exe; elsewhere the caller says.
+elseif(WIN32)
+  # Flat beside md_app.exe — see app/CMakeLists.txt.
   set(md_python_install_default "md")
+elseif(DEFINED SKBUILD)
+  # scikit-build-core's install tree *is* the wheel root, so a relative `md` is
+  # the package directory the wheel unpacks into site-packages.
+  set(md_python_install_default "md")
+else()
+  # Nothing can guess this on Linux. A distribution owns the interpreter and
+  # knows where its dist-packages are; debian/rules asks it and passes the
+  # answer. Empty means nobody has said, and the Python install rules are then
+  # not registered at all — because the alternative, which is what used to
+  # happen, is a relative `md` resolved against the prefix: `/usr/local/md/`, an
+  # extension and a stub sitting where no interpreter will ever look. It went
+  # unnoticed while the bindings were off by default and there was no target to
+  # install; the moment they built by default, `cmake --install` started
+  # littering.
+  set(md_python_install_default "")
 endif()
 set(MD_PYTHON_INSTALL_DIR "${md_python_install_default}" CACHE STRING
     "Where `cmake --install` puts the md package and _md_native")
@@ -423,6 +438,19 @@ option(MD_INSTALL_PYTHON_PACKAGE
 #            a separate product rather than a hidden feature of the game.
 if(MD_INSTALL_PYTHON_PACKAGE)
   include(GNUInstallDirs)
+
+  # Asking to install the Python package without saying where is a mistake in
+  # the job that configured this, not something to paper over with a guess: a
+  # relative default resolved against the prefix is how `/usr/local/md/` came
+  # about. Fatal for the same reason the binding check below is — a packaging
+  # build that silently puts the console somewhere unimportable produces an
+  # installer nobody notices is broken until it is in someone's hands.
+  if(NOT MD_PYTHON_INSTALL_DIR)
+    message(FATAL_ERROR
+      "MD_INSTALL_PYTHON_PACKAGE is ON but MD_PYTHON_INSTALL_DIR is empty, so "
+      "there is nowhere to put the md package. Pass the target interpreter's "
+      "site-packages directory, the way debian/rules does.")
+  endif()
 
   # A console without the native binding starts, browses and replays — and
   # cannot train, which is the one thing it is for. On Debian that cannot happen
