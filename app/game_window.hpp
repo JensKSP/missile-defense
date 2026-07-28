@@ -65,7 +65,11 @@ class GameWindow : public QVulkanWindow {
         Match
     };
 
-    GameWindow();
+    /// ``silent`` before construction rather than `set_silent` after it: the
+    /// audio device is started by a member of this class, and the constructor
+    /// then probes for interpreters — which launches processes. Everything in
+    /// between would have been audible.
+    explicit GameWindow(bool silent = false);
 
     QVulkanWindowRenderer* createRenderer() override;
 
@@ -135,6 +139,14 @@ class GameWindow : public QVulkanWindow {
     /// which is why this suppresses persistence rather than just toggling the
     /// two flags the Options screen writes.
     void set_silent() noexcept;
+
+    /// Did anything reach the speakers at any point in this run?
+    ///
+    /// Reported by `--report` so a test can hold `--silent` to its promise, and
+    /// deliberately *not* the state right now: the fault this exists after had
+    /// music playing from inside this class's constructor until `main` parsed
+    /// the flag, by which time asking "is it audible?" honestly answered no.
+    [[nodiscard]] bool audible() const noexcept { return audio_.ever_audible(); }
 
     /// Is an agent driving rather than the mouse?
     [[nodiscard]] bool ai_driving() const noexcept { return ai_driving_; }
@@ -342,7 +354,9 @@ class GameWindow : public QVulkanWindow {
     void toggle_music();
     /// LOW -> MEDIUM -> HIGH -> LOW, rebuilding the scripted agent as it goes.
     void cycle_ai_skill();
-    void load_settings();       // restore persisted audio/music/fullscreen on startup
+    void load_settings(); // restore persisted audio/music/fullscreen on startup
+    /// Push the audio preferences to the device, or keep it quiet if `--silent`.
+    void apply_audio() noexcept;
     void save_settings() const; // persist audio/music/fullscreen after a toggle
     void open_menu();
     void open_options();

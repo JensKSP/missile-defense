@@ -36,6 +36,16 @@ class AudioEngine {
 
     [[nodiscard]] bool music_enabled() const noexcept;
 
+    /// Has the audio callback *ever* been allowed to mix a sample?
+    ///
+    /// Sticky, and latched on the audio thread itself, which is what makes it
+    /// worth reporting. The state at any one moment cannot catch the fault this
+    /// exists after: a `--silent` run played music from inside `GameWindow`'s
+    /// constructor until `main` got as far as parsing the flag, and by the time
+    /// anything asked "is it audible?" the answer was honestly no. What
+    /// `--silent` promises is that the answer was never yes.
+    [[nodiscard]] bool ever_audible() const noexcept;
+
   private:
     struct Impl;
     std::unique_ptr<Impl> impl_; // pimpl keeps miniaudio out of this header

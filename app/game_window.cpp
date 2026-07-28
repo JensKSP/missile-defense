@@ -34,7 +34,7 @@
 
 namespace md {
 
-GameWindow::GameWindow() {
+GameWindow::GameWindow(bool silent) : silent_{silent} {
     sim_.reset(seed_);
     aim_ = Vec2{sim_.config().world_width * 0.5f, sim_.config().world_height * 0.5f};
     highscores_.load();
@@ -172,17 +172,25 @@ void GameWindow::load_settings() {
         ai_skill_ = agent::Skill::medium;
     }
     agent_ = agent::Heuristic{agent::params_for(ai_skill_)};
-    audio_.set_enabled(audio_on_);
-    audio_.set_music_enabled(music_on_);
+    apply_audio();
     // Fullscreen is applied by main() at startup (before the window is shown).
+}
+
+void GameWindow::apply_audio() noexcept {
+    // The one place a preference reaches the device, and the one place that
+    // knows about `--silent`. It was three places, and a silent run could be
+    // un-silenced by the options key because two of them had never heard of the
+    // flag. A silent run still *reads* and *shows* the preferences — it simply
+    // never acts on them, and `save_settings` refuses to write them back.
+    audio_.set_enabled(!silent_ && audio_on_);
+    audio_.set_music_enabled(!silent_ && music_on_);
 }
 
 void GameWindow::set_silent() noexcept {
     silent_ = true;
     audio_on_ = false;
     music_on_ = false;
-    audio_.set_enabled(false);
-    audio_.set_music_enabled(false);
+    apply_audio();
 }
 
 void GameWindow::save_settings() const {
@@ -568,13 +576,13 @@ void GameWindow::toggle_fullscreen() {
 
 void GameWindow::toggle_audio() {
     audio_on_ = !audio_on_;
-    audio_.set_enabled(audio_on_);
+    apply_audio();
     save_settings();
 }
 
 void GameWindow::toggle_music() {
     music_on_ = !music_on_;
-    audio_.set_music_enabled(music_on_);
+    apply_audio();
     save_settings();
 }
 

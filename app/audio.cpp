@@ -297,8 +297,18 @@ struct AudioEngine::Impl {
 
     VoiceBank voices;
     std::mutex mutex;
-    std::atomic<bool> enabled{true};  // SFX
-    std::atomic<bool> music_on{true}; // background music
+    // Both start *off*, and the game switches them on once it knows whether it
+    // is allowed to make a noise. The device is opened and started by this
+    // engine's constructor, which runs as a member of `GameWindow` — so
+    // defaulting these to true meant a run given `--silent` played music from
+    // the moment the window began constructing until `main` got as far as
+    // parsing the flag, with the interpreter probe and a `--match` load in
+    // between. A test suite that opens the game a hundred times was audible.
+    std::atomic<bool> enabled{false};  // SFX
+    std::atomic<bool> music_on{false}; // background music
+    /// Latched the first time either of the two above is switched on, and never
+    /// cleared. See `AudioEngine::ever_audible`.
+    std::atomic<bool> ever_audible{false};
     std::vector<float> music = build_music();
     std::size_t music_pos = 0; // audio thread only
 
@@ -324,11 +334,17 @@ struct AudioEngine::Impl {
             out[f] = 0.0f;
         }
         if (enabled.load(std::memory_order_relaxed)) {
+            // Ground truth for `ever_audible`, latched here rather than in the
+            // setters because this is the thread that actually puts samples in
+            // front of a person. A relaxed store on a hot path costs nothing and
+            // cannot be got wrong by a caller that forgets to report itself.
+            ever_audible.store(true, std::memory_order_relaxed);
             if (const std::unique_lock lock(mutex, std::try_to_lock); lock.owns_lock()) {
                 voices.mix({out, frames});
             }
         }
         if (music_on.load(std::memory_order_relaxed) && !music.empty()) {
+            ever_audible.store(true, std::memory_order_relaxed);
             constexpr float music_gain = 0.38f; // sits under the SFX
             for (ma_uint32 f = 0; f < frames; ++f) {
                 out[f] += music[music_pos] * music_gain;
@@ -445,6 +461,10 @@ bool AudioEngine::enabled() const noexcept {
 
 void AudioEngine::set_music_enabled(bool on) noexcept {
     impl_->music_on.store(on, std::memory_order_relaxed);
+}
+
+bool AudioEngine::ever_audible() const noexcept {
+    return impl_->ever_audible.load(std::memory_order_relaxed);
 }
 
 bool AudioEngine::music_enabled() const noexcept {

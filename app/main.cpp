@@ -286,11 +286,15 @@ void write_report(const md::GameWindow& window) {
     const auto cities = std::ranges::count_if(sim.cities(), &md::City::alive);
     std::println(R"({{"mode":"{}","state":"{}","frames":{},"ticks":{},)"
                  R"("score":{},"wave":{},"cities_left":{},"terminated":{},)"
-                 R"("can_train":{},"driver":"{}","pretrained":{},"models":{},"replays":{},)"
-                 R"("menu":{}}})",
+                 R"("can_train":{},"driver":"{}","audible":{},"pretrained":{},"models":{},)"
+                 R"("replays":{},"menu":{}}})",
                  mode_name(window), state_name(window.state()), window.frames(), sim.tick(),
                  sim.score(), sim.wave(), cities, sim.terminated(), window.can_train(),
-                 driver_name(window), window.has_pretrained(),
+                 driver_name(window),
+                 // `--silent` is a promise made to whoever is at the machine,
+                 // and it was quietly broken for the first few hundred
+                 // milliseconds of every run. Reported so a test can hold it.
+                 window.audible(), window.has_pretrained(),
                  // How many models this install can actually *run*, which is the
                  // only version of the question worth reporting: a promoted
                  // model that the game silently will not offer is the failure a
@@ -351,7 +355,15 @@ int run(int argc, char** argv) {
         return 1;
     }
 
-    md::GameWindow window;
+    // Read before the window exists, and not in the loop below with everything
+    // else. `GameWindow`'s constructor starts the audio device and then probes
+    // the machine for interpreters, which launches processes — so a `--silent`
+    // noticed after construction is noticed several hundred milliseconds of
+    // music too late. Worse in the loop: `--match` and `--replay` are handled
+    // there and load their files first, and the harness writes `--silent` last.
+    const bool silent = std::any_of(
+        argv + 1, argv + argc, [](const char* arg) { return std::string_view{arg} == "--silent"; });
+    md::GameWindow window{silent};
     window.setVulkanInstance(&instance);
     window.resize(1280, 720);
     window.setTitle("Missile Defense");
@@ -412,7 +424,7 @@ int run(int argc, char** argv) {
         } else if (arg == "--until-done") {
             window.set_exit_when_done(true);
         } else if (arg == "--silent") {
-            window.set_silent();
+            window.set_silent(); // already applied above; kept so the list is the options
         } else if (arg == "--report") {
             report = true;
         }
