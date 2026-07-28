@@ -10,7 +10,7 @@ desktop. The defect is Qt's (QTBUG-123214, reported 2024-03-12, still untriaged,
 `QWindowPrivate::destroy()` unchanged through the dev branch).
 
 A workaround with no test decays into folklore: nobody dares remove it and
-nobody can say what it does. So three things are asserted separately, and each
+nobody can say what it does. So four things are asserted separately, and each
 can be wrong on its own.
 
 * `test_qt_is_still_broken` — the cause exists. A bare `QVulkanWindow` with no
@@ -19,7 +19,12 @@ can be wrong on its own.
 * `test_the_workaround_works_on_its_own` — the effect is the workaround's. The
   same bare window, with only that one line added, survives. This is what
   separates a fix from a coincidence.
-* `test_the_game_exits_cleanly_on_wayland` — the two meet in the real binary.
+* `test_the_orphaned_surface_can_be_reclaimed` — and it costs no leaked handle.
+  Detaching leaves the `VkSurfaceKHR` with nobody to destroy it; destroying it
+  by hand, after the base class has taken the platform window and the swapchain
+  apart, still survives. Its own claim because the same call one step earlier
+  crashes as reliably as no workaround at all.
+* `test_the_game_exits_cleanly_on_wayland` — the three meet in the real binary.
 
 None of this can be observed without a compositor, so all three skip elsewhere;
 CI is in that state and Jens's desktop is not.
@@ -126,6 +131,28 @@ def test_the_workaround_works_on_its_own(tmp_path: Path) -> None:
             f"witness on run {attempt + 1} (exit {result.returncode}) — the "
             f"workaround in GameWindow::event rests on this and is no longer "
             f"earning its place.\n{result.stdout}\n{result.stderr}"
+        )
+
+
+def test_the_orphaned_surface_can_be_reclaimed(tmp_path: Path) -> None:
+    """The workaround need not cost a leaked `VkSurfaceKHR`, and does not.
+
+    Two claims in one, because a run that skipped the call would otherwise look
+    exactly like a run that made it and survived: the witness reports whether it
+    actually destroyed the surface, and the exit status says whether doing so
+    took the process down with it.
+    """
+    for attempt in range(RUNS):
+        result = _run_witness(["--reclaim"], tmp_path)
+        assert result.returncode == 0, (
+            f"destroying the orphaned surface after teardown killed the witness "
+            f"on run {attempt + 1} (exit {result.returncode}) — GameWindow::event "
+            f"does this, so the game is crashing on Wayland too.\n"
+            f"{result.stdout}\n{result.stderr}"
+        )
+        assert '"reclaimed": true' in result.stdout, (
+            f"the witness survived without ever destroying the surface, so this "
+            f"run says nothing about whether destroying it is safe.\n{result.stdout}"
         )
 
 

@@ -17,9 +17,20 @@
 //              works for a reason rather than by luck — and it is the smallest
 //              possible statement of it, with the game held out of the picture.
 //
+//   `--reclaim` what the game actually does: the same release, plus destroying
+//              the `VkSurfaceKHR` it orphans, once `QVulkanWindow::event` has
+//              returned and taken the platform window and the swapchain with it.
+//              Expected to survive *and* to leave nothing outstanding. This is
+//              the half that says the workaround need not cost a leaked handle,
+//              and it is a separate claim because the call is one line away from
+//              the placement that crashes.
+//
 // Measured across 24 runs per mode, on the NVIDIA driver and on lavapipe: plain
 // died 24/24 on both, detach survived 24/24 on both. Two implementations sharing
-// no code do not agree by coincidence.
+// no code do not agree by coincidence. Reclaim survived 24/24 on the NVIDIA
+// driver, and destroying the surface any earlier — before the base class runs
+// `destroy()` — died 3/3, which is why the placement is stated as a condition in
+// the code rather than trusted to the reader.
 //
 // Two things must be said about how this is built, because both can turn a
 // crashing program into a passing one and neither is visible from the output:
@@ -39,6 +50,7 @@
 #include <QVersionNumber>
 #include <QVulkanInstance>
 #include <QVulkanWindow>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 
@@ -87,24 +99,48 @@ class Renderer : public QVulkanWindowRenderer {
     int frames_ = 0;
 };
 
+//: What the witness does on `Close`. `Plain` is Qt's own teardown; the other two
+//: are the two halves of `GameWindow::event`, so that each can fail on its own.
+enum class Mode : std::uint8_t { Plain, Detach, Reclaim };
+
 class Window : public QVulkanWindow {
   public:
-    explicit Window(bool detach) : detach_(detach) {}
+    explicit Window(Mode mode) : mode_(mode) {}
 
     QVulkanWindowRenderer* createRenderer() override { return new Renderer(this); }
 
     bool event(QEvent* event) override {
-        // The one line under test. `GameWindow::event` does exactly this and
-        // nothing else; keeping the witness's copy this small is what lets a
-        // result here be read as a statement about that line.
-        if (detach_ && event->type() == QEvent::Close) {
+        // `GameWindow::event` does exactly this and nothing else; keeping the
+        // witness's copy this small is what lets a result here be read as a
+        // statement about that code.
+        QVulkanInstance* detached = nullptr;
+        VkSurfaceKHR orphaned = VK_NULL_HANDLE;
+        if (mode_ != Mode::Plain && event->type() == QEvent::Close) {
+            detached = vulkanInstance();
+            if (mode_ == Mode::Reclaim && detached != nullptr) {
+                orphaned = QVulkanInstance::surfaceForWindow(this);
+            }
             setVulkanInstance(nullptr);
         }
-        return QVulkanWindow::event(event);
+        const bool handled = QVulkanWindow::event(event);
+        if (orphaned != VK_NULL_HANDLE && handle() == nullptr) {
+            auto* destroy_surface = reinterpret_cast<PFN_vkDestroySurfaceKHR>(
+                detached->getInstanceProcAddr("vkDestroySurfaceKHR"));
+            if (destroy_surface != nullptr) {
+                destroy_surface(detached->vkInstance(), orphaned, nullptr);
+                reclaimed_ = true;
+            }
+        }
+        return handled;
     }
 
+    /// Did the surface actually get destroyed? Printed, so a run that quietly
+    /// skipped the call cannot be read as a run that survived making it.
+    [[nodiscard]] bool reclaimed() const noexcept { return reclaimed_; }
+
   private:
-    bool detach_;
+    Mode mode_;
+    bool reclaimed_ = false;
 };
 
 } // namespace
@@ -112,10 +148,12 @@ class Window : public QVulkanWindow {
 int main(int argc, char** argv) {
     QGuiApplication app(argc, argv);
 
-    bool detach = false;
+    Mode mode = Mode::Plain;
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--detach") == 0) {
-            detach = true;
+            mode = Mode::Detach;
+        } else if (std::strcmp(argv[i], "--reclaim") == 0) {
+            mode = Mode::Reclaim;
         }
     }
 
@@ -126,7 +164,7 @@ int main(int argc, char** argv) {
         return 2;
     }
 
-    Window window(detach);
+    Window window(mode);
     window.setVulkanInstance(&instance);
     window.resize(640, 480);
     window.show();
@@ -134,8 +172,11 @@ int main(int argc, char** argv) {
 
     // Reached only if the window came apart without faulting. Without `--detach`
     // on Wayland it is not reached; with it, and on xcb either way, it is. That
-    // difference is the whole test.
-    std::puts(R"({"survived_teardown": true})");
+    // difference is the whole test. `reclaimed` is beside it because a `--reclaim`
+    // run that never made the call would otherwise look exactly like one that did.
+    std::printf(R"({"survived_teardown": true, "reclaimed": %s})"
+                "\n",
+                window.reclaimed() ? "true" : "false");
     std::fflush(stdout);
     return code;
 }

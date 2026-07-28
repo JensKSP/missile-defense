@@ -59,37 +59,64 @@ either. The surface is destroyed too early regardless of who owns the swapchain.
 `Close`:
 
 ```cpp
-bool GameWindow::event(QEvent* event) {
-    if (event->type() == QEvent::Close && QGuiApplication::platformName() == "wayland") {
-        setVulkanInstance(nullptr);
-    }
-    return QVulkanWindow::event(event);
+if (event->type() == QEvent::Close && QGuiApplication::platformName() == "wayland") {
+    detached = vulkanInstance();
+    orphaned = QVulkanInstance::surfaceForWindow(this);
+    setVulkanInstance(nullptr);
 }
+const bool handled = QVulkanWindow::event(event);
 ```
 
 `Close` is the right moment because every way out of the game reaches it — the
 menu's EXIT, the compositor's close button, a window manager asking — and it is
 delivered immediately before `destroy()`, so nothing renders after it.
 
-### What it costs
+### What it costs, and how that cost is paid back
 
-**The `VkSurfaceKHR` is never destroyed.** The platform window destroys that
-surface through the instance it can reach from the window, and a detached window
-offers it none.
+**Detaching means the `VkSurfaceKHR` is not destroyed by Qt.** The platform
+window destroys that surface through the instance it can reach from the window,
+and a detached window offers it none.
 
-That leak is the *mechanism*, not a side effect. The surface destruction Qt would
-have performed is exactly the invalid one — the `wl_surface` beneath it is
-already gone — so declining to perform it is the whole of the fix. The validation
-layer sees the leak at shutdown as `VUID-vkDestroyInstance-instance-00629`.
+That is the *mechanism*, not a side effect. The surface destruction Qt would have
+performed is exactly the invalid one — the `wl_surface` beneath it is already
+gone — so declining to perform it is the whole of the fix.
 
-It is an honest trade: one leaked handle in a process that is exiting, instead of
-a segfault in a process that is exiting.
+What does not follow is that the handle has to stay orphaned. `QWindow::event`
+runs `destroy()` before it returns, so one line further down the platform window
+and the swapchain built on it are both already gone, and the game destroys the
+surface itself:
 
-**This is why the workaround is gated on the platform.** On xcb the surface is
-destroyed correctly and there is nothing to work around, so detaching there would
-trade a clean teardown for a leaked handle and buy nothing. That is not a
-hypothetical — applying it unconditionally is what made CI's Vulkan gate report
-00629 on X11, which is how the cost above came to be understood at all.
+```cpp
+if (orphaned != VK_NULL_HANDLE && handle() == nullptr) {
+    auto* destroy_surface = reinterpret_cast<PFN_vkDestroySurfaceKHR>(
+        detached->getInstanceProcAddr("vkDestroySurfaceKHR"));
+    destroy_surface(detached->vkInstance(), orphaned, nullptr);
+}
+```
+
+That moment is the first one where the call is both **safe** — no swapchain still
+refers to the surface, which is what `VUID-vkDestroySurfaceKHR-surface-01266`
+would otherwise report — and still **possible**, since the handle was taken above
+while there was still an instance to ask for it. The teardown then ends with
+nothing outstanding: no leaked handle, no
+`VUID-vkDestroyInstance-instance-00629`, and no crash.
+
+**The timing is the whole of it.** The same call one line *earlier*, before the
+base class has taken the window apart, dies as reliably as no workaround at all:
+the swapchain is still alive then, and destroying its surface underneath it is
+another way of doing the thing this page exists to avoid. Measured: reclaim after
+`destroy()` survived 24 of 24 runs, reclaim before it died 3 of 3.
+
+Under LeakSanitizer the reclaim is worth 72 bytes and one allocation — the
+loader's surface object, allocated in `QVulkanInstance::surfaceForWindow`. What
+LSan still reports at exit is libdbus, the NVIDIA driver and the Vulkan loader,
+none of it allocated by this project (see [TESTING.md](TESTING.md)).
+
+**The platform gate stays.** On xcb the surface is destroyed correctly by Qt and
+there is nothing to work around, so detaching there would trade a clean teardown
+for work the platform already does. That is not a hypothetical — applying the
+detach unconditionally is what made CI's Vulkan gate report 00629 on X11, which
+is how the cost came to be understood at all.
 
 With the line in place, Qt still calls `releaseSwapChainResources()` **and**
 `releaseResources()` and the process exits 0 — the same callback sequence the
@@ -101,8 +128,11 @@ working X11 path produces:
 | Wayland, with the line | ✅ | ✅ | 0 |
 | X11 (reference) | ✅ | ✅ | 0 |
 
-Valgrind reports no invalid read, write or free anywhere in the teardown — the
-leaked surface handle is a leak, not a corruption.
+Valgrind reports no invalid read, write or free anywhere in the teardown, and
+reports exactly the same errors with the surface reclaim as without it (17
+contexts, all of them uninitialised-value complaints inside the driver) — so
+destroying the surface after the `wl_surface` is gone reads nothing that is
+gone with it.
 
 **How well this is understood.** The effect is measured, not derived. Nothing in
 `QVulkanWindowPrivate::releaseSwapChain()` reads the instance, so Qt's source
@@ -121,16 +151,21 @@ through.
 
 A workaround with no test decays into folklore: nobody dares remove it and
 nobody can say what it does. `app/tests/wayland_teardown.cpp` is a bare
-`QVulkanWindow` containing no line of this project, run in two modes, and
-`python/tests/e2e/test_wayland_teardown.py` asserts three separate things:
+`QVulkanWindow` containing no line of this project, run in three modes, and
+`python/tests/e2e/test_wayland_teardown.py` asserts four separate things:
 
 * **the cause still exists** — the unmodified witness still dies. When Qt is
   fixed, this fails and says to delete the workaround;
 * **the effect is the workaround's** — the same witness, with only that one line
   added, survives. This is what separates a fix from a coincidence;
-* **the game still applies it** — the shipped binary exits 0 on native Wayland.
+* **the surface can be reclaimed** — the same witness destroys the orphaned
+  handle afterwards and still survives, and says that it did so. This is what
+  keeps the reclaim from quietly turning into a no-op that looks like a pass;
+* **the game still applies it all** — the shipped binary exits 0 on native
+  Wayland with no validation error at all, which is now `assert_clean` like
+  every other run in the suite rather than an allow-listed exception.
 
-All three skip where there is no compositor, which includes CI. They are meant to
+All four skip where there is no compositor, which includes CI. They are meant to
 run on a developer's desktop, and `poe check` runs them there.
 
 The tests decline to conclude anything from an AddressSanitizer build: its

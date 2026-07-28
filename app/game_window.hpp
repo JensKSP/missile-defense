@@ -301,8 +301,10 @@ class GameWindow : public QVulkanWindow {
     void keyPressEvent(QKeyEvent* event) override;
 
     /// Detaches from the Vulkan instance on `Close`, which is what lets this
-    /// window come apart on Wayland instead of segfaulting. See the long note on
-    /// the definition; it is the whole reason the game can run natively there.
+    /// window come apart on Wayland instead of segfaulting, and destroys the
+    /// surface that detaching orphans once the window is past `destroy()`. See
+    /// the long note on the definition; the first half is the whole reason the
+    /// game can run natively there, and the second is why it costs nothing.
     bool event(QEvent* event) override;
 
   private:

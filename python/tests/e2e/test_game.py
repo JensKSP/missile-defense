@@ -29,7 +29,6 @@ from .harness import (
     needs_app,
     needs_display,
     run_app,
-    validation_errors,
 )
 
 pytestmark = [pytest.mark.e2e, needs_app, needs_display]
@@ -109,33 +108,23 @@ def test_the_game_survives_a_wayland_session(tmp_path: Path) -> None:
 
     Skipped where there is no Wayland session to fail on, which includes CI.
 
-    **Not `assert_clean`, and this is the one place that is allowed.** The
-    workaround releases the Vulkan instance while its surface is still alive
-    (`GameWindow::event`, docs/WAYLAND.md), so the leaked `VkSurfaceKHR` is not
-    a side effect of the fix — it *is* the fix, and it is reported as
-    `VUID-vkDestroyInstance-instance-00629` every time. Asserting no validation
-    error at all here is asserting the absence of the thing under test, which is
-    why this failed on the only kind of machine that runs it. So: that one VUID,
-    about that one object, and still nothing else.
+    **`assert_clean`, like every other run here, and that is newer than the
+    workaround.** Releasing the instance leaves the `VkSurfaceKHR` with nobody to
+    destroy it, and for a while this test carried an exception for the
+    `VUID-vkDestroyInstance-instance-00629` that leak reports — the one allowed
+    allow-list entry in the suite. `GameWindow::event` now destroys that surface
+    itself, once the base class has taken the platform window and the swapchain
+    apart (docs/WAYLAND.md), so the exception has been deleted rather than
+    documented. If 00629 comes back, the reclaim stopped happening and this says
+    so with no interpretation required.
     """
     if not os.environ.get("WAYLAND_DISPLAY"):
         pytest.skip("no Wayland session here — nothing for the fallback to prevent")
     environ = app_environ(tmp_path)
     del environ["QT_QPA_PLATFORM"]  # exactly what the .desktop file provides
     run = run_app("--play", frames=120, sandbox=tmp_path, environ=environ)
-    assert run.exit_code == 0, f"exited {run.exit_code}\n{run.output}"
+    assert_clean(run)
     assert run.frames >= 120
-    unexpected = [
-        line
-        for line in validation_errors(run)
-        if "VUID-vkDestroyInstance-instance-00629" not in line
-    ]
-    assert not unexpected, "Vulkan validation errors beyond the documented leak:\n" + "\n".join(
-        unexpected
-    )
-    assert "VkSurfaceKHR" in run.output, (
-        "the teardown workaround left no leaked surface, so it is no longer being applied"
-    )
 
 
 def test_every_bundled_model_plays(tmp_path: Path) -> None:

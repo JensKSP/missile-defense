@@ -1460,10 +1460,11 @@ void GameWindow::mousePressEvent(QMouseEvent* event) {
     }
 }
 
-/// Lets go of the Vulkan instance before Qt takes the window apart.
+/// Lets go of the Vulkan instance before Qt takes the window apart, and picks up
+/// the one handle that leaves behind once it is safe to.
 ///
-/// One line, and without it this game cannot run on Wayland at all — which is
-/// the default session on current KDE and GNOME, so it is most of the desktop.
+/// Without the first half this game cannot run on Wayland at all — which is the
+/// default session on current KDE and GNOME, so it is most of the desktop.
 ///
 /// The defect is Qt's, upstream as QTBUG-123214, and it is a destruction order.
 /// `QWindowPrivate::destroy()` runs
@@ -1485,14 +1486,28 @@ void GameWindow::mousePressEvent(QMouseEvent* event) {
 /// finish: Qt calls `releaseSwapChainResources()` **and** `releaseResources()`,
 /// the process exits 0, and Valgrind reports no invalid read, write or free.
 ///
-/// **What it costs, stated plainly: the `VkSurfaceKHR` is never destroyed.** The
+/// **What it costs is the surface, and the cost is paid back below.** The
 /// platform window destroys that surface through the instance it can reach from
-/// the window, and a detached window offers it none. That leak is the mechanism
-/// rather than a side effect — the surface destruction Qt would have performed is
-/// exactly the invalid one, since the `wl_surface` beneath it is already gone.
-/// The validation layer sees the leak as `VUID-vkDestroyInstance-instance-00629`
-/// at shutdown, which is the honest trade: one leaked handle in a process that is
-/// exiting, instead of a segfault in a process that is exiting.
+/// the window, and a detached window offers it none — so declining to be reachable
+/// is what declines the destruction, and that declined destruction is exactly the
+/// invalid one, since the `wl_surface` beneath it is already gone. Skipping it *is*
+/// the mechanism, not a side effect of it.
+///
+/// What does not follow is that the handle has to stay orphaned. `QWindow::event`
+/// runs `destroy()` before it returns, so one line further down the platform
+/// window and the swapchain built on it are both already gone — which is the first
+/// moment `vkDestroySurfaceKHR` is both safe (no swapchain still refers to it,
+/// `VUID-vkDestroySurfaceKHR-surface-01266`) and still possible (the handle was
+/// taken above, while there was still an instance to ask). Doing it there ends the
+/// teardown with nothing outstanding: no `VUID-vkDestroyInstance-instance-00629`,
+/// no surface, and no crash. Measured, like everything else here — 24 of 24 runs
+/// survive, and Valgrind reports the same errors it reports without the call,
+/// which is to say none of its own.
+///
+/// The timing is the whole of it. The same call one line *earlier*, before the
+/// base class has taken the window apart, dies as reliably as no workaround at
+/// all: the swapchain is still alive then, and destroying its surface underneath
+/// it is a different way of doing the thing this whole function exists to avoid.
 ///
 /// **Hence the platform test.** On xcb the surface is destroyed correctly and
 /// there is nothing to work around, so detaching there would trade a clean
@@ -1510,10 +1525,36 @@ void GameWindow::mousePressEvent(QMouseEvent* event) {
 /// the menu's EXIT, the compositor's close button, a window manager asking — and
 /// it is delivered immediately before `destroy()`, so nothing renders after it.
 bool GameWindow::event(QEvent* event) {
+    QVulkanInstance* detached = nullptr;
+    VkSurfaceKHR orphaned = VK_NULL_HANDLE;
     if (event->type() == QEvent::Close && QGuiApplication::platformName() == "wayland") {
+        detached = vulkanInstance();
+        if (detached != nullptr) {
+            // Taken before the window is detached, because afterwards nothing
+            // left in the process knows this handle: the lookup goes through the
+            // platform window, which `destroy()` is about to delete.
+            orphaned = QVulkanInstance::surfaceForWindow(this);
+        }
         setVulkanInstance(nullptr);
     }
-    return QVulkanWindow::event(event);
+    const bool handled = QVulkanWindow::event(event);
+    // Past `destroy()` now — `handle()` says so, and a close somebody declined
+    // would leave it non-null and the surface still in use, so it is a condition
+    // and not a comment.
+    if (orphaned != VK_NULL_HANDLE && handle() == nullptr) {
+        // The cast is how a Vulkan extension entry point is reached at all:
+        // `getInstanceProcAddr` returns `PFN_vkVoidFunction`, and
+        // `vkDestroySurfaceKHR` belongs to `VK_KHR_surface`, so no Qt function
+        // wrapper carries it. The alternative to the cast is not a safer cast,
+        // it is not calling the function.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+        auto* destroy_surface = reinterpret_cast<PFN_vkDestroySurfaceKHR>(
+            detached->getInstanceProcAddr("vkDestroySurfaceKHR"));
+        if (destroy_surface != nullptr) {
+            destroy_surface(detached->vkInstance(), orphaned, nullptr);
+        }
+    }
+    return handled;
 }
 
 void GameWindow::keyPressEvent(QKeyEvent* event) {

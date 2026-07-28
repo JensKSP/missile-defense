@@ -186,6 +186,31 @@ Both configurations are built and tested: **Debug** (`-O0`, ASan/UBSan) and **Re
 optimization-sensitive (they only fire under `-O2`), and because `NDEBUG` changes code
 paths. `poe test-release` runs the Release build + tests on their own.
 
+### Why the end-to-end suite runs the game with `detect_leaks=0`
+
+The debug build carries LeakSanitizer, and running the game under it reports
+leaks — none of which this project allocates. Every block is allocated inside
+libxcb's event queue, libdbus, the Vulkan loader, or the NVIDIA driver's own
+initialisation (on X11, most of it behind a `QOpenGLContext` that the *KDE
+platform theme* creates and destroys). The game's own allocations are Qt-parented
+or RAII and are freed; its Vulkan objects are destroyed by
+`releaseSwapChainResources()` and `releaseResources()`, which the validation
+layer confirms by reporting nothing outstanding at `vkDestroyInstance`.
+
+So the suite drops that one check (`harness.app_environ`) and keeps every other
+ASan check, use-after-free above all. It is not a leak budget: if a leak of ours
+ever appears, it will be visible as a `md::` frame at the allocation site, and
+the way to look is
+
+```bash
+ASAN_OPTIONS=detect_leaks=1 build/debug/app/md_app --play --frames 90 --silent
+```
+
+There used to be one exception to "none of it is ours": the `VkSurfaceKHR` the
+Wayland workaround orphaned, 72 bytes in the loader. `GameWindow::event` now
+destroys it — [WAYLAND.md](WAYLAND.md) says why that is safe only at exactly one
+moment.
+
 ## Optional: git pre-commit hook
 
 ```bash
