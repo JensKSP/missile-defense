@@ -21,7 +21,14 @@ cmake.version = ">=3.25"
 # adds `_md_native` to it
 # through the install rule in bindings/CMakeLists.txt.
 wheel.packages = ["python/missile_defense"]
-build-dir = "build/wheel"
+# Per wheel tag, not one shared directory. cibuildwheel builds every selected
+# target in sequence inside one job — on Windows that is cp312-win32 *and*
+# cp312-win_amd64 — and a fixed path hands the second build the first one's CMake
+# cache. It fails as `CMake Error: Error: generator platform: x64` from inside
+# FetchContent, which names neither the cache nor the architecture that set it.
+# Linux and macOS each build one architecture per job, so this only ever showed
+# up on Windows.
+build-dir = "build/wheel/{wheel_tag}"
 # `wheel.exclude` is applied *after* the CMake install, so a `*.pyd` pattern
 # here deletes the module this build just produced and the wheel installs an
 # `missile_defense` whose first import fails. It is not needed for its intended purpose
