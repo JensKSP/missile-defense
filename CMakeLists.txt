@@ -45,7 +45,7 @@ if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin" AND NOT DEFINED CMAKE_OSX_DEPLOYMENT
 endif()
 
 project(missile_defense
-  VERSION 0.1.0
+  VERSION 0.9.0
   DESCRIPTION "Retro arcade missile-defense game + RL environment"
   LANGUAGES CXX)
 
