@@ -27,7 +27,7 @@ and `test_ui_reward.py` gets at them without a display.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from .params import Setting
@@ -142,7 +142,16 @@ class Formula:
 
     @property
     def total(self) -> str:
-        """The whole reward, priced events included when a run switched any on."""
+        """The whole reward, priced events included when a run switched any on.
+
+        Unshaped, that is the game score and nothing else — `VecEnv.step` nests
+        the potential *and* both priced events inside `if shaping.enabled`. This
+        used to write the shaped equation regardless and leave the contradiction
+        to the note underneath, so a run that was paid the bare score was shown a
+        formula full of terms it never saw, with "shaping is off" as a footnote.
+        """
+        if not self.shaped:
+            return "r′ = score"
         line = "r′ = score  +  γ·φ(s′) − φ(s)"
         for term in self.priced:
             if not term.active:
@@ -200,6 +209,27 @@ def formula_of(settings: Sequence[Setting]) -> Formula | None:
         potential=terms(POTENTIAL_FIELDS),
         priced=terms(PRICED_FIELDS),
     )
+
+
+def formula_being_configured(values: Mapping[str, str]) -> Formula | None:
+    """The same formula, for a run that has not started yet.
+
+    :func:`formula_of` answers "what was this run paid for?" from a stored
+    ``config.json``. This answers "what *would* it be paid?" from whatever the
+    parameter dialog currently shows — the identical arithmetic and the identical
+    wording, so the equation somebody reads while choosing the weights is the one
+    they will read afterwards in the run's own panel.
+
+    Worth having as its own entry point rather than a Qt-side rebuild: the terms,
+    their order, which are potential and which are priced, and the sentence
+    beside each are decisions this module already makes, and a second copy in the
+    dialog would be a second place for them to drift.
+    """
+    settings = [
+        Setting(group="shaping", name=name, value=value, default="", changed=False, help="")
+        for name, value in values.items()
+    ]
+    return formula_of(settings)
 
 
 def _number(text: str) -> str:

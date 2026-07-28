@@ -59,8 +59,8 @@ import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QLocale, Qt, Signal
-from PySide6.QtGui import QDoubleValidator
+from PySide6.QtCore import QEvent, QLocale, QRectF, Qt, Signal
+from PySide6.QtGui import QColor, QDoubleValidator, QPainter
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -87,6 +87,8 @@ from PySide6.QtWidgets import (
 from ..runs import footprint, presets
 from ..runs.sources import Checkpoint, human_age, human_size
 from . import params as params_module
+from . import reward as reward_module
+from . import theme
 from .params import GLOSSARY, GROUPS, Group, Param
 
 #: Wide enough for a label, a slider with room to aim, and its readout.
@@ -96,6 +98,33 @@ DIALOG_WIDTH = 680
 READOUT_WIDTH = 92
 #: What the status strip says when nothing is under the pointer or the caret.
 HELP_IDLE = "Point at a parameter, or tab to it, for what it does."
+
+#: The two headings on the Objective panel, and the one word each that changes
+#: how a run may be read. Both sentences come from `missile_defense.ui.reward`,
+#: which is where the distinction is defined — this is a lookup, not a restating.
+REWARD_CAPTIONS: dict[str, tuple[str, str, str, str]] = {
+    "Potential terms": (
+        "Potential terms",
+        "cannot change the optimum",
+        "tag-invariant",
+        reward_module.INVARIANT,
+    ),
+    "Priced events": (
+        "Priced events",
+        "changes the objective",
+        "tag-objective",
+        reward_module.OBJECTIVE,
+    ),
+}
+
+
+def _as_number(text: str) -> float:
+    """``text`` as a weight, or 0.0 — an unparseable box contributes nothing."""
+    try:
+        return float(text)
+    except (TypeError, ValueError):
+        return 0.0
+
 
 #: What a resume cannot change, because the checkpoint already decided it.
 #:
@@ -178,6 +207,87 @@ def free_vram() -> int | None:
 #: enough that the readout beside it does not flicker through digits nobody asked
 #: for.
 SLIDER_STEPS = 1000
+
+
+class BalanceBar(QWidget):
+    """The three potential weights drawn as the proportions they actually are.
+
+    What a battery is worth *relative to* a city is the decision; the absolute
+    numbers are a scale nobody reads. Three spin boxes showing 200, 100 and 5
+    say that only to someone who divides them, and the ratio is the thing that
+    changes what the agent protects — so it is drawn.
+
+    The game's own colours, so the bar reads as the board: batteries amber
+    (the HUD), cities blue (the cities), ammunition the interceptor's paler
+    blue.
+    """
+
+    #: In the order the potential is written, with the colour each is drawn in.
+    TERMS = (
+        ("base_weight", "batteries", theme.AMBER),
+        ("city_weight", "cities", theme.CITY),
+        ("ammo_weight", "ammo", theme.INTERCEPTOR),
+    )
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._weights: dict[str, float] = {}
+        self.setMinimumHeight(26)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+    def show_weights(self, weights: Mapping[str, float]) -> None:
+        if dict(weights) == self._weights:
+            return
+        self._weights = dict(weights)
+        # Set here rather than while painting. A tooltip is state, and one
+        # assigned in `paintEvent` does not exist until the widget has been
+        # drawn — so it was empty for exactly as long as nobody had looked at
+        # the bar, which is the moment somebody would ask it what it means.
+        total = sum(max(value, 0.0) for value in self._weights.values())
+        if total <= 0.0:
+            self.setToolTip("Every potential weight is zero: the shaped term pays nothing.")
+        else:
+            self.setToolTip(
+                "  ·  ".join(
+                    f"{label} {100 * max(self._weights.get(name, 0.0), 0.0) / total:.0f}%"
+                    for name, label, _ in self.TERMS
+                )
+            )
+        self.update()
+
+    def paintEvent(self, event: object) -> None:  # noqa: N802 — Qt's spelling
+        del event
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rect = self.rect().adjusted(0, 0, -1, -1)
+        painter.setPen(QColor(theme.EDGE))
+        painter.setBrush(QColor(theme.NIGHT))
+        painter.drawRoundedRect(rect, 4, 4)
+
+        total = sum(max(self._weights.get(name, 0.0), 0.0) for name, _, _ in self.TERMS)
+        if total <= 0.0:
+            painter.setPen(QColor(theme.MUTED))
+            painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, "every weight is zero")
+            return
+
+        painter.setPen(Qt.PenStyle.NoPen)
+        x = float(rect.left() + 1)
+        inner = rect.width() - 2
+        for name, label, colour in self.TERMS:
+            share = max(self._weights.get(name, 0.0), 0.0) / total
+            width = share * inner
+            if width <= 0.0:
+                continue
+            slice_rect = QRectF(x, rect.top() + 1, width, rect.height() - 1)
+            painter.setBrush(QColor(colour))
+            painter.drawRect(slice_rect)
+            # Only where the label fits: a clipped word is worse than no word,
+            # and the tooltip carries the full reading anyway.
+            if width > 58:
+                painter.setPen(QColor(theme.NIGHT))
+                painter.drawText(slice_rect, Qt.AlignmentFlag.AlignCenter, label)
+                painter.setPen(Qt.PenStyle.NoPen)
+            x += width
 
 
 class ValueSlider(QWidget):
@@ -440,6 +550,12 @@ class ParameterDialog(QDialog):
         #: widget because that is what an event arrives on.
         self._explains: dict[QWidget, tuple[Param, str]] = {}
         self._labels: dict[tuple[str, str], QLabel] = {}
+        #: The Objective panel's three extras. `None` where there is no reward
+        #: group to draw them for — an installed trainer with no trainer source
+        #: beside it has no fields at all.
+        self._balance: BalanceBar | None = None
+        self._equation: QLabel | None = None
+        self._equation_note: QLabel | None = None
         self._resume: QComboBox | None = None
         #: True while a preset is being poured into the editors, so their change
         #: signals do not read that as the person typing and flip the picker to
@@ -783,10 +899,23 @@ class ParameterDialog(QDialog):
         box.setSpacing(8)
         for group in present:
             members = [by_name[name] for name in group.fields if name in by_name]
+            # The Objective panel is the one that says what the numbers *mean*.
+            # Three weights whose ratio decides what the agent protects, and two
+            # terms that are not optimality-neutral where the others provably
+            # are — a distinction `missile_defense.ui.reward` has always drawn
+            # for a *finished* run and nothing drew for the person choosing them.
+            caption = REWARD_CAPTIONS.get(group.name)
+            if caption is not None:
+                box.addWidget(self._caption(*caption))
             if group.essential:
                 box.addWidget(self._rows_frame(members))
             else:
                 box.addWidget(self._fold(group, members))
+            if group.name == "Potential terms":
+                self._balance = BalanceBar()
+                box.addWidget(self._balance)
+        if any(g.domain == "reward" for g in present):
+            box.addWidget(self._equation_panel())
         box.addStretch(1)
 
         scroll = QScrollArea()
@@ -794,6 +923,78 @@ class ParameterDialog(QDialog):
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setWidget(page)
         return scroll
+
+    def _caption(self, title: str, tag: str, role: str, why: str) -> QWidget:
+        """A group heading with the one word that changes how a run is read."""
+        row = QWidget()
+        box = QHBoxLayout(row)
+        box.setContentsMargins(2, 4, 2, 0)
+        box.setSpacing(8)
+        label = QLabel(title.upper())
+        label.setProperty("role", "caption")
+        box.addWidget(label)
+        chip = QLabel(tag)
+        chip.setProperty("role", role)
+        chip.setToolTip(why)
+        box.addWidget(chip)
+        box.addStretch(1)
+        for widget in (row, label, chip):
+            widget.setToolTip(why)
+        return row
+
+    def _equation_panel(self) -> QWidget:
+        """The reward as its formula, with the run's own numbers in it.
+
+        Seven boxes are faithful and nearly useless: they do not say that three
+        of them are summed into a potential, that one discounts that potential
+        rather than the return, or that two are switched off. The equation says
+        all of it in two lines, and `missile_defense.ui.reward` already knew how
+        to write it — for a finished run, where nobody was choosing anything.
+        """
+        frame = QFrame()
+        frame.setProperty("role", "panel")
+        box = QVBoxLayout(frame)
+        box.setContentsMargins(14, 10, 14, 10)
+        box.setSpacing(6)
+        caption = QLabel("WHAT THE AGENT IS PAID")
+        caption.setProperty("role", "caption")
+        box.addWidget(caption)
+        self._equation = QLabel()
+        self._equation.setProperty("role", "formula")
+        self._equation.setWordWrap(True)
+        self._equation.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        box.addWidget(self._equation)
+        self._equation_note = QLabel()
+        self._equation_note.setProperty("role", "note")
+        self._equation_note.setWordWrap(True)
+        box.addWidget(self._equation_note)
+        return frame
+
+    def _refresh_reward(self) -> None:
+        """Redraw the equation and the balance bar from what is on screen."""
+        if self._equation is None:
+            return
+        shown = {
+            name: _read(editor)
+            for (owner, name), editor in self._editors.items()
+            if owner == "Shaping"
+        }
+        # The discount is derived rather than offered, so it is not among the
+        # editors — but it is part of the formula, and reading it from the
+        # control that owns it is what keeps the two in step.
+        shown["gamma"] = self._text_named("gamma", "")
+        formula = reward_module.formula_being_configured(shown)
+        if formula is None:
+            self._equation.setText("")
+            self._equation_note.setText("")
+            return
+        lines = [formula.phi, formula.total] if formula.shaped else [formula.total]
+        self._equation.setText("\n".join(line for line in lines if line))
+        self._equation_note.setText("  ".join(formula.notes))
+        if self._balance is not None:
+            self._balance.show_weights(
+                {name: _as_number(shown.get(name, "")) for name, _, _ in BalanceBar.TERMS}
+            )
 
     def _rows_frame(self, fields: list[Param]) -> QWidget:
         frame = QFrame()
@@ -1155,9 +1356,33 @@ class ParameterDialog(QDialog):
                 RESUME_LOCK_HELP if continuing else self._explains.get(editor, (None, ""))[1]
             )
 
+    def _refresh_shaping(self) -> None:
+        """Shaping off greys every term it governs, because it ignores them all.
+
+        `VecEnv.step` nests the whole block — the potential *and* both priced
+        events — inside `if self._shaping.enabled`, so an unshaped run is paid
+        the game score and nothing else. Leaving seven live controls under a
+        switch that discards them is the form claiming they still matter.
+        """
+        editor = self._editor_named("enabled")
+        if editor is None:
+            return
+        on = _read(editor) == "True"
+        for (owner, name), row in self._rows.items():
+            if owner != "Shaping" or name == "enabled":
+                continue
+            row.setEnabled(on)
+            label = self._labels.get((owner, name))
+            if label is not None:
+                label.setEnabled(on)
+        if self._balance is not None:
+            self._balance.setEnabled(on)
+
     def _refresh_preview(self) -> None:
         self._preview.setText(" ".join(self.command()))
         self._refresh_folds()
+        self._refresh_shaping()
+        self._refresh_reward()
         self._refresh_resume_locks()
         self._refresh_schedule()
         self._refresh_memory()

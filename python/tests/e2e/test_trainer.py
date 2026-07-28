@@ -1559,3 +1559,79 @@ def test_the_filter_reveals_a_parameter_wherever_it_is_folded(tmp_path: Path) ->
         dialog._apply_filter("")  # noqa: SLF001
     finally:
         dialog.close()
+
+
+# ---- the Objective panel: what the numbers mean ------------------------------
+
+
+def test_the_reward_equation_shows_the_weights_that_are_on_screen(tmp_path: Path) -> None:
+    """Seven boxes are faithful and nearly useless.
+
+    They do not say that three of them are summed into a potential, that one
+    discounts that potential rather than the return, or that two are off. The
+    equation says all of it, and it is the *same* renderer the finished-run panel
+    uses — so what you read while choosing is what you read afterwards.
+    """
+    dialog = _station(tmp_path)
+    try:
+        shown = dialog._equation.text()  # noqa: SLF001
+        assert "φ(s)" in shown
+        assert "200 × batteries" in shown  # the defaults, not placeholders
+        assert "100 × cities" in shown
+        # Off by default, so absent from the equation rather than written as +0.
+        assert "wasted shots" not in shown
+
+        dialog._editors[("Shaping", "waste_penalty")].set_value("10")  # noqa: SLF001
+        dialog._refresh_preview()  # noqa: SLF001
+        assert "10 × wasted shots" in dialog._equation.text()  # noqa: SLF001
+        # And the note changes with it: a priced event means this run is no
+        # longer comparable with one that left them alone.
+        assert "different things" in dialog._equation_note.text()  # noqa: SLF001
+    finally:
+        dialog.close()
+
+
+def test_switching_shaping_off_disables_every_term_it_governs(tmp_path: Path) -> None:
+    """`VecEnv.step` nests the whole block — the potential and both priced events
+    — inside `if shaping.enabled`, so an unshaped run is paid the game score and
+    nothing else. Seven live controls under a switch that discards them is the
+    form claiming they still matter."""
+    dialog = _station(tmp_path)
+    try:
+        dialog._editor_named("enabled").setChecked(False)  # noqa: SLF001
+        dialog._refresh_preview()  # noqa: SLF001
+
+        for name in ("city_weight", "ammo_weight", "base_weight", "waste_penalty"):
+            assert not dialog._editors[("Shaping", name)].isEnabled(), name  # noqa: SLF001
+        assert not dialog._balance.isEnabled()  # noqa: SLF001
+        # The equation drops the shaped half rather than showing weights that
+        # are not being paid.
+        assert "φ(s)" not in dialog._equation.text().split("\n")[0]  # noqa: SLF001
+
+        dialog._editor_named("enabled").setChecked(True)  # noqa: SLF001
+        dialog._refresh_preview()  # noqa: SLF001
+        assert dialog._editors[("Shaping", "city_weight")].isEnabled()  # noqa: SLF001
+    finally:
+        dialog.close()
+
+
+def test_the_balance_bar_reads_as_the_ratio_rather_than_the_numbers(tmp_path: Path) -> None:
+    """What a battery is worth *relative to* a city is the decision; the absolute
+    numbers are a scale nobody reads."""
+    dialog = _station(tmp_path)
+    try:
+        # 200 : 100 : 5 — batteries priced above cities on purpose.
+        assert dialog._balance.toolTip().startswith("batteries 66%")  # noqa: SLF001
+
+        dialog._editors[("Shaping", "city_weight")].set_value("400")  # noqa: SLF001
+        dialog._refresh_preview()  # noqa: SLF001
+        assert "cities 66%" in dialog._balance.toolTip()  # noqa: SLF001
+
+        # Every weight zero is a real state, and it says so rather than dividing
+        # by zero or drawing an empty bar with no explanation.
+        for name in ("base_weight", "city_weight", "ammo_weight"):
+            dialog._editors[("Shaping", name)].set_value("0")  # noqa: SLF001
+        dialog._refresh_preview()  # noqa: SLF001
+        assert "zero" in dialog._balance.toolTip()  # noqa: SLF001
+    finally:
+        dialog.close()

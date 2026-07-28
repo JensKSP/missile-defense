@@ -102,6 +102,11 @@ def test_shaping_off_says_so_instead_of_showing_a_potential() -> None:
     assert formula.notes == [UNSHAPED]
     # The weights are still listed — they were stored — but none of them applied.
     assert not any(term.active for term in (*formula.potential, *formula.priced))
+    # And the equation is the bare score. It used to print the shaped one
+    # regardless and leave the contradiction to the note below it, so a run paid
+    # nothing but the score was shown a formula full of terms it never saw.
+    assert formula.total == "r′ = score"
+    assert "φ" not in formula.total
 
 
 def test_a_run_missing_a_newer_weight_simply_has_fewer_terms() -> None:

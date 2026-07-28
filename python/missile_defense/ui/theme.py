@@ -122,6 +122,30 @@ def stylesheet() -> str:
         color: {AMBER};
         font-size: 11px;
     }}
+    /* The two chips on the parameter dialog's Objective panel. They carry the
+       one distinction that changes how a *result* may be read: the potential
+       terms provably cannot move the optimal policy, and the two priced events
+       genuinely do. Green for "comparable", amber for "you have changed the
+       question" — the same amber the memory warning uses, and for the same
+       reason: not an error, but something to have decided rather than drifted
+       into. */
+    QLabel[role="tag-invariant"], QLabel[role="tag-objective"] {{
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 1px;
+        border-radius: 3px;
+        padding: 1px 6px;
+    }}
+    QLabel[role="tag-invariant"] {{
+        color: {SMART};
+        border: 1px solid {SMART};
+        background: {PANEL};
+    }}
+    QLabel[role="tag-objective"] {{
+        color: {AMBER};
+        border: 1px solid {AMBER};
+        background: {PANEL};
+    }}
     QLabel[role="placeholder"] {{
         color: {MUTED};
         font-size: 12px;
