@@ -185,12 +185,13 @@ jobs:
             echo "::error::the game bundle ships Python sources" >&2
             exit 1
           fi
-          if [ -n "${MD_TRAINER_WHEEL:-}" ]; then
-            ls "$game/Contents/MacOS/"missile_defense-*.whl || {
-              echo "::error::MD_TRAINER_WHEEL was set but no wheel was staged" >&2
-              exit 1
-            }
-          fi
+          # Unconditional, exactly like the Windows leg (its comment carries
+          # the story): the guard used to test an environment variable no step
+          # ever set, so the check never ran.
+          ls "$game/Contents/MacOS/"missile_defense-*.whl || {
+            echo "::error::no trainer wheel was staged inside the bundle" >&2
+            exit 1
+          }
 
       - name: The game bundle carries the whole Vulkan stack
         # macOS has no Vulkan of its own — not the driver and not the loader —
@@ -423,15 +424,21 @@ jobs:
             echo "::error::the installer ships Python sources or a script launcher" >&2
             exit 1
           fi
-          # The wheel, by the name app/install.cpp looks for. Only when one was
-          # handed to the build — a run without the `wheels` artifact still
-          # produces a working installer, it just cannot install the trainer.
-          if [ -n "${MD_TRAINER_WHEEL:-}" ]; then
-            ls stage-game/missile_defense-*.whl || {
-              echo "::error::MD_TRAINER_WHEEL was set but no wheel was staged" >&2
-              exit 1
-            }
-          fi
+          # The wheel, by the name app/install.cpp looks for. Unconditional:
+          # this job always downloads the `wheels` artifact and always passes
+          # -DMD_TRAINER_WHEEL, so a missing wheel here is a broken installer,
+          # not a leaner one. It used to be guarded by `[ -n "$MD_TRAINER_WHEEL" ]`
+          # — an *environment* variable no step ever set (the wheel travels as
+          # a -D cache entry), so the check was skipped on every run it was
+          # written for. Compounding it, `md_one_wheel` fails inside a command
+          # substitution, whose exit status the cmake line swallows: two wheels
+          # in the directory would configure with an empty -DMD_TRAINER_WHEEL
+          # and ship silently wheel-less. This line is now the backstop for
+          # both.
+          ls stage-game/missile_defense-*.whl || {
+            echo "::error::no trainer wheel was staged beside the game" >&2
+            exit 1
+          }
 
       - name: Upload the installer and ZIP
         uses: actions/upload-artifact@v7

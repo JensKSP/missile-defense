@@ -352,8 +352,6 @@ class GameWindow : public QVulkanWindow {
     void toggle_fullscreen();
     void toggle_audio();
     void toggle_music();
-    /// LOW -> MEDIUM -> HIGH -> LOW, rebuilding the scripted agent as it goes.
-    void cycle_ai_skill();
     void load_settings(); // restore persisted audio/music/fullscreen on startup
     /// Push the audio preferences to the device, or keep it quiet if `--silent`.
     void apply_audio() noexcept;
@@ -366,6 +364,7 @@ class GameWindow : public QVulkanWindow {
     void open_trainer();             // start the trainer, or say why it cannot
     static void open_instructions(); // hand HOW-TO-TRAIN.html to the desktop
     void start_trainer_install();    // spawn the terminal that pip installs it
+    void refresh_train_offer();      // re-probe what TRAIN AI should do now
     void scrub(int seconds);         // seek the active replay, relative
     void advance_match();            // drive both sides of a match on one clock
     void scrub_match(int seconds);   // seek the match's shared clock, relative
@@ -376,14 +375,15 @@ class GameWindow : public QVulkanWindow {
     [[nodiscard]] BaseId nearest_base_with_ammo(Vec2 target) const;
 
     Sim sim_;
-    /// How to start the trainer, resolved once at startup because it
-    /// is a filesystem search and the menu asks on every frame. Empty on a
-    /// game-only install, which is what removes the TRAIN AI entry.
+    /// How to start the trainer, resolved at startup because it is a
+    /// filesystem search and the menu asks on every frame — and re-resolved
+    /// when TRAIN AI is chosen while the answer is anything short of Start,
+    /// because the install flow exists to change that answer mid-session
+    /// (refresh_train_offer). Empty on a game-only install.
     std::optional<trainer::Command> trainer_;
-    /// The machine as `install::decide` saw it, and its answer. Both resolved
-    /// once at startup for the same reason the lookup is: neither can change
-    /// while the game is running, and probing interpreters costs process
-    /// launches that must not happen while a menu is being drawn.
+    /// The machine as `install::decide` saw it, and its answer. Cached rather
+    /// than probed per frame — probing interpreters costs process launches —
+    /// and refreshed on the same schedule as `trainer_` above.
     install::Machine machine_;
     install::Offer offer_ = install::Offer::NeedsPackage;
     /// The bundled learned policy, loaded once at startup. Empty until one is
@@ -481,9 +481,6 @@ class GameWindow : public QVulkanWindow {
     bool audio_on_ = true;
     bool music_on_ = true;    // looping FM-synth background music
     bool fullscreen_ = false; // windowed by default
-    /// Which scripted agent WATCH AI runs. Defaults to the published baseline,
-    /// so what a player watches out of the box is the agent the README quotes.
-    agent::Skill ai_skill_ = agent::Skill::high;
     int final_score_ = 0; // score captured at game over (for the entry screen)
     std::array<char, 3> entry_initials_{{'A', 'A', 'A'}};
     int entry_slot_ = 0;

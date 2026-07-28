@@ -109,6 +109,18 @@ struct Machine {
 /// reached — a distribution build offers `NeedsPackage` instead.
 [[nodiscard]] std::vector<std::string> terminal_command(const std::string& script);
 
+#ifdef _WIN32
+/// Run `script` in a console window of its own, detached. True when it spawned.
+///
+/// Windows gets a function where the other platforms get an argv, because on
+/// Windows no argv survives the trip: `QProcess` writes embedded quotes as \",
+/// an escape cmd.exe does not read, and its startDetached opens console
+/// children of a console-less GUI process with no window at all. The one way
+/// to a terminal a user can actually watch is a hand-built command line and
+/// CREATE_NEW_CONSOLE, which is what this is (install.cpp says the rest).
+[[nodiscard]] bool spawn_terminal(const std::string& script);
+#endif
+
 /// The interpreters a real machine has, newest first.
 ///
 /// Runs each candidate to ask its version, which is the only way to know: a

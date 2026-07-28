@@ -45,7 +45,7 @@ if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin" AND NOT DEFINED CMAKE_OSX_DEPLOYMENT
 endif()
 
 project(missile_defense
-  VERSION 0.9.0
+  VERSION 0.9.1
   DESCRIPTION "Retro arcade missile-defense game + RL environment"
   LANGUAGES CXX)
 
@@ -645,6 +645,14 @@ if(MD_BUILD_APP AND PROJECT_IS_TOP_LEVEL)
     set(CPACK_GENERATOR "NSIS;ZIP")
     set(CPACK_PACKAGE_INSTALL_DIRECTORY "Missile Defense")
     set(CPACK_PACKAGE_EXECUTABLES "missile-defense;Missile Defense") # Start-menu shortcut
+    # Where those shortcuts point. The generator's default is `bin`, a
+    # convention this layout does not follow: app/CMakeLists.txt installs the
+    # exe at the install root, beside the DLLs windeployqt puts there. Left
+    # unset, every shortcut NSIS wrote — and the finish page's "run Missile
+    # Defense" box — named bin\missile-defense.exe, a file that does not
+    # exist: a Start-menu entry with no icon that opened nothing, and an
+    # installer whose last act was an error box (reported 2026-07-29).
+    set(CPACK_NSIS_EXECUTABLES_DIRECTORY ".")
     set(CPACK_NSIS_PACKAGE_NAME "Missile Defense")
     set(CPACK_NSIS_DISPLAY_NAME "Missile Defense")
     set(CPACK_NSIS_MUI_FINISHPAGE_RUN "missile-defense.exe") # offer to launch after install

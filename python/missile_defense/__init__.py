@@ -33,6 +33,6 @@ produces it and places it beside this package::
 See ``docs/API.md`` for the observation contract, action space and reward spec.
 """
 
-__version__ = "0.9.0"
+__version__ = "0.9.1"
 
 __all__ = ["__version__"]

@@ -55,14 +55,7 @@ GameWindow::GameWindow(bool silent) : silent_{silent} {
     machine_.wheel = install::shipped_wheel(
         std::filesystem::path{QCoreApplication::applicationDirPath().toStdString()});
     machine_.wheel_version = install::wheel_version(machine_.wheel);
-    machine_.installed_version = trainer::recorded_version(app_data_dir().toStdString());
-    if (!machine_.wheel.empty()) {
-        machine_.interpreters = install::probe_interpreters(
-            QProcessEnvironment::systemEnvironment().value("PATH").toStdString());
-    }
-    trainer_ = trainer::command(trainer::machine_lookup(
-        QCoreApplication::applicationFilePath().toStdString(), app_data_dir().toStdString()));
-    offer_ = install::decide(machine_, trainer_.has_value());
+    refresh_train_offer();
     // The bundled agent, if this build ships one. A missing file is the normal
     // state today and not an error; a *present but unreadable* one is worth
     // saying out loud, because it means the package is broken rather than lean.
@@ -162,16 +155,11 @@ void GameWindow::load_settings() {
     music_on_ = settings.value("audio/music", music_on_).toBool();
     fullscreen_ = settings.value("video/fullscreen", fullscreen_).toBool();
     match_wave_sync_ = settings.value("match/wave_sync", match_wave_sync_).toBool();
-    // Clamped rather than trusted: this is a number in a file a person can edit,
-    // and an out-of-range one would index a switch that has three arms.
-    const int skill = settings.value("ai/skill", static_cast<int>(ai_skill_)).toInt();
-    ai_skill_ = agent::Skill::high;
-    if (skill == static_cast<int>(agent::Skill::low)) {
-        ai_skill_ = agent::Skill::low;
-    } else if (skill == static_cast<int>(agent::Skill::medium)) {
-        ai_skill_ = agent::Skill::medium;
-    }
-    agent_ = agent::Heuristic{agent::params_for(ai_skill_)};
+    // "ai/skill" is deliberately not read (nor written any more). It was the
+    // OPTIONS row that chose which scripted rung WATCH AI ran — obsolete since
+    // the WATCH AI submenu names all three rungs itself, and `start_ai_game`
+    // rebuilds the agent per run from that explicit choice. A stale key in the
+    // settings store is simply ignored.
     apply_audio();
     // Fullscreen is applied by main() at startup (before the window is shown).
 }
@@ -204,7 +192,6 @@ void GameWindow::save_settings() const {
     settings.setValue("audio/music", music_on_);
     settings.setValue("video/fullscreen", fullscreen_);
     settings.setValue("match/wave_sync", match_wave_sync_);
-    settings.setValue("ai/skill", static_cast<int>(ai_skill_));
 }
 
 QVulkanWindowRenderer* GameWindow::createRenderer() {
@@ -313,7 +300,11 @@ constexpr std::array<Rung, 3> watch_skills{{
 } // namespace
 
 int GameWindow::options_count() noexcept {
-    return 5; // AUDIO, MUSIC, FULLSCREEN, AI SKILL, BACK
+    // AI SKILL used to sit between FULLSCREEN and BACK. It chose the scripted
+    // rung WATCH AI ran — a decision the WATCH AI submenu has since taken over
+    // by naming all three rungs itself, which left this row setting something
+    // nothing read.
+    return 4; // AUDIO, MUSIC, FULLSCREEN, BACK
 }
 
 /// The WATCH AI submenu. Two agents and a way back — or, until a model ships,
@@ -346,14 +337,6 @@ std::string_view GameWindow::options_label(int index) const {
         return music_on_ ? "MUSIC ON" : "MUSIC OFF";
     case 2:
         return fullscreen_ ? "FULLSCREEN ON" : "FULLSCREEN OFF";
-    case 3:
-        // Which scripted agent WATCH AI runs. Named rather than numbered
-        // because each step is a behaviour switched off, not a difficulty
-        // multiplier — see `md::agent::Skill`.
-        if (ai_skill_ == md::agent::Skill::low) {
-            return "AI SKILL LOW";
-        }
-        return ai_skill_ == md::agent::Skill::medium ? "AI SKILL MEDIUM" : "AI SKILL HIGH";
     default:
         return "BACK";
     }
@@ -583,24 +566,6 @@ void GameWindow::toggle_audio() {
 void GameWindow::toggle_music() {
     music_on_ = !music_on_;
     apply_audio();
-    save_settings();
-}
-
-void GameWindow::cycle_ai_skill() {
-    // LOW -> MEDIUM -> HIGH -> LOW. A three-way setting on a menu with no
-    // left/right affordance has to cycle; wrapping at the top is what makes one
-    // key enough to reach all three.
-    if (ai_skill_ == agent::Skill::low) {
-        ai_skill_ = agent::Skill::medium;
-    } else if (ai_skill_ == agent::Skill::medium) {
-        ai_skill_ = agent::Skill::high;
-    } else {
-        ai_skill_ = agent::Skill::low;
-    }
-    // Rebuilt rather than mutated: `Heuristic` holds its parameters by value and
-    // a game already under way should pick the new skill up on its next
-    // decision, not at the next round.
-    agent_ = agent::Heuristic{agent::params_for(ai_skill_)};
     save_settings();
 }
 
@@ -1069,15 +1034,34 @@ void GameWindow::open_instructions() {
 void GameWindow::start_trainer_install() {
     const auto chosen = install::best(machine_);
     if (!chosen.has_value() || machine_.wheel.empty()) {
-        return; // the notice would not have offered this
+        // Install cannot land here — decide() only offers it with both in
+        // hand. Update can: it is decided from the *recorded* trainer, and the
+        // interpreter that took the install may have left PATH since. The
+        // screen promised ENTER would do something, so the something degrades
+        // to the page that says how to do it by hand.
+        open_instructions();
+        return;
     }
-    const std::vector<std::string> argv =
-        install::terminal_command(install::install_script(*chosen, machine_.wheel));
+    const std::string script = install::install_script(*chosen, machine_.wheel);
+#ifdef Q_OS_WIN
+    // Not QProcess, which cannot spawn this particular child: its quoting and
+    // its no-console inheritance both break `cmd.exe /k` from a GUI process —
+    // the terminal opened windowless, holding a command mangled in transit,
+    // and ENTER on the notice visibly did nothing (install.cpp has the full
+    // account). The Win32 path with its own console window is the fix. A
+    // machine where even that fails gets the page with the by-hand commands,
+    // because the alternative is the silent nothing this path is here to end.
+    if (!install::spawn_terminal(script)) {
+        open_instructions();
+    }
+#else
+    const std::vector<std::string> argv = install::terminal_command(script);
     QStringList arguments;
     for (std::size_t i = 1; i < argv.size(); ++i) {
         arguments << QString::fromStdString(argv[i]);
     }
     QProcess::startDetached(QString::fromStdString(argv.front()), arguments);
+#endif
     open_menu();
 }
 
@@ -1093,7 +1077,39 @@ void GameWindow::start_trainer_install() {
 /// is a window of its own and will raise itself. Returning to the menu rather
 /// than to a "launching..." screen means a second press simply opens a second
 /// trainer, the same as double-clicking its desktop entry twice.
+/// Everything about the trainer that can change while the game runs: whether
+/// one is installed, into which interpreter, at what version, and what TRAIN
+/// AI should therefore offer. The wheel beside the game and how to stat a file
+/// stay from the constructor — an installer put the wheel there and nothing
+/// running can move it.
+///
+/// Split out of the constructor because "the answer cannot change while the
+/// game is running" — the claim the one-shot probe rested on — stopped being
+/// true the day ENTER started installing things: someone who watched pip
+/// finish in the terminal and chose TRAIN AI again was told, wrongly, that
+/// nothing was installed until they restarted the game (reported 2026-07-29).
+void GameWindow::refresh_train_offer() {
+    machine_.installed_version = trainer::recorded_version(app_data_dir().toStdString());
+    if (!machine_.wheel.empty()) {
+        // Re-probed, not patched up: an interpreter can appear mid-session
+        // too — NeedsPython names the version to install, and whoever follows
+        // that advice comes straight back here.
+        machine_.interpreters = install::probe_interpreters(
+            QProcessEnvironment::systemEnvironment().value("PATH").toStdString());
+    }
+    trainer_ = trainer::command(trainer::machine_lookup(
+        QCoreApplication::applicationFilePath().toStdString(), app_data_dir().toStdString()));
+    offer_ = install::decide(machine_, trainer_.has_value());
+}
+
 void GameWindow::open_trainer() {
+    if (offer_ != install::Offer::Start) {
+        // A cached "no" is re-asked at the moment it matters; a cached "yes"
+        // stays cached, so the ordinary case pays nothing. The probe launches
+        // a handful of processes, which is why it hangs off a deliberate menu
+        // choice rather than off the frame loop.
+        refresh_train_offer();
+    }
     if (!trainer_.has_value()) {
         state_ = State::TrainNotice;
         return;
@@ -1171,9 +1187,6 @@ void GameWindow::activate(int index) {
             break;
         case 2:
             toggle_fullscreen();
-            break;
-        case 3:
-            cycle_ai_skill();
             break;
         default:
             open_menu(); // BACK
@@ -1702,11 +1715,15 @@ void GameWindow::keyPressEvent(QKeyEvent* event) {
         }
         break;
     case State::TrainNotice:
-        // ENTER does the thing the screen offered; ESC always goes back. Only
-        // one of the four answers spawns anything, and it is the one that said
-        // it would.
+        // ENTER does the thing the screen offered; ESC always goes back. Two
+        // of the four answers spawn something, and they are the two whose
+        // screens said they would: Install, and Update — whose wording
+        // promised "PRESS ENTER TO UPDATE IT" while this dispatch sent it to
+        // the instructions page, a screen that answers a question nobody on
+        // that path had asked. The same pip line serves both; it already says
+        // --upgrade.
         if (key == Qt::Key_Return || key == Qt::Key_Enter) {
-            if (offer_ == install::Offer::Install) {
+            if (offer_ == install::Offer::Install || offer_ == install::Offer::Update) {
                 start_trainer_install();
             } else {
                 open_instructions();

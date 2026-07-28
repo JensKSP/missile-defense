@@ -187,8 +187,7 @@ and the pause menu. Beat a high score to enter your initials, arcade style.
 LOW**, **SCRIPTED MEDIUM**, **SCRIPTED HIGH** — plus **MODELS** where this
 install has any learned ones. → [Run the scripted AI](#run-the-scripted-ai)
 
-**OPTIONS** holds audio, music, fullscreen and **AI SKILL**, which is the rung
-**WATCH AI** starts at.
+**OPTIONS** holds audio, music and fullscreen.
 
 **TRAIN AI** is always present, including on a game-only install. Where the
 trainer is missing it offers to install it rather than hiding — on Windows and
@@ -694,9 +693,9 @@ weigh 4–40 kB and can be dropped every few updates to watch the policy improve
 
 ### Pick how well the scripted agent plays
 
-**OPTIONS → AI SKILL** sets the rung **WATCH AI** starts at. On the command line
-the game spells it `--watch-scripted low|medium|high`; the headless evaluator,
-which is what produced the table below, uses `--skill`:
+**WATCH AI** names the three rungs directly — **SCRIPTED LOW / MEDIUM / HIGH**.
+On the command line the game spells it `--watch-scripted low|medium|high`; the
+headless evaluator, which is what produced the table below, uses `--skill`:
 
 ```bash
 ./build/release/agent/md_agent_eval --skill medium

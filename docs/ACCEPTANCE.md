@@ -60,7 +60,7 @@ rather than supplying the answer yourself.
 |---|---|---|---|
 | 1 | Install both packages. Launch **Missile Defense** from the desktop menu — not from a shell | The menu: START, WATCH AI, TRAIN AI, HELP, OPTIONS, HIGHSCORES, ABOUT, EXIT | 2.1 |
 | 2 | **START**. Play one game to the end | Cities fall, the wave counter climbs, game over — and initials entry if you qualified | 2.2 |
-| 3 | **OPTIONS → AI SKILL LOW**, back, **WATCH AI → SCRIPTED**. Then repeat at **HIGH** | Two visibly different agents. LOW double-fires at warheads already doomed; HIGH does not. The difference must read as *behaviour*, not as a number | 2.3 |
+| 3 | **WATCH AI → SCRIPTED LOW**. Then repeat with **SCRIPTED HIGH** | Two visibly different agents. LOW double-fires at warheads already doomed; HIGH does not. The difference must read as *behaviour*, not as a number | 2.3 |
 | 4 | **WATCH AI → MODELS**, choose the bundled model | It plays, and it plays unlike either scripted rung — deeper, looser, more shots | 2.4 |
 | 5 | Back to the menu, **TRAIN AI**. Then close the trainer and open it again from the desktop menu | The same window both ways. If a runtime must be installed first, the screen says so and offers **Set up training…** | 2.5 |
 | 6 | Start a run from a preset, without opening **Advanced** | A run starts having asked you for nothing you could not answer | 2.6 |

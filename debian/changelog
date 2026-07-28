@@ -1,3 +1,44 @@
+missile-defense (0.9.1-1) UNRELEASED; urgency=medium
+
+  * Windows installer: the Start-menu shortcut pointed at
+    bin\missile-defense.exe, one directory below where the game actually
+    lands — an entry with no icon that opened nothing, and a finish page
+    whose "run Missile Defense" box failed the same way. CPack's NSIS
+    generator assumes executables live in bin/ unless told otherwise; it is
+    now told.
+  * Windows: starting the installed game flashed a console window for every
+    Python interpreter probed before the game window appeared. The probe ran
+    through _popen, which cannot ask for CREATE_NO_WINDOW; it now spawns the
+    interpreter directly, windowless. Only an installed build probes (a
+    checkout ships no wheel), which is why no developer ever saw it.
+  * Windows: ENTER on "THE TRAINER IS NOT INSTALLED" visibly did nothing.
+    The install terminal was spawned through QProcess, which opens console
+    children of a GUI process with no window and escapes quotes in a way
+    cmd.exe does not read — an invisible cmd holding a mangled command,
+    once per keypress. It now gets its own console window and a verbatim
+    command line.
+  * The TRAIN AI notice for an out-of-date trainer said "PRESS ENTER TO
+    UPDATE IT" but opened the instructions page instead. ENTER now runs the
+    update it promised.
+  * CI: the check that the trainer wheel was staged beside the game guarded
+    on an environment variable no step ever set, so it had never run. It is
+    unconditional now on both installer legs (Windows and macOS).
+  * TRAIN AI now notices a finished install without restarting the game.
+    The machine was probed once at startup, so the menu kept answering
+    "not installed" after the terminal it had spawned itself said
+    otherwise. Anything short of a ready trainer is re-probed each time
+    TRAIN AI is chosen — which also notices updates and a Python installed
+    mid-session.
+  * Windows: the install terminal now opens in front of the game and at a
+    fixed 100x30 size. It used to open behind the window that spawned it,
+    at whatever size the user's console defaults said — bigger than the
+    screen, on the machine that reported it.
+  * OPTIONS: the AI SKILL row is gone. It chose the scripted rung WATCH AI
+    ran, a decision the WATCH AI submenu has since taken over by naming
+    all three rungs itself; the row set something nothing read.
+
+ -- Jens Köhler <jens@koehler-speyer.de>  Wed, 29 Jul 2026 00:30:14 +0200
+
 missile-defense (0.9.0-1) unstable; urgency=medium
 
   * Initial release.

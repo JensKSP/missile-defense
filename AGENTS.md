@@ -114,6 +114,21 @@ sources and the extension into two binary packages, and the sources-only build
 is legitimate. The real fault is narrower — *bindings were asked for and
 silently not produced* — and that is what the check now says.
 
+## User-visible fixes get a changelog entry
+
+`debian/changelog` is the project's changelog, not just the .deb's — there is
+no other. A fix a user would notice (installer, game behaviour, trainer, on any
+platform) gets a bullet in the topmost entry, written for the person who hit
+the bug, not for the person who fixed it.
+
+If the topmost entry is already released — its distribution says `unstable`
+and a tag exists for it — open a new `(x.y.z-1) UNRELEASED` entry above it
+rather than editing history. The version is declared independently in **four**
+files (`CMakeLists.txt`, `pyproject.toml`, `debian/changelog`,
+`python/missile_defense/__init__.py`); nothing makes them agree except
+`poe version`, so a new changelog version means bumping all four in the same
+commit.
+
 ## Optional halves must degrade, not crash
 
 The game never depends on Python. `missile_defense.ui` must never import torch. Both entry
