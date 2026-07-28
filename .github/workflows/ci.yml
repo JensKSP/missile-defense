@@ -47,6 +47,29 @@ jobs:
           pip install --break-system-packages poethepoet ruff pytest mypy pyright \
                       "numpy<2.5" pillow packaging
 
+      - name: Install torch, so the tests that need it stop skipping
+        # Twenty unit tests import torch, and without it they skip — correctly,
+        # and silently. That is the right behaviour for an optional dependency
+        # and the wrong state for the one place that is supposed to notice: two
+        # of them sat broken for a day because `_log_eval` gained the handicap
+        # columns and nothing here ran the module that asserts them. A half
+        # nobody tests is a half that is not tested.
+        #
+        # The CPU wheel, from PyTorch's own index: 750 MB installed, measured,
+        # against roughly three gigabytes for CUDA — and nothing in the gate
+        # needs a GPU, because the tests that touch torch build tiny tensors and
+        # run a handful of updates. A hosted runner has some fourteen gigabytes
+        # free, so this is comfortable rather than tight.
+        #
+        # Its own step because `--index-url` applies to the whole command — put
+        # it above and every package there resolves against PyTorch's index
+        # instead of PyPI. `--extra-index-url` would work and is the wrong tool:
+        # it makes both indexes eligible for every name, which is the shape a
+        # dependency-confusion attack needs.
+        run: |
+          pip install --break-system-packages \
+                      --index-url https://download.pytorch.org/whl/cpu torch
+
       - name: Full quality gate
         # format, lint, types, clang-tidy, tests (Debug + Release), coverage >=80%
         run: poe check

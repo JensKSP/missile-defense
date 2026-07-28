@@ -280,12 +280,11 @@ Twenty unit tests and fifty-six e2e tests import torch, and without it they skip
 
 Thirteen of the unit ones are `test_league.py`, which covers model promotion.
 
-**They do not run in CI either** — the gate job installs no torch, so the same
-seventy-six skip there. That is not a theoretical gap: two of them had been
-broken since the day `_log_eval` gained the handicap columns, and nothing said
-so until torch was installed here. Skipping is the right behaviour for an
-optional dependency; a machine where *nobody* has it is how a green pipeline
-stops meaning anything.
+The CI gate installs it too, for the same reason. It did not until now, and the
+cost of that was concrete: two of these tests sat broken for a day after
+`_log_eval` gained the handicap columns, with a green pipeline the whole time.
+Skipping is the right behaviour when an optional half is genuinely absent — a
+project where *nobody* has it has simply stopped testing that half.
 
 `python3 -m tools.bootstrap` installs it — the **CPU** wheel, as a second pip
 call against PyTorch's own index. On an existing checkout, the same command:
