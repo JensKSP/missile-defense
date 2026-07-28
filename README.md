@@ -105,13 +105,6 @@ runs just as well from the build tree, and
 [a `.deb`](#building-a-debian-package) is the version your system can also
 uninstall.
 
-No `CXX=` in front of any of it, and nothing to choose: a build uses the compiler
-your system already has. If it is older than the minimum, CMake says so by name at
-configure time rather than failing somewhere inside a header. Ubuntu 24.04 is the
-one supported release where that happens — its default `g++-13` has no C++23
-`<print>` — so install `g++-14` there and configure with
-`CXX=g++-14 cmake --preset release`.
-
 **Play it.** The mouse aims, left click fires from the nearest battery with
 ammo. Six cities, three batteries, and less ammunition than you would like.
 → [Full controls](#how-to-play)
