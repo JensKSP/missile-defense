@@ -31,6 +31,7 @@ import sys
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from ._util import PROJECT_ROOT
 
@@ -183,12 +184,26 @@ def _registry_entries() -> list[str]:
         import winreg  # noqa: PLC0415 — Windows only, and only on this path
     except ImportError:
         return []
+    return _hive_entries(winreg)
 
-    def children(key: object) -> list[str]:
+
+def _hive_entries(winreg: Any) -> list[str]:
+    """Walk both hives of ``Software\\Python``, as the module is handed in.
+
+    ``winreg`` arrives as a parameter, and as ``Any``, because typeshed declares
+    the module only for ``sys.platform == "win32"``: used directly, every name
+    below is an "unknown attribute" on the Linux machine the gate runs on, which
+    is where this went red. Hiding the block behind a ``sys.platform`` check
+    would make it unreachable there and so type-checked on no machine CI has;
+    this way only the registry API itself is taken on trust, and the walk around
+    it — the loops, the string handling — is still checked everywhere.
+    """
+
+    def children(key: Any) -> list[str]:
         names: list[str] = []
         for index in range(1024):  # a bound, not an expectation
             try:
-                names.append(winreg.EnumKey(key, index))  # type: ignore[arg-type]
+                names.append(str(winreg.EnumKey(key, index)))
             except OSError:
                 break
         return names
@@ -206,18 +221,18 @@ def _registry_entries() -> list[str]:
     return found
 
 
-def _registered_interpreter(winreg: object, tags: object, tag: str) -> list[str]:
+def _registered_interpreter(winreg: Any, tags: Any, tag: str) -> list[str]:
     """The interpreter one PEP 514 tag points at, as zero, one or two paths."""
     try:
-        with winreg.OpenKey(tags, rf"{tag}\InstallPath") as key:  # type: ignore[attr-defined]
+        with winreg.OpenKey(tags, rf"{tag}\InstallPath") as key:
             paths: list[str] = []
             try:
-                executable, _ = winreg.QueryValueEx(key, "ExecutablePath")  # type: ignore[attr-defined]
+                executable, _ = winreg.QueryValueEx(key, "ExecutablePath")
                 paths.append(str(executable))
             except OSError:
                 pass
             try:
-                directory, _ = winreg.QueryValueEx(key, "")  # type: ignore[attr-defined]
+                directory, _ = winreg.QueryValueEx(key, "")
                 paths.append(str(Path(str(directory)) / "python.exe"))
             except OSError:
                 pass
