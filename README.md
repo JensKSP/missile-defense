@@ -88,17 +88,25 @@ sudo apt install -y g++ cmake ninja-build \
   libvulkan-dev glslang-tools mesa-vulkan-drivers libminiaudio-dev \
   nlohmann-json3-dev
 
-# 2 — build (no Python needed, and no install step afterwards)
+# 2 — build (no Python needed anywhere in this)
 git clone https://github.com/JensKSP/missile-defense.git
 cd missile-defense
 cmake --preset release && cmake --build --preset release
 
-# 3 — play
-./build/release/app/md_app
+# 3 — install it, then play
+sudo cmake --install build/release --component game
+missile-defense
 ```
 
-No `CXX=` in front of that, and nothing to choose: a build uses the compiler your
-system already has. If it is older than the minimum, CMake says so by name at
+Step 3 puts the game in the prefix's `games/` directory — `/usr/local/games`,
+which Debian and Ubuntu keep on the default PATH — along with a desktop entry, so
+it is in your applications menu too. It is optional: `./build/release/app/md_app`
+runs just as well from the build tree, and
+[a `.deb`](#building-a-debian-package) is the version your system can also
+uninstall.
+
+No `CXX=` in front of any of it, and nothing to choose: a build uses the compiler
+your system already has. If it is older than the minimum, CMake says so by name at
 configure time rather than failing somewhere inside a header. Ubuntu 24.04 is the
 one supported release where that happens — its default `g++-13` has no C++23
 `<print>` — so install `g++-14` there and configure with
@@ -108,7 +116,7 @@ one supported release where that happens — its default `g++-13` has no C++23
 ammo. Six cities, three batteries, and less ammunition than you would like.
 → [Full controls](#how-to-play)
 
-**Watch the AI play it.** `./build/release/app/md_app --watch` boots straight
+**Watch the AI play it.** `missile-defense --watch` boots straight
 into a game driven by the scripted agent — held to the same crosshair speed and
 trigger interval and 15 Hz decision rate as your hand and a trained model. `]`
 fast-forwards to 8×; `T` takes the controls back mid-game. On the held-out
@@ -253,12 +261,22 @@ What the [quick start](#quick-start) uses:
 ```bash
 cmake --preset release
 cmake --build --preset release
-./build/release/app/md_app
+sudo cmake --install build/release --component game
+missile-defense
 ```
 
-There is no system install step — run the game from the build output above (or
-copy `build/release/app/md_app` wherever you like; it has no data files, shaders
-are baked into the binary).
+`--component game` is what keeps that install to the game: the binary as
+`missile-defense` in the prefix's `games/` (on the default PATH for Debian and
+Ubuntu), a desktop entry, icons, the bundled models and the licences — and not
+the Python extension, which is a separate component and belongs in a wheel or a
+`.deb` rather than loose under `/usr/local`.
+
+The install is a convenience rather than a requirement. The binary has no data
+files and its shaders are baked in, so `./build/release/app/md_app` runs
+perfectly well straight from the build tree, and copying it somewhere works too
+— what the install adds is the name on your PATH and an entry in the menu. For a
+package your system can also *remove* again, see
+[Building a Debian package](#building-a-debian-package).
 
 ### With `poe`
 

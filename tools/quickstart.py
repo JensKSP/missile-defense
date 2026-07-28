@@ -45,8 +45,14 @@ README = "README.md"
 HEADING = "## Quick start"
 FENCE = re.compile(r"^```(\w*)\s*$")
 
-#: The path the README tells you to run, and which this asserts the existence of.
-GAME_PATH = "./build/release/app/md_app"
+#: The command the README's last line runs, and where installing it puts that
+#: command. The quick start installs rather than running out of the build tree,
+#: so what this asserts is the *installed* game — which makes the install rules
+#: part of what the quick start proves, not something only a .deb ever exercises.
+#: `/usr/local` is CMake's default prefix; `games/` is where app/CMakeLists.txt
+#: puts it, and on Debian and Ubuntu that directory is on the default PATH.
+GAME_COMMAND = "missile-defense"
+GAME_PATH = "/usr/local/games/missile-defense"
 
 
 def extract(markdown: str, *, heading: str = HEADING) -> list[str]:
@@ -94,11 +100,14 @@ def rewrite(lines: Sequence[str], *, source: str, drop_sudo: bool) -> tuple[list
                 "the commit under test, not master"
             )
             continue
-        if stripped == GAME_PATH:
+        if stripped == GAME_COMMAND:
             script.append(f'test -x "{GAME_PATH}" || {{ echo "no {GAME_PATH}"; exit 1; }}')
             notes.append(
-                f"checked that {GAME_PATH} exists and is executable instead of "
-                "starting it — there is no display, and the game does not exit"
+                f"checked that the install put {GAME_PATH} there and that it is "
+                "executable, instead of starting it — there is no display, and "
+                "the game does not exit. Checked by path rather than by running "
+                f"`{GAME_COMMAND}`, because /usr/local/games is on a Debian "
+                "login shell's PATH and not on a container's."
             )
             continue
         if drop_sudo and "sudo " in line:

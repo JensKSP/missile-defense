@@ -18,7 +18,7 @@ from __future__ import annotations
 import pytest
 
 from tools import quickstart
-from tools.quickstart import GAME_PATH, extract, rewrite
+from tools.quickstart import GAME_COMMAND, GAME_PATH, extract, rewrite
 
 MARKDOWN = """\
 # Project
@@ -30,15 +30,16 @@ Words before the block.
 ```bash
 # 1 — dependencies
 sudo apt update
-sudo apt install clang-21
+sudo apt install g++
 
 # 2 — build
 git clone https://github.com/JensKSP/missile-defense.git
 cd missile-defense
 cmake --preset release && cmake --build --preset release
 
-# 3 — play
-./build/release/app/md_app
+# 3 — install it, then play
+sudo cmake --install build/release --component game
+missile-defense
 ```
 
 ## Something else
@@ -48,7 +49,7 @@ cmake --preset release && cmake --build --preset release
 def test_the_block_under_the_heading_is_what_comes_back() -> None:
     lines = extract(MARKDOWN)
     assert lines[0] == "# 1 — dependencies"
-    assert lines[-1] == GAME_PATH
+    assert lines[-1] == GAME_COMMAND
     assert "## Something else" not in lines
 
 
@@ -75,7 +76,7 @@ def test_the_clone_is_redirected_at_the_commit_under_test() -> None:
 def test_starting_the_game_becomes_checking_that_it_is_there() -> None:
     """There is no display in CI, and the game does not exit on its own."""
     script, notes = rewrite(extract(MARKDOWN), source="/checkout", drop_sudo=False)
-    assert GAME_PATH not in script  # not the bare command any more
+    assert GAME_COMMAND not in script  # not the bare command any more
     assert any(line.startswith(f'test -x "{GAME_PATH}"') for line in script)
     assert any("display" in note for note in notes)
 
@@ -84,7 +85,7 @@ def test_everything_else_runs_exactly_as_written() -> None:
     """The package names and the presets are the whole point of the exercise."""
     script, _ = rewrite(extract(MARKDOWN), source="/checkout", drop_sudo=False)
     assert "sudo apt update" in script
-    assert "sudo apt install clang-21" in script
+    assert "sudo apt install g++" in script
     assert "cmake --preset release && cmake --build --preset release" in script
 
 
