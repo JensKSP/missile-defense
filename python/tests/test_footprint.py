@@ -74,6 +74,52 @@ def test_fitting_leaves_room_for_the_machine_to_be_in_use() -> None:
     assert footprint.fits_in(int(needed * footprint.HEADROOM) + 1, **shape)  # type: ignore[arg-type]
 
 
+def test_pressure_counts_what_the_card_is_already_holding() -> None:
+    # The bar is drawn against the card, not against what is free, so memory
+    # somebody else is holding has to push the fill along exactly as this run's
+    # own allocation would.
+    shape = dict(envs=1024, steps=256, minibatches=8, architecture="mlp")
+    total = 32 * footprint.GIB
+    empty = footprint.pressure(free_bytes=total, total_bytes=total, **shape)  # type: ignore[arg-type]
+    busy = footprint.pressure(free_bytes=total - 8 * footprint.GIB, total_bytes=total, **shape)  # type: ignore[arg-type]
+    assert busy == pytest.approx(empty + 0.25), "8 of 32 GiB in use is a quarter of the bar"
+
+
+def test_a_red_bar_and_the_warning_under_it_are_the_same_claim() -> None:
+    # `level` colours the bar and `fits_in` writes the sentence. If they disagree
+    # the dialog contradicts itself, so they cross at exactly the same point.
+    shape = dict(envs=2048, steps=512, minibatches=64, architecture="entity")
+    total = 32 * footprint.GIB
+    for free_gib in range(0, 33):
+        free = free_gib * footprint.GIB
+        over = footprint.level(free_bytes=free, total_bytes=total, **shape) == "over"  # type: ignore[arg-type]
+        assert over is not footprint.fits_in(free, **shape), (  # type: ignore[arg-type]
+            f"at {free_gib} GiB free the bar and the warning disagree"
+        )
+
+
+def test_fitting_and_fitting_comfortably_are_told_apart() -> None:
+    # The state the old single line could not express: a run that fits and also
+    # takes the whole machine with it.
+    shape = dict(envs=1024, steps=256, minibatches=8, architecture="entity")
+    total = 32 * footprint.GIB
+    assert footprint.level(free_bytes=total, total_bytes=total, **shape) == "tight"  # type: ignore[arg-type]
+    # The same run on a card twice the size is simply fine.
+    roomy = 80 * footprint.GIB
+    assert footprint.level(free_bytes=roomy, total_bytes=roomy, **shape) == "ok"  # type: ignore[arg-type]
+    # And the flat architecture on the documented card never leaves green.
+    flat = dict(envs=1024, steps=256, minibatches=8, architecture="mlp")
+    assert footprint.level(free_bytes=total, total_bytes=total, **flat) == "ok"  # type: ignore[arg-type]
+
+
+def test_a_card_that_cannot_be_measured_is_not_reported_as_full() -> None:
+    # Division by a zero-sized card, which is what a probe that answered with
+    # nothing looks like by the time it reaches here.
+    shape = dict(envs=1024, steps=256, minibatches=8, architecture="mlp")
+    assert footprint.pressure(free_bytes=0, total_bytes=0, **shape) == 0.0  # type: ignore[arg-type]
+    assert footprint.level(free_bytes=0, total_bytes=0, **shape) == "ok"  # type: ignore[arg-type]
+
+
 def test_the_advice_names_the_knob_that_actually_helps() -> None:
     text = footprint.advice(envs=4096, steps=512, minibatches=8, architecture="entity")
     assert "--minibatches 16" in text, "the advice does not offer the cheapest fix"

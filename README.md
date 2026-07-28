@@ -534,7 +534,7 @@ the knobs.
 
 #### The knobs, and what they are asking you
 
-![The run parameters: three tabs, sliders with typed readouts, and the reward equation with this run's numbers in it](docs/images/parameters.png)
+![The run parameters: three tabs, sliders with typed readouts, the reward equation with this run's numbers in it, and a bar showing what the run will ask of the GPU](docs/images/parameters.png)
 
 There are thirty-seven of them, and they are not one list. They are three
 questions, which is how the dialog is arranged:

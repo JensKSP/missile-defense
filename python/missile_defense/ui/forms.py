@@ -59,9 +59,10 @@ import textwrap
 import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import NamedTuple
 
 from PySide6.QtCore import QEvent, QLocale, QRectF, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QDoubleValidator, QPainter
+from PySide6.QtGui import QColor, QDoubleValidator, QPainter, QPainterPath
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -266,8 +267,19 @@ RESUME_HELP = (
 )
 
 
-def free_vram() -> int | None:
-    """Bytes free on the training card, or ``None`` when there is nothing to ask.
+class Vram(NamedTuple):
+    """What the training card has, and how much of it nobody is holding yet.
+
+    Both numbers, because the bar needs a denominator: "22.7 GiB free" is not a
+    proportion until you know whether the card is 24 GiB or 80.
+    """
+
+    free: int
+    total: int
+
+
+def read_vram() -> Vram | None:
+    """The training card's memory, or ``None`` when there is nothing to ask.
 
     Through the trainer's own vendor probes, so the dialog agrees with the number
     the System panel is showing a few centimetres away. Every failure is the same
@@ -283,7 +295,7 @@ def free_vram() -> int | None:
         return None
     if sample is None or sample.memory_total is None or sample.memory_used is None:
         return None
-    return max(sample.memory_total - sample.memory_used, 0)
+    return Vram(max(sample.memory_total - sample.memory_used, 0), sample.memory_total)
 
 
 #: Positions on every slider. Fine enough that dragging feels continuous, coarse
@@ -432,6 +444,100 @@ class BalanceBar(QWidget):
                 painter.drawText(slice_rect, Qt.AlignmentFlag.AlignCenter, label)
                 painter.setPen(Qt.PenStyle.NoPen)
             x += width
+
+
+class MemoryBar(QWidget):
+    """What this run will ask of the card, drawn against the card.
+
+    The estimate was a sentence for a long time — "≈ 2.8 GiB of GPU memory ·
+    22.7 GiB free" — which states both numbers and reports neither. The question
+    somebody opens this dialog with is *how much of the card is this*, and a
+    sentence answers it only after you divide one figure by the other. A bar is
+    that division, already done.
+
+    Two segments, because the card is never empty. What a desktop session and
+    the game are already holding is drawn first and drawn dim: it is not this
+    run's, but it is memory this run cannot have, so it moves the coloured
+    segment to the right exactly as it moves the real allocation.
+
+    The colour comes from :func:`missile_defense.runs.footprint.level` rather
+    than from anything measured here, so the bar and the line under it are one
+    claim rather than two that can drift apart.
+    """
+
+    #: Green while the card has room to spare, amber once the run is most of it,
+    #: red when it will not fit. The System panel's meters run blue-amber-red
+    #: because they report load; this one is a verdict, and green is what "go
+    #: ahead" looks like.
+    LEVEL_COLOURS = {"ok": theme.SMART, "tight": theme.AMBER, "over": theme.THREAT}
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._used = 0
+        self._estimate = 0
+        self._total = 0
+        self._level: str = "ok"
+        # Thicker than the System panel's 6px meters. Those are glanced at while
+        # reading the curve; this one is looked *at*, once, and carries two
+        # segments that have to be told apart.
+        self.setFixedHeight(12)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+    def show_estimate(self, *, estimate: int, vram: Vram, level: str) -> None:
+        self._used = max(vram.total - vram.free, 0)
+        self._estimate = estimate
+        self._total = vram.total
+        self._level = level
+        # Set here rather than while painting, for the reason `BalanceBar` gives:
+        # a tooltip assigned in `paintEvent` does not exist until somebody has
+        # already looked at the widget.
+        self.setToolTip(
+            f"{self._used / footprint.GIB:.1f} GiB already in use  ·  "
+            f"this run ≈ {estimate / footprint.GIB:.1f} GiB  ·  "
+            f"{self._total / footprint.GIB:.0f} GiB card\n"
+            f"Coloured against the estimate plus "
+            f"{round((footprint.HEADROOM - 1) * 100)}% headroom, which is what the "
+            f"allocator reserves over what it allocates."
+        )
+        self.update()
+
+    def paintEvent(self, event: object) -> None:  # noqa: N802 — Qt's spelling
+        del event
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rect = self.rect().adjusted(0, 0, -1, -1)
+        painter.setPen(QColor(theme.EDGE))
+        painter.setBrush(QColor(theme.NIGHT))
+        painter.drawRoundedRect(rect, 4, 4)
+        if self._total <= 0:
+            return
+
+        # The segments are rectangles and the bar is not. Without this the first
+        # and last of them square off the rounded ends they are drawn inside.
+        rounded = QPainterPath()
+        rounded.addRoundedRect(QRectF(rect), 4, 4)
+        painter.setClipPath(rounded)
+
+        painter.setPen(Qt.PenStyle.NoPen)
+        inner = rect.width() - 2
+        limit = rect.left() + 1 + inner
+        top, height = rect.top() + 1, rect.height() - 1
+        x = float(rect.left() + 1)
+
+        def fill(width: float, colour: str) -> None:
+            nonlocal x
+            width = min(width, limit - x)
+            if width > 0:
+                painter.setBrush(QColor(colour))
+                painter.drawRect(QRectF(x, top, width, height))
+                x += width
+
+        fill(inner * self._used / self._total, theme.GRID)
+        # A run that does not fit fills whatever is left rather than stopping at
+        # its own width: the estimate is off the end of the card, and a bar that
+        # stops short of the edge says the opposite of that.
+        want = inner if self._level == "over" else inner * self._estimate / self._total
+        fill(want, self.LEVEL_COLOURS.get(self._level, theme.SMART))
 
 
 class ValueSlider(QWidget):
@@ -664,7 +770,7 @@ class ParameterDialog(QDialog):
         initial: Mapping[str, str] | None = None,
         resume: Path | None = None,
         presets_file: Path | None = None,
-        free_vram_bytes: int | None = None,
+        vram: Vram | None = None,
         read_only: bool = False,
         title: str = "",
         embedded: bool = False,
@@ -685,7 +791,7 @@ class ParameterDialog(QDialog):
         self._presets_file = presets_file
         #: Read once. A dialog is open for a minute, and a number that moved
         #: while you were choosing would only ever move for the worse.
-        self._free_vram = free_vram() if free_vram_bytes is None else free_vram_bytes
+        self._vram = read_vram() if vram is None else vram
         #: Keyed by `Param.key` — owner *and* name. `gamma` is a field of two
         #: config classes, and keying by name alone gave them one editor between
         #: them, so only the last one read. `Shaping.gamma` is derived now and has
@@ -773,6 +879,7 @@ class ParameterDialog(QDialog):
         # Only where there are fields to read it from — with no trainer source
         # there is nothing to estimate from and nothing to change if it is wrong.
         self._memory: QLabel | None = None
+        self._memory_bar: MemoryBar | None = None
         self._schedule: QLabel | None = None
         if fields:
             # The schedule stays in both: "2,000 updates -> 200 evals" is a fact
@@ -783,6 +890,11 @@ class ParameterDialog(QDialog):
             self._schedule.setProperty("role", "note")
             layout.addWidget(self._schedule)
             if not read_only:
+                # The bar above the words it belongs to, and hidden along with
+                # nothing: without a card to draw against there is no bar to
+                # draw, and the label below still states the estimate on its own.
+                self._memory_bar = MemoryBar()
+                layout.addWidget(self._memory_bar)
                 self._memory = QLabel()
                 self._memory.setProperty("role", "note")
                 self._memory.setWordWrap(True)
@@ -1760,8 +1872,13 @@ class ParameterDialog(QDialog):
         The estimate is worth showing even when it fits: 17 GiB is the difference
         between "start it and go to bed" and "start it and stop using the
         machine", and nothing else on this dialog hints that the choice was made.
-        Hidden entirely without a card to compare against — an estimate with
-        nothing to measure it against is trivia.
+
+        Three states, from :func:`missile_defense.runs.footprint.level`, because
+        "fits" was answering two questions with one word — a run that needs 30 of
+        32 GiB fits, and also means the machine is unusable until it finishes.
+        The bar carries the proportion, the line carries the numbers and what to
+        change; without a card the bar goes away and the line still states the
+        estimate.
         """
         if self._memory is None:
             return
@@ -1771,26 +1888,45 @@ class ParameterDialog(QDialog):
             "minibatches": self._number("minibatches", 8),
             "architecture": self._text_named("architecture", "mlp"),
         }
-        estimate = footprint.estimate_gib(**shape)
-        free = self._free_vram
-        if free is None:
+        estimate_bytes = footprint.estimate_bytes(**shape)
+        estimate = estimate_bytes / footprint.GIB
+        vram = self._vram
+        if vram is None:
+            # No card to draw against, so no bar. The sentence still states the
+            # estimate: what a run costs is worth knowing even where nothing can
+            # say whether it fits.
+            if self._memory_bar is not None:
+                self._memory_bar.setVisible(False)
             self._memory.setText(f"≈ {estimate:.1f} GiB of GPU memory")
             self._memory.setProperty("role", "note")
-        elif footprint.fits_in(free, **shape):
-            self._memory.setText(
-                f"≈ {estimate:.1f} GiB of GPU memory · {free / footprint.GIB:.1f} GiB free"
-            )
-            self._memory.setProperty("role", "note")
         else:
-            # Not disabled, only warned: the estimate is a model, the card may be
-            # freed by closing the game, and someone who knows better than this
-            # dialog must still be able to press Start.
-            self._memory.setText(
-                f"⚠ ≈ {estimate:.1f} GiB of GPU memory, but only "
-                f"{free / footprint.GIB:.1f} GiB is free — this run is likely to "
-                f"run out. More --minibatches costs nothing: same data, smaller pieces."
-            )
-            self._memory.setProperty("role", "warning")
+            free = vram.free / footprint.GIB
+            state = footprint.level(free_bytes=vram.free, total_bytes=vram.total, **shape)
+            if self._memory_bar is not None:
+                self._memory_bar.setVisible(True)
+                self._memory_bar.show_estimate(estimate=estimate_bytes, vram=vram, level=state)
+            if state == "over":
+                # Not disabled, only warned: the estimate is a model, the card may
+                # be freed by closing the game, and someone who knows better than
+                # this dialog must still be able to press Start.
+                self._memory.setText(
+                    f"⚠ ≈ {estimate:.1f} GiB of GPU memory, but only "
+                    f"{free:.1f} GiB is free — this run is likely to "
+                    f"run out. More --minibatches costs nothing: same data, smaller pieces."
+                )
+                self._memory.setProperty("role", "warning")
+            elif state == "tight":
+                # Fits, so not a warning — but "fits" and "fits with the machine
+                # still usable" are different answers, and the old line gave the
+                # first one to both.
+                self._memory.setText(
+                    f"≈ {estimate:.1f} GiB of GPU memory · {free:.1f} GiB free — most of "
+                    f"the card, so nothing else will fit beside it."
+                )
+                self._memory.setProperty("role", "note")
+            else:
+                self._memory.setText(f"≈ {estimate:.1f} GiB of GPU memory · {free:.1f} GiB free")
+                self._memory.setProperty("role", "note")
         # Qt caches the styled look; a role that changed has to be re-polished.
         style = self._memory.style()
         style.unpolish(self._memory)

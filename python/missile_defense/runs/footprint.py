@@ -41,6 +41,8 @@ into the "will it fit?" answer a dialog needs.
 
 from __future__ import annotations
 
+from typing import Literal
+
 #: Floats in one observation, and legal actions in one mask. Fixed by the game's
 #: `Config`, and asserted against the real environment by the native tests —
 #: this module cannot import `missile_defense.sim.env` to ask, because an installed trainer has
@@ -100,6 +102,61 @@ def fits_in(free_bytes: int, *, envs: int, steps: int, minibatches: int, archite
         * HEADROOM
         <= free_bytes
     )
+
+
+#: Where the bar stops being green. Below this the card has room to spare and
+#: the machine stays usable while the run is on; above it the run is most of the
+#: card, which is worth seeing *before* starting a second one beside it. Not a
+#: measured constant — a judgement about when "it fits" stops being the whole
+#: answer.
+COMFORTABLE = 0.75
+
+
+def pressure(
+    *, free_bytes: int, total_bytes: int, envs: int, steps: int, minibatches: int, architecture: str
+) -> float:
+    """Share of the whole card this run is expected to occupy, headroom included.
+
+    The denominator is the card, not what is free, because that is what a bar
+    has to be drawn against: a run needing 17 of 32 GiB is half the card whether
+    or not a desktop session is holding two of them. What is already in use is
+    still counted — it is memory this run cannot have.
+
+    Crosses 1.0 exactly when :func:`fits_in` turns False, so a red bar and a
+    warning under it are always the same claim.
+    """
+
+    if total_bytes <= 0:
+        return 0.0
+    used = max(total_bytes - free_bytes, 0)
+    want = (
+        estimate_bytes(envs=envs, steps=steps, minibatches=minibatches, architecture=architecture)
+        * HEADROOM
+    )
+    return (used + want) / total_bytes
+
+
+def level(
+    *, free_bytes: int, total_bytes: int, envs: int, steps: int, minibatches: int, architecture: str
+) -> Literal["ok", "tight", "over"]:
+    """:func:`pressure` as the three states worth telling apart.
+
+    One function so that the colour of the bar and the wording of the line under
+    it cannot drift apart — an amber bar over "this run is likely to run out" is
+    the dialog disagreeing with itself.
+    """
+
+    share = pressure(
+        free_bytes=free_bytes,
+        total_bytes=total_bytes,
+        envs=envs,
+        steps=steps,
+        minibatches=minibatches,
+        architecture=architecture,
+    )
+    if share > 1.0:
+        return "over"
+    return "ok" if share <= COMFORTABLE else "tight"
 
 
 def advice(*, envs: int, steps: int, minibatches: int, architecture: str) -> str:

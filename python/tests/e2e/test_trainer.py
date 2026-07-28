@@ -713,16 +713,16 @@ def test_the_dialog_says_what_a_run_will_cost_the_card_before_it_starts(
     # "start it and go to bed" and "start it and stop using the machine".
     from missile_defense.runs import footprint  # noqa: PLC0415
     from missile_defense.runs.runner import PACKAGE_PATH  # noqa: PLC0415
-    from missile_defense.ui.forms import ParameterDialog  # noqa: PLC0415
+    from missile_defense.ui.forms import ParameterDialog, Vram  # noqa: PLC0415
     from missile_defense.ui.params import read_params  # noqa: PLC0415
 
-    def dialog_with(free_gib: float) -> ParameterDialog:
+    def dialog_with(free_gib: float, total_gib: float = 32) -> ParameterDialog:
         return ParameterDialog(
             read_params(PACKAGE_PATH / "missile_defense"),
             python="/usr/bin/python3",
             out_dir=tmp_path,
             presets_file=tmp_path / "presets.json",
-            free_vram_bytes=int(free_gib * footprint.GIB),
+            vram=Vram(int(free_gib * footprint.GIB), int(total_gib * footprint.GIB)),
         )
 
     roomy = dialog_with(30)
@@ -753,6 +753,81 @@ def test_the_dialog_says_what_a_run_will_cost_the_card_before_it_starts(
         assert "⚠" not in cramped._memory.text()
     finally:
         cramped.close()
+
+
+def test_the_memory_bar_goes_green_amber_red_with_what_the_run_asks_for(
+    qt_app: object, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The estimate was a sentence, which states two numbers and reports neither
+    # proportion. The bar is that division already done, and its colour is the
+    # verdict: green go, amber it is most of the card, red it will not fit.
+    from missile_defense.runs import footprint  # noqa: PLC0415
+    from missile_defense.runs.runner import PACKAGE_PATH  # noqa: PLC0415
+    from missile_defense.ui import theme  # noqa: PLC0415
+    from missile_defense.ui.forms import MemoryBar, ParameterDialog, Vram  # noqa: PLC0415
+    from missile_defense.ui.params import read_params  # noqa: PLC0415
+
+    def dialog_with(vram: Vram | None) -> ParameterDialog:
+        return ParameterDialog(
+            read_params(PACKAGE_PATH / "missile_defense"),
+            python="/usr/bin/python3",
+            out_dir=tmp_path,
+            presets_file=tmp_path / "presets.json",
+            vram=vram,
+        )
+
+    card = Vram(30 * footprint.GIB, 32 * footprint.GIB)
+    dialog = dialog_with(card)
+    try:
+        bar = dialog._memory_bar
+        assert bar is not None
+        assert bar.isVisibleTo(dialog), "the bar is hidden on a card that can be measured"
+
+        # `fast` is the flat network at a quarter of the card.
+        dialog._presets.setCurrentIndex(dialog._presets.findData("fast"))
+        assert bar._level == "ok"
+        assert MemoryBar.LEVEL_COLOURS[bar._level] == theme.SMART
+        assert bar._total == card.total
+        assert bar._used == 2 * footprint.GIB, "memory somebody else holds is drawn too"
+
+        # `best` is the relational one, which fits on this card and is most of it.
+        dialog._presets.setCurrentIndex(dialog._presets.findData("best"))
+        assert bar._level == "tight"
+        assert MemoryBar.LEVEL_COLOURS[bar._level] == theme.AMBER
+        assert "most of the card" in dialog._memory.text()
+        assert "⚠" not in dialog._memory.text()
+
+        # The tooltip carries the reading the bar cannot spell out.
+        assert "already in use" in bar.toolTip()
+        assert "headroom" in bar.toolTip()
+    finally:
+        dialog.close()
+
+    cramped = dialog_with(Vram(8 * footprint.GIB, 32 * footprint.GIB))
+    try:
+        cramped._presets.setCurrentIndex(cramped._presets.findData("best"))
+        assert cramped._memory_bar is not None
+        assert cramped._memory_bar._level == "over"
+        assert MemoryBar.LEVEL_COLOURS[cramped._memory_bar._level] == theme.THREAT
+        assert cramped._memory.text().startswith("⚠")
+    finally:
+        cramped.close()
+
+    # No probe, no denominator: the bar goes away rather than drawing a
+    # proportion of a card nobody could measure. The sentence stays.
+    #
+    # Patched rather than passed, because `vram=None` is the constructor's "go
+    # and ask" — and on a machine with a card it would ask and get an answer.
+    from missile_defense.ui import forms as forms_module  # noqa: PLC0415
+
+    monkeypatch.setattr(forms_module, "read_vram", lambda: None)
+    headless = dialog_with(None)
+    try:
+        assert headless._memory_bar is not None
+        assert not headless._memory_bar.isVisibleTo(headless)
+        assert headless._memory.text() == "≈ 2.8 GiB of GPU memory"
+    finally:
+        headless.close()
 
 
 def test_the_dialog_saves_a_preset_and_refuses_to_overwrite_a_built_in(

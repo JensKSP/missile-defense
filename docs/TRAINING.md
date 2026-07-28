@@ -461,9 +461,21 @@ So the fix for a run that will not fit is almost never fewer envs:
 * PyTorch *reserves* 10–30% more than it allocates, and your desktop is holding a
   gigabyte or two before you start. Leave headroom.
 
-The trainer shows this estimate under the command line whenever a card is
-visible, and warns before you start a run that will not fit. If one runs out
-anyway, the trainer prints the same arithmetic and names the knob.
+The trainer draws this estimate under the command line as a bar against the
+whole card, so the question it answers is *how much of the card is this* rather
+than two numbers you divide yourself. What something else is already holding is
+drawn first, dimmed — it is not your run's, but it is memory your run cannot
+have. The colour is the verdict:
+
+| | |
+|---|---|
+| **green** | fits with room to spare; the machine stays usable |
+| **amber** | fits, but it is most of the card — do not start a second run beside it |
+| **red** | will not fit, headroom included |
+
+Red is a warning and not a veto: the estimate is a model, and closing the game
+frees a gigabyte. Start is never disabled. If a run does run out anyway, the
+trainer prints the same arithmetic and names the knob.
 
 Training runs as a separate process throughout, so closing the trainer (or
 crashing it) leaves the run alone. **Log** shows what it has printed, whichever
