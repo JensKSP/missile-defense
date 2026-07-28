@@ -68,11 +68,17 @@ MACOS_APP_PATHS = ("/Applications", "~/Applications")
 BUILD_BUNDLE = "md_app.app"
 INSTALLED_BUNDLE = "Missile Defense.app"
 
-#: An MSYS2 build links against Qt in the CLANG64 prefix and finds it on PATH,
-#: which is there in the CLANG64 shell and absent everywhere else — including the
-#: native interpreter the trainer is likely started from. Adding it back turns a
-#: silent "nothing happened" into a window (docs/WINDOWS.md).
-MSYS2_BIN = "clang64/bin"
+#: Nothing to put back on PATH any more.
+#:
+#: An MSYS2 build linked against Qt in the CLANG64 prefix and found it on PATH —
+#: present in the CLANG64 shell and absent everywhere else, including the native
+#: interpreter the trainer is started from, so double-clicking a recording died
+#: looking for `libc++.dll` with no window to say so. The trainer prepended
+#: `<msys2>\clang64\bin` for the child to fix it.
+#:
+#: Windows is MSVC now. The game finds Qt beside its own exe (windeployqt puts it
+#: there for an installed copy) or through the kit already on PATH in a
+#: development checkout, and there is no second prefix to reach into.
 
 
 #: What the trainer is called once installed. The Debian package and the
@@ -333,13 +339,16 @@ def launch_environ(
     means a Wayland window. This used to force xcb, from the days when
     ``QVulkanWindow`` could not survive Qt's teardown there; ``GameWindow::event``
     handles that now, and ``test_wayland_teardown.py`` says so out loud.
+
+    Windows imposes nothing either, now that it is MSVC. It used to prepend
+    ``<msys2>\\clang64\\bin`` so a MinGW-built game could find the Qt and libc++
+    it was linked against — see :data:`MSYS2_BIN` for what that was working
+    around. There is no second prefix to reach into any more, and the function
+    stays because *"the platform quirks, once"* is the contract: the day one
+    returns, it returns here rather than at a call site.
     """
-    env = dict(os.environ if environ is None else environ)
-    if platform == "win32":
-        msys = Path(env.get("MSYS2_ROOT", "C:/msys64")) / MSYS2_BIN
-        if msys.is_dir():
-            env["PATH"] = f"{msys}{os.pathsep}{env.get('PATH', '')}"
-    return env
+    del platform  # the signature outlives the quirk; see above
+    return dict(os.environ if environ is None else environ)
 
 
 class ReplayLauncher:

@@ -13,8 +13,18 @@
       "binaryDir": "${sourceDir}/build/${presetName}"
     },
     {
+      "name": "unix",
+      "hidden": true,
+      "description": "The GCC/Clang presets. Hidden on Windows, where the compiler is MSVC and every flag below is spelled differently — an -O3 offered there is a preset that cannot configure.",
+      "condition": {
+        "type": "notEquals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
+    },
+    {
       "name": "debug",
-      "inherits": "base",
+      "inherits": ["base", "unix"],
       "displayName": "Debug (ASan+UBSan)",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
@@ -25,7 +35,7 @@
     },
     {
       "name": "release",
-      "inherits": "base",
+      "inherits": ["base", "unix"],
       "displayName": "RelWithDebInfo -O3 + ThinLTO (system compiler)",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
@@ -35,7 +45,7 @@
     },
     {
       "name": "profile",
-      "inherits": "base",
+      "inherits": ["base", "unix"],
       "displayName": "-O3 + LTO, built for external sampling profilers",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
@@ -48,7 +58,7 @@
     },
     {
       "name": "coverage",
-      "inherits": "base",
+      "inherits": ["base", "unix"],
       "displayName": "Coverage (core only)",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
@@ -58,10 +68,10 @@
       }
     },
     {
-      "name": "win-native",
+      "name": "windows",
       "inherits": "base",
-      "displayName": "MSVC/clang-cl headless + Python bindings (for torch on native Windows)",
-      "description": "Headless only: no Qt, no Vulkan. Builds _md_native against a native Windows CPython so PyTorch can be imported alongside it — the MSYS2 build cannot, because torch ships no MinGW wheel. The Qt app keeps using the clang presets. Warnings are not errors here: the Clang presets are the quality gate, and MSVC's warning set differs enough that gating on it would mean tuning the tree for a second compiler with no extra safety.",
+      "displayName": "Windows (MSVC): the game and the Python bindings, one tree",
+      "description": "MSVC builds all of Windows — Qt app, Vulkan, and the _md_native extension. There used to be two: MSYS2/CLANG64 for the game and this one for the bindings, because torch and PySide6 publish no MinGW wheels and an extension must share an ABI with the interpreter importing it. One compiler means one ABI and no split. Qt is found through CMAKE_PREFIX_PATH; set QT_ROOT_DIR to the kit (e.g. C:/Qt/6.9.3/msvc2022_64) or pass -DCMAKE_PREFIX_PATH. Warnings are not errors here: the Linux gate holds the zero-warning line on a pinned compiler, and MSVC's warning set differs enough that gating on it would mean tuning the tree twice for no extra safety.",
       "condition": {
         "type": "equals",
         "lhs": "${hostSystemName}",
@@ -69,9 +79,20 @@
       },
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
-        "MD_BUILD_APP": "OFF",
+        "CMAKE_PREFIX_PATH": "$env{QT_ROOT_DIR}",
+        "MD_BUILD_APP": "ON",
         "MD_BUILD_BINDINGS": "ON",
         "MD_WERROR": "OFF"
+      }
+    },
+    {
+      "name": "windows-debug",
+      "inherits": "windows",
+      "displayName": "Windows (MSVC) Debug + Vulkan validation",
+      "description": "ASan/UBSan are deliberately absent: sanitizer coverage is a Linux property of this project (CMakeLists degrades MD_SANITIZE on Windows), so this is a plain Debug build with the Vulkan validation layer on.",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "MD_VULKAN_VALIDATION": "ON"
       }
     }
   ],
@@ -93,8 +114,12 @@
       "configurePreset": "coverage"
     },
     {
-      "name": "win-native",
-      "configurePreset": "win-native"
+      "name": "windows",
+      "configurePreset": "windows"
+    },
+    {
+      "name": "windows-debug",
+      "configurePreset": "windows-debug"
     }
   ],
   "testPresets": [
@@ -119,8 +144,18 @@
       }
     },
     {
-      "name": "win-native",
-      "configurePreset": "win-native",
+      "name": "windows",
+      "configurePreset": "windows",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "jobs": 0
+      }
+    },
+    {
+      "name": "windows-debug",
+      "configurePreset": "windows-debug",
       "output": {
         "outputOnFailure": true
       },

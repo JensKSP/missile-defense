@@ -92,8 +92,13 @@ log actually read named its cause in one line.
   `quick-start`. Stage the source with `git archive HEAD`, and copy
   `models/pretrained.mdp` in by hand; it is tracked but does not appear in the
   archive.
-* Windows and macOS cannot be reproduced locally by any means available here.
-  For those, the log is the only instrument.
+* **Windows now reproduces locally**, on a Windows box: it is MSVC throughout —
+  the game, the bindings and the tests in one tree — so `cmake --preset windows`
+  and `ctest --preset windows` are the same commands CI runs. It used to be
+  MSYS2/CLANG64 for the game and MSVC for the extension, two ABIs that could
+  only be assembled by CI, and that is why this line used to say otherwise.
+* macOS still cannot be reproduced by any means available here. For that one,
+  the log is the only instrument.
 
 ## Express the rule, not the inventory
 

@@ -249,49 +249,68 @@ jobs:
 
   windows:
     needs: wheels
-    # The MSYS2 CLANG64 toolchain from docs/WINDOWS.md — the one the Qt app is
-    # actually built with here. Not `poe`: the task runner would need pip inside
-    # the MSYS2 interpreter, and what it would be running is four cmake commands.
+    # MSVC, the one Windows toolchain (docs/WINDOWS.md). This job used to run
+    # under MSYS2/CLANG64, which meant Windows had two compilers and two ABIs:
+    # MinGW for the game, MSVC for the extension, because torch and PySide6
+    # publish no MinGW wheels. One compiler removes the split entirely — and the
+    # `windows` preset builds the app and the bindings in one tree, which the
+    # two-toolchain arrangement could not.
+    #
+    # Not `poe`: what this job runs is four cmake commands, and the task runner
+    # would only add a venv to install it into.
     #
     # Scoped like the macOS job, and for the same reason: the source-level checks
     # live on Linux. What only Windows can show is that the tree still compiles
     # against a third standard library, that the simulation agrees there, and that
-    # windeploy.sh can still assemble a bundle that runs without MSYS2 installed.
+    # windeployqt can still assemble a bundle that runs on a machine with no Qt.
     runs-on: windows-2022
     defaults:
       run:
-        shell: msys2 {0}
+        # Git Bash, which the runner has: the scripts below are bash, and the
+        # only thing MSYS2 was giving them was a shell. `cygpath` is here too.
+        shell: bash
     steps:
       - uses: actions/checkout@v7
 
-      - uses: msys2/setup-msys2@v2
+      # Puts cl.exe, and the Build Tools' own CMake and Ninja, on PATH for every
+      # later step. CMake's Ninja generator finds the compiler on PATH rather
+      # than locating an installation, so this has to come before any configure.
+      - uses: ilammy/msvc-dev-cmd@v1
         with:
-          msystem: CLANG64
-          update: true
-          # Neither Catch2 nor miniaudio is packaged for MSYS2 at all, so CMake
-          # fetches both — which is what it already does on a developer's machine
-          # here, so CI is not taking a different path to get them.
-          # No vulkan-validation-layers either: a runtime debugging aid, and CI
-          # never opens a window.
-          install: >-
-            mingw-w64-clang-x86_64-clang
-            mingw-w64-clang-x86_64-lld
-            mingw-w64-clang-x86_64-cmake
-            mingw-w64-clang-x86_64-ninja
-            mingw-w64-clang-x86_64-qt6-base
-            mingw-w64-clang-x86_64-vulkan-headers
-            mingw-w64-clang-x86_64-vulkan-loader
-            mingw-w64-clang-x86_64-glslang
-            mingw-w64-clang-x86_64-nlohmann-json
-            mingw-w64-clang-x86_64-nsis
-            mingw-w64-clang-x86_64-python
-            mingw-w64-clang-x86_64-python-pip
+          arch: x64
+
+      # qtbase only — the app links Qt6::Gui and nothing else. Sets QT_ROOT_DIR,
+      # which the `windows` preset reads as CMAKE_PREFIX_PATH, so the preset
+      # needs no path baked into it.
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.9.3'
+          arch: win64_msvc2022_64
+          modules: ''
+          cache: true
+
+      # Headers, loader import library, glslangValidator and spirv-val in one
+      # package — five MSYS2 packages replaced by one. No validation layers
+      # needed: they are a runtime debugging aid and CI never opens a window.
+      - name: Vulkan SDK
+        uses: humbletim/setup-vulkan-sdk@v1.2.1
+        with:
+          vulkan-query-version: 1.4.313.0
+          vulkan-components: Vulkan-Headers, Vulkan-Loader, Glslang
+          vulkan-use-cache: true
+
+      # NSIS for the installer. Neither Catch2 nor miniaudio is packaged, so
+      # CMake fetches both — which is what it does on a developer's machine here
+      # too, so CI is not taking a different path to get them.
+      - name: NSIS
+        shell: pwsh
+        run: choco install nsis --no-progress -y
 
       - name: Report the toolchain
         run: |
-          clang++ --version
+          cl 2>&1 | head -1 || true
           cmake --version
-          python --version
+          echo "QT_ROOT_DIR=${QT_ROOT_DIR:-unset}"
 
       # A second CPython and an MSVC build of `_md_native` used to happen here.
       # The installer shipped the trainer's Python payload, and the extension in
@@ -315,20 +334,21 @@ jobs:
           path: wheel
 
       - name: C++ tests (Debug)
-        # The debug preset asks for ASan/UBSan; CMakeLists degrades that to a
-        # plain Debug build here, because there is no LeakSanitizer runtime under
-        # MinGW. The tests are the point either way.
+        # `windows-debug`, not `debug`: the GCC/Clang presets are conditioned off
+        # Windows in CMakePresets.json, because every flag in them is spelled
+        # differently for MSVC. Sanitizers are absent here by design — that is a
+        # Linux property of this project — so this is a plain Debug build.
         #
         # No -Werror or -Wpedantic: this job exists to produce an installer, and
-        # MSYS2 rolls its clang forward continuously — a new warning arriving in
-        # a pacman update must not be able to stop a release being built. The
-        # Linux gate holds the zero-warning line on a pinned compiler.
+        # the Linux gate holds the zero-warning line on a pinned compiler. MSVC's
+        # warning set differs enough that gating on it would mean tuning the tree
+        # for a second compiler with no extra safety.
         env:
           STAMP: ${{ inputs.package-version && format('-DMD_PACKAGE_VERSION={0}', inputs.package-version) || '' }}
         run: |
-          cmake --preset debug -DMD_WERROR=OFF -DMD_PEDANTIC=OFF $STAMP
-          cmake --build --preset debug
-          ctest --preset debug
+          cmake --preset windows-debug -DMD_WERROR=OFF -DMD_PEDANTIC=OFF $STAMP
+          cmake --build --preset windows-debug
+          ctest --preset windows-debug
 
       - name: C++ tests (Release)
         env:
@@ -356,17 +376,18 @@ jobs:
           # what shipped the trainer here was a Python payload beside the exe,
           # and it is a wheel now — built by the `wheels` job against a real
           # CPython, which is what MD_PREBUILT_PYTHON_MODULE was working around.
-          cmake --preset release -DMD_WERROR=OFF -DMD_PEDANTIC=OFF $STAMP \
+          cmake --preset windows -DMD_WERROR=OFF -DMD_PEDANTIC=OFF $STAMP \
+            -DMD_BUILD_BINDINGS=OFF \
             -DMD_TRAINER_WHEEL="$(cygpath -m "$(md_one_wheel)")"
-          cmake --build --preset release
-          ctest --preset release
+          cmake --build --preset windows
+          ctest --preset windows
 
       - name: Build the installer and the portable ZIP
-        # Runs tools/windeploy.sh through the install step, which is the part
-        # worth having in CI: it walks the dependency closure of missile-defense.exe and
-        # copies every CLANG64 DLL beside it. A missing DLL is invisible on the
-        # machine that built it and fatal on any other.
-        run: cpack --config build/release/CPackConfig.cmake -B build/release -G "NSIS;ZIP"
+        # Runs windeployqt through the install step, which is the part worth
+        # having in CI: it copies Qt's DLLs and the C runtime beside
+        # missile-defense.exe. A missing DLL is invisible on the machine that
+        # built it and fatal on any other.
+        run: cpack --config build/windows/CPackConfig.cmake -B build/windows -G "NSIS;ZIP"
 
       - name: What the installer ships is the game, a wheel and a page
         # The installer has one component now: no Python payload, no `.cmd`
@@ -377,11 +398,10 @@ jobs:
         # The negative half is still the one that matters, and it got stricter:
         # not one `.py` in the tree, where before the game component merely had
         # to avoid the trainer's own files.
-        shell: msys2 {0}
         run: |
           set -euo pipefail
           rm -rf stage-game
-          cmake --install build/release --prefix stage-game --component game
+          cmake --install build/windows --prefix stage-game --component game
           test -f stage-game/missile-defense.exe
           test -f stage-game/HOW-TO-TRAIN.html
           if find stage-game \( -name "*.py" -o -name "*.cmd" \) | grep .; then
@@ -403,8 +423,8 @@ jobs:
         with:
           name: missile-defense-windows
           path: |
-            build/release/*.exe
-            build/release/*.zip
+            build/windows/*.exe
+            build/windows/*.zip
 
   debian:
     # The package Debian itself would build: debian/ via debhelper, which is the

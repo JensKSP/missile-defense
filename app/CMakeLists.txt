@@ -58,8 +58,17 @@ endif()
 find_package(Threads REQUIRED)
 add_library(md_miniaudio STATIC miniaudio_impl.cpp)
 target_include_directories(md_miniaudio SYSTEM PUBLIC "${MINIAUDIO_INCLUDE_DIR}")
-target_compile_options(md_miniaudio PRIVATE -w)
-target_link_libraries(md_miniaudio PUBLIC Threads::Threads ${CMAKE_DL_LIBS} m)
+# Silence a vendored single-header we do not maintain. The two drivers spell it
+# differently, and MSVC treats an unknown `-w` as a source file to compile.
+target_compile_options(md_miniaudio PRIVATE $<IF:$<BOOL:${MSVC}>,/w,-w>)
+# `m` is the Unix maths library. MSVC has no `m.lib` — the maths lives in the
+# CRT — so linking it unconditionally is a hard `LNK1104: cannot open m.lib`,
+# which is what the app hit the first time it was built with MSVC rather than
+# MinGW. `CMAKE_DL_LIBS` is already empty on Windows and needs no such guard.
+target_link_libraries(md_miniaudio PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
+if(NOT MSVC)
+  target_link_libraries(md_miniaudio PUBLIC m)
+endif()
 
 # macOS: miniaudio's only backend here is CoreAudio, which it reaches through
 # these three frameworks. Unlike the Windows COM case there is no source-level
@@ -277,7 +286,7 @@ endif()
 # game would silently have carried the native binding along with it.
 if(WIN32)
   # Self-contained layout for the CPack NSIS installer / ZIP: the exe plus its
-  # bundled Qt + runtime DLLs (gathered by tools/windeploy.sh at install time)
+  # bundled Qt + C runtime DLLs (gathered by windeployqt at install time)
   # and the licence notices, all under the install root.
   #
   # Installed as `missile-defense.exe`, not as the target's own name. The build
@@ -292,15 +301,29 @@ if(WIN32)
     DESTINATION .
     RENAME "missile-defense.exe"
     COMPONENT game)
-  find_program(BASH_PROGRAM bash REQUIRED)
+  # `windeployqt` does the whole job under MSVC, which is why the shell script
+  # that used to stand here is gone. It copied Qt's own DLLs and then walked the
+  # dependency graph to a fixpoint for everything else that resolved inside the
+  # MSYS2 CLANG64 prefix — libc++, ICU, HarfBuzz, FreeType, glib, PCRE2, zlib —
+  # because a MinGW build drags its toolchain's runtime along and windeployqt
+  # did not copy it. An MSVC build has no such tail: Qt's DLLs are the
+  # dependency set, and `--compiler-runtime` covers the CRT.
+  #
+  # `vulkan-1.dll` is still deliberately not bundled: the loader ships with the
+  # OS and the GPU driver and has to match them.
+  if(TARGET Qt6::qmake)
+    get_target_property(md_qmake Qt6::qmake IMPORTED_LOCATION)
+    get_filename_component(md_qt_bin "${md_qmake}" DIRECTORY)
+  endif()
+  find_program(WINDEPLOYQT NAMES windeployqt6 windeployqt HINTS "${md_qt_bin}" REQUIRED)
   install(CODE "
-    message(STATUS \"windeploy: bundling Qt + runtime DLLs ...\")
+    message(STATUS \"windeployqt: bundling Qt + the C runtime ...\")
     execute_process(
-      COMMAND \"${BASH_PROGRAM}\" \"${CMAKE_SOURCE_DIR}/tools/windeploy.sh\"
-              \"\${CMAKE_INSTALL_PREFIX}/missile-defense.exe\"
+      COMMAND \"${WINDEPLOYQT}\" --release --no-translations --no-opengl-sw
+              --compiler-runtime \"\${CMAKE_INSTALL_PREFIX}/missile-defense.exe\"
       RESULT_VARIABLE _md_deploy_rc)
     if(NOT _md_deploy_rc EQUAL 0)
-      message(FATAL_ERROR \"tools/windeploy.sh failed (code \${_md_deploy_rc})\")
+      message(FATAL_ERROR \"windeployqt failed (code \${_md_deploy_rc})\")
     endif()
   " COMPONENT game)
   install(FILES "${CMAKE_SOURCE_DIR}/LICENSE"
@@ -337,7 +360,7 @@ elseif(APPLE)
     endif()
   " COMPONENT game)
 
-  # macdeployqt is qtbase's equivalent of tools/windeploy.sh: it copies the Qt
+  # macdeployqt is qtbase's equivalent of windeployqt: it copies the Qt
   # frameworks and the cocoa platform plugin into Contents/, then rewrites the
   # install names so the binary loads them from inside the bundle.
   if(TARGET Qt6::qmake)

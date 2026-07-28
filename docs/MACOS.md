@@ -94,7 +94,7 @@ install time in three steps whose order is forced — each would undo the next:
 
 1. **`macdeployqt`** copies the Qt frameworks and the cocoa platform plugin into
    the bundle and rewrites the executable's load commands. The direct equivalent
-   of [tools/windeploy.sh](../tools/windeploy.sh) on Windows.
+   of `windeployqt` on Windows.
 2. **MoltenVK is copied in by hand**, and its ICD manifest rewritten to point at
    the copy by a path relative to the bundle. `macdeployqt` cannot do this: it
    follows link-time dependencies, and `md_app` links the Vulkan *loader*, never

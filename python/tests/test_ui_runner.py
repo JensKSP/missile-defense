@@ -334,13 +334,20 @@ def test_linux_lets_the_session_choose_the_window_system() -> None:
     assert chosen["QT_QPA_PLATFORM"] == "wayland"
 
 
-def test_windows_puts_the_msys2_qt_dlls_back_on_path(tmp_path: Path) -> None:
-    # The MinGW build finds Qt on PATH, which is set in the CLANG64 shell and
-    # nowhere else — including the native interpreter the trainer runs in.
-    (tmp_path / "clang64" / "bin").mkdir(parents=True)
-    env = launch_environ({"MSYS2_ROOT": str(tmp_path), "PATH": "C:/Windows"}, platform="win32")
-    assert env["PATH"].startswith(str(tmp_path / "clang64" / "bin"))
-    assert env["PATH"].endswith("C:/Windows")
+def test_the_game_is_launched_in_an_unmodified_environment(tmp_path: Path) -> None:
+    # Windows used to be the exception: a MinGW-built game found the Qt and
+    # libc++ it was linked against on PATH, which was set in the MSYS2 CLANG64
+    # shell and nowhere else — so the trainer prepended `<msys2>\clang64\bin` for
+    # the child or it died looking for a DLL with no window to say so.
+    #
+    # MSVC removed the second prefix, and with it the last quirk this function
+    # had. What it must not do is *invent* one: a game started from the trainer
+    # has to look exactly like the same game started from the desktop, on every
+    # platform, and an environment silently differing between the two is how a
+    # bug reproduces in one and not the other.
+    for platform in ("win32", "linux", "darwin"):
+        given = {"PATH": "C:/Windows", "MSYS2_ROOT": str(tmp_path)}
+        assert launch_environ(given, platform=platform) == given
 
 
 def _empty_store(tmp_path: Path) -> runtime.Runtime:
@@ -446,11 +453,14 @@ def test_a_run_that_dies_says_so_with_its_own_words(tmp_path: Path) -> None:
     assert run.exit_code() == 1
 
 
-def test_no_msys2_no_change(tmp_path: Path) -> None:
-    env = launch_environ(
-        {"MSYS2_ROOT": str(tmp_path / "nope"), "PATH": "C:/Windows"}, platform="win32"
-    )
-    assert env["PATH"] == "C:/Windows"
+def test_the_launch_environment_is_a_copy_rather_than_the_caller_s(tmp_path: Path) -> None:
+    # It returns a dict the caller may then add to — `ReplayLauncher` does — and
+    # handing back the mapping it was given would make that a mutation of
+    # `os.environ` in the trainer's own process.
+    given = {"PATH": "C:/Windows"}
+    env = launch_environ(given, platform="win32")
+    env["PATH"] = "changed"
+    assert given["PATH"] == "C:/Windows"
 
 
 # ---- finding the trainer -----------------------------------------------------

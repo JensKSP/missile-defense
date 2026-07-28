@@ -136,8 +136,9 @@ Routine evaluation selects a checkpoint on 32 validation seeds; one final,
 CPU-pinned score uses a different 32-seed held-out block and the same C++
 summary code. → [docs/TRAINING.md](docs/TRAINING.md)
 
-On **Windows** the same toolchain runs under MSYS2 — its own ten-minute path is
-in [docs/WINDOWS.md](docs/WINDOWS.md). On **macOS** it is Homebrew and MoltenVK:
+On **Windows** it is MSVC, CMake, Ninja, the Vulkan SDK and Qt — its own
+ten-minute path is in [docs/WINDOWS.md](docs/WINDOWS.md). On **macOS** it is
+Homebrew and MoltenVK:
 [docs/MACOS.md](docs/MACOS.md), which is built and tested in CI but — unlike the
 other two — has never been run by a human.
 
@@ -223,7 +224,7 @@ Reference — the [quick start](#quick-start) above already covers the common
 case. Read on for what each package is for and the optional development tools.
 
 Built and tested on Debian (trixie); adjust package names for other distros.
-**Windows** builds through MSYS2 with its own instructions in
+**Windows** builds with MSVC and has its own instructions in
 [docs/WINDOWS.md](docs/WINDOWS.md), and **macOS** through Homebrew in
 [docs/MACOS.md](docs/MACOS.md).
 
@@ -456,7 +457,7 @@ not `pip install torch` over it for a real run: the venv copy is deliberately CP
 and is never what a training run gets. For a CUDA wheel that matches an NVIDIA
 driver — without installing the CUDA toolkit — use the measured
 [Debian/NVIDIA recipe](docs/NVIDIA.md); Windows has a separate
-[native-Python path](docs/WINDOWS.md#the-python-half-natively). An installed trainer
+[native-Python path](docs/WINDOWS.md#the-python-half). An installed trainer
 can set up its own managed PyTorch runtime from the **Set up training…** button
 instead, which is the path that ends up being used on most machines.
 

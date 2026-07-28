@@ -54,7 +54,7 @@ platform each is meant for, and uploads them:
 |---|---|---|
 | `gate` | GitHub's current Ubuntu LTS runner | the quality gate, plus the CPack `.deb` |
 | `debian` | Ubuntu 26.04 (primary), Debian trixie, Ubuntu 24.04 (compatibility) | the **debhelper** `.deb`s from `debian/`, lintian-checked |
-| `windows` | Windows / MSYS2 CLANG64 | NSIS installer + portable ZIP |
+| `windows` | Windows / MSVC | NSIS installer + portable ZIP |
 | `macos` | macOS on Apple silicon | the `.dmg` |
 
 `gate` and `debian` both produce Debian packages on purpose. They are different
@@ -63,7 +63,7 @@ code paths — CPack's DEB generator against `cmake --install`, versus debhelper
 Debian would build. One can break while the other still works.
 
 The packaging steps are in CI because their failure mode is invisible locally: a
-DLL that resolves only because MSYS2 is on the machine's PATH, a Qt framework
+DLL that resolves only because a Qt kit is on the machine's PATH, a framework
 that loads only because Homebrew installed it. Building on a runner that has
 none of a developer's incidental state is the check.
 
@@ -290,25 +290,29 @@ silent by nature:
   contents, the staged NSIS component, the macOS trainer bundle — and `test_packaging.py`
   asserts both the declaration and the built artifact.
 
-### Windows ships an extension from a second build
+### `MD_PREBUILT_PYTHON_MODULE`, and why nothing sets it any more
 
-`MD_PREBUILT_PYTHON_MODULE` names an `_md_native.<suffix>` built elsewhere, to
-install in place of this build's own. It exists for one situation, and Windows
-is the only place that has it.
+It names an `_md_native.<suffix>` built elsewhere, to install in place of this
+build's own. It existed for one situation, on one platform, and that situation
+is gone twice over.
 
-The game is built in MSYS2/CLANG64 — that is where Qt and Vulkan are — so the
-extension built beside it is a mingw object against MSYS2's interpreter and
-libc++. The installed trainer does not run there: `missile-defense-trainer.cmd` execs
-whatever `python` is on PATH, which is a python.org CPython for anyone who
-followed docs/WINDOWS.md, because that is where the PySide6 and torch wheels
-are. Loading one into the other fails inside an import with a DLL error.
+Windows used to build the game in MSYS2/CLANG64 — that is where Qt and Vulkan
+were — so the extension built beside it was a MinGW object against MSYS2's
+interpreter and libc++. The installed trainer never ran there: it execs whatever
+`python` is on PATH, which is a python.org CPython, because that is where the
+PySide6 and torch wheels are. Loading one into the other failed inside an import
+with a DLL error. So the Windows job built `_md_native` twice and substituted
+the MSVC one here.
 
-So the Windows job builds `_md_native` twice: once with the game, and once with
-MSVC against a python.org CPython (the `win-native` preset, which exists for
-this reason), and names the second one here. The stable ABI makes the
-substitution total — both are called `_md_native.pyd`, so nothing downstream
-has to know which build it got, and the installed trainer works on 3.12 and
-later rather than on one exact minor version.
+Both halves of that have since been removed. The installer ships the trainer as
+a **wheel** built by the `wheels` job with cibuildwheel and import-tested there,
+so what ships is the file that was tested rather than a second one made in the
+same shape. And **Windows is MSVC throughout** now, so the extension built beside
+the game is already the right ABI — there is no second build to substitute.
+
+The option stays because it costs a `set()` and a validity check, and because a
+cross-built extension is a plausible thing to want again. Nothing in this
+repository passes it.
 
 ## Checklist for the day this is published
 

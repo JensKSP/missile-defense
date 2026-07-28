@@ -144,15 +144,17 @@ def candidates(
     found.append(sys.executable if executable is None else executable)
     if platform == "win32":
         # The launcher knows about every interpreter installed the ordinary way,
-        # including the ones deliberately kept off PATH — which is exactly the
-        # situation here, where the native build is not the default `python`.
+        # including the ones deliberately kept off PATH.
         found.extend(_py_launcher_entries())
-        # ... when it can be reached at all. In the MSYS2 CLANG64 shell there is
-        # no `py` on PATH, so the launcher answers nothing and the only
-        # interpreter that can train is invisible — measured on 2026-07-28, where
-        # `poe bindings` then built against MSYS2's Python and produced a module
-        # nothing could import. The registry holds the same list without the
-        # intermediary, and is where `py` itself reads it from.
+        # ... when it can be reached at all, which is not everywhere: `py` is not
+        # on PATH in every shell, and where it is missing the launcher answers
+        # nothing and an interpreter that can train goes unseen. The registry
+        # holds the same list without the intermediary, and is where `py` itself
+        # reads it from.
+        #
+        # Both are a fallback rather than the everyday path now: an installed
+        # trainer has to find an interpreter it did not create, but a checkout
+        # runs `poe` from its own venv, which is already the answer.
         found.extend(_registry_entries())
     for name in ("python3", "python"):
         on_path = shutil.which(name, path=env.get("PATH"))

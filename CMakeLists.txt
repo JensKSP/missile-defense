@@ -276,9 +276,9 @@ endif()
 # ---- Sanitizers --------------------------------------------------------------
 # Global on purpose: instrument our code *and* the deps it links under test.
 if(MD_SANITIZE AND WIN32)
-  # ASan/UBSan are unreliable under MinGW (no LeakSanitizer runtime), so the
+  # ASan/UBSan are not wired up for MSVC here (its sanitizer story differs and
   # sanitized debug preset degrades to a plain Debug build here rather than fail.
-  message(WARNING "MD_SANITIZE: not enabling ASan/UBSan on Windows (MinGW).")
+  message(WARNING "MD_SANITIZE: not enabling ASan/UBSan on Windows (MSVC).")
 elseif(MD_SANITIZE)
   add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
   add_link_options(-fsanitize=address,undefined)
@@ -347,8 +347,8 @@ endif()
 # find_package buried in one subdirectory that another silently depends on is
 # a build that works by accident of subdirectory ordering.
 #
-# Prefer the system copy (Debian `nlohmann-json3-dev`, MSYS2
-# `mingw-w64-clang-x86_64-nlohmann-json`, Homebrew `nlohmann-json`), otherwise
+# Prefer the system copy (Debian `nlohmann-json3-dev`, Homebrew
+# `nlohmann-json`; Windows has no package, so it is fetched), otherwise
 # fetch — the same shape as Catch2 and miniaudio, so a distribution build never
 # reaches the network and an offline developer build says why it cannot.
 find_package(nlohmann_json 3.10 QUIET)
@@ -596,7 +596,7 @@ endif()
 # Only meaningful for the full app build (that is what gets installed).
 #   Windows: cmake --build --preset release && cpack --preset release  (-> NSIS + ZIP)
 #   Debian:  poe deb            (-> .deb)
-# Packaging must run from the MSYS2 CLANG64 shell on Windows (windeployqt/ldd).
+# Packaging needs the Qt kit reachable on Windows (windeployqt) and ldd elsewhere.
 if(MD_BUILD_APP AND PROJECT_IS_TOP_LEVEL)
   set(CPACK_PACKAGE_NAME "missile-defense")
   set(CPACK_PACKAGE_VENDOR "Jens Köhler")

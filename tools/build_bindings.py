@@ -8,160 +8,120 @@ as ``missile_defense._md_native`` — so it has to sit next to
 ``python/missile_defense/``. Copying it there (it is gitignored) keeps ``pytest``
 and an interactive session working straight from
 a source checkout, with no install step and no PYTHONPATH juggling.
+
+This used to be twice the size, because Windows had two Pythons: MSYS2's, which
+built the game, and a native one, which was the only thing that could import
+torch. Choosing between them — and choosing the matching preset — was most of
+the file, and getting it wrong produced a module that built, copied, printed
+"copied", and could never be imported. Windows is MSVC throughout now, so there
+is one interpreter, one ABI and one preset, and all of that is gone.
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
-from . import _util, launch
+from . import _util
 from .bootstrap import windows_cxx_toolchain
 
-#: The preset that builds against a native Windows CPython rather than MSYS2's.
-WIN_NATIVE = "win-native"
+#: The Windows preset. Everything is MSVC there — the Qt app and this — so the
+#: name is the platform rather than a toolchain distinction.
+WINDOWS_PRESET = "windows"
 
 
-def platform_tag(interpreter: str) -> str:
-    """``sysconfig.get_platform()`` for ``interpreter``, or ``""`` if it will not run.
+def msvc_environment() -> dict[str, str] | None:
+    """The environment a Developer Command Prompt would have, or ``None``.
 
-    The one word that tells an MSYS2 Python from a native one: `mingw_x86_64`
-    against `win-amd64`. They report the *same version* — 3.14 either way — so
-    nothing about the version, the path or the name distinguishes them, which is
-    exactly why a build against the wrong one looks right until it is imported.
+    CMake's Ninja generator finds the compiler on ``PATH`` rather than locating
+    an installation itself, so ``cl.exe`` has to be there — and the Build Tools
+    put nothing on ``PATH`` until their shell has run. That used to be an error
+    message telling you to open a different window and start again.
+
+    It is cheaper to just enter the environment: ``vcvars64.bat`` prints what it
+    sets, so running it once and keeping the result gives this process the same
+    variables. Captured rather than shelled through, so the build command itself
+    is never handed to `cmd` to re-parse.
+
+    ``None`` means no action is needed or none is possible — either MSVC is
+    already reachable, or there is no installation to enter.
     """
+    if sys.platform != "win32" or shutil.which("cl") is not None:
+        return None
+    root = windows_cxx_toolchain()
+    if root is None:
+        return None
+    vcvars = Path(root) / "VC" / "Auxiliary" / "Build" / "vcvars64.bat"
+    if not vcvars.is_file():
+        return None  # `windows_cxx_toolchain` found cl.exe or VCINSTALLDIR, not a root
     probe = subprocess.run(
-        [interpreter, "-c", "import sysconfig; print(sysconfig.get_platform())"],
+        ["cmd", "/c", f'call "{vcvars}" >nul && set'],
         capture_output=True,
         text=True,
         check=False,
     )
-    return probe.stdout.strip() if probe.returncode == 0 else ""
+    if probe.returncode != 0:
+        return None
+    found = {}
+    for line in probe.stdout.splitlines():
+        key, separator, value = line.partition("=")
+        if separator:
+            found[key] = value
+    return found or None
 
 
-def is_mingw(interpreter: str) -> bool:
-    """Whether ``interpreter`` is an MSYS2/MinGW Python."""
-    return platform_tag(interpreter).startswith("mingw")
-
-
-def native_interpreter(*, exclude: str) -> str | None:
-    """A native Windows CPython on this machine, or ``None`` if there is none.
-
-    The same candidate list `poe train` and `poe ui` search, for the same reason:
-    the interpreter worth building for is the one that will actually import the
-    result, and on Windows that is never the MSYS2 one — torch publishes no
-    MinGW wheel, so a module built against MSYS2's Python can never be the module
-    a training run loads.
-    """
-    for candidate in launch.candidates():
-        if candidate != exclude and not is_mingw(candidate):
-            return candidate
-    return None
-
-
-#: How to enter an environment where MSVC, CMake and Ninja are all reachable.
-#: The Build Tools ship the last two, but only the developer shell puts any of
-#: them on `PATH` — which is why CI runs its native build inside one.
-DEV_SHELL_HINT = (
-    r'    "%ProgramFiles(x86)%\Microsoft Visual Studio\2022\BuildTools'
-    r'\Common7\Tools\VsDevCmd.bat" -arch=amd64 -host_arch=amd64'
-)
-
-
-def missing_build_tools(preset: str, python: str) -> str | None:
+def missing_build_tools() -> str | None:
     """What this build needs and cannot reach, as a sentence — or ``None``.
 
-    Every preset here uses the Ninja generator, so CMake finds the compiler on
-    ``PATH`` rather than locating an installation itself: `cl.exe` has to be
-    there, and so do `cmake` and `ninja`. Outside a developer shell none of the
-    three is, and the way that surfaced was a `FileNotFoundError` traceback out
-    of `subprocess` naming no tool at all.
+    Reached only after :func:`msvc_environment` has had its go, so on Windows
+    this fires when there is no Visual Studio at all rather than merely the
+    wrong shell. The way it used to surface was a `FileNotFoundError` traceback
+    out of `subprocess` naming no tool at all.
     """
-    native = sys.platform == "win32" and not is_mingw(python)
-    needed = ["cmake", "ninja", "cl"] if native else ["cmake", "ninja"]
+    needed = ["cmake", "ninja", "cl"] if sys.platform == "win32" else ["cmake", "ninja"]
     absent = [tool for tool in needed if shutil.which(tool) is None]
     if not absent:
         return None
     listed = ", ".join(absent)
-    if not native:
-        return f"error: not on PATH: {listed}. Build from the MSYS2 CLANG64 shell."
+    if sys.platform != "win32":
+        return f"error: not on PATH: {listed}."
     return (
         f"error: not on PATH: {listed}.\n"
-        f"Building for {python} uses the Ninja generator with MSVC, which finds "
-        "its tools on PATH. The Build Tools ship CMake and Ninja but put nothing "
-        "on PATH until you enter their shell:\n"
-        f"{DEV_SHELL_HINT}\n"
-        "Run that in a Command Prompt — not PowerShell, where a .bat sets its "
-        "variables in a child process that then exits, leaving the session it "
-        "was meant to prepare untouched — then this again from the same window."
+        "The Windows build needs MSVC, CMake and Ninja. Install them with:\n"
+        "    winget install -e --id Microsoft.VisualStudio.2022.BuildTools --override "
+        '"--quiet --wait --add Microsoft.VisualStudio.Workload.VCTools"\n'
+        "    winget install -e --id Kitware.CMake\n"
+        "    winget install -e --id Ninja-build.Ninja"
     )
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("preset", nargs="?", default="release", help="CMake configure preset")
+    default_preset = WINDOWS_PRESET if sys.platform == "win32" else "release"
+    parser.add_argument("preset", nargs="?", default=default_preset, help="CMake configure preset")
     parser.add_argument(
         "--python",
         default=None,
-        help=(
-            "Interpreter to build against. Defaults to the running one, except "
-            "under MSYS2 on Windows, where it defaults to a native CPython: torch "
-            "ships no MinGW wheel, so training needs a module built for that ABI."
-        ),
+        help="Interpreter to build against. Defaults to the running one.",
     )
     parsed = parser.parse_args(sys.argv[1:] if argv is None else argv)
     preset = parsed.preset
-    python = parsed.python
+    # The running interpreter is the right default now that there is only one
+    # kind on Windows: whoever runs `poe bindings` is in the venv the module is
+    # imported from.
+    python = parsed.python or sys.executable
 
-    # Choosing the interpreter, when nobody said which. `sys.executable` is the
-    # obvious answer and on Windows it is the wrong one often enough to matter:
-    # run through `poe` from the CLANG64 shell, it is MSYS2's Python, and a
-    # module built for that cannot be loaded by the interpreter that has torch.
-    # The build succeeded, printed "copied", and left something no training run
-    # could ever import — which is how 2026-07-28 was spent.
-    if python is None:
-        python = sys.executable
-        if sys.platform == "win32" and is_mingw(python):
-            found = native_interpreter(exclude=python)
-            if found is None:
-                print(
-                    "error: this is MSYS2's Python, and a module built for it cannot "
-                    "be imported by anything that can train — torch publishes no "
-                    "MinGW wheel.\nNo native CPython was found to build for instead. "
-                    "Install one from python.org, or name it with --python.",
-                    file=sys.stderr,
-                )
-                return 1
-            # stderr, with the errors it may be followed by: stdout is buffered
-            # and stderr is not, so a note about the choice printed to the other
-            # stream arrives *after* the message explaining why the choice
-            # failed, which reads as two unrelated events.
-            print(f"note: building for {found} rather than MSYS2's {python}", file=sys.stderr)
-            python = found
+    # Enter the developer environment rather than demanding one. Applied to this
+    # process so both CMake calls below inherit it; a `dict` from `vcvars64.bat`
+    # rather than a shell wrapper, so nothing re-parses the build command.
+    if (developer := msvc_environment()) is not None:
+        os.environ.update(developer)
 
-    # The preset follows the *target* interpreter, never whoever is running this
-    # script. Both routes reach here and only one of them is informative: from
-    # the CLANG64 shell the runner is MSYS2's Python and the target was just
-    # discovered, while from the venv the runner is already the target. Keying
-    # this off the runner built a native module with the MSYS2 preset — the same
-    # mismatch as before, in the other direction.
-    if sys.platform == "win32" and preset == parser.get_default("preset") and not is_mingw(python):
-        preset = WIN_NATIVE
-
-    # A native module needs MSVC, and CMake says so several hundred lines in.
-    if sys.platform == "win32" and not is_mingw(python) and windows_cxx_toolchain() is None:
-        print(
-            f"error: {python} is a native CPython, so its extension needs the MSVC "
-            "toolchain, and none was found. Install it with the Visual Studio "
-            "Installer — workload 'Desktop development with C++' — then run this "
-            "from a Developer Command Prompt.",
-            file=sys.stderr,
-        )
-        return 1
-
-    if (unreachable := missing_build_tools(preset, python)) is not None:
+    if (unreachable := missing_build_tools()) is not None:
         print(unreachable, file=sys.stderr)
         return 1
 
@@ -204,10 +164,7 @@ def main(argv: list[str] | None = None) -> int:
     # A build step that produces an unloadable artefact and prints "copied" has
     # not done its job. One import, in the interpreter it was built for — the
     # same check `missile_defense.runs.runtime` makes before an install, and for the same reason:
-    # the file being on the path proved nothing about it loading. The failure
-    # this catches is not exotic; it is what a MinGW build in a native CPython
-    # does, and it surfaced two steps later as a training runtime that would not
-    # install.
+    # the file being on the path proved nothing about it loading.
     check = subprocess.run(
         [python, "-c", "import missile_defense._md_native"],
         cwd=_util.PROJECT_ROOT / "python",
