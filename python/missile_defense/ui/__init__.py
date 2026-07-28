@@ -12,11 +12,11 @@ down with itself (docs/ROADMAP.md, M8).
 
 The name is the product's, and the distinction it hides is the architecture: what
 trains is a separate ``missile-defense-train`` process this window starts and
-supervises (:mod:`missile_defense.ui.runner`), so a run outlives the window that began it.
+supervises (:mod:`missile_defense.runs.runner`), so a run outlives the window that began it.
 
 The submodules split on a line worth keeping:
 
-* :mod:`~missile_defense.ui.sources` and :mod:`~missile_defense.ui.runner` are
+* :mod:`~missile_defense.runs.sources` and :mod:`~missile_defense.runs.runner` are
   **Qt-free**, so pytest drives them with no display.
 * :mod:`~missile_defense.ui.charts` and :mod:`~missile_defense.ui.app` are the
   widgets, and :mod:`~missile_defense.ui.theme`

@@ -29,15 +29,15 @@ PACKAGE = Path(missile_defense.ui.__file__).parent
 IMPORT_PATH = str(Path(missile_defense.__file__).parents[1])
 
 #: Importing torch anywhere under missile_defense.ui would make the trainer a trainer;
-#: missile_defense.train and missile_defense.ppo are just torch by another name.
-FORBIDDEN = ("torch", "missile_defense.train", "missile_defense.ppo")
+#: missile_defense.training.train and missile_defense.training.ppo are just torch by another name.
+FORBIDDEN = ("torch", "missile_defense.training", "missile_defense.training.ppo")
 
 CHECK = """
 import sys
 
 import missile_defense.ui
-import missile_defense.ui.runner
-import missile_defense.ui.sources
+import missile_defense.runs.runner
+import missile_defense.runs.sources
 import missile_defense.ui.theme
 
 try:  # the widgets, where PySide6 is installed — the trainer is optional

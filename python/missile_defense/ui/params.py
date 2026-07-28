@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Jens Köhler
 # Assisted-by: Claude Code (Anthropic)
-"""The training loop's knobs, read out of missile_defense.train's source. No Qt, no torch.
+"""The training loop's knobs, read out of missile_defense.training's source. No Qt, no torch.
 
 Every hyperparameter already has its reasoning written beside it in
 ``TrainConfig`` and ``PPOConfig`` — that is the project's whole documentation
@@ -10,7 +10,7 @@ teaches rather than presenting twenty unexplained boxes, and so the two can neve
 drift: there is one copy of the text and the form reads it.
 
 Reading the *source* rather than importing the dataclasses is not stubbornness —
-``missile_defense.train`` imports torch, and this package must not (docs/ROADMAP.md, M8, risk
+``missile_defense.training`` imports torch, and this package must not (docs/ROADMAP.md, M8, risk
 3). `ast` gives the fields, their annotations and their defaults; the reasoning
 lives in ``#:`` comments, which are comments and therefore not in the tree at
 all, so `tokenize` collects those separately and they are matched back by line.
@@ -20,7 +20,7 @@ The price of reading source is that a default can be a *name*: the trainer write
 places that could drift. So a name is followed to what it stands for, across
 modules, before it is offered to a form — see :func:`_constant`.
 
-If missile_defense.train is not beside the trainer — an installed trainer watching a synced
+If missile_defense.training is not beside the trainer — an installed trainer watching a synced
 directory — nothing here throws. There are simply no fields, and the form says
 so.
 """
@@ -34,7 +34,7 @@ from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from .. import runconfig
+from ..runs import runconfig
 
 #: Where the trainer's dataclasses live, for the tooltips and the defaults —
 #: ``python/missile_defense``, beside the ``missile_defense/ui`` this file is in.
@@ -59,9 +59,9 @@ HIDDEN = ("out_dir", "resume")
 #: everything in `phi` provably does not. Its flags are prefixed (`--reward-…`)
 #: because `Shaping.gamma` and `PPOConfig.gamma` are two different discounts.
 SOURCES = (
-    ("train.py", "TrainConfig"),
-    ("ppo.py", "PPOConfig"),
-    ("env.py", "Shaping"),
+    ("training/train.py", "TrainConfig"),
+    ("training/ppo.py", "PPOConfig"),
+    ("sim/env.py", "Shaping"),
 )
 
 #: Config classes whose flags the trainer prefixes, and with what.
@@ -85,7 +85,8 @@ REWARD_FIELDS = frozenset(
 
 #: Fields that are a *choice* rather than a number or free text, and what the
 #: choices are. Typing `--architecture entty` into a text box costs a run; a
-#: dropdown cannot be misspelled. The values are the ones `missile_defense.ppo.build_policy`
+#: dropdown cannot be misspelled. The values are the ones
+#: `missile_defense.training.ppo.build_policy`
 #: accepts, and a test holds the two lists together.
 #: `device` is deliberately *not* here: it is `str | None`, `cuda:1` is a
 #: legitimate value, and a dropdown would take that away to prevent a mistake
@@ -171,18 +172,26 @@ class Param:
 
 
 def read_params(package_dir: Path) -> list[Param]:
-    """Every settable field of the trainer's two config dataclasses."""
+    """Every settable field of the trainer's two config dataclasses.
+
+    ``package_dir`` is the root of the ``missile_defense`` package; :data:`SOURCES`
+    names the files inside it. They sit in different layers now — ``TrainConfig``
+    under ``training/`` and ``Shaping`` under ``sim/`` — so what is passed down
+    from here is each file's *own* directory, which is what a relative import in
+    it resolves against.
+    """
     found: list[Param] = []
     for filename, class_name in SOURCES:
+        path = package_dir / filename
         try:
-            source = (package_dir / filename).read_text(encoding="utf-8")
+            source = path.read_text(encoding="utf-8")
         except OSError:
-            continue  # no missile_defense.train beside this trainer; the form says so
-        found.extend(_fields_of(source, class_name, package_dir))
+            continue  # no missile_defense.training beside this trainer; the form says so
+        found.extend(_fields_of(source, class_name, path.parent))
     return found
 
 
-def _fields_of(source: str, class_name: str, package_dir: Path) -> list[Param]:
+def _fields_of(source: str, class_name: str, here: Path) -> list[Param]:
     comments = _doc_comments(source)
     tree = ast.parse(source)
     fields: list[Param] = []
@@ -197,7 +206,7 @@ def _fields_of(source: str, class_name: str, package_dir: Path) -> list[Param]:
             name = statement.target.id
             if name in HIDDEN:
                 continue
-            default = _default_of(statement.value, tree, package_dir)
+            default = _default_of(statement.value, tree, here)
             fields.append(
                 Param(
                     name=name,
@@ -219,7 +228,7 @@ def _fields_of(source: str, class_name: str, package_dir: Path) -> list[Param]:
 NAME_HOPS = 8
 
 
-def _default_of(value: ast.expr | None, tree: ast.Module, package_dir: Path) -> str:
+def _default_of(value: ast.expr | None, tree: ast.Module, here: Path) -> str:
     """A field's default as source text, with a bare name followed to its value.
 
     The trainer names its constants rather than writing ``0.84`` in the two
@@ -237,18 +246,25 @@ def _default_of(value: ast.expr | None, tree: ast.Module, package_dir: Path) -> 
     if value is None:
         return ""
     if isinstance(value, ast.Name):
-        found = _constant(value.id, tree, package_dir, frozenset())
+        found = _constant(value.id, tree, here, frozenset())
         if found is not None:
             return found
     return ast.unparse(value)
 
 
-def _constant(name: str, tree: ast.Module, package_dir: Path, seen: frozenset[str]) -> str | None:
+def _constant(name: str, tree: ast.Module, here: Path, seen: frozenset[str]) -> str | None:
     """What ``name`` stands for, or ``None`` if it cannot be followed to a value.
 
     Two ways a module can answer: it binds the name itself, or it imported it
-    from a sibling — and the real chain uses both, since ``missile_defense.benchmark`` binds
-    ``CANONICAL_AIM_TRAIL`` to a name it imported from ``missile_defense._protocol``.
+    from somewhere else — and the real chain uses both, since
+    ``missile_defense.sim.benchmark`` binds ``CANONICAL_AIM_TRAIL`` to a name it
+    imported from ``missile_defense.sim.protocol``.
+
+    ``here`` is the directory of the module being read, because that is what a
+    relative import resolves against. It used to be the package root and the two
+    were the same thing, which stopped being true when the package gained layers:
+    the chain now starts in ``training/train.py`` and reaches ``sim/benchmark.py``
+    through a ``from ..sim.benchmark import`` — two levels up and back down.
 
     Deliberately lazy. Only a default that *is* a name asks anything of this, so
     a trainer that spells all of its defaults out costs nothing, and one that
@@ -263,16 +279,31 @@ def _constant(name: str, tree: ast.Module, package_dir: Path, seen: frozenset[st
         if not isinstance(bound, ast.Name):
             return ast.unparse(bound)
         name = bound.id
-    for module, original in _imports_of(tree, name):
-        if module in seen:
+    for level, module, original in _imports_of(tree, name):
+        source = _relative_module(here, level, module)
+        if str(source) in seen:
             continue  # a cycle between two modules is not a reason to stop working
-        sibling = _parsed(package_dir / f"{module}.py")
+        sibling = _parsed(source)
         if sibling is None:
             continue
-        found = _constant(original, sibling, package_dir, seen | {module})
+        found = _constant(original, sibling, source.parent, seen | {str(source)})
         if found is not None:
             return found
     return None
+
+
+def _relative_module(here: Path, level: int, module: str) -> Path:
+    """The file a ``from <dots><module> import`` in ``here`` names.
+
+    One dot is this directory, two is the one above it, and so on — the same
+    arithmetic the interpreter does. Dotted module parts become directories, so
+    ``from ..sim.benchmark import`` from inside ``training/`` lands on
+    ``sim/benchmark.py``.
+    """
+    base = here
+    for _ in range(level - 1):
+        base = base.parent
+    return base.joinpath(*module.split(".")).with_suffix(".py")
 
 
 def _bindings(tree: ast.Module) -> dict[str, ast.expr]:
@@ -297,19 +328,25 @@ def _bindings(tree: ast.Module) -> dict[str, ast.expr]:
     return found
 
 
-def _imports_of(tree: ast.Module, name: str) -> Iterator[tuple[str, str]]:
-    """Sibling modules this one imports ``name`` from, as (module, its name there).
+def _imports_of(tree: ast.Module, name: str) -> Iterator[tuple[int, str, str]]:
+    """Where this module imports ``name`` from, as (level, module, its name there).
 
-    Relative single-name imports only — ``from .benchmark import X``. An absolute
-    import is a package this trainer cannot assume is beside it, and a
-    ``from . import benchmark`` binds a module rather than a value.
+    Relative single-name imports only — ``from .benchmark import X`` or
+    ``from ..sim.benchmark import X``. An absolute import is a package this
+    trainer cannot assume is beside it, and a ``from . import benchmark`` binds a
+    module rather than a value.
+
+    Any level, not just one. It was level one only, which was right while the
+    package was flat and silently stopped resolving anything the day it was not:
+    every cross-layer default would have fallen back to showing the constant's
+    *name* in the form instead of its value.
     """
     for node in tree.body:
-        if not isinstance(node, ast.ImportFrom) or node.level != 1 or not node.module:
+        if not isinstance(node, ast.ImportFrom) or not node.level or not node.module:
             continue
         for alias in node.names:
             if (alias.asname or alias.name) == name:
-                yield node.module, alias.name
+                yield node.level, node.module, alias.name
 
 
 def _parsed(path: Path) -> ast.Module | None:
@@ -377,7 +414,7 @@ class Setting:
     name: str
     value: str
     #: The trainer's own default, as its source spells it. Empty when this
-    #: trainer has no missile_defense.train beside it to read, or the field is not one.
+    #: trainer has no missile_defense.training beside it to read, or the field is not one.
     default: str
     changed: bool
     help: str
@@ -387,7 +424,7 @@ def settings_of(config: runconfig.RunConfig | None, fields: Sequence[Param] = ()
     """Everything a run recorded about itself, in the order the trainer wrote it.
 
     Driven by the *stored* file rather than by the field list: a run trained by a
-    newer missile_defense.train carries knobs this trainer has never heard of, and hiding them
+    newer missile_defense.training carries knobs this trainer has never heard of, and hiding them
     would be answering "what was this trained with?" with "the part I recognise".
     Those simply arrive without a default or a tooltip.
     """
@@ -444,7 +481,7 @@ def command_line(
     *,
     out_dir: Path,
     resume: Path | None = None,
-    module: str = "missile_defense.train",
+    module: str = "missile_defense.training",
 ) -> list[str]:
     """The command a configured run is started with.
 

@@ -103,7 +103,7 @@ set_target_properties(_md_native PROPERTIES
   LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/python/missile_defense")
 
 # ---- Beside the Python package, so a checkout is importable ------------------
-# `missile_defense.env` imports this as `missile_defense._md_native`, so the object has to sit next to
+# `missile_defense.sim.env` imports this as `missile_defense._md_native`, so the object has to sit next to
 # python/missile_defense/. That copy used to be a Python script run after the fact, which made
 # `cmake --build` produce a module nothing could import until a second, separate
 # tool was run over it. It is a build step, so it belongs to the build. The

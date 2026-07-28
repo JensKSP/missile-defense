@@ -51,7 +51,7 @@ import numpy.typing as npt
 from . import policy_format
 from .policy_format import NativePolicy, PolicyFormatError, Tensor
 
-#: What an illegal action's logit becomes. The same value `missile_defense.ppo` uses during
+#: What an illegal action's logit becomes. The same value `missile_defense.training.ppo` uses during
 #: training, so the exported policy behaves as the trained one did — a different
 #: sentinel would be a different (if usually equivalent) policy.
 MASKED_LOGIT = -1.0e8
@@ -96,7 +96,7 @@ def export_checkpoint(
 ) -> Path:
     """Convert ``checkpoint`` to an `.mdp` at ``destination``.
 
-    Validated and written atomically by :mod:`missile_defense.policy_format`, so a refusal
+    Validated and written atomically by :mod:`missile_defense.sim.policy_format`, so a refusal
     leaves nothing behind and a success is a file this build can read back.
 
     ``metadata`` is merged *under* the provenance this function derives, so a
@@ -196,7 +196,7 @@ def evaluate(policy: NativePolicy, observation: Weights, legal: Legal) -> Decisi
 
 
 def _entity_forward(policy: NativePolicy, observation: Weights) -> tuple[Weights, float]:
-    """`missile_defense.ppo.EntityPolicy`'s forward pass, from the `.mdp` and numpy alone.
+    """`missile_defense.training.ppo.EntityPolicy`'s forward pass, from the `.mdp` and numpy alone.
 
     **The slot counts come from the simulation, not from the file.** How many
     threat, interceptor and blast slots an observation holds is a fact about
@@ -205,7 +205,7 @@ def _entity_forward(policy: NativePolicy, observation: Weights) -> tuple[Weights
     ``ObsSpec`` for exactly this reason, and this reads them from the same place
     so the two cannot drift.
     """
-    from ._md_native import ObsSpec  # noqa: PLC0415 — the native layout, not a policy concern
+    from .._md_native import ObsSpec  # noqa: PLC0415 — the native layout, not a policy concern
 
     spec = ObsSpec()
     threats, interceptors, blasts = int(spec.threats), int(spec.interceptors), int(spec.blasts)
@@ -268,7 +268,7 @@ def _entity_forward(policy: NativePolicy, observation: Weights) -> tuple[Weights
         """Cross-attention from every threat to one entity set.
 
         An empty set is an exact zero **including the output bias**:
-        `missile_defense.ppo._CrossAttention` scales its output by `has_entity`, which
+        `missile_defense.training.ppo._CrossAttention` scales its output by `has_entity`, which
         suppresses the bias too. Returning the bias here would disagree with
         training on every observation with no live blast.
         """
@@ -406,7 +406,7 @@ def _set_presence(observation: Weights, rng: np.random.Generator, *, live: float
     still carries non-zero junk — which is the honest case, since the encoders
     run over padding rows in training too and only the mask keeps them out.
     """
-    from ._md_native import ObsSpec  # noqa: PLC0415 — the native layout, not a policy concern
+    from .._md_native import ObsSpec  # noqa: PLC0415 — the native layout, not a policy concern
 
     spec = ObsSpec()
     offset = 0
@@ -434,17 +434,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     (docs/ROADMAP.md, M8) — that is the whole reason a packaged install can watch
     a run on a machine with no CUDA — and promotion is the one trainer action
     that needs a `.pt` opened. So the trainer runs *this*, in the same managed
-    runtime it starts a trainer with (:func:`missile_defense.ui.runner.training_python`),
+    runtime it starts a trainer with (:func:`missile_defense.runs.runner.training_python`),
     rather than importing torch into its own process and being unable to.
 
-    A checkout with torch beside the trainer never spawns it: :func:`missile_defense.league.promote`
+    A checkout with torch beside the trainer never spawns it:
+    :func:`missile_defense.runs.league.promote`
     calls :func:`export_checkpoint` directly when it can.
     """
     import argparse  # noqa: PLC0415 — only the command line needs it
     import sys  # noqa: PLC0415
 
     parser = argparse.ArgumentParser(
-        prog="missile_defense.export_policy", description="Convert a training checkpoint to a .mdp"
+        prog="missile_defense.sim.export_policy",
+        description="Convert a training checkpoint to a .mdp",
     )
     parser.add_argument("checkpoint", type=Path, help="the .pt to read")
     parser.add_argument("destination", type=Path, help="the .mdp to write")

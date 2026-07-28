@@ -4,7 +4,7 @@
 """The human handicap, and the rule that there is only one of it.
 
 The handicap is defined twice — `md::protocol::aim_trail` in C++ and
-`missile_defense.benchmark.CANONICAL_AIM_TRAIL` in Python — because the trainer and the
+`missile_defense.sim.benchmark.CANONICAL_AIM_TRAIL` in Python — because the trainer and the
 trainer never read the header, and the game never reads the Python. Two copies
 are fine; two copies that disagree are a ladder whose rungs mean different things
 depending on which program you asked, which is the failure this file exists to
@@ -17,7 +17,7 @@ import re
 from pathlib import Path
 
 import pytest
-from missile_defense.benchmark import (
+from missile_defense.sim.benchmark import (
     CANONICAL_AIM_TRAIL,
     CANONICAL_FRAME_SKIP,
     CANONICAL_INFERENCE_DEVICE,

@@ -3,7 +3,7 @@
 # Assisted-by: Claude Code (Anthropic)
 """Cleaning up, archiving and restoring a real run through the real dialogs.
 
-`missile_defense.archive` has been tested since Task 9 and none of it was reachable from the
+`missile_defense.runs.archive` has been tested since Task 9 and none of it was reachable from the
 trainer. What is asserted here is the part unit tests cannot reach: that the
 dialog computes a plan, *shows* it, and then executes the plan it showed — and
 that a round trip out to a ZIP and back leaves a run the library still lists.
@@ -39,8 +39,8 @@ def library_copy(trained_run: Path, tmp_path: Path) -> Path:
     return root
 
 
-def _run(root: Path):  # noqa: ANN202 — missile_defense.library is an optional-dependency import
-    from missile_defense import library
+def _run(root: Path):  # noqa: ANN202 — missile_defense.runs.library is an optional-dependency import
+    from missile_defense.runs import library
 
     runs = library.discover(root)
     assert runs, f"no runs discovered in {root}"
@@ -98,7 +98,7 @@ def test_a_run_survives_a_round_trip_through_an_archive(
     this proves is the half a unit test cannot, that the dialog wires those
     three together in that order and that the library sees the result.
     """
-    from missile_defense import library
+    from missile_defense.runs import library
     from missile_defense.ui import storage
     from PySide6.QtWidgets import QFileDialog, QMessageBox
 
@@ -140,7 +140,7 @@ def test_restoring_over_an_existing_run_is_refused(
 ) -> None:
     # A half-merged run has `metrics.csv` from one and checkpoints from another,
     # and nothing downstream would notice. Refused, and said out loud.
-    from missile_defense import archive
+    from missile_defense.runs import archive
     from missile_defense.ui import storage
     from PySide6.QtWidgets import QFileDialog, QMessageBox
 
@@ -174,7 +174,8 @@ def test_a_model_can_be_exported_and_imported_back(
     than the thing that was scored.
     """
     import numpy as np
-    from missile_defense import league, policy_format
+    from missile_defense.runs import league
+    from missile_defense.sim import policy_format
     from missile_defense.ui.league import LeagueView
     from PySide6.QtWidgets import QFileDialog, QMessageBox
 
@@ -229,7 +230,7 @@ def test_a_model_can_be_exported_and_imported_back(
 def _a_policy(name: str) -> object:
     """The smallest thing `policy_format` and the game both accept."""
     import numpy as np
-    from missile_defense import policy_format
+    from missile_defense.sim import policy_format
 
     rng = np.random.default_rng(11)
 
@@ -268,7 +269,8 @@ def test_a_model_can_be_deleted_out_of_the_league(
     monkeypatched rather than clicked — a destructive action that a stray Enter
     could trigger is not evidence of anything.
     """
-    from missile_defense import league, policy_format
+    from missile_defense.runs import league
+    from missile_defense.sim import policy_format
     from missile_defense.ui.league import LeagueView
     from PySide6.QtWidgets import QMessageBox
 
@@ -279,7 +281,7 @@ def test_a_model_can_be_deleted_out_of_the_league(
         (root / model_id / league.CARD_NAME).write_text(
             f'{{"display_name": "{name}"}}', encoding="utf-8"
         )
-    # The view deletes through `missile_defense.paths`, exactly as the trainer does, so the
+    # The view deletes through `missile_defense.runs.paths`, exactly as the trainer does, so the
     # guard that refuses a model outside the league stays a real guard here.
     monkeypatch.setenv("MD_MODELS_DIR", str(root))
     monkeypatch.setattr(
@@ -316,10 +318,11 @@ def test_importing_a_name_the_league_already_has_asks_before_replacing(
 
     So the second one stops and asks. The question itself is `ask_about_clash`
     and is patched here to answer *replace*; what this asserts is the wiring
-    around it — that the answer reaches `missile_defense.league` and produces one entry
+    around it — that the answer reaches `missile_defense.runs.league` and produces one entry
     rather than an `-2` nobody chose.
     """
-    from missile_defense import league, policy_format
+    from missile_defense.runs import league
+    from missile_defense.sim import policy_format
     from missile_defense.ui import league as league_ui
     from PySide6.QtWidgets import QFileDialog
 
@@ -367,7 +370,8 @@ def test_peeking_at_a_head_to_head_records_both_sides(
     computed. Both are recorded here — the same policies on the same seed are
     the same episodes, so what opens is what is being scored.
     """
-    from missile_defense import league, policy_format, tournament
+    from missile_defense.runs import league, tournament
+    from missile_defense.sim import policy_format
     from missile_defense.ui.league import ContestDialog
 
     root = tmp_path / "models"

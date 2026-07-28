@@ -14,7 +14,7 @@ The first 32 deterministic seeds were historically used during training, so
 they are the validation split. The next disjoint 32 values are the held-out
 canonical benchmark; choosing ``policy-best.pt`` must never inspect them.
 
-    from missile_defense.eval import evaluate, default_seeds
+    from missile_defense.sim.eval import evaluate, default_seeds
 
     summary = evaluate(lambda obs, mask: policy(obs, mask))
     print(summary.mean_score, summary.mean_wave)
@@ -26,7 +26,7 @@ from collections.abc import Callable, Sequence
 
 import numpy as np
 
-from . import _md_native as _native
+from .. import _md_native as _native
 from .benchmark import (
     CANONICAL_AIM_TRAIL,
     CANONICAL_REACTION_DELAY,

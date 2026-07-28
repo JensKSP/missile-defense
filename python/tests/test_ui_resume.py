@@ -20,7 +20,7 @@ shape of `runs/deadline-1330`, which is where they were found.
 from __future__ import annotations
 
 import pytest
-from missile_defense.ui.sources import Latest
+from missile_defense.runs.sources import Latest
 
 try:  # the widgets, where PySide6 is installed — the trainer is optional
     from missile_defense.ui.charts import CurveView

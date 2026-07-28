@@ -51,7 +51,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import runconfig
+from ..runs import runconfig
 from . import theme
 from .params import Setting, read_params, settings_of
 from .reward import Formula, Term, formula_of
@@ -67,7 +67,7 @@ NOTHING_STORED = (
 
 COLUMNS = ("Setting", "Value", "Default")
 
-#: Where a group's rows begin, in the order `missile_defense.runconfig` writes them: the shape
+#: Where a group's rows begin, in the order `missile_defense.runs.runconfig` writes them: the shape
 #: of the run, then the optimiser, then what the agent was paid for, then how the
 #: two annealed coefficients moved.
 GROUP_LABELS = {

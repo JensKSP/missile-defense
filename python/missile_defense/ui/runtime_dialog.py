@@ -8,7 +8,7 @@ The trainer could always watch a run and could only start one where torch was
 already importable, which made "open a terminal and pip install torch" the first
 instruction an installed copy had to give. This is the dialog that replaces it.
 
-All the thinking is in :mod:`missile_defense.runtime`; this is the surface. It shows what
+All the thinking is in :mod:`missile_defense.runs.runtime`; this is the surface. It shows what
 would be installed *before* installing it — the backend, why that one, where it
 comes from and roughly how large it is — because a multi-gigabyte download that
 starts the moment you open a window is not a choice you were offered.
@@ -23,7 +23,7 @@ Three things are deliberate:
   report. It sits behind a disclosure, because most people want "installing…" and
   the ones who want the resolver's output want all of it.
 * **Nothing is offered that cannot work.** The backend list is what
-  :mod:`missile_defense.runtime` says this platform can install — an AMD card on Windows is
+  :mod:`missile_defense.runs.runtime` says this platform can install — an AMD card on Windows is
   offered the CPU build, not a ROCm install that downloads and then fails.
 """
 
@@ -48,8 +48,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import runtime
-from ..runtime import Backend, Runtime, RuntimePlan, RuntimeStatus, SystemInfo
+from ..runs import runtime
+from ..runs.runtime import Backend, Runtime, RuntimePlan, RuntimeStatus, SystemInfo
 
 #: Wide enough for a pip line without wrapping every one of them.
 DIALOG_WIDTH = 640
@@ -78,7 +78,7 @@ class _Install(QThread):
         """Ask the install to stop at the next step boundary.
 
         Not a kill: a half-killed pip leaves a directory nobody can reason about.
-        :meth:`missile_defense.runtime.Runtime.install` checks between steps and deletes the
+        :meth:`missile_defense.runs.runtime.Runtime.install` checks between steps and deletes the
         directory it was filling, which is a stop that leaves no trace.
         """
         self._cancel.set()

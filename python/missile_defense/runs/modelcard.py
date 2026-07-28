@@ -5,7 +5,7 @@
 
 The trainer must never import torch — that is a test, not a habit
 (docs/ROADMAP.md, M8, risk 3) — and the roadmap's own answer to the rule is that
-anything needing model state belongs in ``missile_defense.train``, surfaced as an artifact the
+anything needing model state belongs in ``missile_defense.training``, surfaced as an artifact the
 trainer reads. This is that artifact: ``runs/model.json``, beside ``config.json``
 and for the same reason. One says what the run was started with, the other says
 what it is training.
@@ -18,7 +18,7 @@ every ``policy-*.pt`` would be the same bytes repeated once per hundred updates.
 Nothing here imports torch, not even lazily: :func:`describe` takes the *shapes*
 out of a state dict, and a shape is a tuple of ints. That keeps this module
 importable from either side of the boundary without either side having to think
-about it — which is the same trick :mod:`missile_defense.control` plays with the pause file.
+about it — which is the same trick :mod:`missile_defense.runs.control` plays with the pause file.
 """
 
 from __future__ import annotations
@@ -114,7 +114,7 @@ class ModelCard:
 
 # ---- what it reads like -----------------------------------------------------
 # Pure, so the panel's text is covered by tests rather than by eye — the same
-# bargain missile_defense.ui.sources makes with its own glanceable formatting.
+# bargain missile_defense.runs.sources makes with its own glanceable formatting.
 
 
 def headline(card: ModelCard) -> str:

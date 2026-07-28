@@ -15,11 +15,11 @@ The extension is built by an ordinary build — no flag, no task runner:
 
 ```bash
 cmake --preset release
-cmake --build --preset release   # -> build/release/python/md/, and python/md/
+cmake --build --preset release   # -> build/release/python/missile_defense/, and python/missile_defense/
 ```
 
-It lands twice on purpose: in the build tree, and beside `python/md/`, which is
-where `md.env` imports it from — so a plain checkout is importable with no
+It lands twice on purpose: in the build tree, and beside `python/missile_defense/`, which is
+where `missile_defense.sim.env` imports it from — so a plain checkout is importable with no
 install step and no `PYTHONPATH`. Both are outputs of the build, so deleting the
 placed copy brings it back on the next build rather than silently staying gone.
 

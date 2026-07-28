@@ -22,7 +22,8 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from missile_defense import benchmark, league, policy_format, tournament
+from missile_defense.runs import league, tournament
+from missile_defense.sim import benchmark, policy_format
 
 OBS = 6
 ACTIONS = 4
@@ -84,7 +85,7 @@ def test_a_quick_match_is_short_enough_to_be_worth_having() -> None:
 
 
 def test_changing_any_part_of_the_protocol_stops_it_ranking() -> None:
-    """`missile_defense.benchmark` owns what canonical means; this asks rather than guesses."""
+    """`missile_defense.sim.benchmark` owns what canonical means; this asks rather than guesses."""
     base = tournament.canonical_protocol()
     for field, value in (
         ("seed_offset", 0),

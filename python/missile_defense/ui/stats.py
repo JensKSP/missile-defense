@@ -30,8 +30,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from ..runs.sources import EvalRow
 from . import theme
-from .sources import EvalRow
 
 #: What a stat shows when nothing behind it exists. An em dash rather than "0",
 #: because the difference between "did not happen" and "was not recorded" is the

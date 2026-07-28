@@ -14,7 +14,7 @@ that refuses a malformed one is thirty lines rather than a sandbox.
 The second reason is simpler. The game is C++ with no Python anywhere in it —
 that is the packaging promise `debian/control` keeps — so the *only* format the
 game could load is one that does not need torch to read. `.pt` is never an import
-format here; it is what training writes and what :mod:`missile_defense.export_policy` converts.
+format here; it is what training writes and what :mod:`missile_defense.sim.export_policy` converts.
 
 ## The layout
 
@@ -68,7 +68,7 @@ from pathlib import Path
 import numpy as np
 import numpy.typing as npt
 
-from ._protocol import POLICY_CONTAINER_VERSION, POLICY_MAGIC
+from .protocol import POLICY_CONTAINER_VERSION, POLICY_MAGIC
 
 #: First eight bytes of every `.mdp`. Long enough that `file` can be taught it
 #: and that a truncated download is not mistaken for a short valid one.
@@ -97,13 +97,13 @@ ITEMSIZE = 4
 #: other while reading, which is what turns "the shapes are plausible" into "the
 #: shapes are the ones this observation size and action count imply".
 #:
-#: `mlp` is `missile_defense.ppo.Policy`: two tanh layers, then a policy head and a value
+#: `mlp` is `missile_defense.training.ppo.Policy`: two tanh layers, then a policy head and a value
 #: head off the shared trunk. `agent/src/policy.cpp` implements exactly this,
 #: and `entity` beside it — deliberately those two and no more, because an
 #: interpreter for arbitrary graphs is a much larger thing to get right than the
 #: networks this project actually trains.
 #:
-#: `entity` is `missile_defense.ppo.EntityPolicy`: every threat through one narrow encoder,
+#: `entity` is `missile_defense.training.ppo.EntityPolicy`: every threat through one narrow encoder,
 #: cross-attention from each threat to the live interceptor and blast sets, a
 #: pooled episode context, and a fire logit per battery — plus a critic that
 #: shares nothing with any of it. `auxiliary_head` is deliberately absent: it is

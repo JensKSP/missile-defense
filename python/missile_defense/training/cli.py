@@ -96,8 +96,8 @@ def split_multiseed(argv: list[str]) -> list[str] | None:
     """The multi-seed arguments, or ``None`` when this is an ordinary run.
 
     ``--multiseed`` counts only *before* the ``--`` separator. Everything after
-    it belongs to the child trainers (missile_defense.multiseed), and a run that passes the
-    literal string down to them — ``-- --multiseed`` — must reach missile_defense.train and be
+    it belongs to the child trainers (missile_defense.training.multiseed), and a run that passes the
+    literal string down to them — ``-- --multiseed`` — must reach missile_defense.training and be
     rejected there rather than silently re-entering the experiment runner here.
     """
     end = argv.index("--") if "--" in argv else len(argv)

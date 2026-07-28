@@ -14,11 +14,11 @@ could have promoted the best checkpoint automatically at the end of every run;
 that would fill the league with fifty entries nobody chose and make the table
 useless for the one thing it is for. So it is a dialog, it defaults to the best
 *evaluated checkpoint that still exists on disk*
-(:func:`missile_defense.library.best_evaluated_checkpoint` — the best score often
+(:func:`missile_defense.runs.library.best_evaluated_checkpoint` — the best score often
 has no checkpoint), it names the model after the run, and
 it shows exactly what will happen before it happens.
 
-Every failure path is :mod:`missile_defense.league`'s: an unexportable architecture, a
+Every failure path is :mod:`missile_defense.runs.league`'s: an unexportable architecture, a
 checkpoint from a different simulator, a full disk. They arrive here as a
 message and leave the league untouched, because promotion stages and validates
 before it renames.
@@ -52,12 +52,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import league, library, policy_format
-from . import sources
-from .runner import training_python
+from ..runs import league, library, sources
+from ..runs.runner import training_python
+from ..sim import policy_format
 
 if TYPE_CHECKING:  # pulls in the native binding; annotations only
-    from ..tournament import Protocol
+    from ..runs.tournament import Protocol
 
 NOTHING_PROMOTED = (
     "No models promoted yet.\n\n"
@@ -428,7 +428,7 @@ class LeagueView(QWidget):
         each, on a seed both already played — but only if someone asks for them
         here, while the result is on screen.
         """
-        from .. import tournament  # noqa: PLC0415 — needs the native binding
+        from ..runs import tournament  # noqa: PLC0415 — needs the native binding
 
         assert isinstance(match, tournament.Match)
         summary = (
@@ -641,7 +641,7 @@ class _Contest(QThread):
     Both are minutes of pure computation with no I/O to wait on, so they would
     freeze the window solid — and a frozen window during the *one* operation
     that takes long enough to notice is how a person concludes the program has
-    crashed. `missile_defense.tournament` already reports progress and takes its seed list
+    crashed. `missile_defense.runs.tournament` already reports progress and takes its seed list
     once, so all this adds is a thread and a way to stop.
     """
 
@@ -670,7 +670,7 @@ class _Contest(QThread):
         self._cancelled.set()
 
     def run(self) -> None:
-        from .. import tournament  # noqa: PLC0415 — needs the native binding
+        from ..runs import tournament  # noqa: PLC0415 — needs the native binding
 
         def report(index: int, contestants: int, done: int, total: int) -> None:
             if self._cancelled.is_set():
@@ -689,7 +689,11 @@ class _Contest(QThread):
 
 
 class _Cancelled(Exception):
-    """Raised inside the worker to unwind out of `missile_defense.tournament`'s progress hook."""
+    """Raised inside the worker to unwind out of the tournament's progress hook.
+
+    That is `missile_defense.runs.tournament`, which reports progress through a
+    callback and has no other way to be stopped from outside.
+    """
 
 
 class _PeekRecorder(QThread):
@@ -728,7 +732,7 @@ class _PeekRecorder(QThread):
         self._frame_skip = frame_skip
 
     def run(self) -> None:
-        from .. import tournament  # noqa: PLC0415 — needs the native binding
+        from ..runs import tournament  # noqa: PLC0415 — needs the native binding
 
         try:
             sides = tuple(
@@ -828,7 +832,7 @@ class ContestDialog(QDialog):
 
     def _protocol(self) -> Protocol:
         """The protocol the contest is running. One lookup, used three ways."""
-        from .. import tournament  # noqa: PLC0415 — needs the native binding
+        from ..runs import tournament  # noqa: PLC0415 — needs the native binding
 
         return tournament.canonical_protocol()
 
@@ -841,14 +845,14 @@ class ContestDialog(QDialog):
         carrying seeds across a thread boundary would be a second thing that
         could disagree about which episode is on screen.
         """
-        from .. import tournament  # noqa: PLC0415 — needs the native binding
+        from ..runs import tournament  # noqa: PLC0415 — needs the native binding
 
         if self._seed_list is None:
             self._seed_list = tournament.canonical_protocol().seeds()
         return self._seed_list
 
     def _protocol_note(self) -> str:
-        from .. import tournament  # noqa: PLC0415 — needs the native binding
+        from ..runs import tournament  # noqa: PLC0415 — needs the native binding
 
         protocol = tournament.canonical_protocol()
         seeds = len(protocol.seeds())

@@ -44,7 +44,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 #: `missile_defense` itself, for the PYTHONPATH a spawned trainer needs.
 PACKAGE_PATH = PROJECT_ROOT / "python"
 
-#: Best build first, mirroring `missile_defense.ui.runner`. The debug build is preferred for
+#: Best build first, mirroring `missile_defense.runs.runner`. The debug build is preferred for
 #: e2e when it exists: it is the one with `VK_LAYER_KHRONOS_validation` enabled,
 #: which is what turns "did it render correctly?" into a checkable question
 #: without capturing a single pixel.
@@ -446,7 +446,7 @@ def train_command(
     command: list[str] = [
         python or sys.executable,
         "-m",
-        "missile_defense.train",
+        "missile_defense.training",
         "--out-dir",
         str(out_dir),
     ]
@@ -464,7 +464,7 @@ def start_training(
     """The same run, handed back while it is still going.
 
     For the tests that have something to say to a *live* trainer — the control
-    files (:mod:`missile_defense.control`) are answers to questions asked mid-run, and a
+    files (:mod:`missile_defense.runs.control`) are answers to questions asked mid-run, and a
     finished run cannot be asked.
     """
     return subprocess.Popen(  # noqa: S603 — our own command line, built above

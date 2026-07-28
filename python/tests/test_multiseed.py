@@ -10,10 +10,10 @@ import json
 import subprocess
 from pathlib import Path
 
-import missile_defense.multiseed as multiseed
+import missile_defense.training.multiseed as multiseed
 import pytest
-from missile_defense.benchmark import VALIDATION_SPLIT
-from missile_defense.multiseed import (
+from missile_defense.sim.benchmark import VALIDATION_SPLIT
+from missile_defense.training.multiseed import (
     ExperimentError,
     best_validation_result,
     run_directory,
@@ -80,7 +80,7 @@ def test_command_owns_freshness_arguments(tmp_path: Path) -> None:
         ["--updates", "500", "--architecture", "entity"],
     )
 
-    assert command[:4] == ["/opt/python", "-u", "-m", "missile_defense.train"]
+    assert command[:4] == ["/opt/python", "-u", "-m", "missile_defense.training"]
     assert command[4:8] == [
         "--seed",
         "17",

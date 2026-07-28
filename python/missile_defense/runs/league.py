@@ -14,7 +14,7 @@ the native evaluator read that and never a pickle (docs/API.md §7), so a model
 that cannot be exported and re-read cannot be promoted at all. That is the
 intended failure — a league entry the game cannot load is worse than a refusal.
 
-Two names, the same split as a run's (:mod:`missile_defense.library`). The **id** is a stable
+Two names, the same split as a run's (:mod:`missile_defense.runs.library`). The **id** is a stable
 directory name, derived once and never changed, and it is what every result,
 match and archive refers to. The **display name** is what a person reads and can
 change whenever they like. The display name travels *into* `model.json`, which
@@ -50,7 +50,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import paths, policy_format
+from ..sim import policy_format
+from . import paths
 
 #: How long the exporter gets. It reads one checkpoint and writes one file, so
 #: this is a bound on a hang rather than a budget — a runtime that has to page
@@ -283,7 +284,7 @@ def find(model_id: str, root: Path | None = None) -> Model | None:
 class Promotion:
     """What is about to be promoted, separated from the act of promoting it.
 
-    Planning apart from mutating is the same shape :mod:`missile_defense.runtime` uses and
+    Planning apart from mutating is the same shape :mod:`missile_defense.runs.runtime` uses and
     exists for the same reason: the dialog needs to show exactly what will
     happen — which checkpoint, under what name, at what score — and a function
     that both decided and did it could only be shown by doing it.
@@ -381,7 +382,7 @@ def _export(
     `ModuleNotFoundError: No module named 'torch'` out of a Qt slot, which is a
     button that does nothing.
     """
-    from . import export_policy  # noqa: PLC0415 — imports numpy, not torch
+    from ..sim import export_policy  # noqa: PLC0415 — imports numpy, not torch
 
     # Absolute, and deliberately *not* resolved. A venv's `bin/python` is a
     # symlink to the system interpreter and so is the training runtime's, so
@@ -403,7 +404,7 @@ def _export(
     command = [
         str(python),
         "-m",
-        "missile_defense.export_policy",
+        "missile_defense.sim.export_policy",
         str(checkpoint),
         str(destination),
         "--metadata",
@@ -411,7 +412,7 @@ def _export(
     ]
     # The runtime is a bare venv with torch in it; `missile_defense` itself lives here, in
     # this checkout or this installation, so it has to be put on the path the
-    # same way starting a trainer does (`missile_defense.ui.runner.training_environ`).
+    # same way starting a trainer does (`missile_defense.runs.runner.training_environ`).
     environ = dict(os.environ)
     package_root = str(Path(__file__).resolve().parents[1])
     existing = environ.get("PYTHONPATH", "")
@@ -426,7 +427,7 @@ def _export(
     except (OSError, subprocess.SubprocessError) as error:
         raise LeagueError(f"the training runtime could not be run: {error}") from error
     if finished.returncode != 0:
-        # stderr is the exporter's own sentence (`missile_defense.export_policy.main`), which
+        # stderr is the exporter's own sentence (`missile_defense.sim.export_policy.main`), which
         # was written to be read by a person. Anything else means it died before
         # reaching that, and then the whole of what it said is what there is.
         detail = finished.stderr.strip() or finished.stdout.strip() or "no output"
@@ -462,7 +463,7 @@ def promote(
 
     Raises :class:`LeagueError`, with the reason, for anything that stops it.
     """
-    from . import export_policy  # noqa: PLC0415 — the exporter, not torch (see `_export`)
+    from ..sim import export_policy  # noqa: PLC0415 — the exporter, not torch (see `_export`)
 
     directory = paths.models_dir() if root is None else root
     directory.mkdir(parents=True, exist_ok=True)
@@ -613,7 +614,7 @@ def delete(model: Model, root: Path | None = None) -> int:
     away with one contestant would delete evidence about the other.
 
     Two guards stand in front of `rmtree`, for the reason
-    :func:`missile_defense.archive.delete_run` gives at greater length — a path that arrived
+    :func:`missile_defense.runs.archive.delete_run` gives at greater length — a path that arrived
     from a picker or an environment variable is not automatically a thing you
     may recursively delete:
 

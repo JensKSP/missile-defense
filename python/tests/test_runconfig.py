@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from missile_defense import runconfig
+from missile_defense.runs import runconfig
 
 PAYLOAD = {
     "train": {
@@ -89,7 +89,7 @@ def test_options_are_the_shape_the_start_dialog_and_presets_use(tmp_path: Path) 
 
     options = runconfig.options(config)
 
-    # Field name to string, exactly as `missile_defense.presets` stores them and as
+    # Field name to string, exactly as `missile_defense.runs.presets` stores them and as
     # `missile_defense.ui.params.command_line` consumes them.
     assert options["envs"] == "2048"
     assert options["architecture"] == "entity"

@@ -11,8 +11,8 @@ not a traceback to dump.
 
 That used to be true of PySide6 alone. Everything else went out as a stack
 trace, and on 2026-07-28 the one that did was ``numpy`` — a *base* dependency of
-``missile_defense``, reached through ``missile_defense.league`` →
-``missile_defense.policy_format``, and absent on any machine that got the trainer
+``missile_defense``, reached through ``missile_defense.runs.league`` →
+``missile_defense.sim.policy_format``, and absent on any machine that got the trainer
 from the Windows ZIP rather than from ``pip``.
 Started from the game, which is a GUI-subsystem binary with no console attached,
 that trace had nowhere to appear at all: the menu entry did nothing, silently.
@@ -56,9 +56,9 @@ def explain(missing: str, *, managed: bool | None = None, interpreter: str | Non
     that names the wrong package.
     """
     if managed is None:
-        # The same PEP 668 split as missile_defense.cli: on a distribution interpreter the
+        # The same PEP 668 split as missile_defense.training.cli: on a distribution interpreter the
         # `pip install` is refused by design, and the packages are the answer.
-        from ..cli import externally_managed  # noqa: PLC0415 — only on the failure path
+        from ..training.cli import externally_managed  # noqa: PLC0415 — only on the failure path
 
         managed = externally_managed()
     if managed:

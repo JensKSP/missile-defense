@@ -3,7 +3,7 @@
 # Assisted-by: OpenAI Codex
 """Run and compare several genuinely fresh PPO training seeds.
 
-This module deliberately stays one process outside :mod:`missile_defense.train`.  Each seed
+This module deliberately stays one process outside :mod:`missile_defense.training`.  Each seed
 gets a separate output directory and a separate trainer process, which keeps
 checkpoints, optimizer state, STOP/PAUSE controls, and console logs isolated.
 The winner is chosen only from the trainer's validation rows; the held-out
@@ -19,7 +19,7 @@ checkout::
         --out-dir runs/entity-3seed --num-seeds 3 --seed-start 1000 \
         -- --architecture entity --updates 750 --envs 4096
 
-Everything after ``--`` is passed to ``missile_defense.train``.  ``--seed``, ``--out-dir``,
+Everything after ``--`` is passed to ``missile_defense.training``.  ``--seed``, ``--out-dir``,
 ``--resume`` and ``--load`` are intentionally forbidden there: the runner owns
 those arguments so every run is fresh and reproducible.
 """
@@ -37,7 +37,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
-from .benchmark import VALIDATION_SPLIT
+from ..sim.benchmark import VALIDATION_SPLIT
 
 SCHEMA_VERSION = 1
 SUMMARY_COLUMNS = (
@@ -126,7 +126,7 @@ def training_command(
         python,
         "-u",
         "-m",
-        "missile_defense.train",
+        "missile_defense.training",
         "--seed",
         str(seed),
         "--out-dir",
@@ -334,7 +334,7 @@ def _print_summary(results: Sequence[SeedResult], winner: SeedResult | None) -> 
         print(
             "Run the held-out canonical benchmark once, after all experiment "
             "decisions are final:\n  "
-            f"{sys.executable} -m missile_defense.train --load {winner.checkpoint}"
+            f"{sys.executable} -m missile_defense.training --load {winner.checkpoint}"
         )
 
 
@@ -384,7 +384,7 @@ def _parser() -> argparse.ArgumentParser:
     # `prog` is spelled out because argparse would otherwise derive it from
     # sys.argv[0] and print `usage: missile-defense-train ...` — the command
     # without the flag that got here, which is a usage line that does not do what
-    # it says. The flag is consumed in missile_defense.cli before this parser ever sees it.
+    # it says. The flag is consumed in missile_defense.training.cli before this parser ever sees it.
     parser = argparse.ArgumentParser(
         prog="missile-defense-train --multiseed",
         description=(
@@ -403,7 +403,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--python",
         default=sys.executable,
-        help="Python interpreter used for each missile_defense.train child.",
+        help="Python interpreter used for each missile_defense.training child.",
     )
     parser.add_argument(
         "--aggregate-only",
@@ -413,7 +413,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "trainer_arguments",
         nargs=argparse.REMAINDER,
-        help="Arguments after -- are passed to every missile_defense.train process.",
+        help="Arguments after -- are passed to every missile_defense.training process.",
     )
     return parser
 

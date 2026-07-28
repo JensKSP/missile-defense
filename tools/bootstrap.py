@@ -137,7 +137,7 @@ def trainer_requirements(root: Path = PROJECT_ROOT) -> list[str]:
     Read rather than restated. A second copy of the list here would be a second
     thing to keep current, and the way that goes wrong is not abstract: `numpy`
     is a *base* dependency, so a trainer assembled from a hand-written list that
-    forgot it starts, imports `missile_defense.league`, and dies in `policy_format` with a
+    forgot it starts, imports `missile_defense.runs.league`, and dies in `policy_format` with a
     traceback — which is the exact failure this whole path exists to avoid.
     """
     with (root / "pyproject.toml").open("rb") as handle:

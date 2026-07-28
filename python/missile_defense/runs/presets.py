@@ -26,7 +26,7 @@ Three come with the trainer, and their values are not invented:
   What it does *not* do is scale the minibatch with the batch. The first version
   of this preset did, and ran out of memory on a 32 GiB card before the first
   update finished: on the relational architecture peak memory follows the
-  minibatch, not the batch (:mod:`missile_defense.footprint`). Every built-in is now checked
+  minibatch, not the batch (:mod:`missile_defense.runs.footprint`). Every built-in is now checked
   against that model by a test, and the trainer shows the estimate before a run
   starts.
 
@@ -142,7 +142,7 @@ BUILTIN: tuple[Preset, ...] = (
             "steps": "512",
             # **The one that stops this being an out-of-memory crash.** The
             # relational architecture's peak memory follows the *minibatch*, not
-            # the batch (missile_defense.footprint), so quadrupling the batch at the default 8
+            # the batch (missile_defense.runs.footprint), so quadrupling the batch at the default 8
             # would ask for 60+ GiB. Sixty-four keeps each piece at 16,384
             # samples — half what `good` puts through at once — for a measured
             # 16.6 GiB peak against `good`'s 18.9. The data and the update are

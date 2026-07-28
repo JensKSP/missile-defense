@@ -28,9 +28,9 @@ pytestmark = [pytest.mark.e2e, needs_torch, needs_native]
 
 
 @pytest.fixture
-def promoted(trained_run: Path, tmp_path: Path):  # noqa: ANN201 — missile_defense.league.Model
+def promoted(trained_run: Path, tmp_path: Path):  # noqa: ANN201 — missile_defense.runs.league.Model
     """A real run, promoted the way the trainer promotes one."""
-    from missile_defense import league, library  # noqa: PLC0415 — optional dependency
+    from missile_defense.runs import league, library  # noqa: PLC0415 — optional dependency
 
     run = library.load_run(trained_run)
     assert run is not None, f"the trainer left no run in {trained_run}"
@@ -81,7 +81,7 @@ def test_a_promoted_model_is_one_the_native_evaluator_can_play(promoted) -> None
 
 def test_promotion_carries_the_name_into_the_file(promoted) -> None:  # noqa: ANN001
     """Where the game's HUD reads it from, and the league's table too."""
-    from missile_defense import policy_format  # noqa: PLC0415 — optional dependency
+    from missile_defense.sim import policy_format  # noqa: PLC0415 — optional dependency
 
     policy = policy_format.read(promoted.policy)
     assert policy.metadata["display_name"] == promoted.display_name
@@ -104,7 +104,8 @@ def test_a_promoted_model_survives_its_run_being_removed(trained_run: Path, tmp_
     """
     import shutil  # noqa: PLC0415
 
-    from missile_defense import league, library, policy_format  # noqa: PLC0415
+    from missile_defense.runs import league, library  # noqa: PLC0415
+    from missile_defense.sim import policy_format  # noqa: PLC0415
 
     doomed = tmp_path / "doomed-run"
     shutil.copytree(trained_run, doomed)
@@ -143,7 +144,7 @@ def test_a_run_can_be_promoted_from_the_run_list(
     press would call, so what is under test is the path from the list to a real
     `.mdp` on disk rather than Qt's ability to draw a form.
     """
-    from missile_defense import league
+    from missile_defense.runs import league
     from missile_defense.ui.library import LibraryView
     from PySide6.QtWidgets import QDialog, QMessageBox
 
@@ -198,7 +199,7 @@ def test_a_league_score_is_the_number_the_published_evaluator_prints(
     One seed and a short cap: what is asserted is that two implementations agree
     on an episode, not how long an episode is.
     """
-    from missile_defense import tournament  # noqa: PLC0415 — optional dependency
+    from missile_defense.runs import tournament  # noqa: PLC0415 — optional dependency
 
     seed = int(tournament.canonical_protocol().seeds()[0])
     runner = tournament.load_policy(promoted)
@@ -237,7 +238,7 @@ def test_evaluating_a_model_counts_the_seeds_it_has_finished(promoted) -> None: 
     is of seeds that are in, and so a cancellation raised through it lands on a
     boundary with nothing recorded.
     """
-    from missile_defense import tournament  # noqa: PLC0415 — optional dependency
+    from missile_defense.runs import tournament  # noqa: PLC0415 — optional dependency
 
     protocol = tournament.Protocol(
         seed_split=tournament.benchmark.CANONICAL_SPLIT,

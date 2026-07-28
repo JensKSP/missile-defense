@@ -37,12 +37,16 @@ def test_every_console_script_points_at_something_that_exists() -> None:
 
 
 def test_the_trainer_shim_does_not_import_what_it_checks_for() -> None:
-    """`missile_defense.cli` exists to *explain* a missing torch, so it must load without one.
+    """The CLI exists to *explain* a missing torch, so it must load without one.
+
+    That is `missile_defense.training.cli`.
 
     Importing torch at module level would make the explanation unreachable: the
     traceback it is meant to replace would happen first.
     """
-    source = (ROOT / "python" / "missile_defense" / "cli.py").read_text(encoding="utf-8")
+    source = (ROOT / "python" / "missile_defense" / "training" / "cli.py").read_text(
+        encoding="utf-8"
+    )
     tree = ast.parse(source)
     for node in tree.body:  # module level only — the lazy import inside is the point
         if isinstance(node, ast.Import):
@@ -58,7 +62,7 @@ def test_the_advice_for_a_missing_torch_is_advice_that_works_here() -> None:
     makes it the one place a wrong sentence costs the most. Both machines are
     described here rather than whichever one the tests happen to run on.
     """
-    from missile_defense.cli import DEBIAN_README, explain_missing
+    from missile_defense.training.cli import DEBIAN_README, explain_missing
 
     recipe = "python3 -m venv --system-site-packages"
 
@@ -228,9 +232,9 @@ def test_the_trainer_package_can_build_the_runtime_it_offers_to_build() -> None:
     assert "python3-venv" in trainer.get("depends", ""), (
         "the trainer offers to build a virtualenv without depending on venv"
     )
-    assert '"-m", "venv"' in (ROOT / "python" / "missile_defense" / "runtime.py").read_text(
-        encoding="utf-8"
-    )
+    assert '"-m", "venv"' in (
+        ROOT / "python" / "missile_defense" / "runs" / "runtime.py"
+    ).read_text(encoding="utf-8")
 
 
 def test_each_package_installs_a_disjoint_set_of_paths() -> None:

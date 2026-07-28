@@ -6,12 +6,12 @@
 #
 # Everything that plays or scores this game needs these numbers, and the two
 # halves of the project cannot share a variable: the game is C++ and never loads
-# Python, while `missile_defense.benchmark` is deliberately pure Python so the trainer can
+# Python, while `missile_defense.sim.benchmark` is deliberately pure Python so the trainer can
 # read it without the native extension built. So both sides get a *generated*
 # copy of this file and neither is written by hand:
 #
 #     core/include/md/protocol.hpp   (constexpr, compiled in)
-#     python/missile_defense/_protocol.py         (plain module constants)
+#     python/missile_defense/sim/protocol.py         (plain module constants)
 #
 # Regenerate with `poe protocol`. `poe check` regenerates into a temporary
 # directory and fails if the result differs from what is committed, so the

@@ -36,17 +36,15 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import modelcard
-from .control import Control
-
-# `missile_defense.ui.sources` and not a copy of it: it is where the knowledge of a run's
+# `missile_defense.runs.sources` and not a copy of it: it is where the knowledge of a run's
 # file names and formats already lives, it is Qt-free by test
 # (`test_ui_boundary.py`), and a second parser for `evals.csv` would be the one
 # that drifts. The layering does read backwards — a service under `md/` reaching
 # into `missile_defense/ui/` — and the honest fix is to move `sources` down a level, which is
 # a rename across files another agent is editing right now. Noted rather than
 # done; nothing here depends on the direction being wrong.
-from .ui import sources
+from . import modelcard, sources
+from .control import Control
 
 #: The trainer's own per-run file: the display name, the pins, the note. Upper
 #: case like `TUNING.json`, which is the other file a *person* drives rather
@@ -276,7 +274,7 @@ _NOUNS = (
 #: Everything that is not a letter or a digit, collapsed to one dash. A display
 #: name is typed by a person — `Entity policy, 3 seeds` — and a directory name is
 #: typed at a shell prompt, put in a `--resume` and quoted by nobody, so the two
-#: cannot be the same string. `missile_defense.league.make_id` applies the same rule to a
+#: cannot be the same string. `missile_defense.runs.league.make_id` applies the same rule to a
 #: promoted model's directory, for the same reason.
 _ID_UNSAFE = re.compile(r"[^a-z0-9]+")
 

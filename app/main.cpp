@@ -388,7 +388,7 @@ int run(int argc, char** argv) {
             // Two agents on the same seed, side by side. A manifest, so the
             // scores the tournament measured come with the recordings and the
             // screen can say what it is showing rather than leaving a viewer
-            // to assume (docs/API.md, `missile_defense.tournament.write_manifest`).
+            // to assume (docs/API.md, `missile_defense.runs.tournament.write_manifest`).
             if (!window.watch_match(std::string{argv[++i]})) {
                 return 2; // the reason is already on stderr; do not open a window
             }

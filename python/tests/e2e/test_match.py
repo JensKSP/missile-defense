@@ -22,7 +22,8 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from missile_defense import league, policy_format, tournament
+from missile_defense.runs import league, tournament
+from missile_defense.sim import policy_format
 
 from .harness import assert_clean, needs_app, needs_display, run_app
 
@@ -45,7 +46,7 @@ def _shapes() -> tuple[int, int]:
     to 1959), and a fixture that pins them turns a spec change into a confusing
     failure here instead of a clear one where the spec lives.
     """
-    from missile_defense.env import VecEnv
+    from missile_defense.sim.env import VecEnv
 
     env = VecEnv(num_envs=1, max_ticks=64)
     return int(env.observations.shape[1]), int(env.action_masks().shape[1])

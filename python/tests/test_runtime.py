@@ -3,7 +3,7 @@
 # Assisted-by: Claude Code (Anthropic)
 """Tests for the managed training runtime — without installing one.
 
-``missile_defense.runtime`` splits planning from effects for exactly this reason: what to
+``missile_defense.runs.runtime`` splits planning from effects for exactly this reason: what to
 install is a pure function of the machine and can be asserted outright, and the
 install itself takes its subprocess runner as an argument, so every state the
 dialog has to render is reachable here without a network, a venv, or torch.
@@ -20,8 +20,8 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 
 import pytest
-from missile_defense import runtime
-from missile_defense.runtime import (
+from missile_defense.runs import runtime
+from missile_defense.runs.runtime import (
     ABSENT,
     ALLOWED_INDEX_HOSTS,
     BROKEN,
@@ -36,7 +36,7 @@ from missile_defense.runtime import (
 # Bound here rather than reached through the module, because the autouse fixture
 # below replaces `runtime._missing_binding` for every other test in the file.
 # This name keeps pointing at the real one, which is what its own tests need.
-from missile_defense.runtime import _missing_binding as probe_binding
+from missile_defense.runs.runtime import _missing_binding as probe_binding
 
 PY = (3, 13)
 
@@ -121,7 +121,7 @@ def test_an_nvidia_machine_is_offered_the_cuda_build(tmp_path: Path) -> None:
     assert plan.backend == "cuda"
     assert "download.pytorch.org" in plan.index_url
     # numpy with it, on every backend. torch treats numpy as optional and this
-    # project does not: `missile_defense.env` types its buffer contract with `numpy.typing`
+    # project does not: `missile_defense.sim.env` types its buffer contract with `numpy.typing`
     # and the trainer imports it on its first line, so a torch-only install is a
     # runtime that passes its check and then cannot run a single update.
     assert plan.packages == ("torch", "numpy")

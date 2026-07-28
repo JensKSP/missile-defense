@@ -59,11 +59,20 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import library as run_library
-from .. import modelcard, paths, runconfig, runtime
-from ..benchmark import CANONICAL_LADDER, Ladder, ladder_standing
-from ..control import Control
-from . import about, sources, theme
+from ..runs import library as run_library
+from ..runs import modelcard, paths, runconfig, runtime, sources
+from ..runs.control import Control
+from ..runs.runner import (
+    PROJECT_ROOT,
+    AppNotFound,
+    ReplayLauncher,
+    TrainingRun,
+    can_train,
+    training_python,
+)
+from ..runs.sources import EvalRow, MetricRow, Recording
+from ..sim.benchmark import CANONICAL_LADDER, Ladder, ladder_standing
+from . import about, theme
 from .analysis import AnalysisView
 from .charts import CurveView
 from .config import ConfigDialog, settings_for
@@ -73,16 +82,7 @@ from .library import LibraryView
 from .meters import SystemPanel
 from .model import ModelPanel
 from .params import TRAINER_SOURCES, read_params
-from .runner import (
-    PROJECT_ROOT,
-    AppNotFound,
-    ReplayLauncher,
-    TrainingRun,
-    can_train,
-    training_python,
-)
 from .runtime_dialog import RuntimeDialog
-from .sources import EvalRow, MetricRow, Recording
 
 #: An update takes seconds, so a second is a smooth refresh and not a busy loop.
 POLL_MS = 1000
@@ -254,7 +254,7 @@ class Trainer(QMainWindow):
         self._launcher = ReplayLauncher()
         self._ticks = 0
         #: What the runtime last proved: `None` until the first check finishes.
-        #: `False` turns Start into Set up — `missile_defense.runtime.Runtime.status` only
+        #: `False` turns Start into Set up — `missile_defense.runs.runtime.Runtime.status` only
         #: reads a manifest and looks for a file, both of which stay true of a
         #: runtime whose torch was deleted or whose driver moved under it.
         self._runtime_ok: bool | None = None
@@ -396,7 +396,7 @@ class Trainer(QMainWindow):
         self._metrics = sources.metrics_tail(run_dir)
         self._evals = sources.evals_tail(run_dir)
         #: What the run has printed. A run this trainer started comes down a
-        #: pipe; every other one writes this file itself (missile_defense.runlog), which is
+        #: pipe; every other one writes this file itself (missile_defense.runs.runlog), which is
         #: what gives a terminal-started run a log pane at all.
         self._log_file = sources.log_tail(run_dir)
         self._control = Control(run_dir)
@@ -747,7 +747,7 @@ class Trainer(QMainWindow):
         (:data:`EVAL_EVERY_STOPS`), so there is nothing to mistype and no way to
         land on a number nobody meant.
 
-        It writes :mod:`missile_defense.control`'s tuning file and nothing else — so it drives
+        It writes :mod:`missile_defense.runs.control`'s tuning file and nothing else — so it drives
         a run this trainer never started, and a terminal can do the same with
         ``echo``. Nothing here imports the trainer.
         """
@@ -1675,7 +1675,7 @@ class Trainer(QMainWindow):
         self._append_log(f"— the run exited with code {code} —")
         # Whatever control files are still in the directory were requests to
         # this process, and it has gone. The trainer clears them itself on the
-        # way out (missile_defense.train), but a Stop pressed while it was already writing
+        # way out (missile_defense.training), but a Stop pressed while it was already writing
         # its last checkpoint lands *after* that clear and has nobody left to
         # obey it — so the run that made the request is also what ends it.
         self._control.clear()
@@ -1771,7 +1771,7 @@ def _default_eval_every() -> int:
     for field in read_params(TRAINER_SOURCES):
         if field.name == "eval_every" and field.default.isdigit():
             return int(field.default)
-    return EVAL_EVERY_FALLBACK  # no missile_defense.train beside this trainer
+    return EVAL_EVERY_FALLBACK  # no missile_defense.training beside this trainer
 
 
 def _number(value: float | None, spec: str) -> str:

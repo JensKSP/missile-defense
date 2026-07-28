@@ -33,7 +33,7 @@ than as a fourth thing on the plot.
 Two things are written over the plot rather than beside it, because both are
 about the curve and a curve read from across the room has no room for a legend:
 a **footnote** in the corner with the statistics the shape alone does not give
-you (`missile_defense.ui.sources.curve_note`), and a **readout** that follows the pointer
+you (`missile_defense.runs.sources.curve_note`), and a **readout** that follows the pointer
 with the value it is over. The arithmetic for both is in `sources`, which has no
 Qt in it and is therefore tested; this file only places the labels.
 """
@@ -57,7 +57,8 @@ from PySide6.QtCore import QEvent, QMargins, QPointF, Qt
 from PySide6.QtGui import QColor, QFont, QMouseEvent, QPainter, QPen, QResizeEvent
 from PySide6.QtWidgets import QLabel, QWidget
 
-from . import sources, theme
+from ..runs import sources
+from . import theme
 
 #: Out of 255. Enough to follow the line, faint enough that the attached run is
 #: unambiguously the subject.

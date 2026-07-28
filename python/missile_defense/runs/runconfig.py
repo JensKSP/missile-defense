@@ -11,7 +11,7 @@ continuing a run meant retyping its flags from that file by hand.
 
 Three callers, one parser:
 
-* :mod:`missile_defense.train` fills in the settings a ``--resume`` must inherit, and prints
+* :mod:`missile_defense.training` fills in the settings a ``--resume`` must inherit, and prints
   the resolved configuration at start-up.
 * The trainer's parameter view shows a run's knobs beside its curves.
 * The trainer's Start dialog pours them into the form when it continues a run.
@@ -130,7 +130,7 @@ def _section(value: object) -> dict[str, object]:
 def options(config: RunConfig | None) -> dict[str, str]:
     """The settable fields as ``{name: text}`` — the shape a form and a preset use.
 
-    Deliberately the same shape :mod:`missile_defense.presets` stores and
+    Deliberately the same shape :mod:`missile_defense.runs.presets` stores and
     :func:`missile_defense.ui.params.command_line` consumes, so a run's own settings can be
     poured into the Start dialog exactly as a preset is, and come back out as
     flags. Values that were never set are left out rather than written as
@@ -173,7 +173,7 @@ def describe(
     """Every group as printable lines: a label column, then ``name=value`` pairs.
 
     For a terminal and for the log the trainer tees into the run directory
-    (:mod:`missile_defense.runlog`), which is what puts the same block in the trainer's log
+    (:mod:`missile_defense.runs.runlog`), which is what puts the same block in the trainer's log
     pane. Wrapped rather than truncated — a setting that scrolled off the right
     of the window is a setting nobody can check — and continuation lines line up
     under the values, so the label column stays readable as a column.

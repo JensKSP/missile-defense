@@ -37,7 +37,7 @@ from pathlib import Path
 from statistics import fmean, pstdev
 from typing import Generic, TypeVar, cast
 
-from ..benchmark import (
+from ..sim.benchmark import (
     CANONICAL_BASELINE_MEAN_SCORE,
     NO_LADDER,
     VALIDATION_SPLIT,
@@ -55,7 +55,7 @@ EVALS_NAME = "evals.csv"
 RECORDING_SUFFIX = ".mdr"
 CHECKPOINTS_NAME = "checkpoints"
 CHECKPOINT_SUFFIX = ".pt"
-#: The trainer's own copy of what it printed (:mod:`missile_defense.runlog`), which is how a
+#: The trainer's own copy of what it printed (:mod:`missile_defense.runs.runlog`), which is how a
 #: run this trainer never started still gets a log pane.
 LOG_NAME = "train.log"
 
@@ -401,7 +401,7 @@ class LineTail:
 def log_tail(run_dir: Path) -> LineTail:
     """Tail ``<run_dir>/train.log`` — what the run has printed.
 
-    The trainer writes this itself (:mod:`missile_defense.runlog`), which is what gives the
+    The trainer writes this itself (:mod:`missile_defense.runs.runlog`), which is what gives the
     trainer a log pane for a run it did not start. Its own child's stdout comes
     down a pipe instead; this is for every other way a run can be launched.
     """
@@ -575,7 +575,7 @@ class Peak:
     A run is not monotone. PPO peaks and then regresses — a moving target
     destabilises the critic, entropy collapses — so the newest number is not the
     best one, and a tile showing only the newest cannot answer "has this run
-    already been better than it is now?". ``missile_defense.train`` keeps exactly this for the
+    already been better than it is now?". ``missile_defense.training`` keeps exactly this for the
     eval score, because it decides which policy ``policy-best.pt`` is; the
     trainer keeps it for the numbers it puts on screen.
 

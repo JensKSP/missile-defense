@@ -37,7 +37,7 @@ import sys
 from collections.abc import Mapping
 from pathlib import Path
 
-from ._protocol import MODELS_DIR, RUNS_DIR
+from ..sim.protocol import MODELS_DIR, RUNS_DIR
 
 #: Mirrors ``QGuiApplication::setApplicationName`` in ``app/main.cpp``. The game
 #: already keeps its high scores under this name; runs join them rather than

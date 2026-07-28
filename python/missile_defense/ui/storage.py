@@ -7,9 +7,9 @@
 Training fills a disk faster than anything else here: a long run is gigabytes
 of checkpoints, most of which nobody will ever load again. The backends for
 tidying that up have existed since Task 9 —
-:func:`missile_defense.archive.plan_cleanup`,
-:func:`missile_defense.archive.create_archive` and
-:func:`missile_defense.archive.restore_archive` — and none of them were
+:func:`missile_defense.runs.archive.plan_cleanup`,
+:func:`missile_defense.runs.archive.create_archive` and
+:func:`missile_defense.runs.archive.restore_archive` — and none of them were
 reachable without a Python prompt, which is the same as not existing for the
 person the trainer is for.
 
@@ -46,8 +46,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import archive, library
-from . import sources
+from ..runs import archive, library, sources
 
 T = TypeVar("T")
 
@@ -90,7 +89,7 @@ class _Work(QThread):
 class _Busy(QDialog):
     """A modal "this is happening" with no cancel, because there is no safe one.
 
-    An archive half-written is deleted by :func:`missile_defense.archive.create_archive`'s own
+    An archive half-written is deleted by :func:`missile_defense.runs.archive.create_archive`'s own
     temporary-and-rename; an archive half-verified has changed nothing. But a
     *removal* interrupted between two files is a run in a state nobody can
     reason about, so the honest interface is to say what is happening and let it
@@ -330,7 +329,7 @@ def restore(root: Path, parent: QWidget | None = None) -> Path | None:
     Verification first, always: an archive that has rotted, been truncated in
     transit, or was never one is caught before a single file lands in the
     library. Zip-slip, absolute paths and symlinks are *refused* rather than
-    sanitised — see :func:`missile_defense.archive.verify_archive`.
+    sanitised — see :func:`missile_defense.runs.archive.verify_archive`.
     """
     chosen, _ = QFileDialog.getOpenFileName(
         parent, "Restore a run", str(Path.home()), "ZIP archive (*.zip)"

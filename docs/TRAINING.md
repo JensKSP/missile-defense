@@ -423,7 +423,7 @@ peak ≈ envs × steps × 8 KiB   +   (envs × steps ÷ minibatches) × 547 KiB
 ```
 
 Measured on an RTX 5090 with `torch.cuda.max_memory_allocated()`, two updates
-each — the model in `python/missile_defense/footprint.py` is a straight line through these to
+each — the model in `python/missile_defense/runs/footprint.py` is a straight line through these to
 within 1%, and a test holds it there:
 
 | Architecture | envs × steps | minibatches | minibatch | Peak |
@@ -771,8 +771,8 @@ then benchmark only its selected checkpoint once on the canonical split.
 ## The knobs
 
 All in `TrainConfig` and `PPOConfig` in
-[`python/missile_defense/train.py`](../python/missile_defense/train.py) and
-[`python/missile_defense/ppo.py`](../python/missile_defense/ppo.py), each with its reasoning written next
+[`python/missile_defense/training/train.py`](../python/missile_defense/training/train.py) and
+[`python/missile_defense/training/ppo.py`](../python/missile_defense/training/ppo.py), each with its reasoning written next
 to it. The ones actually worth touching first:
 
 | Flag | Default | Try changing it when |

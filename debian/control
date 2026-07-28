@@ -75,7 +75,7 @@ Section: science
 Architecture: all
 # python3-venv is not decoration. The trainer's answer to "this machine has no
 # PyTorch" is to build one itself — `python3 -m venv` into the per-user data
-# directory, then pip from an allow-listed index (missile_defense/runtime.py). Debian ships
+# directory, then pip from an allow-listed index (missile_defense/runs/runtime.py). Debian ships
 # `venv` in a package of its own and `${python3:Depends}` does not pull it, so
 # without this the one-time setup step fails on its first command, on a machine
 # that had done nothing wrong. It is a Depends and not a Recommends because

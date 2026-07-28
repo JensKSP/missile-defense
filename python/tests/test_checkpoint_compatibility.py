@@ -17,9 +17,9 @@ pytest.importorskip(
     reason="the _md_native extension is not built (cmake -DMD_BUILD_BINDINGS=ON)",
 )
 
-from missile_defense.env import VecEnv  # noqa: E402
-from missile_defense.ppo import PPOConfig, build_policy  # noqa: E402
-from missile_defense.train import (  # noqa: E402
+from missile_defense.sim.env import VecEnv  # noqa: E402
+from missile_defense.training.ppo import PPOConfig, build_policy  # noqa: E402
+from missile_defense.training.train import (  # noqa: E402
     CheckpointCompatibilityError,
     TrainConfig,
     _layout,

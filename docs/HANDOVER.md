@@ -31,9 +31,9 @@ Run them with:
 QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest python/tests/e2e/test_console.py -q
 ```
 
-**One cause is fixed, and it was not the only one.** `missile_defense.ui.sources.is_canonical_benchmark`
+**One cause is fixed, and it was not the only one.** `missile_defense.runs.sources.is_canonical_benchmark`
 compares `aim_trail` and `reaction_delay`, which the handicap work made part of
-the protocol — but `EVAL_COLUMNS` in `missile_defense/train.py` never gained them. Every row
+the protocol — but `EVAL_COLUMNS` in `missile_defense/training/train.py` never gained them. Every row
 read as "nonstandard protocol", so no score could be shown against the ladder and
 the trainer could never say a run beat HIGH. The training loop writes both columns now
 and `test_console.py`'s `EVALS_HEADER` was widened to match; the first two tests

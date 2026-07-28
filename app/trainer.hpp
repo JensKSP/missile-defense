@@ -15,7 +15,7 @@
 /// **This lookup is the boundary between the two products.** The game adds its
 /// TRAIN AI entry only when it resolves, so on a game-only install — no Python,
 /// no `missile_defense` package, no `missile-defense-trainer` — it must find nothing and the
-/// menu simply does not offer training. `missile_defense.ui.runner.trainer_executable()`
+/// menu simply does not offer training. `missile_defense.runs.runner.trainer_executable()`
 /// searches the same four places in the same order for exactly that reason: a
 /// disagreement between them is either a menu entry that launches nothing, or a
 /// trainer that is installed and unreachable.

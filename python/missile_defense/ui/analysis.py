@@ -38,9 +38,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import sources, stats, theme
+from ..runs import sources
+from ..runs.sources import EvalRow
+from . import stats, theme
 from .charts import BarView, CurveView
-from .sources import EvalRow
 
 #: What the screen says before a run has scored itself even once. Every empty
 #: state in this trainer names the flag that would change it, and this one is

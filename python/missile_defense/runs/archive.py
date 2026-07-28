@@ -52,8 +52,7 @@ from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
-from . import library
-from .ui import sources
+from . import library, sources
 
 #: The manifest inside the archive. Read before anything is extracted.
 MANIFEST_NAME = "MANIFEST.json"
@@ -354,7 +353,7 @@ def verify_archive(path: Path) -> ArchiveManifest:
                 if not isinstance(item, dict):
                     raise ArchiveError(f"{path}: a manifest entry is not an object")
                 # Narrowed to `{str: object}` before any field is read, for the
-                # same reason `missile_defense.policy_format` does: this file may have been
+                # same reason `missile_defense.sim.policy_format` does: this file may have been
                 # handed over, and a loose type here is how a string reaches a
                 # size check.
                 entry: dict[str, object] = {str(k): v for k, v in item.items()}  # pyright: ignore[reportUnknownArgumentType, reportUnknownVariableType, reportUnknownMemberType]

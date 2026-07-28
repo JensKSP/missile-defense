@@ -447,7 +447,7 @@ def _no_window(title: str, detail: str) -> str:
 def _launch_environ() -> dict[str, str]:
     """The environment the game is started in — the same two quirks as the trainer.
 
-    Kept in step with `missile_defense.ui.runner.launch_environ` by hand rather than by
+    Kept in step with `missile_defense.runs.runner.launch_environ` by hand rather than by
     import: `tools` is developer scaffolding and must not need the package on
     its path to run.
     """

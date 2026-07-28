@@ -36,7 +36,7 @@ jobs:
             dpkg-dev python3 python3-pip
 
       - name: Install task runner + Python tools
-        # numpy is not optional here: missile_defense.env types its buffer contract with
+        # numpy is not optional here: missile_defense.sim.env types its buffer contract with
         # numpy.typing, so without it mypy cannot resolve the annotations and
         # test_env.py fails to import. Held below 2.5 because that release
         # dropped Python 3.11 and writes PEP 695 `type` statements in its stubs,
@@ -225,7 +225,7 @@ jobs:
         run: |
           /tmp/wheelenv/bin/python - <<'PY'
           import numpy as np
-          from missile_defense.env import VecEnv
+          from missile_defense.sim.env import VecEnv
           env = VecEnv(num_envs=4, threads=1)
           print("obs", env.observations.shape, "actions", env.action_count)
           env.step(np.zeros(4, dtype=np.int32))

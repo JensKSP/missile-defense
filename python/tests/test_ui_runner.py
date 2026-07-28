@@ -3,7 +3,7 @@
 # Assisted-by: Claude Code (Anthropic)
 """Tests for launching the game from the trainer — without launching anything.
 
-``missile_defense.ui.runner`` takes the spawn function as an argument for exactly this: what
+``missile_defense.runs.runner`` takes the spawn function as an argument for exactly this: what
 matters is the command line it builds and where it looks for the binary, and
 neither needs a window to check.
 """
@@ -18,9 +18,8 @@ from pathlib import Path
 from unittest import mock
 
 import pytest
-from missile_defense import runtime
-from missile_defense.ui import runner
-from missile_defense.ui.runner import (
+from missile_defense.runs import runner, runtime
+from missile_defense.runs.runner import (
     PACKAGE_PATH,
     AppNotFound,
     ReplayLauncher,
@@ -365,7 +364,7 @@ def test_an_explicit_interpreter_is_not_second_guessed(tmp_path: Path) -> None:
 
 
 def test_a_managed_runtime_is_what_a_packaged_user_trains_with(tmp_path: Path) -> None:
-    # The whole point of missile_defense.runtime: an installed copy with no torch anywhere
+    # The whole point of missile_defense.runs.runtime: an installed copy with no torch anywhere
     # can still start a run, and Start does not depend on how the trainer itself
     # was installed.
     store = _stub_ready_runtime(tmp_path)

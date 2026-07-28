@@ -5,7 +5,7 @@
 
 `test_ui_stats.py` covers the arithmetic against hand-written rows and is where
 the edge cases live. What it cannot cover is the join: that the columns
-`missile_defense.train` writes are the columns `missile_defense.ui.stats` reads,
+`missile_defense.training.train` writes are the columns `missile_defense.ui.stats` reads,
 spelled the same way. A rename on either side leaves both halves passing their own tests and puts a
 screen full of em dashes in front of a user, and the only thing that catches
 that is a real `evals.csv` written by a real run in another process.
@@ -144,7 +144,7 @@ def test_a_comparison_that_shows_nothing_says_why(
     that silently stays blank leaves a person deciding between "broken" and "I
     am holding it wrong", and both answers are wrong.
     """
-    from missile_defense.ui import sources  # noqa: PLC0415 — optional dependency
+    from missile_defense.runs import sources  # noqa: PLC0415 — optional dependency
     from missile_defense.ui.app import Trainer  # noqa: PLC0415 — optional dependency
 
     other = tmp_path / "other-protocol"

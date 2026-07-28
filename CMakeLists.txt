@@ -531,7 +531,7 @@ if(MD_INSTALL_PYTHON_PACKAGE)
     if(md_launcher STREQUAL "missile-defense-trainer")
       set(MD_LAUNCHER_MODULE "missile_defense.ui")
     else()
-      set(MD_LAUNCHER_MODULE "missile_defense.cli")
+      set(MD_LAUNCHER_MODULE "missile_defense.training.cli")
     endif()
     if(WIN32)
       configure_file(packaging/launcher.cmd.in

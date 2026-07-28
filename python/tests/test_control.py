@@ -3,7 +3,7 @@
 # Assisted-by: Claude Code (Anthropic)
 """Tests for the control files — the half of the trainer that is not the trainer.
 
-`missile_defense.control` is what makes `touch runs/STOP` and the Stop button the same act.
+`missile_defense.runs.control` is what makes `touch runs/STOP` and the Stop button the same act.
 It holds no torch and no Qt, so the protocol is testable on its own, which is the
 point: the mechanism has to work before any button does.
 """
@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from missile_defense.control import PAUSE_NAME, STOP_NAME, TUNING_NAME, Control
+from missile_defense.runs.control import PAUSE_NAME, STOP_NAME, TUNING_NAME, Control
 
 
 def test_a_quiet_directory_asks_for_nothing(tmp_path: Path) -> None:

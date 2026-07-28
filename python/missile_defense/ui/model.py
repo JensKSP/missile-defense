@@ -10,7 +10,7 @@ observation and action sizes, which checkpoint is newest and what it scored.
 Everything here is read out of ``runs/model.json`` and the ``checkpoints``
 directory. Nothing loads a ``.pt``, because loading one needs torch and the
 trainer must never import it; the training loop writes the description instead, which
-is the roadmap's own answer to that rule (:mod:`missile_defense.modelcard`).
+is the roadmap's own answer to that rule (:mod:`missile_defense.runs.modelcard`).
 
 It sits under the recordings list because that is the column with the room, and
 because the two answer neighbouring questions: what has this policy *done*, and
@@ -24,9 +24,9 @@ from collections.abc import Mapping, Sequence
 
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
-from .. import modelcard
-from ..modelcard import ModelCard
-from .sources import Checkpoint, EvalRow, checkpoint_note
+from ..runs import modelcard
+from ..runs.modelcard import ModelCard
+from ..runs.sources import Checkpoint, EvalRow, checkpoint_note
 
 #: No card in the run directory. Says which file, because a run started before
 #: the trainer wrote one has everything else and only this missing — and that is

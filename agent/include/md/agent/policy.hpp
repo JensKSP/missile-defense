@@ -18,7 +18,7 @@ namespace md::agent {
 /// **The whole point is that this needs no torch and no interpreter.** The game
 /// is C++ with neither in it — that is the promise `debian/control` keeps — so a
 /// trained agent can only reach a player through a format the game can read on
-/// its own. `python/missile_defense/policy_format.py` writes those files and
+/// its own. `python/missile_defense/sim/policy_format.py` writes those files and
 /// `docs/API.md` §7 states what they promise; this is the reader.
 ///
 /// **It is also a reader of files a person may have downloaded**, which is why
@@ -68,7 +68,7 @@ class Policy {
 
     /// The action this policy would take. `legal` is `md::action_mask`'s output.
     ///
-    /// The masking rule, which `missile_defense.export_policy` states identically because the
+    /// The masking rule, which `missile_defense.sim.export_policy` states identically because the
     /// two must not drift: compute the logits, overwrite every illegal action's
     /// with `masked_logit`, then take the **first** maximum. Ties going to the
     /// lowest index is a promise, not an accident of `std::max_element` — the
@@ -86,7 +86,7 @@ class Policy {
                                std::span<const std::uint8_t> legal,
                                std::span<float> logits_out) const;
 
-    /// What an illegal action's logit becomes. Matches `missile_defense.export_policy`.
+    /// What an illegal action's logit becomes. Matches `missile_defense.sim.export_policy`.
     static constexpr float masked_logit = -1.0e8F;
 
     [[nodiscard]] std::uint32_t schema() const noexcept { return schema_; }
@@ -123,7 +123,7 @@ class Policy {
     /// `width_` and the score scale is `1/sqrt(width_)` — the default
     /// `torch.nn.functional.scaled_dot_product_attention` applies, which is the
     /// number parity depends on. The three projections carry no bias, matching
-    /// `missile_defense.ppo._CrossAttention`; only `output` has one.
+    /// `missile_defense.training.ppo._CrossAttention`; only `output` has one.
     struct Attention {
         std::vector<float> query; // width * width, row-major
         std::vector<float> key;

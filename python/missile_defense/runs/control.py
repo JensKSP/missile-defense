@@ -18,7 +18,7 @@ starts being the only way in (docs/ROADMAP.md, M8).
 
 **Why marker files rather than the `control.json` the plan sketched.** A JSON
 file has to be parsed, and a reader can catch the writer mid-write — the same
-torn read `missile_defense.ui.sources` goes to trouble to avoid, except that here the damage
+torn read `missile_defense.runs.sources` goes to trouble to avoid, except that here the damage
 is an unreadable *command* rather than one wrong data point. The existence of a
 file needs no parsing and no protocol, and `touch` produces it.
 

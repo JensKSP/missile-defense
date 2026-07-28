@@ -25,7 +25,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from missile_defense import policy_format
+from missile_defense.sim import policy_format
 
 OBS = 6
 ACTIONS = 4

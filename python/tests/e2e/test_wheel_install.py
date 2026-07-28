@@ -126,7 +126,7 @@ def test_the_simulation_actually_runs_from_the_wheel(installed: Path, tmp_path: 
     result = _python(
         installed,
         "import json, numpy as np\n"
-        "from missile_defense.env import VecEnv\n"
+        "from missile_defense.sim.env import VecEnv\n"
         "env = VecEnv(2, seed=7, max_ticks=256)\n"
         "for _ in range(20):\n"
         "    env.step(np.zeros(2, dtype=np.int32))\n"
@@ -150,9 +150,9 @@ def test_the_data_half_never_drags_torch_in(installed: Path, tmp_path: Path) -> 
     result = _python(
         installed,
         "import sys\n"
-        "import missile_defense.paths, missile_defense.env, "
-        "missile_defense.policy_format, missile_defense.library, "
-        "missile_defense.archive, missile_defense.tournament\n"
+        "import missile_defense.runs.paths, missile_defense.sim.env, "
+        "missile_defense.sim.policy_format, missile_defense.runs.library, "
+        "missile_defense.runs.archive, missile_defense.runs.tournament\n"
         "leaked = [m for m in sys.modules if m == 'torch' or m.startswith('torch.')]\n"
         "print('LEAKED ' + ','.join(leaked) if leaked else 'CLEAN')\n",
         cwd=tmp_path,

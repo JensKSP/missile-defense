@@ -31,11 +31,11 @@ interpretable rather than just a number going up:
   away. Killing the process instead throws away everything since the last
   checkpoint. The eval cadence is changeable the same way, through
   ``runs/TUNING.json``, because how often you want the yardstick is a judgement
-  made while watching. See :mod:`missile_defense.control` — the training trainer's buttons and
+  made while watching. See :mod:`missile_defense.runs.control` — the training trainer's buttons and
   its eval-interval box write exactly these files, and nothing else.
 Where ``runs/`` is depends on where you are: the directory beside you in a
 checkout, and the per-user data directory once this is installed from a package.
-``--out-dir`` and ``$MD_RUNS_DIR`` override, and :mod:`missile_defense.paths` has the order.
+``--out-dir`` and ``$MD_RUNS_DIR`` override, and :mod:`missile_defense.runs.paths` has the order.
 
 * **Checkpoints.** Written to ``runs/checkpoints`` — every ``checkpoint_every``
   updates plus a ``policy-final.pt`` at the end, so a short run still leaves the
@@ -65,8 +65,9 @@ import numpy as np
 import torch
 from torch import nn
 
-from . import cadence, footprint, modelcard, paths, runconfig, runlog
-from .benchmark import (
+from ..runs import cadence, footprint, modelcard, paths, runconfig, runlog
+from ..runs.control import Control
+from ..sim.benchmark import (
     CANONICAL_AIM_TRAIL,
     CANONICAL_BASELINE_MEAN_SCORE,
     CANONICAL_FRAME_SKIP,
@@ -80,9 +81,8 @@ from .benchmark import (
     VALIDATION_SPLIT,
     canonical_baseline_comparable,
 )
-from .control import Control
-from .env import Actions, Flags, Observations, Shaping, VecEnv
-from .eval import default_seeds, evaluate, format_summary, validation_seeds
+from ..sim.env import Actions, Flags, Observations, Shaping, VecEnv
+from ..sim.eval import default_seeds, evaluate, format_summary, validation_seeds
 from .ppo import ObsLayout, PPOConfig, Rollout, build_policy, update
 
 #: Chooses an action index per environment, given the batch and its action mask.
@@ -132,7 +132,7 @@ class TrainConfig:
     #: An eval costs most of an update early on and rather more once episodes
     #: run long, so this is the knob a run changes mid-flight: it is published to
     #: TUNING.json in the run directory and re-read every update, by the trainer
-    #: or by `echo '{"eval_every": 25}' > runs/TUNING.json` (see missile_defense.control).
+    #: or by `echo '{"eval_every": 25}' > runs/TUNING.json` (see missile_defense.runs.control).
     eval_every: int = 10
     #: Where the evaluation gap reaches `eval_every`. Before it, evaluations are
     #: denser — the first hundred updates are where a policy changes shape, and a
@@ -149,7 +149,7 @@ class TrainConfig:
     #: "cuda", "cpu", or None to pick automatically.
     device: str | None = None
     #: Where the run writes. None means decide at run time — ``./runs`` in a
-    #: checkout, the per-user data directory when installed (see `missile_defense.paths`).
+    #: checkout, the per-user data directory when installed (see `missile_defense.runs.paths`).
     out_dir: Path | None = None
     #: Resume from this checkpoint (weights, optimizer and iteration).
     resume: Path | None = None
@@ -380,7 +380,7 @@ def train(
     # Every knob this run resolved to, on the way past. Two reasons it is printed
     # and not only written: a terminal is where a mistyped flag is caught, in the
     # first second rather than the third hour — and this goes through the run's
-    # own log (missile_defense.runlog), so the trainer's log pane answers "what is this run
+    # own log (missile_defense.runs.runlog), so the trainer's log pane answers "what is this run
     # actually doing?" for a run it never started.
     for line in runconfig.describe(payload):
         print(line)
@@ -479,7 +479,7 @@ def train(
         metrics.flush()  # so a plot can follow a run that is still going
         ret = f"{mean_return:>8.2f}" if recent else "       -"
         # "shaped ret", not "return": this is the shaped, scaled, undiscounted sum
-        # (missile_defense.env.Shaping) and has no fixed relationship to the game score. The
+        # (missile_defense.sim.env.Shaping) and has no fixed relationship to the game score. The
         # honest scoreboard is the eval block below and runs/evals.csv.
         print(
             f"update {iteration:>5} | shaped ret {ret} "
@@ -619,7 +619,7 @@ def _config_payload(
     out_dir: Path,
     shaping: Shaping | None = None,
 ) -> dict[str, dict[str, Any]]:
-    """Every setting this run resolved to, in :data:`missile_defense.runconfig.GROUPS` order.
+    """Every setting this run resolved to, in :data:`missile_defense.runs.runconfig.GROUPS` order.
 
     One structure, two readers: it is written to ``config.json`` and printed at
     start-up, and those must not be able to disagree about what the run is doing.
@@ -653,7 +653,7 @@ def _write_config(
     interesting. The *resolved* output directory is recorded rather than the
     ``None`` that asked for it, so the file says where the run actually went.
 
-    :mod:`missile_defense.runconfig` reads it back — for the trainer's parameter view, and to
+    :mod:`missile_defense.runs.runconfig` reads it back — for the trainer's parameter view, and to
     fill in what a ``--resume`` should inherit.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -700,7 +700,7 @@ EVAL_COLUMNS = (
     "max_ticks",
     "inference_device",
     # The handicap the score was measured under. Appended late, and required:
-    # `missile_defense.ui.sources.is_canonical_benchmark` compares these two, so a row
+    # `missile_defense.runs.sources.is_canonical_benchmark` compares these two, so a row
     # without them cannot be shown against the scripted ladder at all — every
     # run read as "nonstandard protocol" and no score could ever say it beat
     # HIGH. Older files are widened by `_migrate_eval_schema`.
@@ -1272,7 +1272,7 @@ def load_policy(path: Path, device: torch.device | None = None) -> tuple[nn.Modu
 
 
 def greedy_policy(policy: nn.Module, device: torch.device) -> Policy_fn:
-    """Wrap a network as the callable `missile_defense.eval.evaluate` expects.
+    """Wrap a network as the callable `missile_defense.sim.eval.evaluate` expects.
 
     Greedy, because the scripted baseline is deterministic — comparing a sampled
     policy against it would be measuring two different things.
@@ -1781,7 +1781,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     # A copy of everything below goes to runs/train.log as well as the terminal.
     # That is what lets the trainer show a log pane for a run it did not start
-    # — the case the whole out-of-process design exists for (missile_defense.runlog).
+    # — the case the whole out-of-process design exists for (missile_defense.runs.runlog).
     ppo = PPOConfig(**({**carry.ppo, **given} if carry is not None else given))
     shaping = Shaping(**({**carry.shaping, **weights} if carry is not None else weights))
     with runlog.teed(paths.runs_dir(config.out_dir)):

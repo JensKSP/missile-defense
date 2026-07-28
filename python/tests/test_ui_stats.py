@@ -4,7 +4,7 @@
 """The arithmetic behind the analysis view, with no display anywhere near it.
 
 Everything the analysis screen puts on the glass is derived here first, for the
-same reason `missile_defense.ui.sources` exists: a number that is wrong is wrong whether or
+same reason `missile_defense.runs.sources` exists: a number that is wrong is wrong whether or
 not a window is open, and a widget is a terrible place to keep a calculation.
 
 The cases that matter are all about *absence*. A run written by an older trainer
@@ -17,8 +17,8 @@ to come out as an empty state rather than as a plausible-looking zero.
 from __future__ import annotations
 
 import pytest
+from missile_defense.runs.sources import EvalRow
 from missile_defense.ui import stats
-from missile_defense.ui.sources import EvalRow
 
 
 def row(**fields: float | int | str | None) -> EvalRow:

@@ -21,8 +21,8 @@ import pytest
 
 torch = pytest.importorskip("torch", reason="torch is optional; see docs/TRAINING.md")
 
-from missile_defense import ppo as ppo_module  # noqa: E402
-from missile_defense.ppo import (  # noqa: E402
+from missile_defense.training import ppo as ppo_module  # noqa: E402
+from missile_defense.training.ppo import (  # noqa: E402
     MASKED_LOGIT,
     EntityPolicy,
     ObsLayout,

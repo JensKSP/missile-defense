@@ -19,7 +19,7 @@ namespace {
 
 using json = nlohmann::json;
 
-/// Mirrors `missile_defense.tournament.write_manifest`.
+/// Mirrors `missile_defense.runs.tournament.write_manifest`.
 constexpr int manifest_version = 1;
 
 [[noreturn]] void fail(const std::filesystem::path& path, const std::string& why) {

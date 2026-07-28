@@ -36,7 +36,7 @@ namespace md::replay {
 /// spent waiting. Turn it off for the strict reading — same tick, same elapsed
 /// time, whoever got further got further.
 ///
-/// A match is loaded from a manifest written by `missile_defense.tournament.write_manifest`,
+/// A match is loaded from a manifest written by `missile_defense.runs.tournament.write_manifest`,
 /// or paired ad hoc from two recordings. The manifest carries the scores the
 /// tournament recorded, so a spectator can state what it is showing rather than
 /// leaving a viewer to assume; the ad-hoc path has no such claim to make and

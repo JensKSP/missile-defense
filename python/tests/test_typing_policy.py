@@ -105,8 +105,8 @@ def test_every_qt_module_is_ignored_by_pyright() -> None:
 def _imports_torch(source: str) -> bool:
     """Whether this file really imports torch — parsed, not grepped.
 
-    A substring search calls `missile_defense.runtime` a torch module because it *runs*
-    `python -c "import torch"` as a health check, and `missile_defense.modelcard` because it
+    A substring search calls `missile_defense.runs.runtime` a torch module because it *runs*
+    `python -c "import torch"` as a health check, and `missile_defense.runs.modelcard` because it
     records a torch version. Neither makes pyright resolve anything. The import
     statement is the thing that does, wherever in the file it sits: a lazy
     import inside a function counts exactly as much as one at the top.

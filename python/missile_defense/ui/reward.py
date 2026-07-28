@@ -3,7 +3,7 @@
 # Assisted-by: Claude Code (Anthropic)
 """The reward a run was actually trained against, written out as its formula.
 
-`missile_defense.env.Shaping` is seven numbers, and the config panel shows them as seven rows
+`missile_defense.sim.env.Shaping` is seven numbers, and the config panel shows them as seven rows
 of a table. That is faithful and nearly useless: the rows do not say that three
 of them are summed into a potential, that one is a discount applied to that
 potential and not to the return, or that two of them are switched off. Somebody

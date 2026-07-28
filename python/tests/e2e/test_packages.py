@@ -157,7 +157,7 @@ def exported_policy(tmp_path_factory: pytest.TempPathFactory) -> Path:
     which is the point of the refusal.
     """
     torch_free = pytest.importorskip(
-        "missile_defense.policy_format", reason="numpy is not installed"
+        "missile_defense.sim.policy_format", reason="numpy is not installed"
     )
     native = pytest.importorskip(
         "missile_defense._md_native", reason="the native binding is not built"

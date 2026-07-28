@@ -19,8 +19,7 @@ pytest.importorskip(
 )
 
 import torch  # noqa: E402
-from missile_defense import train as trainer  # noqa: E402
-from missile_defense.benchmark import (  # noqa: E402
+from missile_defense.sim.benchmark import (  # noqa: E402
     CANONICAL_BASELINE_MEAN_SCORE,
     CANONICAL_FRAME_SKIP,
     CANONICAL_INFERENCE_DEVICE,
@@ -31,9 +30,10 @@ from missile_defense.benchmark import (  # noqa: E402
     VALIDATION_SEED_OFFSET,
     VALIDATION_SPLIT,
 )
-from missile_defense.eval import default_seeds, validation_seeds  # noqa: E402
-from missile_defense.ppo import PPOConfig  # noqa: E402
-from missile_defense.train import TrainConfig  # noqa: E402
+from missile_defense.sim.eval import default_seeds, validation_seeds  # noqa: E402
+from missile_defense.training import train as trainer  # noqa: E402
+from missile_defense.training.ppo import PPOConfig  # noqa: E402
+from missile_defense.training.train import TrainConfig  # noqa: E402
 from torch import nn  # noqa: E402
 
 

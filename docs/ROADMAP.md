@@ -362,7 +362,7 @@ convenience over the mechanism, never the only way to reach it.
 > do, so `runs/TUNING.json` sits beside them for the eval cadence: parsed, written to a
 > temporary name and renamed into place, and unreadable-is-absent so a typo cannot kill
 > a run that is hours old. The trainer's **eval every** box writes it. It
-> lives in `missile_defense.control`, which the trainer and the training loop both import and which pulls in
+> lives in `missile_defense.runs.control`, which the trainer and the training loop both import and which pulls in
 > neither of them.
 
 ### What it shows
@@ -375,7 +375,7 @@ surface.
    reasoning already written beside them in code as tooltips), start/pause/stop/reset,
    live status. Named **presets** sit above the form: `fast` / `good` / `best` ship
    with it and are read-only, and your own are saved, updated and deleted there
-   (`missile_defense.presets`, stored beside the runs). They hold only what differs from the
+   (`missile_defense.runs.presets`, stored beside the runs). They hold only what differs from the
    trainer's defaults, so a preset stays readable as the command line it produces.
 2. **Curves** — return, entropy, value loss, clip fraction, from `metrics.csv`, plus
    split-labelled evaluation scores. The **skill ladder** — LOW, MEDIUM, HIGH — is
@@ -420,7 +420,7 @@ surface.
 * **PySide6**, installed into the *native* interpreter that already has torch and
   `_md_native`. Its wheels are MSVC-built, so this needs no MSYS2 involvement and no
   second toolchain — and it is consistent with the game already being Qt 6.
-* Lives in `python/missile_defense/ui/`, launched by `poe ui`. It imports `missile_defense.env` only for shapes;
+* Lives in `python/missile_defense/ui/`, launched by `poe ui`. It imports `missile_defense.sim.env` only for shapes;
   it never steps a simulation itself.
 * Depends on M6 being genuinely runnable — a trainer for a run that does not learn is a
   pretty window. Sequence it after the first real training run, not before.
@@ -446,7 +446,7 @@ python/missile_defense/ui/
   theme.py       # palette lifted from the game, dark by default
 ```
 
-The control protocol itself is **not** here: it is `python/missile_defense/control.py`, because
+The control protocol itself is **not** here: it is `python/missile_defense/runs/control.py`, because
 the training loop polls it and the trainer writes it, and neither should have to import
 the other to agree on what a pause is.
 
@@ -467,7 +467,7 @@ beside them: the baseline needed a comparable curve to be drawn across (hence
 Windows needs the CLANG64 prefix put back on `PATH`, or the MinGW build dies
 looking for `libc++.dll` before it can show a window.
 
-**Phase 2 — Control.** ✅ *(implemented — ready for sign-off)* `missile_defense.control` and the
+**Phase 2 — Control.** ✅ *(implemented — ready for sign-off)* `missile_defense.runs.control` and the
 loop's once-per-update check landed first and on their own, so `touch runs/STOP`
 and `touch runs/PAUSE` work with no trainer anywhere. The bar then reads: one
 button that changes meaning (Start → Pause → Resume), Stop, and Reset, which
@@ -497,12 +497,12 @@ dropped rather than raised.
 
 The model half sits above it: architecture, parameter count, the observation and
 action sizes, a line per layer, and which checkpoint is newest with what it
-scored. The rule above ("anything needing model state belongs in `missile_defense.train`,
+scored. The rule above ("anything needing model state belongs in `missile_defense.training.train`,
 surfaced as an artifact the UI reads") decided its shape — the trainer cannot
 open a `.pt` without torch, so the trainer writes `runs/model.json` at start-up
-and the trainer reads that. `missile_defense.modelcard` holds the format and imports torch
+and the trainer reads that. `missile_defense.runs.modelcard` holds the format and imports torch
 *nowhere*, not even lazily: `describe()` takes a state dict's **shapes**, and a
-shape is a tuple of ints. Like `missile_defense.control`, it is a file both sides agree on
+shape is a tuple of ints. Like `missile_defense.runs.control`, it is a file both sides agree on
 and neither has to import the other for.
 
 > **One file per run, not a sidecar per checkpoint.** Within a run the
@@ -610,7 +610,7 @@ Make it structural instead of a rule people remember:
   with no torch at all, which is a feature: you can watch a remote run from anywhere.
 * The UI's only writes are the control file and spawning subprocesses. Everything
   else is read-only.
-* Any feature that seems to need model state belongs in `missile_defense.train`, surfaced as an
+* Any feature that seems to need model state belongs in `missile_defense.training.train`, surfaced as an
   artifact the UI reads.
 
 ### Before this: onboarding

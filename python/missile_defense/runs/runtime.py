@@ -9,8 +9,9 @@ this, how do I train?" was "open a terminal and pip install torch", which is the
 one instruction an installed application should never have to give
 (docs/ROADMAP.md, M8).
 
-This module makes that a button. It sits beside :mod:`missile_defense.control` and
-:mod:`missile_defense.paths` for the same reason they do: the trainer writes it, the training loop
+This module makes that a button. It sits beside :mod:`missile_defense.runs.control` and
+:mod:`missile_defense.runs.paths` for the same reason they do: the trainer writes
+it, the training loop
 is started from it, and neither has to import the other to agree on where the
 interpreter is.
 
@@ -58,7 +59,7 @@ from . import paths
 
 #: Where ``md`` itself sits, so the health check can import it — and so a run
 #: started from the managed interpreter can too, without ``md`` being installed
-#: into it. Mirrors ``missile_defense.ui.runner.PACKAGE_PATH``.
+#: into it. Mirrors ``missile_defense.runs.runner.PACKAGE_PATH``.
 PACKAGE_PATH = Path(__file__).resolve().parent.parent
 
 #: The file naming the live runtime directory.
@@ -132,7 +133,7 @@ IMPORT_ADVICE = (
 #: What pip is asked for. `missile_defense._md_native` is deliberately absent: it is compiled
 #: from this checkout and no index has it.
 #:
-#: numpy is not incidental and not torch's problem. `missile_defense.env` types its buffer
+#: numpy is not incidental and not torch's problem. `missile_defense.sim.env` types its buffer
 #: contract with `numpy.typing` and the trainer imports it on its first line, but
 #: torch declares numpy *optional* — so `pip install torch` alone produced a
 #: runtime that imported torch happily, passed a health check that asked no more

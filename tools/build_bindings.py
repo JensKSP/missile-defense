@@ -3,7 +3,7 @@
 # Assisted-by: Claude Code (Anthropic)
 """Build the `_md_native` extension and put it beside the Python package.
 
-CMake writes the module into the build tree, but `missile_defense.env` imports it
+CMake writes the module into the build tree, but `missile_defense.sim.env` imports it
 as ``missile_defense._md_native`` — so it has to sit next to
 ``python/missile_defense/``. Copying it there (it is gitignored) keeps ``pytest``
 and an interactive session working straight from
@@ -179,7 +179,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     # `md_native_beside_package`, not `_md_native`: building the module is half
     # the job, and the other half — putting it next to python/missile_defense/,
-    # where `missile_defense.env` imports it from — is a declared CMake output now
+    # where `missile_defense.sim.env` imports it from — is a declared CMake output now
     # rather than something this
     # script does to the build tree afterwards (bindings/CMakeLists.txt says how,
     # including which stale names a build supersedes and which belong to another
@@ -203,7 +203,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # A build step that produces an unloadable artefact and prints "copied" has
     # not done its job. One import, in the interpreter it was built for — the
-    # same check `missile_defense.runtime` makes before an install, and for the same reason:
+    # same check `missile_defense.runs.runtime` makes before an install, and for the same reason:
     # the file being on the path proved nothing about it loading. The failure
     # this catches is not exotic; it is what a MinGW build in a native CPython
     # does, and it surfaced two steps later as a training runtime that would not

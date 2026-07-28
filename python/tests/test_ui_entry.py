@@ -6,7 +6,7 @@
 The entry point exists to turn a missing package into a sentence, and it had no
 test at all until the day it shipped the opposite: everything except PySide6
 went out as a stack trace, and the package that actually went missing was
-``numpy`` — a *base* dependency, reached through ``missile_defense.league``. Started from the
+``numpy`` — a *base* dependency, reached through ``missile_defense.runs.league``. Started from the
 game, which on Windows is a GUI-subsystem binary with no console attached, that
 trace had nowhere to appear: the menu entry did nothing at all.
 

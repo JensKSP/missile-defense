@@ -21,7 +21,7 @@ Three things here are deliberate:
   also the first question about a run rather than a twenty-first — start over,
   or carry on? — so it sits above the parameters instead of in with them.
 * **Continuing a run opens on that run's own settings.** They arrive as
-  ``initial`` (from its ``config.json``, via :mod:`missile_defense.runconfig`) and are poured
+  ``initial`` (from its ``config.json``, via :mod:`missile_defense.runs.runconfig`) and are poured
   in the way a preset is. Retyping them from memory was the step that used to
   cost a run: the trainer rejects a resume whose architecture, hidden size or
   annealing schedule disagrees with the checkpoint, and quietly accepts a
@@ -57,10 +57,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import footprint, presets
+from ..runs import footprint, presets
+from ..runs.sources import Checkpoint, human_age, human_size
 from . import params as params_module
 from .params import Param
-from .sources import Checkpoint, human_age, human_size
 
 #: Wide enough for the four headline fields and their explanations.
 DIALOG_WIDTH = 620
@@ -230,7 +230,7 @@ class ParameterDialog(QDialog):
         layout.setSpacing(10)
 
         if not fields:
-            # An installed trainer watching a synced directory has no missile_defense.train
+            # An installed trainer watching a synced directory has no missile_defense.training
             # to read; say that, rather than showing an empty form.
             missing = QLabel(
                 "The training loop's source is not beside this trainer, so its "

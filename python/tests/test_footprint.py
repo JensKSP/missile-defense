@@ -13,10 +13,10 @@ measurements in the module docstring, and every built-in preset to the model.
 from __future__ import annotations
 
 import pytest
-from missile_defense import footprint, presets
+from missile_defense.runs import footprint, presets
 
 #: (architecture, envs, steps, minibatches, measured GiB) — two updates of
-#: missile_defense.train on an RTX 5090, reading torch.cuda.max_memory_allocated().
+#: missile_defense.training.train on an RTX 5090, reading torch.cuda.max_memory_allocated().
 MEASURED = [
     ("entity", 1024, 256, 8, 18.95),
     ("entity", 2048, 256, 16, 20.97),

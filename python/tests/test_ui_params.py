@@ -3,10 +3,10 @@
 # Assisted-by: Claude Code (Anthropic)
 """Tests for reading the trainer's knobs out of the trainer's source.
 
-The trainer cannot import `missile_defense.train` — that would pull in torch, which a test
+The trainer cannot import `missile_defense.training.train` — that would pull in torch, which a test
 forbids — so the parameter form parses it instead. These tests pin both halves:
 the parsing, against a fixture that looks like the real dataclasses, and the
-result against the actual `missile_defense/train.py`, so a rename over there is caught here
+result against the actual `missile_defense/training/train.py`, so a rename over there is caught here
 rather than by an empty form.
 """
 
@@ -15,7 +15,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import missile_defense
-from missile_defense import runconfig
+from missile_defense.runs import runconfig
 from missile_defense.ui.params import HEADLINE, Param, command_line, read_params, settings_of
 
 TRAINER = Path(missile_defense.__file__).parent
@@ -48,8 +48,15 @@ class PPOConfig:
 
 
 def _fixture(tmp_path: Path) -> Path:
-    (tmp_path / "train.py").write_text(FIXTURE, encoding="utf-8")
-    (tmp_path / "ppo.py").write_text(FIXTURE, encoding="utf-8")
+    """A package root with the two config modules where the layers put them.
+
+    Spelled out rather than read from `params.SOURCES` — a fixture that shares
+    the implementation's idea of the layout cannot catch it being wrong, which is
+    exactly what these tests are for.
+    """
+    (tmp_path / "training").mkdir(exist_ok=True)
+    (tmp_path / "training" / "train.py").write_text(FIXTURE, encoding="utf-8")
+    (tmp_path / "training" / "ppo.py").write_text(FIXTURE, encoding="utf-8")
     return tmp_path
 
 
@@ -94,20 +101,25 @@ def test_a_default_that_names_a_constant_shows_the_number_it_stands_for(tmp_path
     # retype the published protocol, and it is two modules away from the number.
     # The form still has to show a number: a spin box cannot hold a name, and one
     # that was handed one took the whole parameter dialog down with it.
-    (tmp_path / "train.py").write_text(
+    # And the chain now crosses a layer: `training/train.py` reaches `sim/` with a
+    # two-dot import, `sim/benchmark.py` reaches its neighbour with one. Following
+    # only single-dot imports resolved neither and left the *name* in the form.
+    (tmp_path / "training").mkdir(exist_ok=True)
+    (tmp_path / "sim").mkdir(exist_ok=True)
+    (tmp_path / "training" / "train.py").write_text(
         "from dataclasses import dataclass\n"
-        "from .benchmark import CANONICAL_REACTION_DELAY\n\n\n"
+        "from ..sim.benchmark import CANONICAL_REACTION_DELAY\n\n\n"
         "@dataclass\n"
         "class TrainConfig:\n"
         "    reaction_delay: int = CANONICAL_REACTION_DELAY\n"
         "    nowhere: int = MISSING\n",
         encoding="utf-8",
     )
-    (tmp_path / "benchmark.py").write_text(
-        "from ._protocol import REACTION_DELAY\n\nCANONICAL_REACTION_DELAY = REACTION_DELAY\n",
+    (tmp_path / "sim" / "benchmark.py").write_text(
+        "from .protocol import REACTION_DELAY\n\nCANONICAL_REACTION_DELAY = REACTION_DELAY\n",
         encoding="utf-8",
     )
-    (tmp_path / "_protocol.py").write_text("REACTION_DELAY: int = 3\n", encoding="utf-8")
+    (tmp_path / "sim" / "protocol.py").write_text("REACTION_DELAY: int = 3\n", encoding="utf-8")
 
     fields = {field.name: field for field in read_params(tmp_path)}
     assert fields["reaction_delay"].default == "3"
@@ -117,9 +129,10 @@ def test_a_default_that_names_a_constant_shows_the_number_it_stands_for(tmp_path
 
 
 def test_the_handicap_the_real_trainer_defaults_to_reads_as_its_value() -> None:
-    # The chain that actually matters: `missile_defense.train` → `missile_defense.benchmark` → the
-    # generated `missile_defense._protocol`, followed without importing any of them.
-    from missile_defense.benchmark import (  # noqa: PLC0415
+    # The chain that actually matters: `missile_defense.training.train` →
+    # `missile_defense.sim.benchmark` → the
+    # generated `missile_defense.sim.protocol`, followed without importing any of them.
+    from missile_defense.sim.benchmark import (  # noqa: PLC0415
         CANONICAL_AIM_TRAIL,
         CANONICAL_REACTION_DELAY,
     )
@@ -142,11 +155,11 @@ def test_the_real_trainer_still_has_the_headline_four() -> None:
 
 
 def test_every_field_is_reachable_from_the_command_line() -> None:
-    # A field the form offers but `missile_defense.train` has no flag for would silently do
+    # A field the form offers but `missile_defense.training.train` has no flag for would silently do
     # nothing. The two config classes reach the CLI by different routes, so both
     # are checked: TrainConfig by explicit flags, PPOConfig by the loop that
     # generates one per dataclass field.
-    source = (TRAINER / "train.py").read_text(encoding="utf-8")
+    source = (TRAINER / "training" / "train.py").read_text(encoding="utf-8")
     assert "for field in dataclasses.fields(PPOConfig)" in source
     for field in read_params(TRAINER):
         if field.owner == "TrainConfig":
@@ -159,7 +172,7 @@ def test_the_command_line_carries_only_what_changed() -> None:
         "python",
         "-u",
         "-m",
-        "missile_defense.train",
+        "missile_defense.training",
         "--envs",
         "2048",
         "--out-dir",
@@ -219,15 +232,17 @@ def test_the_reward_flags_are_prefixed_so_the_two_gammas_do_not_collide() -> Non
 def test_every_offered_choice_is_one_the_trainer_accepts() -> None:
     """A dropdown cannot be misspelled — but it can be *wrong*.
 
-    The values here and the ones `missile_defense.ppo.build_policy` implements are two lists
+    The values here and the ones `missile_defense.training.ppo.build_policy`
+    implements are two lists
     that would drift silently, and the symptom would be a run that dies on its
     first update after the parameter dialog offered the option.
     """
-    from missile_defense.policy_format import ARCHITECTURES  # noqa: PLC0415
+    from missile_defense.sim.policy_format import ARCHITECTURES  # noqa: PLC0415
     from missile_defense.ui.params import CHOICES  # noqa: PLC0415
 
     # Every architecture the trainer offers must be one the trainer can build.
-    # `missile_defense.ppo` is not importable without torch, so the format's own table — which
+    # `missile_defense.training.ppo` is not importable without torch, so the
+    # format's own table — which
     # is generated from the same set and *is* importable — stands in for it.
     assert set(CHOICES["architecture"]) == set(ARCHITECTURES)
 
@@ -272,7 +287,7 @@ def test_the_prefixed_field_list_matches_the_real_dataclass() -> None:
 
 def test_a_reward_weight_reaches_the_command_line_under_its_real_flag() -> None:
     """The bug this guards: `command_line` rebuilt flags from the field name and
-    so emitted `--city-weight`, which `missile_defense.train` does not accept."""
+    so emitted `--city-weight`, which `missile_defense.training.train` does not accept."""
     from missile_defense.ui.params import command_line  # noqa: PLC0415
 
     command = command_line("python3", {"city_weight": "250", "envs": "512"}, out_dir=Path("/tmp/x"))

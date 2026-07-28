@@ -14,7 +14,7 @@ That is also why it is the landing view. Opening the trainer on `runs/` with
 eleven experiments in it and being dropped into whichever one sorted first is
 how you end up reading the wrong curve for a minute.
 
-Everything numeric comes from :mod:`missile_defense.library`, which is Qt-free and tested.
+Everything numeric comes from :mod:`missile_defense.runs.library`, which is Qt-free and tested.
 This file lays out rows and turns clicks into calls.
 """
 
@@ -40,8 +40,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import library
-from . import sources, theme
+from ..runs import library, sources
+from . import theme
 from .params import TRAINER_SOURCES
 
 #: What the screen says on a machine that has never trained anything. Names the
@@ -365,7 +365,7 @@ class RunTable(QWidget):
         if answer != QMessageBox.StandardButton.Yes:
             return
 
-        from .. import archive  # noqa: PLC0415 — beside the dialog it is used from
+        from ..runs import archive  # noqa: PLC0415 — beside the dialog it is used from
         from .storage import run_work  # noqa: PLC0415 — optional dependency
 
         freed = run_work(

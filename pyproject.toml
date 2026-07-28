@@ -91,9 +91,9 @@ skip = "*-musllinux_*"
 manylinux-x86_64-image = "manylinux_2_28"
 manylinux-aarch64-image = "manylinux_2_28"
 # The one claim a wheel has to earn: that it imports on a machine that never had
-# the toolchain. `missile_defense.env` is the module the extension exists for, so importing
+# the toolchain. `missile_defense.sim.env` is the module the extension exists for, so importing
 # the package alone would not prove the .so loads.
-test-command = "python -c \"import missile_defense, missile_defense.env; print(missile_defense.__version__)\""
+test-command = "python -c \"import missile_defense, missile_defense.sim.env; print(missile_defense.__version__)\""
 
 [project]
 name = "missile-defense"
@@ -103,7 +103,7 @@ readme = "README.md"
 license = { file = "LICENSE" }
 authors = [{ name = "Jens Köhler", email = "jens@koehler-speyer.de" }]
 requires-python = ">=3.11"
-# missile_defense.env types its buffer contract with numpy.typing, so this is not optional
+# missile_defense.sim.env types its buffer contract with numpy.typing, so this is not optional
 # for anything that imports the environment at all.
 dependencies = ["numpy>=1.24"]
 classifiers = [
@@ -136,7 +136,7 @@ trainer = [
 
 # Both go through a shim that checks for the optional half first: an entry point
 # that dies inside `import torch` reads as a broken install rather than as a
-# package someone has not added yet (missile_defense.cli, missile_defense.ui.__main__).
+# package someone has not added yet (missile_defense.training.cli, missile_defense.ui.__main__).
 #
 # The names are the product's, not the import package's. `md-` meant nothing to
 # anyone who had not read the source: the game installs as `missile-defense`, so
@@ -145,9 +145,9 @@ trainer = [
 #
 # There is no separate multi-seed command. It was `md-multiseed`, and it is now
 # `missile-defense-train --multiseed`, because it is the trainer run several
-# times rather than a different program — see missile_defense.cli.train.
+# times rather than a different program — see missile_defense.training.cli.train.
 [project.scripts]
-missile-defense-train = "missile_defense.cli:train"
+missile-defense-train = "missile_defense.training.cli:train"
 missile-defense-trainer = "missile_defense.ui.__main__:main"
 
 # ---- Task runner (poe) -------------------------------------------------------
@@ -180,7 +180,7 @@ profile   = { cmd = "python -m tools.run_bench --profile", help = "Benchmark wit
 # C++ toolchain — a Windows box without MSVC, say — `poe ui` stopped opening a
 # trainer that would have worked, in order to build something the person may not
 # have come for.
-train     = { cmd = "python -m tools.launch missile_defense.train", deps = ["bindings"], help = "Train a policy with PPO (needs torch; see docs/TRAINING.md)" }
+train     = { cmd = "python -m tools.launch missile_defense.training.train", deps = ["bindings"], help = "Train a policy with PPO (needs torch; see docs/TRAINING.md)" }
 ui        = { cmd = "python -m tools.launch missile_defense.ui", help = "Trainer: watch a run's curves and replays (needs PySide6)" }
 bindings  = { cmd = "python -m tools.build_bindings", help = "Build the Python extension (_md_native) and put it beside the package" }
 shot      = { cmd = "python -m tools.capture screenshot", help = "Screenshot the running app -> shot.png (append --launch to spawn one)" }
@@ -266,7 +266,7 @@ ignore_missing_imports = true
 module = ["PIL", "PIL.*"]
 ignore_missing_imports = true
 
-# numpy is deliberately *not* overridden here. `missile_defense.env` types its buffer
+# numpy is deliberately *not* overridden here. `missile_defense.sim.env` types its buffer
 # contract with `numpy.typing`, and waving that through would silently drop the
 # checking this project most depends on.
 #
@@ -278,7 +278,11 @@ ignore_missing_imports = true
 # `tools/bootstrap.py` and CI both install it.
 
 [[tool.mypy.overrides]]
-module = ["missile_defense.auxiliary", "missile_defense.ppo", "missile_defense.train"]
+module = [
+  "missile_defense.training.auxiliary",
+  "missile_defense.training.ppo",
+  "missile_defense.training.train",
+]
 ignore_errors = true
 
 # The trainer is optional (LGPLv3, never a dependency of the game), so PySide6 is
@@ -329,10 +333,10 @@ extraPaths = ["python"]
 # missing for weeks and nobody saw it: the errors only appear where torch is
 # absent, and the one environment like that is CI.
 ignore = [
-  "python/missile_defense/auxiliary.py",
-  "python/missile_defense/export_policy.py",
-  "python/missile_defense/ppo.py",
-  "python/missile_defense/train.py",
+  "python/missile_defense/training/auxiliary.py",
+  "python/missile_defense/sim/export_policy.py",
+  "python/missile_defense/training/ppo.py",
+  "python/missile_defense/training/train.py",
   # Same reason, one layer out: PySide6 is optional, so the widgets are checked
   # on a machine that has it (`pyright --pythonpath ...`), not pretended clean.
   # Kept in step with the mypy list above by `tests/test_typing_policy.py`.

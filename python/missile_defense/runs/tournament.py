@@ -17,11 +17,11 @@ So this module enforces three rules, and they are the whole reason it exists:
 2. **A ranking only appears when every seed is in.** A partial evaluation is
    reported as partial and never written as a result.
 3. **Only a complete canonical evaluation ranks.** A quick head-to-head over
-   four seeds is useful and is labelled unranked; `missile_defense.benchmark` owns what
+   four seeds is useful and is labelled unranked; `missile_defense.sim.benchmark` owns what
    canonical means and this asks it rather than reimplementing it.
 
 **Inference is native, and that is what makes this usable at all.**
-:func:`missile_defense.export_policy.evaluate` is the reference forward pass — it defines the
+:func:`missile_defense.sim.export_policy.evaluate` is the reference forward pass — it defines the
 `.mdp` format and `python/tests/e2e/test_parity.py` holds it and the C++ side to
 the same action, decision for decision — but it runs one observation at a time
 from Python, at about 17 ms each for the relational architecture. A canonical
@@ -38,7 +38,7 @@ a count that moves, and a cancel that lands on a seed boundary rather than
 mid-episode.
 
 The scripted baseline is a **published constant** rather than a contestant that
-is re-run: `missile_defense.benchmark.CANONICAL_BASELINE_MEAN_SCORE` was measured on this
+is re-run: `missile_defense.sim.benchmark.CANONICAL_BASELINE_MEAN_SCORE` was measured on this
 exact protocol, and re-measuring it every tournament would spend four minutes to
 reproduce a number that is already the definition of the yardstick.
 """
@@ -51,10 +51,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from . import benchmark, league
+from ..sim import benchmark
+from . import league
 
 if TYPE_CHECKING:  # these pull in the native extension; annotations only
-    from ._md_native import EpisodeResult, LoadedPolicy, Summary
+    from .._md_native import EpisodeResult, LoadedPolicy, Summary
 
 #: How many seeds a *quick* match uses. Small enough to answer "is this one
 #: obviously worse?" in under a minute, and labelled unranked so it can never be
@@ -85,7 +86,7 @@ class Protocol:
 
     A value rather than a set of arguments, because it is recorded *into* the
     result: a score without the protocol that produced it cannot be compared
-    with anything, which is the mistake `missile_defense.benchmark` exists to prevent.
+    with anything, which is the mistake `missile_defense.sim.benchmark` exists to prevent.
     """
 
     seed_split: str
@@ -117,9 +118,9 @@ class Protocol:
 
     def seeds(self) -> list[int]:
         """The seed list itself, so every contestant is handed the same one."""
-        from . import eval as md_eval  # noqa: PLC0415 — needs the native binding
+        from ..sim import eval as md_eval  # noqa: PLC0415 — needs the native binding
 
-        # The canonical block goes through `missile_defense.eval` rather than the raw
+        # The canonical block goes through `missile_defense.sim.eval` rather than the raw
         # generator, so a tournament and `poe eval` cannot disagree about which
         # 32 seeds those are.
         if self.seed_offset == benchmark.CANONICAL_SEED_OFFSET:
@@ -175,7 +176,7 @@ class Result:
     finished_at: float = field(default_factory=time.time)
 
     def as_record(self) -> dict[str, object]:
-        """What :func:`missile_defense.league.record_result` stores."""
+        """What :func:`missile_defense.runs.league.record_result` stores."""
         return {
             "protocol": {
                 "seed_split": self.protocol.seed_split,
@@ -207,7 +208,7 @@ def load_policy(model: league.Model) -> LoadedPolicy:
     native loader refuses it by name and by number, and that arrives here as a
     :class:`TournamentError` rather than as a crash half-way through a contest.
     """
-    from ._md_native import LoadedPolicy as Native  # noqa: PLC0415 — the native binding
+    from .._md_native import LoadedPolicy as Native  # noqa: PLC0415 — the native binding
 
     try:
         return Native(str(model.policy))
@@ -217,7 +218,7 @@ def load_policy(model: league.Model) -> LoadedPolicy:
 
 def _summarize(episodes: Sequence[EpisodeResult]) -> Summary:
     """The same aggregation the scripted baseline is published with."""
-    from ._md_native import summarize  # noqa: PLC0415 — the native binding
+    from .._md_native import summarize  # noqa: PLC0415 — the native binding
 
     return summarize(list(episodes))
 
@@ -429,7 +430,7 @@ def record_episode(
     manifest claims. The saved recording carries that seed in its header, which
     is what `MatchPlayer` checks before it will pair two files.
     """
-    from .env import VecEnv  # noqa: PLC0415
+    from ..sim.env import VecEnv  # noqa: PLC0415
 
     # `VecEnv` and not `LoadedPolicy.play`, because what is wanted here is the
     # *recording* — the action log a `.mdr` is made of — and that is the

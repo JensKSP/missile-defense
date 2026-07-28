@@ -26,8 +26,9 @@ import sys
 from pathlib import Path
 
 import pytest
-from missile_defense import cadence
-from missile_defense.benchmark import (
+from missile_defense.runs import cadence
+from missile_defense.runs.control import TUNING_NAME, Control
+from missile_defense.sim.benchmark import (
     CANONICAL_BASELINE_MEAN_SCORE,
     CANONICAL_FRAME_SKIP,
     CANONICAL_LADDER,
@@ -39,7 +40,6 @@ from missile_defense.benchmark import (
     VALIDATION_SPLIT,
     Ladder,
 )
-from missile_defense.control import TUNING_NAME, Control
 
 from .harness import (
     PROJECT_ROOT,
@@ -93,7 +93,7 @@ def test_a_run_scores_itself_on_the_validation_seeds(trained_run: Path) -> None:
         assert column in rows[0], f"evals.csv has no {column} column"
 
 
-#: The five bins, in the order `missile_defense.train.EVAL_COLUMNS` writes them.
+#: The five bins, in the order `missile_defense.training.train.EVAL_COLUMNS` writes them.
 EVAL_HISTOGRAM = ("shots_0kill", "shots_1kill", "shots_2kill", "shots_3kill", "shots_4plus")
 
 #: The per-episode means the statistics added, beside the nine original columns.
@@ -270,7 +270,7 @@ def test_a_run_records_what_it_was_started_with(trained_run: Path) -> None:
 
 def test_a_run_describes_the_network_it_is_training(trained_run: Path) -> None:
     # The trainer cannot open a .pt without torch, so the trainer writes this
-    # instead and the model panel reads it (missile_defense.modelcard).
+    # instead and the model panel reads it (missile_defense.runs.modelcard).
     card = json.loads((trained_run / "model.json").read_text(encoding="utf-8"))
     assert card["parameters"] > 0
     assert card["tensors"], "model.json lists no tensors"
@@ -349,7 +349,7 @@ def test_a_live_run_takes_a_new_eval_cadence_without_being_restarted(tmp_path: P
     )
     rows = list(csv.DictReader((out_dir / "evals.csv").read_text(encoding="utf-8").splitlines()))
     scored = [int(row["update"]) for row in rows]
-    # Not `[30, 60]`: the cadence *ramps* (missile_defense.cadence), and the schedule is a
+    # Not `[30, 60]`: the cadence *ramps* (missile_defense.runs.cadence), and the schedule is a
     # function of the update number alone. So a run that adopts a 30-update
     # interval part-way through joins the schedule it would have been on all
     # along — dense over the updates where a policy still changes shape — rather
@@ -369,7 +369,7 @@ def test_a_live_run_takes_a_new_eval_cadence_without_being_restarted(tmp_path: P
 
 
 def test_a_run_logs_itself_so_a_trainer_can_attach_later(trained_run: Path) -> None:
-    # missile_defense.runlog: the trainer writes its own log, which is what gives a run
+    # missile_defense.runs.runlog: the trainer writes its own log, which is what gives a run
     # started in a terminal a log pane in a trainer that never started it.
     log = (trained_run / "train.log").read_text(encoding="utf-8")
     assert "update" in log.lower()
@@ -392,7 +392,7 @@ def test_a_stopped_run_is_continued_from_its_own_directory(
     before = len((run / "metrics.csv").read_text(encoding="utf-8").splitlines())
 
     result = subprocess.run(
-        [sys.executable, "-m", "missile_defense.train", "--resume", str(run), "--updates", "1"],
+        [sys.executable, "-m", "missile_defense.training", "--resume", str(run), "--updates", "1"],
         capture_output=True,
         text=True,
         timeout=TRAIN_TIMEOUT_S,
@@ -420,7 +420,7 @@ def test_a_continuation_picks_up_at_the_update_the_run_stopped_on(
     shutil.copytree(trained_run, run)
 
     result = subprocess.run(
-        [sys.executable, "-m", "missile_defense.train", "--resume", str(run), "--updates", "1"],
+        [sys.executable, "-m", "missile_defense.training", "--resume", str(run), "--updates", "1"],
         capture_output=True,
         text=True,
         timeout=TRAIN_TIMEOUT_S,
@@ -441,7 +441,7 @@ def test_the_settings_of_a_run_can_be_read_back_without_opening_the_file(
     trained_run: Path,
 ) -> None:
     result = subprocess.run(
-        [sys.executable, "-m", "missile_defense.train", "--show-config", str(trained_run)],
+        [sys.executable, "-m", "missile_defense.training", "--show-config", str(trained_run)],
         capture_output=True,
         text=True,
         timeout=TRAIN_TIMEOUT_S,

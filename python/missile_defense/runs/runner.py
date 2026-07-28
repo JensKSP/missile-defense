@@ -9,7 +9,7 @@ event loop that is a frozen window, and a UI crash would take the run with it.
 Out of process, the trainer can be closed, can crash, or can be opened on a
 directory synced from another machine, and the run does not notice.
 
-Nothing here kills a run, either. Stopping is a *request* — see :mod:`missile_defense.control`
+Nothing here kills a run, either. Stopping is a *request* — see :mod:`missile_defense.runs.control`
 — so the loop finishes its update and writes a final checkpoint. The trainer has
 no way to take that away.
 
@@ -18,7 +18,7 @@ fixed path: an explicit ``MD_APP``, then this checkout's build directories, then
 ``PATH`` for a system install from the ``.deb``.
 
 Finding the *interpreter* is the same kind of search and now has the same shape:
-``MD_PYTHON``, then the runtime the trainer installed itself (:mod:`missile_defense.runtime`),
+``MD_PYTHON``, then the runtime the trainer installed itself (:mod:`missile_defense.runs.runtime`),
 then this interpreter if torch happens to be importable from it. Only starting a
 run depends on the answer — attaching, browsing and replay never do.
 """
@@ -38,7 +38,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Protocol
 
-from .. import runtime
+from . import runtime
 
 #: <root>/python/missile_defense/ui/runner.py — the checkout, when the trainer runs from one.
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -404,7 +404,7 @@ def find_interpreter(
        the split-interpreter case on Windows (docs/WINDOWS.md), where the trainer
        and the trainer are deliberately different builds.
     2. the runtime the trainer installed and health-checked itself
-       (:mod:`missile_defense.runtime`) — the answer for anyone who installed a package.
+       (:mod:`missile_defense.runs.runtime`) — the answer for anyone who installed a package.
     3. this interpreter, if torch happens to be importable from it — the developer
        case, and what this function used to be in its entirety.
 

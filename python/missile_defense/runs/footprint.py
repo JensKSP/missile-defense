@@ -6,12 +6,13 @@
 Two terms, and the second one is the trap:
 
 * The **rollout buffer** is `envs × steps` samples, preallocated once
-  (:class:`missile_defense.ppo.Rollout`). It scales with the batch, and it is the term people
+  (:class:`missile_defense.training.ppo.Rollout`). It scales with the batch, and
+  it is the term people
   expect.
 * The **minibatch** is what the update actually pushes through the network, and
   on the relational architecture it dominates by a factor of sixty. Its entity
   encoders and auxiliary targets build per-sample threat×entity tensors
-  (:mod:`missile_defense.auxiliary`), so peak memory follows `batch / minibatches` — *not*
+  (:mod:`missile_defense.training.auxiliary`), so peak memory follows `batch / minibatches` — *not*
   the batch. Doubling `--minibatches` roughly halves the peak while training on
   exactly the same data.
 
@@ -19,7 +20,7 @@ That is why 4,096 envs × 512 steps at the default 8 minibatches falls over on a
 32 GiB card while 2,048 × 512 at 64 minibatches — the same number of samples per
 update — fits in 17 GiB.
 
-The constants are **measured**, not derived: two updates of `missile_defense.train` on an
+The constants are **measured**, not derived: two updates of `missile_defense.training` on an
 RTX 5090, reading `torch.cuda.max_memory_allocated()`. They are a straight line
 through those points to within 1%:
 
@@ -42,7 +43,7 @@ from __future__ import annotations
 
 #: Floats in one observation, and legal actions in one mask. Fixed by the game's
 #: `Config`, and asserted against the real environment by the native tests —
-#: this module cannot import `missile_defense.env` to ask, because an installed trainer has
+#: this module cannot import `missile_defense.sim.env` to ask, because an installed trainer has
 #: the trainer's source but not always its compiled binding.
 OBSERVATION_FLOATS = 1959
 ACTION_COUNT = 385

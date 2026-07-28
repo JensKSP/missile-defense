@@ -4,7 +4,7 @@
 //
 // The lookup that decides whether the menu offers TRAIN AI at all. It is the
 // boundary between the two products, so what is tested here is the *search
-// order* rather than any one answer: `missile_defense.ui.runner.trainer_executable()` walks
+// order* rather than any one answer: `missile_defense.runs.runner.trainer_executable()` walks
 // the same four places in the same sequence, and a disagreement between them is
 // either a menu entry that launches nothing or a trainer nobody can reach.
 #include "trainer.hpp"

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ._protocol import (
+from .protocol import (
     AIM_TRAIL,
     CANONICAL_OFFSET,
     DECISION_INTERVAL,
@@ -22,8 +22,8 @@ from ._protocol import (
     REACTION_DELAY,
     VALIDATION_OFFSET,
 )
-from ._protocol import CANONICAL_SPLIT as CANONICAL_SPLIT
-from ._protocol import VALIDATION_SPLIT as VALIDATION_SPLIT
+from .protocol import CANONICAL_SPLIT as CANONICAL_SPLIT
+from .protocol import VALIDATION_SPLIT as VALIDATION_SPLIT
 
 # These names are the protocol's vocabulary in Python; `missile_defense/_protocol.py` is
 # generated from `protocol.toml` and is where the values live. Re-exported under

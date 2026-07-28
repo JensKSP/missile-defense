@@ -21,7 +21,7 @@ from typing import cast
 import numpy as np
 import numpy.typing as npt
 
-from . import _md_native as _native
+from .. import _md_native as _native
 
 Config = _native.Config
 ObsSpec = _native.ObsSpec
@@ -293,7 +293,7 @@ class VecEnv:
         """Outcome of the last episode this env finished, or None.
 
         Reported in the same shape as the scripted baseline's, so both can be
-        aggregated by ``missile_defense.eval``'s (that is, the C++) ``summarize``.
+        aggregated by ``missile_defense.sim.eval``'s (that is, the C++) ``summarize``.
         """
         return self._native.take_episode_result(index)
 
