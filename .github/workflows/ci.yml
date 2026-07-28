@@ -251,7 +251,15 @@ jobs:
           sudo apt-get update
           # g++ on purpose: a wheel is compiled by whoever runs `pip install`,
           # on whatever they have, which is the system compiler this proves.
-          sudo apt-get install -y cmake ninja-build g++ python3 python3-venv python3-pip
+          # python3-numpy into the *system* site-packages, not into the venv
+          # below. `test_wheel_install.py` installs the wheel with `--no-index`
+          # and lets the throwaway venv inherit its third-party dependencies —
+          # and a venv created from another venv inherits the *base* interpreter,
+          # so numpy in /tmp/wheelenv is invisible to it. Without this the
+          # hermetic install fails on `numpy>=1.24 (from versions: none)`, which
+          # reads like a broken package rather than a missing inheritance.
+          sudo apt-get install -y cmake ninja-build g++ python3 python3-venv python3-pip \
+            python3-numpy
 
       - name: Build and install the wheel
         run: |

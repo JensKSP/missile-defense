@@ -102,6 +102,13 @@ manylinux-aarch64-image = "manylinux_2_28"
 # the package alone would not prove the .so loads.
 test-command = "python -c \"import missile_defense, missile_defense.sim.env; print(missile_defense.__version__)\""
 
+# macOS builds against 14.0 — CMakeLists.txt sets CMAKE_OSX_DEPLOYMENT_TARGET —
+# and cibuildwheel otherwise tags the wheel 11.0 and hands it to delocate, which
+# refuses with "Library dependencies do not satisfy target MacOS version 11.0".
+# The two numbers have to be one number, and this is the half that was missing.
+[tool.cibuildwheel.macos.environment]
+MACOSX_DEPLOYMENT_TARGET = "14.0"
+
 [project]
 name = "missile-defense"
 version = "0.1.0"
