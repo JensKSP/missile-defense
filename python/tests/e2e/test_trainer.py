@@ -1648,3 +1648,66 @@ def test_the_balance_bar_reads_as_the_ratio_rather_than_the_numbers(tmp_path: Pa
         assert "zero" in dialog._balance.toolTip()  # noqa: SLF001
     finally:
         dialog.close()
+
+
+def test_every_parameter_has_an_explanation_and_it_fits_a_tooltip(tmp_path: Path) -> None:
+    """Two failures that are invisible until somebody hovers.
+
+    Qt does not wrap a plain-text tooltip: it draws one line however wide that
+    turns out to be, and the trainer's `#:` comments are paragraphs — the
+    longest is 758 characters with no newline in it, so it was drawn as a single
+    line far wider than any screen.
+
+    And four fields have no `#:` comment at all, so their tooltip was the
+    fallback: the literal string `Shaping.city_weight`, which tells a reader the
+    thing they could already see. `missile_defense.ui.reward.WHY` had been
+    carrying good prose about three of them for the read-only panel the whole
+    time, unreachable from the form where they are chosen.
+    """
+    dialog = _station(tmp_path)
+    try:
+        for (owner, name), editor in dialog._rows.items():  # noqa: SLF001
+            tip = editor.toolTip().strip()
+            assert tip, f"{owner}.{name} has no tooltip"
+            assert tip != f"{owner}.{name}", f"{owner}.{name} is explained by its own name"
+            widest = max(len(line) for line in tip.split("\n"))
+            assert widest <= 90, f"{owner}.{name} has a {widest}-character tooltip line"
+            # The label carries it too — the name is what a pointer lands on first.
+            label = dialog._labels[(owner, name)]  # noqa: SLF001
+            assert label.toolTip().strip() == tip
+    finally:
+        dialog.close()
+
+
+def test_the_ramp_is_a_tick_rather_than_a_second_number(tmp_path: Path) -> None:
+    """`eval_ramp_until` is a horizon, and read as a bare number in a fold it is
+    a second obscure setting rather than the choice it encodes: evaluate at a
+    constant interval from update one, or start dense and settle to it.
+
+    `missile_defense.runs.cadence` already spells that as one value — at
+    `NO_RAMP` the gap is the interval from the start — so the tick writes the
+    partner rather than adding a setting of its own.
+    """
+    from missile_defense.runs import cadence  # noqa: PLC0415
+    from missile_defense.ui.forms import _read  # noqa: PLC0415
+
+    dialog = _station(tmp_path)
+    try:
+        for name, partner in (
+            ("eval_every", "eval_ramp_until"),
+            ("record_every", "record_ramp_until"),
+        ):
+            tick = dialog._ramps[name]  # noqa: SLF001
+            assert tick.isChecked(), f"{name} ramps by default, as the trainer does"
+
+            tick.setChecked(False)
+            assert int(_read(dialog._editor_named(partner))) == cadence.NO_RAMP  # noqa: SLF001
+            assert f"--{partner.replace('_', '-')}" in dialog.command()
+
+            # Back on, and the flag disappears again: the trainer's own default
+            # is not something the command line should restate.
+            tick.setChecked(True)
+            assert int(_read(dialog._editor_named(partner))) > cadence.NO_RAMP  # noqa: SLF001
+            assert f"--{partner.replace('_', '-')}" not in dialog.command()
+    finally:
+        dialog.close()

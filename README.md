@@ -523,6 +523,44 @@ once at 15 Hz, a 120,000-tick cap and CPU inference. Start with
 [the first-run walkthrough](docs/TRAINING.md#your-first-run) before changing
 the knobs.
 
+#### The knobs, and what they are asking you
+
+![The run parameters: three tabs, sliders with typed readouts, and the reward equation with this run's numbers in it](docs/images/parameters.png)
+
+There are thirty-seven of them, and they are not one list. They are three
+questions, which is how the dialog is arranged:
+
+| | |
+|---|---|
+| **Objective** | *What is the agent paid for?* The reward weights, and the equation they add up to. |
+| **Learning** | *How does it learn?* Learning rate, discount, PPO's clip, the network. |
+| **Run** | *How big, how long, what does it cost?* Environments, updates, and the schedule. |
+
+A few things there are worth knowing before you drag anything:
+
+* **The equation is live.** `φ(s) = 200 × batteries + 100 × cities + 5 × ammo`
+  redraws as you move the weights, so what the agent will actually be paid is on
+  screen while you decide it — not reconstructed afterwards from seven numbers.
+* **The bar under the weights is the ratio**, which is the real decision: a
+  battery is priced above a city on purpose, because protecting the guns is what
+  protects the cities. The absolute numbers are a scale nobody reads.
+* **Two of the reward terms are marked *changes the objective*.** The three
+  potential weights provably cannot change which policy is best — only how fast
+  it is found — so runs that differ only there stay comparable.
+  `waste_penalty` and `multikill_bonus` are not potential terms, and a run that
+  switches either on answers a different question from one that did not.
+* **One discount, not two.** `PPOConfig.gamma` and `Shaping.gamma` must be
+  equal or the invariance above does not hold, so there is a single control and
+  it writes both flags.
+* **Nothing is passed that you did not change.** The command line at the bottom
+  is the run, and it reads as the difference from the defaults — you can copy it
+  into a terminal and the trainer is not the only way in.
+
+Every parameter carries the sentence written beside it in the trainer's own
+source; point at one and the strip underneath explains it, its flag and its
+default. **Parameters…** on a finished run opens the same dialog, read-only,
+with the sliders sitting where that run left them.
+
 ### Put your model in the game — the Model League
 
 A checkpoint is a file in a run directory; a **model** is something you keep,

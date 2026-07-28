@@ -289,15 +289,31 @@ jobs:
           modules: ''
           cache: true
 
-      # Headers, loader import library, glslangValidator and spirv-val in one
-      # package — five MSYS2 packages replaced by one. No validation layers
-      # needed: they are a runtime debugging aid and CI never opens a window.
+      # Headers, the loader import library and glslangValidator in one package —
+      # five MSYS2 packages replaced by one.
+      #
+      # LunarG's own installer rather than an action that builds the components
+      # from source: this is the same SDK a developer installs from
+      # docs/WINDOWS.md, so CI and a desktop are compiling against one thing.
+      # `--accept-licenses --default-answer --confirm-command` is the documented
+      # unattended form.
       - name: Vulkan SDK
-        uses: humbletim/setup-vulkan-sdk@v1.2.1
-        with:
-          vulkan-query-version: 1.4.313.0
-          vulkan-components: Vulkan-Headers, Vulkan-Loader, Glslang
-          vulkan-use-cache: true
+        shell: pwsh
+        run: |
+          $sdk = "C:\VulkanSDK"
+          Invoke-WebRequest -Uri "https://sdk.lunarg.com/sdk/download/latest/windows/vulkan_sdk.exe" `
+            -OutFile vulkan_sdk.exe
+          # The installer returns before it has finished writing, so wait on it.
+          Start-Process -Wait -FilePath .\vulkan_sdk.exe -ArgumentList `
+            "--root", $sdk, "--accept-licenses", "--default-answer", "--confirm-command", "install"
+          if (-not (Test-Path "$sdk\Include\vulkan\vulkan.h")) {
+            Write-Error "Vulkan SDK did not install: no headers under $sdk"
+            exit 1
+          }
+          # CMake's FindVulkan reads VULKAN_SDK; `glslangValidator` is found on
+          # PATH by app/CMakeLists.txt.
+          "VULKAN_SDK=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "$sdk\Bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
 
       # NSIS for the installer. Neither Catch2 nor miniaudio is packaged, so
       # CMake fetches both — which is what it does on a developer's machine here

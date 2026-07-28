@@ -59,9 +59,18 @@ def claim_taskbar_identity(platform: str = sys.platform) -> bool:
     try:
         import ctypes  # noqa: PLC0415 — Windows-only, and only on this path
 
-        # `windll` exists only on Windows, which is what the branch above tests
-        # for; the checkers run on a machine where the attribute is real.
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
+        # Reached through `getattr`, not as `ctypes.windll`, and the difference
+        # is the gate. `windll` is defined only in the Windows build of the
+        # module, so on Linux — which is where every checker in this project
+        # runs — the attribute does not exist and mypy fails the whole gate on a
+        # line that is correct on the platform it executes on. The comment that
+        # used to be here said "the checkers run on a machine where the
+        # attribute is real"; they do not, and that is the asymmetry AGENTS.md
+        # opens with.
+        windll = getattr(ctypes, "windll", None)
+        if windll is None:
+            return False
+        windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
     except (AttributeError, OSError):
         return False
     return True

@@ -55,6 +55,7 @@ Four more things are deliberate:
 from __future__ import annotations
 
 import math
+import textwrap
 import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -111,6 +112,31 @@ HELP_STRIP_CHARS = 200
 EQUATION_PANEL_HEIGHT = 158
 
 
+#: Where a tooltip is folded. Qt does not wrap a plain-text tooltip at all — it
+#: draws one line however wide that turns out to be, and the trainer's `#:`
+#: comments are paragraphs: the longest is 758 characters, none contains a single
+#: newline, and every one of them was being shown as a single line spanning far
+#: more than the screen.
+TOOLTIP_WIDTH = 76
+
+
+def _wrapped(text: str) -> str:
+    """``text`` folded into lines, keeping the blank lines it already had.
+
+    Plain text with explicit newlines rather than rich text: Qt word-wraps HTML
+    tooltips, but turning these into HTML would mean escaping them, and the
+    sentences contain the `<` and `&` that would then have to be. Folding is the
+    smaller change and does not alter a single character of the writing.
+    """
+    if not text:
+        return text
+    return "\n\n".join(
+        textwrap.fill(paragraph.strip(), TOOLTIP_WIDTH)
+        for paragraph in text.split("\n\n")
+        if paragraph.strip()
+    )
+
+
 def _elided(text: str, limit: int) -> str:
     """``text`` cut to ``limit`` on a word boundary, with an ellipsis if it was."""
     if len(text) <= limit:
@@ -118,6 +144,34 @@ def _elided(text: str, limit: int) -> str:
     cut = text[:limit].rsplit(" ", 1)[0].rstrip(" ,;:—-")
     return f"{cut}…"
 
+
+#: What to say about a field the trainer's source leaves unexplained.
+#:
+#: Four of them have no `#:` comment at all, so their tooltip was the fallback —
+#: the literal string `Shaping.city_weight`, which tells a reader the thing they
+#: could already see. Three are reward weights, and
+#: `missile_defense.ui.reward.WHY` has been carrying good prose about exactly
+#: those for as long as the read-only panel has existed; it was simply never
+#: reachable from the form where they are *chosen*.
+#:
+#: A fallback, not an override: a field that grows a `#:` comment starts using
+#: it, and the sentence in the trainer's own source stays the one true copy.
+FALLBACK_HELP: dict[str, str] = {
+    **reward_module.WHY,
+    "enabled": (
+        "Whether the agent is paid the shaped reward at all. Off, it gets the "
+        "game score and nothing else, and every weight below is ignored — the "
+        "simulation nests the whole block behind this one flag."
+    ),
+    "seed": (
+        "Seeds the run's environments and the network's initial weights, so the "
+        "same seed and the same settings reproduce the same run. Change it to "
+        "ask whether a result was the recipe or the luck."
+    ),
+}
+
+#: Cadence fields that ramp, mapped to the horizon each one ramps over.
+RAMPED = {"eval_every": "eval_ramp_until", "record_every": "record_ramp_until"}
 
 #: Boolean fields that govern a whole panel rather than one behaviour, and so
 #: get a switch instead of a tick. There is one; the set is here because the
@@ -656,6 +710,8 @@ class ParameterDialog(QDialog):
         #: widget because that is what an event arrives on.
         self._explains: dict[QWidget, tuple[Param, str]] = {}
         self._labels: dict[tuple[str, str], QLabel] = {}
+        #: The ramp ticks, by the cadence field each sits beside.
+        self._ramps: dict[str, QCheckBox] = {}
         #: The Objective panel's three extras. `None` where there is no reward
         #: group to draw them for — an installed trainer with no trainer source
         #: beside it has no fields at all.
@@ -769,6 +825,7 @@ class ParameterDialog(QDialog):
         # Last, so every editor exists to pour into. Not before the preview
         # either: what this fills in is exactly what the preview has to show.
         self._apply_initial(initial or {})
+        self._bind_ramps()
         self._refresh_preview()
         if read_only:
             self.setWindowTitle(title or "Run parameters")
@@ -789,9 +846,9 @@ class ParameterDialog(QDialog):
         row = QHBoxLayout()
         row.setSpacing(8)
         label = QLabel("preset")
-        label.setToolTip(PRESET_HELP)
+        label.setToolTip(_wrapped(PRESET_HELP))
         self._presets = QComboBox()
-        self._presets.setToolTip(PRESET_HELP)
+        self._presets.setToolTip(_wrapped(PRESET_HELP))
         self._presets.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         row.addWidget(label)
         row.addWidget(self._presets, stretch=1)
@@ -971,7 +1028,7 @@ class ParameterDialog(QDialog):
 
         label = QLabel("continue from")
         for widget in (label, self._resume):
-            widget.setToolTip(RESUME_HELP)
+            widget.setToolTip(_wrapped(RESUME_HELP))
         form.addRow(label, self._resume)
         return frame
 
@@ -991,6 +1048,13 @@ class ParameterDialog(QDialog):
 
         self._filter = QLineEdit()
         self._filter.setPlaceholderText("Find a parameter…")
+        self._filter.setToolTip(
+            _wrapped(
+                "Show only the parameters whose name or flag matches. A match opens "
+                "the group holding it and switches to its tab, so nothing has to be "
+                "hunted for."
+            )
+        )
         self._filter.setClearButtonEnabled(True)
         self._filter.textChanged.connect(self._apply_filter)
         box.addWidget(self._filter, stretch=1)
@@ -1078,11 +1142,11 @@ class ParameterDialog(QDialog):
         box.addWidget(label)
         chip = QLabel(tag)
         chip.setProperty("role", role)
-        chip.setToolTip(why)
+        chip.setToolTip(_wrapped(why))
         box.addWidget(chip)
         box.addStretch(1)
         for widget in (row, label, chip):
-            widget.setToolTip(why)
+            widget.setToolTip(_wrapped(why))
         return row
 
     def _equation_panel(self) -> QWidget:
@@ -1156,8 +1220,67 @@ class ParameterDialog(QDialog):
         form.setSpacing(6)
         for field in fields:
             label, editor = self._row(field)
-            form.addRow(label, editor)
+            form.addRow(label, self._with_ramp(field, editor))
         return frame
+
+    def _with_ramp(self, field: Param, editor: QWidget) -> QWidget:
+        """A cadence field, plus the tick that says whether it ramps.
+
+        `eval_every` and `record_every` each have a partner — `eval_ramp_until`,
+        `record_ramp_until` — that is a *horizon*, and reads as a second obscure
+        number in a fold rather than as the choice it encodes. The choice is:
+        evaluate at a constant interval from the first update, or start dense
+        and settle to it, because the first hundred updates are where a policy
+        changes shape.
+
+        `missile_defense.runs.cadence` already spells that as one value: at
+        `NO_RAMP` the gap is the interval from the start, and above it the gap
+        grows toward the interval — the geometric spacing this is for. So the
+        tick writes the partner rather than adding a setting: off is 0, on
+        restores the horizon the trainer defaults to. The number itself stays in
+        its fold for anyone who wants a different one.
+        """
+        partner = RAMPED.get(field.name)
+        if partner is None:
+            return editor
+        row = QWidget()
+        box = QHBoxLayout(row)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.setSpacing(10)
+        box.addWidget(editor, stretch=1)
+
+        tick = QCheckBox("ramp up")
+        tick.setToolTip(
+            _wrapped(
+                "Start dense and settle to this interval, rather than using it from "
+                f"the first update. Unticked sets {partner.replace('_', ' ')} to 0, "
+                "which is what the trainer reads as no ramp."
+            )
+        )
+        box.addWidget(tick)
+        self._ramps[field.name] = tick
+        # Wired after `_apply_initial`, in `_bind_ramps`: the partner's editor
+        # may not exist yet, and a tick that fired now would write into nothing.
+        return row
+
+    def _bind_ramps(self) -> None:
+        """Point each ramp tick at its partner, and set it from that partner."""
+        for name, tick in self._ramps.items():
+            partner = RAMPED[name]
+            editor = self._editor_named(partner)
+            if editor is None:
+                tick.hide()  # this trainer has no such field to write
+                continue
+            default = self._initial.get(("TrainConfig", partner), "") or "0"
+            tick.setChecked(_as_number(_read(editor)) > 0)
+
+            def written(on: bool, partner: str = partner, default: str = default) -> None:
+                target = self._editor_named(partner)
+                if target is not None:
+                    _write(target, default if on else "0")
+                self._edited()
+
+            tick.toggled.connect(written)
 
     def _fold(self, group: Group, fields: list[Param]) -> QWidget:
         """A named section that folds, and still shows its values when closed.
@@ -1210,9 +1333,11 @@ class ParameterDialog(QDialog):
         # enabled. The others read fine as their field names.
         label = QLabel(MASTER_SWITCH_LABELS.get(field.name, field.name.replace("_", " ")))
         editor = self._editor(field)
-        reason = field.help or f"{field.owner}.{field.name}"
+        # The field's own sentence first, then a written fallback, and only
+        # then the name — which is not an explanation and never was.
+        reason = field.help or FALLBACK_HELP.get(field.name, "") or f"{field.owner}.{field.name}"
         for widget in (label, editor):
-            widget.setToolTip(reason)
+            widget.setToolTip(_wrapped(reason))
         self._editors[field.key] = editor
         self._initial[field.key] = _read(editor)
         self._rows[field.key] = editor
@@ -1295,7 +1420,7 @@ class ParameterDialog(QDialog):
         # mark reads as a rendering fault; one ending in an ellipsis reads as
         # "there is more", and the full text is on the row's tooltip.
         self._help_text.setText(_elided(reason, HELP_STRIP_CHARS))
-        self._help_text.setToolTip(reason)
+        self._help_text.setToolTip(_wrapped(reason))
 
     def _show_glossary(self) -> None:
         """Every abbreviation the dialog uses, in the game's terms.
@@ -1533,7 +1658,9 @@ class ParameterDialog(QDialog):
                 continue
             editor.setEnabled(not continuing)
             editor.setToolTip(
-                RESUME_LOCK_HELP if continuing else self._explains.get(editor, (None, ""))[1]
+                _wrapped(
+                    RESUME_LOCK_HELP if continuing else self._explains.get(editor, (None, ""))[1]
+                )
             )
 
     def _refresh_shaping(self) -> None:
