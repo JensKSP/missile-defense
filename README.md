@@ -101,9 +101,22 @@ missile-defense
 Step 3 puts the game in the prefix's `games/` directory — `/usr/local/games`,
 which Debian and Ubuntu keep on the default PATH — along with a desktop entry, so
 it is in your applications menu too. It is optional: `./build/release/app/md_app`
-runs just as well from the build tree, and
-[a `.deb`](#building-a-debian-package) is the version your system can also
-uninstall.
+runs just as well from the build tree, and [a `.deb`](#packaging) is the version
+your system can also uninstall.
+
+> **The Ubuntu 24.04 compatibility note.** Noble's default `g++` is 13, whose
+> libstdc++ has no C++23 `<print>`, so the build refuses it by name rather than
+> failing deep in a header. 24.04 ships GCC 14 beside it, which is the whole fix:
+>
+> ```bash
+> sudo apt install -y g++-14
+> CXX=g++-14 cmake --preset release && cmake --build --preset release
+> ```
+>
+> The game builds and plays there in full. The Python extension does not —
+> `python3-nanobind` reached Debian after 24.04 froze — which is why the released
+> 24.04 `.deb` is the game alone and the trainer is not offered on it
+> ([docs/PACKAGING.md](docs/PACKAGING.md)).
 
 **Play it.** The mouse aims, left click fires from the nearest battery with
 ammo. Six cities, three batteries, and less ammunition than you would like.
@@ -130,11 +143,48 @@ other two — has never been run by a human.
 
 Deeper reading: [design & reward spec](docs/DESIGN.md) ·
 [the agent API](docs/API.md) · [milestones / roadmap](docs/ROADMAP.md) ·
+[what the two agents taught](docs/FINDINGS.md) ·
 [testing & quality gate](docs/TESTING.md) ·
 [simulation throughput](docs/PERFORMANCE.md) ·
 [training on an NVIDIA GPU](docs/NVIDIA.md) ·
+[multi-seed training runs](docs/MULTI_SEED.md) ·
 [running on Wayland](docs/WAYLAND.md) ·
-[packaging & file locations](docs/PACKAGING.md)
+[packaging & file locations](docs/PACKAGING.md) ·
+[release & versioning](docs/RELEASING.md)
+
+## How to play
+
+Defend your six cities from incoming missiles by launching interceptors from
+your three batteries.
+
+| Input | Action |
+|---|---|
+| Mouse | Move the crosshair (aim) |
+| Left click | Queue one shot from the nearest battery for the next 15 Hz decision tick |
+| Arrow keys / W,S + Enter | Navigate the menu (mouse works too — hover + click) |
+| `Esc` or `P` | Pause → menu (resume with `Esc` or the RESUME item) |
+| `F` | Toggle fullscreen |
+| `M` | Toggle music |
+| `A` | Toggle audio (SFX) |
+
+Menu, in order: **START** a new game, **WATCH AI**, **TRAIN AI**, **HELP**,
+**OPTIONS**, **HIGHSCORES**, **ABOUT**, **EXIT** — and **RESUME** at the top once
+a game is under way, which is the only item starting a game adds (START becomes
+**NEW GAME**). Nothing is ever removed, so no item moves between the main menu
+and the pause menu. Beat a high score to enter your initials, arcade style.
+
+**WATCH AI** always opens its own list: the three scripted rungs — **SCRIPTED
+LOW**, **SCRIPTED MEDIUM**, **SCRIPTED HIGH** — plus **MODELS** where this
+install has any learned ones. → [Run the scripted AI](#run-the-scripted-ai)
+
+**OPTIONS** holds audio, music, fullscreen and **AI SKILL**, which is the rung
+**WATCH AI** starts at.
+
+**TRAIN AI** is always present, including on a game-only install. Where the
+trainer is missing it offers to install it rather than hiding — on Windows and
+macOS "not installed yet" is the ordinary state, and an absent menu entry meant
+nobody discovered there was a trainer at all.
+→ [AI training](#ai-training)
 
 ## Features
 
@@ -251,10 +301,11 @@ python3 -m tools.bootstrap        # creates .venv and installs everything below
 |---|---|---|
 | Package runtime | `pyproject.toml` → `dependencies` | `numpy` |
 | The trainer | `pyproject.toml` → `[project.optional-dependencies].trainer` | PySide6, psutil, nvidia-ml-py, amdsmi (Linux) |
-| Training | `pyproject.toml` → `[project.optional-dependencies].train` | torch |
+| Training | `pyproject.toml` → `[project.optional-dependencies].train` | torch — the extra a *user* installs; the venv gets its own copy below |
 | Developer tools | `tools/bootstrap.py` → `DEV_TOOLS` | poethepoet, ruff, pytest, mypy, pyright, build |
 | Build backend | `tools/bootstrap.py` → `BUILD_TOOLS` | nanobind |
 | Gate pins | `tools/bootstrap.py` → `GATE_PINS` | numpy<2.5, pillow |
+| Tests | `tools/bootstrap.py` → `TEST_TOOLS`, `TEST_INDEX` | torch, CPU wheel, from PyTorch's index |
 
 A `requirements.txt` would be a third copy of those lists, and lists that are
 copied drift — which is why `tools/bootstrap.py` reads the extras out of
@@ -263,42 +314,24 @@ holds it to that.
 
 #### torch, and the seventy-six tests that need it
 
-Twenty unit tests and fifty-six e2e tests import torch, and without it they skip
-— correctly, and invisibly:
+Bootstrap installs torch as its own step — the **CPU** wheel, from PyTorch's
+index — because 76 tests import it: 20 unit and 56 e2e. So a bootstrapped
+checkout runs the whole suite:
 
 ```
-550 passed, 20 skipped          poe pytest
- 71 passed, 69 skipped          poe test-app   (56 of the 69 are torch)
+659 passed          poe pytest      (639 passed, 20 skipped without torch)
+                    poe test-app    135 tests, 56 of them needing torch
 ```
 
-Thirteen of the unit ones are `test_league.py`, which covers model promotion.
+The step is allowed to fail. It is a large download from a second index, and a
+machine that cannot reach it still gets a working checkout — one where those 76
+skip and say why. That skip is correct on a machine with no torch and a lie on
+this project's own, where torch is present but in the runtime the trainer
+manages; CI installs it for the same reason.
 
-The CI gate installs it too, for the same reason. It did not until now, and the
-cost of that was concrete: two of these tests sat broken for a day after
-`_log_eval` gained the handicap columns, with a green pipeline the whole time.
-Skipping is the right behaviour when an optional half is genuinely absent — a
-project where *nobody* has it has simply stopped testing that half.
-
-`python3 -m tools.bootstrap` installs it — the **CPU** wheel, as a second pip
-call against PyTorch's own index. On an existing checkout, the same command:
-
-```bash
-.venv/bin/pip install --index-url https://download.pytorch.org/whl/cpu torch
-```
-
-The CPU build and not CUDA, because the trainer's managed runtime already holds
-the one real training uses and three gigabytes of it is enough on any machine.
-It cannot quietly become that one either: `find_interpreter` prefers the managed
-runtime over "this interpreter", so a venv torch is what the tests import and
-never what a training run gets.
-
-It is also not shipped, and this is not where that is decided — torch is
-`[project.optional-dependencies].train`, a `Suggests` in `debian/control`, and an
-extra no install pulls. The development venv is the only place it appears.
-
-The step is allowed to fail: it is a large download from a second index, and a
-machine that cannot reach it still gets a working checkout — one where those
-tests skip and say why.
+Why the CPU wheel and not CUDA, why it can never become the one training uses,
+and why torch is still shipped to nobody, are in
+[docs/TESTING.md](docs/TESTING.md#torch-and-the-seventy-six-tests-that-need-it).
 
 > **Tooling note:** the `poe` tasks take the first name they find on `PATH`,
 > trying a version-suffixed binary before the plain one
@@ -332,7 +365,7 @@ files and its shaders are baked in, so `./build/release/app/md_app` runs
 perfectly well straight from the build tree, and copying it somewhere works too
 — what the install adds is the name on your PATH and an entry in the menu. For a
 package your system can also *remove* again, see
-[Building a Debian package](#building-a-debian-package).
+[Packaging](#packaging).
 
 ### With `poe`
 
@@ -385,27 +418,6 @@ the per-model *directories* underneath. `git clean -ffdx` needs the second `-f`
 because CMake checks dependencies out as nested git repositories under
 `build/*/\_deps/`, and one `-f` skips those and leaves the tree half cleaned.
 
-## How to play
-
-Defend your six cities from incoming missiles by launching interceptors from
-your three batteries.
-
-| Input | Action |
-|---|---|
-| Mouse | Move the crosshair (aim) |
-| Left click | Queue one shot from the nearest battery for the next 15 Hz decision tick |
-| Arrow keys / W,S + Enter | Navigate the menu (mouse works too — hover + click) |
-| `Esc` | Pause → menu (resume with `Esc` or the RESUME item) |
-| `P` | Pause → menu |
-| `F` | Toggle fullscreen |
-| `M` | Toggle music |
-| `A` | Toggle audio (SFX) |
-
-Menu: **START** a new game, **WATCH AI**, **HELP**, **OPTIONS**
-(audio / music / fullscreen), **HIGHSCORES**, **ABOUT**, **EXIT**. Beat a high
-score to enter your initials, arcade style. (A **TRAIN AI** entry appears where
-the trainer is installed beside the game.)
-
 ## AI training
 
 The trainer puts the policy's real game score beside the scripted
@@ -430,31 +442,35 @@ menu, playing the real thing.
 
 ### Set up your machine for AI training
 
-From a checkout, install the development and trainer dependencies, then PyTorch
-and the native Python binding:
+From a checkout, install the development and trainer dependencies — which include
+a CPU torch — then build the native Python binding:
 
 ```bash
 python3 -m tools.bootstrap
 source .venv/bin/activate
-python -m pip install torch
 poe bindings
 ```
 
-CPU training works everywhere PyTorch does. For a CUDA wheel that matches an
-NVIDIA driver — without installing the CUDA toolkit — use the measured
+That torch is the *tests'* copy, and CPU training works everywhere it does. Do
+not `pip install torch` over it for a real run: the venv copy is deliberately CPU
+and is never what a training run gets. For a CUDA wheel that matches an NVIDIA
+driver — without installing the CUDA toolkit — use the measured
 [Debian/NVIDIA recipe](docs/NVIDIA.md); Windows has a separate
-[native-Python path](docs/WINDOWS.md#training-on-windows). An installed training
-trainer can set up its own managed PyTorch runtime from the **Set up training…**
-button instead.
+[native-Python path](docs/WINDOWS.md#training-on-windows). An installed trainer
+can set up its own managed PyTorch runtime from the **Set up training…** button
+instead, which is the path that ends up being used on most machines.
 
 ### Run the scripted AI
 
-**WATCH AI** hands the controls to the scripted baseline agent (M4) and lets you
-watch it defend — same game, same crosshair travel, decision rate and trigger
-interval a hand is held to, just a different driver:
+**WATCH AI → SCRIPTED HIGH** hands the controls to the scripted baseline agent
+(M4) and lets you watch it defend — same game, same crosshair travel, decision
+rate and trigger interval a hand is held to, just a different driver. The same
+three rungs are on the command line, and bare `--watch` means the published
+baseline:
 
 ```bash
-./build/release/app/md_app --watch
+./build/release/app/md_app --watch                    # HIGH, the baseline
+./build/release/app/md_app --watch-scripted medium    # or low / high
 ```
 
 | Input | Action |
@@ -528,9 +544,11 @@ simulation, with no Python running anywhere.
 What promotion actually does is convert and prove. The `.pt` is exported to a
 data-only `.mdp`, **read back, and validated before anything is written** — so a
 checkpoint that cannot be loaded is refused at the moment you promote it rather
-than at the moment you pick it from a menu. An architecture with no native
-forward pass (`entity`) is refused the same way. Nothing half-written ever lands
-in the league.
+than at the moment you pick it from a menu. Both shipped architectures export:
+`mlp` and the relational `entity` the bundled model uses
+(`sim/export_policy.py` → `EXPORTABLE`). Anything else — a future architecture
+with no native forward pass, or a checkpoint missing a tensor the format needs —
+is refused the same way. Nothing half-written ever lands in the league.
 
 Models are then yours to keep tidy. Every entry can be:
 
@@ -634,57 +652,11 @@ weigh 4–40 kB and can be dropped every few updates to watch the policy improve
 | `R` | Restart the recording |
 | `T` | Take over from where it has reached |
 
-### What it taught: the handicap decides who wins
-
-The scripted agent is a few hundred lines of geometry. The learned one is PPO
-with a relational attention network over threats, interceptors and blasts — a
-1,959-float observation, 385 actions, an hour on an RTX 5090. On the same
-held-out block, both under the published handicap, the scripted agent scores
-**13,687** and the learned policy scores **23,067**. The interesting part is not
-the gap but its *shape*:
-
-| | Scripted HIGH | Learned |
-|---|---|---|
-| Mean wave reached | 7.16 | **8.91** |
-| Kills per interceptor | **0.73** | 0.61 |
-| Wasted shots | **36%** | 44% |
-
-**It wins on depth while still losing on marksmanship.** Putting a blast where a
-warhead is going to be is a closed-form intercept problem, and a human writes it
-once, exactly; a network has to recover the same geometry from a scalar reward,
-which is a spectacularly indirect way to learn ballistics, and it never quite
-does. What it does instead is spend: it fires more, hits less often, and gets
-two waves deeper for it.
-
-That reads the other way round without the handicap, and this is the finding
-worth carrying out of the project. Given an agent that never mis-clicks and
-never waits, the geometry *is* the game: the same comparison ran 98,542 to
-90,866 in the scripted agent's favour, and the whole of its advantage was one
-idea — remember which warheads you have already fired at, worth 78,000 of those
-98,542 points. Give both a human hand instead, and precise placement stops being
-free. Ammunition memory is still the scripted ladder's entire spread, but it is
-worth **8,663** of 13,687 now, and an allocator that shoots more and aims worse
-comes out ahead.
-
-So the conclusion is narrower than "write the algorithm" and more useful:
-**where a good algorithmic solution exists it wins exactly as far as its
-preconditions hold**, and a closed-form aimer's precondition is a perfect hand.
-Learning earns its keep on the part with no closed form — allocation under a
-fixed ammunition budget — and under the handicap that is enough to win.
-
-Two things stop that from being the whole story. The learned policy got there
-with **no game-specific knowledge at all** — nobody told it what a MIRV is, or
-that ammunition is scarce — and it would retrain unchanged against a game whose
-wave table or weapons you altered, where the scripted agent would have to be
-rewritten by hand. And the strongest version of this system is probably neither
-one alone: a scripted aimer under a learned allocator, each owning the half it
-is actually good at. That is the experiment this repository is now set up to run
-and has not run yet.
-
 ### Pick how well the scripted agent plays
 
-**OPTIONS → AI SKILL** cycles the scripted agent between three settings, and
-`--skill` does the same from the command line:
+**OPTIONS → AI SKILL** sets the rung **WATCH AI** starts at. On the command line
+the game spells it `--watch-scripted low|medium|high`; the headless evaluator,
+which is what produced the table below, uses `--skill`:
 
 ```bash
 ./build/release/agent/md_agent_eval --skill medium
@@ -702,20 +674,27 @@ so what each one costs is attributable. Measured on the canonical block:
 `Params::coverage_horizon` is the dial: **how many seconds ahead the agent
 remembers the shots it has already fired**. At HIGH it tracks every interceptor
 in flight and never fires twice at a warhead that is already dead; at LOW it
-tracks none and wastes over two thirds of its ammunition.
+tracks none and wastes over two thirds of its ammunition. That one behaviour is
+the ladder's entire spread — 8,663 of HIGH's 13,687.
 
-Two things fell out of measuring this that are worth knowing before you tune it,
-both measured *before* the handicap became part of the protocol — so the
-absolute figures below are from the unhandicapped game and the shape is what
-carries over. The response is a **cliff, not a slope**: 0.30 s scored ~34k and
-0.40 s ~85k, because that is where the dial crosses a typical interceptor's
-flight time and the agent either remembers a shot before it lands or does not.
-And the sophisticated-looking part of the agent is worth almost nothing —
-switching off `cluster_bonus`, which deliberately waits for MIRV spreads to
-converge, cost about **1,500 points**, while ammunition memory was worth about
-**78,000**. Under the handicap that one idea is still the ladder's entire
-spread, at **8,663** of HIGH's 13,687. The whole scripted baseline is one idea —
-*do not shoot what is already dead*.
+### What it taught: the handicap decides who wins
+
+Both agents, same simulation, same held-out block, both handicapped: the scripted
+agent scores **13,687** and the learned policy **23,067**. The learned one wins
+on *depth* while still losing on *marksmanship* — it reaches wave 8.91 against
+7.16, and gets there by firing more and hitting less often (0.61 kills per
+interceptor against 0.73).
+
+Take the handicap away and the result reverses. Given an agent that never
+mis-clicks and never waits, the geometry *is* the game and the hand-written
+solution wins comfortably. So the conclusion is narrower than "write the
+algorithm" and more useful: **where a good algorithmic solution exists it wins
+exactly as far as its preconditions hold** — and a closed-form aimer's
+precondition is a perfect hand.
+
+The full argument, the retired unhandicapped numbers, what the scripted agent's
+one good idea is worth, and the hybrid this repository is set up to try next:
+→ **[docs/FINDINGS.md](docs/FINDINGS.md)**
 
 ## Development
 
@@ -733,27 +712,81 @@ Handy tasks: `poe build`, `poe test-unit`, `poe test-release`, `poe shot`
 (screenshot the running app), `poe rec` (record video), `poe format`, `poe ui`
 (start, watch and stop a training run — see [docs/TRAINING.md](docs/TRAINING.md)).
 
-## Building a Debian package
+## Packaging
+
+There are **two products and therefore two Debian packages**, and one wheel.
+
+| | What it is | How it is built |
+|---|---|---|
+| `missile-defense` | The game. Qt 6 + Vulkan, MIT, no Python anywhere. | `poe deb`, or debhelper |
+| `missile-defense-trainer` | The trainer. Pulls in PySide6 (LGPL-3), which is why it is not part of the game. | debhelper only |
+| `missile_defense-*.whl` | The environment + training half, for `pip`. | cibuildwheel, in CI |
+
+### The game `.deb`, from the CMake build
 
 ```bash
 poe deb         # -> build/release/missile-defense_<version>_<arch>.deb
 sudo apt install ./build/release/missile-defense_*.deb   # installs `missile-defense`
 ```
 
-The package installs the game to `/usr/games/missile-defense` with a desktop
-entry, and declares its runtime dependencies (Qt 6, the Vulkan loader). It is
-produced by CPack's DEB generator directly from the CMake build.
+This is CPack's DEB generator over the `game` install component: the game at
+`/usr/games/missile-defense` with a desktop entry and its runtime dependencies
+(Qt 6, the Vulkan loader) declared. It is the quick one, and it is **only the
+game** — CPack has a single component here, by design.
+
+### Both packages, the way a release builds them
+
+The released `.deb`s come from `debian/` via debhelper, not from CPack, because
+the claim they make is "the package this distribution would build" and only
+`dpkg-buildpackage` can make it:
+
+```bash
+sudo apt build-dep .          # or: mk-build-deps --install debian/control
+dpkg-buildpackage -us -uc -b  # -> ../missile-defense{,-trainer}_<version>_<arch>.deb
+```
+
+Per-distribution filenames, what each leg builds, and why Ubuntu 24.04 produces
+the game alone are in [docs/RELEASING.md](docs/RELEASING.md#what-comes-out) and
+[docs/PACKAGING.md](docs/PACKAGING.md).
+
+### The wheel
+
+The Python half — the environment, PPO and the trainer — installs with `pip` and
+needs no Qt and no checkout. CI builds it with cibuildwheel and attaches it to
+each [release](https://github.com/JensKSP/missile-defense/releases/latest);
+**it is not on PyPI**, so install the file:
+
+```bash
+pip install ./missile_defense-<version>-<tag>.whl
+pip install "./missile_defense-<version>-<tag>.whl[trainer]"   # + the trainer window
+```
+
+From a checkout, `pip install .` builds the same thing from source —
+scikit-build-core compiles the extension, so the
+[build requirements](#requirements) apply.
+
+Either way it brings two commands with it — `missile-defense-train` to run PPO
+from a terminal (`--multiseed` for
+[several independent seeds](docs/MULTI_SEED.md)), and `missile-defense-trainer`
+to open the trainer. Both are named after the product rather than the import
+package, so the only name a user was ever shown is the one they type. On Windows
+and macOS this same wheel is what the game's **TRAIN AI** installs for you.
 
 ## Project layout
 
 | Path | Contents |
 |---|---|
 | `core/` | Pure C++ simulation library (`md::core`) + tests — no Qt, no rendering |
-| `app/` | Qt 6 + Vulkan human client (renderer, input, HUD, menu) |
+| `agent/` | The scripted baseline agent, the native `.mdp` policy reader, and `md_agent_eval` |
+| `replay/` | The `.mdr` recording format — writer, reader, and its golden tests |
+| `app/` | Qt 6 + Vulkan human client (renderer, input, HUD, menu, highscores) |
 | `bindings/` | nanobind vector environment and shared evaluation bindings |
-| `python/` | NumPy environment wrapper, PPO training/evaluation, and trainer |
-| `docs/` | Design spec, roadmap, testing, training, Windows + macOS notes |
-| `tools/` | Cross-platform Python dev tooling (coverage, format/tidy, capture) |
+| `python/` | The `missile_defense` package: NumPy environment wrapper, PPO, run management, trainer |
+| `tools/` | Cross-platform Python dev tooling (bootstrap, coverage, format/tidy, capture) |
+| `bench/` | Throughput benchmark (`poe bench`) |
+| `models/` | The bundled `.mdp` policies the game ships with |
+| `debian/`, `packaging/` | Debian source package, and the platform installer inputs |
+| `docs/` | Design spec, roadmap, findings, testing, training, packaging, per-platform notes |
 
 ## License & credits
 
@@ -761,6 +794,22 @@ Copyright © 2026 Jens Köhler. Released under the [MIT License](LICENSE).
 
 This game was designed and written by Jens Köhler and **developed with
 [Claude Code](https://claude.com/claude-code)** (Anthropic) as an AI pair
-programmer. Audio uses [miniaudio](https://miniaud.io/) (public domain / MIT-0)
-via the system package or CMake fetch — nothing is vendored. *Missile Command*
-is a trademark of Atari; this is an independent, non-commercial homage.
+programmer. *Missile Command* is a trademark of Atari; this is an independent,
+non-commercial homage.
+
+The project is MIT, but a release redistributes other people's work too. Every
+dependency, its licence, and what each one obliges are listed in
+**[THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md)** — the short version:
+
+- **[Qt 6](https://www.qt.io/)** is **LGPL-3.0-only** and carries a required
+  notice. It is *dynamically linked*, never modified, so you can replace it with
+  your own build of the same version — which is the condition that lets an MIT
+  game ship against it.
+- **[miniaudio](https://miniaud.io/)** (public domain / MIT-0) and
+  **[nlohmann/json](https://json.nlohmann.me/)** (MIT) are compiled in, from the
+  system package or a CMake fetch. Nothing is vendored in-tree.
+- **[nanobind](https://github.com/wjakob/nanobind)** (BSD-3-Clause) builds the
+  Python extension.
+- **[PySide6](https://doc.qt.io/qtforpython/)** is LGPL-3.0 and is *depended on,
+  never redistributed* — which is the whole reason the trainer is a separate
+  package that the game does not pull in.

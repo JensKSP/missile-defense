@@ -135,9 +135,9 @@ grows one. The division is by *dependency weight*, not by tidiness:
 
 Two packages, not three. There was a `python3-md` holding the Python half so it
 could be installed without the trainer; it is gone. The audience for a headless
-environment with no Qt is served by `pip install missile-defense` — the same
-code, and the distribution channel that audience already uses — and a third
-binary package was a third name to explain for a split nobody was choosing.
+environment with no Qt is served by the wheel — the same code, and the
+distribution channel that audience already uses — and a third binary package was
+a third name to explain for a split nobody was choosing.
 
 What survives the merge is the boundary that matters: the game's dependency chain
 still contains no Python and no LGPLv3 Qt binding, and CI asserts it from the
@@ -195,10 +195,12 @@ bindings. Before the tags existed, every such rule went into `Unspecified` and a
 "game-only" staging quietly carried `_md_native` with it.
 
 The wheel itself is not built here. `MD_TRAINER_WHEEL` names the artifact the
-`wheels` CI job already produced with cibuildwheel and published to PyPI, so what
-ships beside the game is the file that was import-tested there rather than a
-second one nobody has run. Unset — which is every developer build — the game
-simply has nothing to install and says so.
+`wheels` CI job already produced with cibuildwheel and import-tested, so what
+ships beside the game is that same file rather than a second one nobody has run.
+It is attached to the GitHub release; there is no PyPI publish step yet, so
+`pip install missile-defense` does not resolve and every install path goes
+through the file. Unset — which is every developer build — the game simply has
+nothing to install and says so.
 
 macOS gets `CPACK_MONOLITHIC_INSTALL` even so. A disk image is a window with
 icons in it, not an installer with checkboxes, so splitting it into two images

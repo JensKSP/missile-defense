@@ -211,6 +211,40 @@ Wayland workaround orphaned, 72 bytes in the loader. `GameWindow::event` now
 destroys it — [WAYLAND.md](WAYLAND.md) says why that is safe only at exactly one
 moment.
 
+## torch, and the seventy-six tests that need it
+
+Seventy-six tests import torch — 20 unit and 56 e2e, thirteen of the unit ones
+`test_league.py`, which covers model promotion. Without it they skip, and
+`python3 -m tools.bootstrap` therefore installs it as a step of its own
+(`TEST_TOOLS`, `TEST_INDEX` in `tools/bootstrap.py`). On an existing checkout it
+is the same one command:
+
+```bash
+.venv/bin/pip install --index-url https://download.pytorch.org/whl/cpu torch
+```
+
+**The CPU wheel, deliberately.** The alternative is three gigabytes of CUDA that
+would be the *second* copy on the machine — the trainer's managed runtime already
+holds the one real training uses. And the venv copy cannot quietly become that
+one: `runner.find_interpreter` prefers the managed runtime over "this
+interpreter", so a venv torch is what the tests import and never what a training
+run gets.
+
+**Skipping is right; skipping everywhere is not.** On a machine with no torch a
+skip is the correct answer. On this project's own development machines it is a
+lie — torch is there, in the managed runtime, and the tests simply cannot see it.
+Seventy-six tests that only ever run in CI is how a failure reaches a release,
+which is why the CI gate installs it too. It did not until recently, and the cost
+was concrete: two of these tests sat broken for a day after `_log_eval` gained
+the handicap columns, with a green pipeline the whole time.
+
+**Still shipped to nobody**, and this is not where that is decided: torch is
+`[project.optional-dependencies].train`, a `Suggests` in `debian/control`, and an
+extra no install pulls. The development venv is the only place it appears.
+
+The bootstrap step is allowed to fail — a large download from a second index —
+so a machine that cannot reach it still gets a working checkout.
+
 ## Optional: git pre-commit hook
 
 ```bash

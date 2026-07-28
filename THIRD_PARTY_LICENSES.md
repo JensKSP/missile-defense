@@ -23,6 +23,7 @@ home directory on request.
 |---|---|---|---|---|
 | [Qt 6](https://www.qt.io/) (Core, Gui, Network) | 6.11 | **LGPL-3.0-only** | Yes — dynamically linked DLLs/SOs | License text + this notice + relinkability + source offer |
 | [miniaudio](https://miniaud.io/) | 0.11.22 | Public domain (Unlicense) / MIT-0 | Yes — compiled in | None (no attribution required) |
+| [nlohmann/json](https://json.nlohmann.me/) | ≥ 3.10 (fetches 3.11.3) | MIT | Yes — header-only, compiled in | Reproduce the copyright notice and licence text |
 | [nanobind](https://github.com/wjakob/nanobind) | 2.13 | BSD-3-Clause | Yes — its runtime is linked into `_md_native` | Reproduce the copyright notice: [`licenses/nanobind/BSD-3-Clause.txt`](licenses/nanobind/BSD-3-Clause.txt) |
 | [Vulkan](https://www.vulkan.org/) loader + headers | 1.4 | Apache-2.0 | Loader is the OS/GPU driver's `vulkan-1.dll`; headers are build-time only | None (loader not distributed by us) |
 | [Catch2](https://github.com/catchorg/Catch2) | 3.7.1 | BSL-1.0 | No — unit-test binaries only | None |
@@ -94,6 +95,19 @@ redistribution reproduce the copyright notice, so unlike the credits below this
 one is an obligation and not a courtesy:
 [`licenses/nanobind/BSD-3-Clause.txt`](licenses/nanobind/BSD-3-Clause.txt),
 bundled with every artifact that carries the extension.
+
+## nlohmann/json — MIT notice (required)
+
+`nlohmann/json` is MIT-licensed, © 2013–2022 Niels Lohmann, and is compiled into
+the game — it reads the `.mdp` policy manifest and the head-to-head match
+manifest, so it is a dependency of the *game* and not only of the training half.
+Being header-only it leaves no separate file in a release, which is exactly why
+the notice belongs here. MIT requires the copyright notice and licence text to
+accompany the distribution, so both travel in every artifact as
+[`licenses/nlohmann_json/MIT.txt`](licenses/nlohmann_json/MIT.txt).
+
+The build prefers the system package (`nlohmann-json3-dev`, ≥ 3.10) and fetches
+v3.11.3 only when none is present. Nothing is vendored in-tree.
 
 ## miniaudio / Catch2 / glslang
 
