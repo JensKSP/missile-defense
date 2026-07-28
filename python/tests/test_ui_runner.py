@@ -557,11 +557,18 @@ def test_the_record_round_trips_through_the_format_the_game_reads(tmp_path: Path
     # `key=value`, one per line, because app/trainer.cpp parses it by hand rather
     # than link a parser for two keys. A change of shape here is a game that
     # stops finding a trainer it installed itself, with nothing to say why.
-    written = _record(tmp_path, Path("/opt/py/bin/python3"))
+    #
+    # The expected line is built from the same path rather than spelled out, so
+    # the assertion is "written verbatim, and read back as what went in" on every
+    # platform. Spelled out, it was a POSIX literal: `Path("/opt/...")` is a
+    # WindowsPath off Windows-side, str() gives it backslashes, and the test
+    # failed on a difference the format does not have.
+    interpreter = Path("/opt/py/bin/python3")
+    written = _record(tmp_path, interpreter)
     lines = written.read_text(encoding="utf-8").splitlines()
-    assert "interpreter=/opt/py/bin/python3" in lines
+    assert f"interpreter={interpreter}" in lines
     assert "version=0.1.0" in lines
-    assert runner.recorded_interpreter(tmp_path) == Path("/opt/py/bin/python3")
+    assert runner.recorded_interpreter(tmp_path) == interpreter
 
 
 def test_an_unknown_data_directory_offers_nothing(tmp_path: Path) -> None:

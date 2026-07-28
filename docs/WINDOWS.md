@@ -3,7 +3,7 @@
 The game builds on Windows with the same Clang + CMake + Ninja toolchain as
 Linux, through [MSYS2](https://www.msys2.org/)'s **CLANG64** environment — no
 Visual Studio needed. Training is the one thing that needs a second, native
-toolchain; see [Training on Windows](#training-on-windows) for why.
+toolchain; see [Training on Windows](#two-shells-one-job-each) for why.
 
 Everything that is not platform-specific — how to play, what the scripted AI is,
 the project layout — is in the [main README](../README.md). This page is only the
@@ -52,6 +52,12 @@ is an MSYS package, not a `mingw-w64-clang-x86_64-` one).
 From here the [main README](../README.md#quick-start) applies unchanged — play
 it, then `./build/release/app/missile-defense.exe --watch` to hand the crosshair to the
 scripted agent.
+
+**That is the game, and it is all MSYS2 is for.** If you also want the trainer,
+the tests or the task runner, those live on a native CPython in PowerShell and
+are a separate five minutes — see [Two shells, one job
+each](#two-shells-one-job-each). You do not need MSYS2 for them, and they do not
+need MSYS2 to be installed.
 
 ## What the packages are
 
@@ -126,39 +132,63 @@ wheel that came with the game, into the interpreter it found. It reports which
 one it picked before it starts, because a silent choice on a machine with several
 Pythons is impossible to correct afterwards.
 
-## Training on Windows
+## Two shells, one job each
 
-The Clang presets build under MSYS2/MinGW, and **torch publishes no MinGW
-wheel** — there is no distribution for that platform tag at all. Only the
-*extension module* has to share an ABI with the interpreter importing it, and the
-simulation needs neither Qt nor Vulkan, so build the headless half natively and
-leave the game on MSYS2:
+Windows needs two toolchains, and the tidiest way to hold that in your head is
+that each owns exactly one half:
 
-1. Install **VS Build Tools** (C++ workload) and a **python.org CPython**.
-2. From a Developer Command Prompt:
+| | Shell | Builds |
+|---|---|---|
+| **The game** | MSYS2 **CLANG64** | Qt, Vulkan, the app — `cmake --preset release` |
+| **Everything Python** | **PowerShell**, native CPython | the venv, `poe`, the tests, `_md_native` |
 
-   ```bash
-   poe bindings -- win-native --python "%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
-   ```
+The reason is the ABI, and it is not negotiable: **torch and PySide6 publish no
+MinGW wheels** — there is no distribution for that platform tag at all — so the
+trainer and the training loop can only run on an MSVC-built CPython. An extension
+module has to share an ABI with the interpreter importing it, and the simulation
+needs neither Qt nor Vulkan, so the headless half is built natively and the game
+stays on MSYS2.
 
-3. `pip install torch` into that interpreter, then `poe train`.
+## The Python half, natively
+
+From **PowerShell**, with a [python.org](https://www.python.org/downloads/)
+CPython 3.12+ and **VS Build Tools** (C++ workload) installed:
+
+```powershell
+python -m tools.bootstrap
+.venv\Scripts\Activate.ps1
+poe pytest          # the fast suite
+poe bindings        # rebuild _md_native after a C++ change
+poe ui              # the trainer
+poe train           # needs torch; bootstrap installs the CPU wheel
+```
+
+**No Developer Command Prompt needed.** `tools/bootstrap.py` finds MSVC through
+`VCINSTALLDIR`, then `cl.exe` on `PATH`, then vswhere, and scikit-build-core
+drives CMake itself — so a plain PowerShell is enough. MinGW deliberately does
+not count as a toolchain here: an MSYS2 clang on `PATH` is the *wrong* compiler
+for this job, not a substitute for the right one, and a binding it produced fails
+to load in the interpreter that has torch.
+
+Without MSVC, bootstrap says so and sets the rest up anyway — the trainer starts,
+browses runs and plays replays; it refuses to *start* a run and says why.
+
+`poe` is the venv's, so `poe train` and `poe ui` run the interpreter that has
+torch and PySide6, and `MD_PYTHON` is not something you need to set. Both still
+go through `tools/launch.py`, which looks for an interpreter that has them —
+`$MD_PYTHON` first, then the running interpreter, then whatever `py -0p` knows
+about — and puts this checkout's `python/` on its import path. That search is the
+fallback for an installed trainer rather than the everyday path. When nothing on
+the machine can run it, it names the interpreters it tried and the `pip install`
+that would fix one, rather than failing with an ImportError from inside a module.
 
 Both module ABIs can sit beside the package at once — each interpreter loads its
 own — so the MSYS2 tooling and the training environment coexist. The rest of
 training is platform-independent: see [TRAINING.md](TRAINING.md).
 
-The **trainer** (`poe ui`) belongs to that same native interpreter —
-install the project with its trainer extra there (`pip install -e ".[trainer]"`),
-because PySide6's wheels are MSVC-built like torch's. That extra also includes
-the NVIDIA telemetry binding; AMD SMI is Linux-only.
-
-`poe` itself is usually the MSYS2 one, so `poe train` and `poe ui` would run the
-interpreter that has neither package. Both go through `tools/launch.py`, which
-looks for one that does — `$MD_PYTHON` first, then the running interpreter, then
-whatever `py -0p` knows about — and puts this checkout's `python/` on its import
-path. When nothing on the machine can run it, it names the interpreters it tried
-and the `pip install` that would fix one, rather than failing with an ImportError
-from inside a module. Set `MD_PYTHON` to skip the search.
+> **Building the bindings against a different interpreter.** `poe bindings`
+> targets the one running it. To aim it elsewhere:
+> `poe bindings -- win-native --python "%LOCALAPPDATA%\Programs\Python\Python312\python.exe"`.
 
 Double-clicking a recording starts the MSYS2-built game from a
 non-MSYS2 process, so the trainer puts `<msys2>\clang64\bin` back on `PATH` for

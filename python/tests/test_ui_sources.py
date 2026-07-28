@@ -285,6 +285,12 @@ def test_runs_one_level_down_are_found_newest_first(tmp_path: Path) -> None:
     assert find_runs(tmp_path / "not-there") == []
 
 
+@pytest.mark.skipif(
+    not hasattr(os, "geteuid"),
+    reason="POSIX only: the refusal being survived is a directory mode Windows has no "
+    "equivalent for — chmod(0o000) there leaves the directory perfectly listable, so the "
+    "test would pass without ever reaching the case it exists for",
+)
 def test_a_neighbour_that_cannot_be_looked_into_is_not_a_run(tmp_path: Path) -> None:
     # `/tmp` on a systemd box holds `systemd-private-*` directories owned by
     # another user. `Path.exists()` inside one raises rather than answering, so a

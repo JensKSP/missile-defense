@@ -489,7 +489,7 @@ for the CPU and memory rows. The `trainer` extra also installs NVIDIA's small
 `python3 -m tools.bootstrap` from a checkout installs all of them into `.venv`.
 These are optional and none is ever a dependency of the game. On Windows install
 them into the same native interpreter that has torch; see
-[WINDOWS.md](WINDOWS.md#training-on-windows).
+[WINDOWS.md](WINDOWS.md#the-python-half-natively).
 
 It does **not** need torch. Where there is none, the primary button offers to
 install one instead of being a dead control — see
@@ -909,7 +909,7 @@ Windows.
 Torch publishes no MinGW wheel, so the headless half has to be built with a
 native MSVC toolchain while the game stays on MSYS2. Both module ABIs coexist
 beside the package. The steps, and the determinism caveat that comes with
-swapping compilers, are in [WINDOWS.md](WINDOWS.md#training-on-windows).
+swapping compilers, are in [WINDOWS.md](WINDOWS.md#the-python-half-natively).
 
 ### GPU
 

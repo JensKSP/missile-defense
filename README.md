@@ -456,7 +456,7 @@ not `pip install torch` over it for a real run: the venv copy is deliberately CP
 and is never what a training run gets. For a CUDA wheel that matches an NVIDIA
 driver — without installing the CUDA toolkit — use the measured
 [Debian/NVIDIA recipe](docs/NVIDIA.md); Windows has a separate
-[native-Python path](docs/WINDOWS.md#training-on-windows). An installed trainer
+[native-Python path](docs/WINDOWS.md#the-python-half-natively). An installed trainer
 can set up its own managed PyTorch runtime from the **Set up training…** button
 instead, which is the path that ends up being used on most machines.
 
