@@ -28,7 +28,7 @@ def test_a_missing_pyside6_names_pyside6_and_a_pip_command() -> None:
 def test_a_missing_numpy_is_explained_rather_than_raised() -> None:
     # The regression. numpy is not an extra and not optional, so the message must
     # not describe it as one — a reader told "it is optional" about the package
-    # their console just died on has been sent to look in the wrong place.
+    # their trainer just died on has been sent to look in the wrong place.
     message = explain("numpy", managed=False, interpreter="/opt/py/python")
     assert "numpy" in message
     assert "/opt/py/python -m pip install numpy" in message

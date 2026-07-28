@@ -14,7 +14,7 @@ Three things here are deliberate:
 
 * **Only changed values are passed.** A field left alone is left to the
   dataclass, so the command line reads as the difference from the defaults.
-* **The command line is shown.** The console must not become the only way to
+* **The command line is shown.** The trainer must not become the only way to
   start a run — you can read it off the dialog and type it into a terminal.
 * **Resuming is a picker, not a field.** ``--resume`` takes a path to a file
   that already exists, so a text box would only be a way to mistype one. It is
@@ -104,7 +104,7 @@ RESUME_HELP = (
 def free_vram() -> int | None:
     """Bytes free on the training card, or ``None`` when there is nothing to ask.
 
-    Through the console's own vendor probes, so the dialog agrees with the number
+    Through the trainer's own vendor probes, so the dialog agrees with the number
     the System panel is showing a few centimetres away. Every failure is the same
     failure — no card, no driver, no binding, a vendor library raising its own
     exception hierarchy — and all of them mean "do not claim to know".
@@ -172,7 +172,7 @@ def _shown(field: Param) -> str:
     """A field's default as a box can show it, or "" when it cannot show it.
 
     Empty means the trainer's own default stands, which the placeholder reads as
-    *auto* — and that is the truth about a numeric default this console failed to
+    *auto* — and that is the truth about a numeric default this trainer failed to
     read. `md.ui.params` follows a named constant to its value, so the usual
     answer is the number; this is what is left when a default is an expression
     nothing here can evaluate. Showing the expression instead would offer
@@ -230,10 +230,10 @@ class ParameterDialog(QDialog):
         layout.setSpacing(10)
 
         if not fields:
-            # An installed console watching a synced directory has no trainer to
-            # read; say that, rather than showing an empty form.
+            # An installed trainer watching a synced directory has no md.train
+            # to read; say that, rather than showing an empty form.
             missing = QLabel(
-                "The trainer's source is not beside this console, so its "
+                "The training loop's source is not beside this trainer, so its "
                 "parameters cannot be read. A run started here would use the "
                 "defaults."
             )
@@ -277,7 +277,7 @@ class ParameterDialog(QDialog):
             layout.addWidget(self._memory)
 
         # The command alone is not quite runnable: `md` is imported from the
-        # checkout rather than installed, which the console arranges for its
+        # checkout rather than installed, which the trainer arranges for its
         # child. Say so, or "type it in a terminal yourself" is not true.
         note = QLabel("run from the project root with python/ on PYTHONPATH")
         note.setProperty("role", "note")
@@ -342,7 +342,7 @@ class ParameterDialog(QDialog):
     def _reload_presets(self, *, select: str = presets.CUSTOM) -> None:
         """Rebuild the picker from the file, leaving ``select`` chosen.
 
-        From the file every time rather than from a list held here: the console
+        From the file every time rather than from a list held here: the trainer
         is not the only thing that may have written it, and a picker that showed
         a preset somebody deleted in an editor would offer to start a run from
         options that no longer exist.
@@ -368,7 +368,7 @@ class ParameterDialog(QDialog):
         if preset is None:
             self._preset_summary.setText(NO_PRESET_SUMMARY)
         elif preset.builtin:
-            self._preset_summary.setText(f"{preset.summary}  (ships with the console)")
+            self._preset_summary.setText(f"{preset.summary}  (ships with the trainer)")
         else:
             self._preset_summary.setText(preset.summary or "Saved from this form.")
         # Built-ins are read-only: their names are quoted in the documentation,
@@ -566,7 +566,7 @@ class ParameterDialog(QDialog):
             spin = QSpinBox()
             low, high = field.bounds or (0, SPIN_MAX)
             spin.setRange(int(low), min(int(high), SPIN_MAX))
-            # Grouped, but in the console's own convention rather than the
+            # Grouped, but in the trainer's own convention rather than the
             # machine's: under a German locale Qt renders 1024 as "1.024", which
             # next to a command line reading `--envs 1024` is a puzzle.
             spin.setLocale(QLocale("en_US"))

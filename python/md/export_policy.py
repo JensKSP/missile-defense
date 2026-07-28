@@ -430,14 +430,14 @@ def _round(values: Sequence[float] | Weights) -> list[float]:
 def main(argv: Sequence[str] | None = None) -> int:
     """Export one checkpoint, from a command line.
 
-    Which exists because of where torch is. The console must never import it
+    Which exists because of where torch is. The trainer must never import it
     (docs/ROADMAP.md, M8) — that is the whole reason a packaged install can watch
-    a run on a machine with no CUDA — and promotion is the one console action
-    that needs a `.pt` opened. So the console runs *this*, in the same managed
+    a run on a machine with no CUDA — and promotion is the one trainer action
+    that needs a `.pt` opened. So the trainer runs *this*, in the same managed
     runtime it starts a trainer with (:func:`md.ui.runner.training_python`),
     rather than importing torch into its own process and being unable to.
 
-    A checkout with torch beside the console never spawns it: :func:`md.league.promote`
+    A checkout with torch beside the trainer never spawns it: :func:`md.league.promote`
     calls :func:`export_checkpoint` directly when it can.
     """
     import argparse  # noqa: PLC0415 — only the command line needs it

@@ -3,7 +3,7 @@
 # Assisted-by: Claude Code (Anthropic)
 """Tests for where a run's files live.
 
-The trainer, the console and the game all resolve this, so it has exactly one
+The trainer, the trainer and the game all resolve this, so it has exactly one
 implementation on the Python side and a mirror of it in the app. What is pinned
 here is the order — a rule nobody can remember the order of is a rule that will
 be got wrong.

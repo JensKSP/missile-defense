@@ -2,14 +2,14 @@
 # Copyright (c) 2026 Jens Köhler
 # Assisted-by: Claude Code (Anthropic)
 # pyright: reportMissingImports=false
-"""The console window: the curve, the yardstick, and the episodes to watch.
+"""The trainer window: the curve, the yardstick, and the episodes to watch.
 
     poe ui                 # attach to ./runs
     poe ui -- path/to/run  # attach to somewhere else
 
 This phase is **read-only** (docs/ROADMAP.md, M8, phase 1). It attaches to a run
 started from a terminal and cannot start one, which is the whole point: training
-happens in its own process, so a UI crash costs you nothing and the console can
+happens in its own process, so a UI crash costs you nothing and the trainer can
 be opened on a directory synced from another machine.
 
 The run is the subject, so the score curve gets the space and the diagnostics and
@@ -92,7 +92,7 @@ RESCAN_EVERY = 3
 
 #: How long closing the window waits for a runtime check still in flight. Qt
 #: aborts the process when a running QThread is destroyed, so this cannot be
-#: zero; it is bounded because a console that will not close is worse than one
+#: zero; it is bounded because a trainer that will not close is worse than one
 #: that closes a second late. The check normally takes about a second, and the
 #: slow case — the first CUDA start after an install — is exactly the one where
 #: waiting it out would be unreasonable.
@@ -121,7 +121,7 @@ NO_COMPARISON = "no comparison"
 #: unhittable. The first stop is the trainer's own "never score", spelled out.
 EVAL_EVERY_STOPS = (0, 1, 2, 5, 10, 25, 50, 100, 250, 500)
 #: What the slider falls back to when nothing has published a value, if the
-#: trainer's own default cannot be read beside this console.
+#: training loop's own default cannot be read beside this trainer.
 EVAL_EVERY_FALLBACK = 10
 EVAL_EVERY_HELP = (
     "How often the run scores itself on the 32 validation seeds.\n\n"
@@ -246,8 +246,8 @@ class _VerifyRuntime(QThread):
         self.done.emit(status.ready, status.detail)
 
 
-class Console(QMainWindow):
-    """Everything the console is, in one window."""
+class Trainer(QMainWindow):
+    """Everything the trainer is, in one window."""
 
     def __init__(self, run_dir: Path) -> None:
         super().__init__()
@@ -270,7 +270,7 @@ class Console(QMainWindow):
         self.setCentralWidget(self._build())
         self._attach(run_dir)
         #: The directory the library lists, decided **once** from what the
-        #: console was opened on and never re-derived. Derived, because the two
+        #: trainer was opened on and never re-derived. Derived, because the two
         #: differ exactly when it matters — `poe ui -- runs/amber-anvil` opens
         #: one run and its library is `runs/`, while `poe ui -- runs` opens a
         #: directory of them and is its own library. Once, because the answer
@@ -340,12 +340,12 @@ class Console(QMainWindow):
         Qt aborts the process outright when a running `QThread` is destroyed,
         and this one outlives a quick open-and-close: the check is a subprocess,
         and the first one after a fresh CUDA install takes minutes. Closing the
-        console during it used to take the process down with it.
+        trainer during it used to take the process down with it.
 
         Waited on rather than killed, because there is nothing to kill safely —
         the subprocess is a health check that ends on its own, and the bounded
         wait is the honest way to say so. The bound matters more than its exact
-        value: a console that will not close is worse than one that closes a
+        value: a trainer that will not close is worse than one that closes a
         second late.
         """
         verifier = self._verifier
@@ -363,10 +363,10 @@ class Console(QMainWindow):
 
         Installed as ``sys.excepthook`` by :func:`main`, which is what PySide6
         consults for an exception raised inside a slot. It prints one and returns
-        to the event loop — so the console already survives its own bugs, but
+        to the event loop — so the trainer already survives its own bugs, but
         *silently*: the button that raised looks exactly like a button that does
         nothing, and the traceback goes to a terminal an installed copy was never
-        started from. That is the difference between a console that is stuck and
+        started from. That is the difference between a trainer that is stuck and
         one that is merely wrong about something.
 
         The log pane rather than a dialog, and deliberately. `_tick` runs every
@@ -388,19 +388,19 @@ class Console(QMainWindow):
     def _attach(self, run_dir: Path) -> None:
         """Point the whole window at a run directory — including a fresh one.
 
-        Everything the console knows comes from that directory, so re-attaching
+        Everything the trainer knows comes from that directory, so re-attaching
         is the same act as starting up. Reset is exactly this, aimed somewhere
         new; nothing is deleted.
         """
         self._run_dir = run_dir
         self._metrics = sources.metrics_tail(run_dir)
         self._evals = sources.evals_tail(run_dir)
-        #: What the run has printed. A run this console started comes down a
+        #: What the run has printed. A run this trainer started comes down a
         #: pipe; every other one writes this file itself (md.runlog), which is
         #: what gives a terminal-started run a log pane at all.
         self._log_file = sources.log_tail(run_dir)
         self._control = Control(run_dir)
-        #: A run *this* console started, kept after it exits so the window knows
+        #: A run *this* trainer started, kept after it exits so the window knows
         #: the difference between "quiet for now" and "over". Dropped on
         #: re-attach: that run carries on, it is simply no longer this screen's.
         self._run: TrainingRun | None = None
@@ -453,7 +453,7 @@ class Console(QMainWindow):
         for tile in (self._tile_update, self._tile_score, self._tile_return, self._tile_entropy):
             tile.reset()
 
-        self.setWindowTitle(f"Missile Defense — training console · {run_dir}")
+        self.setWindowTitle(f"Missile Defense Trainer · {run_dir}")
         self._refresh_model()  # not on the next rescan: it would be the old run's
         self._compare_with(None)  # a comparison is against *this* run, not the last
         self._read_tuning()  # the box describes the run it is aimed at
@@ -593,7 +593,7 @@ class Console(QMainWindow):
     def _library_root(self) -> Path:
         """Where the library looks: the directory *containing* runs.
 
-        Settled in `__init__` from what the console was opened on rather than
+        Settled in `__init__` from what the trainer was opened on rather than
         from `paths.runs_dir()`, which would show a list of somebody else's runs.
         """
         return self._library_dir
@@ -648,7 +648,7 @@ class Console(QMainWindow):
         title = QLabel("MISSILE DEFENSE · TRAINING CONSOLE")
         title.setProperty("role", "title")
         # The version, always on screen rather than behind a menu: "which build
-        # is this?" is the first question of every bug report, and the console is
+        # is this?" is the first question of every bug report, and the trainer is
         # the half most often installed from a package by someone with no
         # checkout to read it out of. Pressing it opens the rest — author,
         # licence, and the LGPL libraries this MIT program runs on, which a user
@@ -748,7 +748,7 @@ class Console(QMainWindow):
         land on a number nobody meant.
 
         It writes :mod:`md.control`'s tuning file and nothing else — so it drives
-        a run this console never started, and a terminal can do the same with
+        a run this trainer never started, and a terminal can do the same with
         ``echo``. Nothing here imports the trainer.
         """
         row = QHBoxLayout()
@@ -1424,7 +1424,7 @@ class Console(QMainWindow):
         """Why this directory is empty — and where the runs actually are.
 
         Runs pile up one directory per experiment, so "no metrics.csv" usually
-        means the console is aimed one level too high. Saying which directories
+        means the trainer is aimed one level too high. Saying which directories
         do hold a run turns a dead end into the next command to type.
         """
         inside = sources.find_runs(self._run_dir)
@@ -1447,7 +1447,7 @@ class Console(QMainWindow):
     def _state(self, modified: float | None) -> str:
         """What the run is doing, from the files alone.
 
-        Which is why it works for a run this console never started: the control
+        Which is why it works for a run this trainer never started: the control
         files and the metrics timestamp are all it reads.
         """
         own = self._run
@@ -1473,7 +1473,7 @@ class Console(QMainWindow):
             # leftover rather than a state. Pressing Stop in a second window
             # just after a run ended writes exactly that — and reporting it for
             # ever would disable the Start button that clears it, which is a
-            # console wedged by its own status line.
+            # trainer wedged by its own status line.
             return "stopping" if live else run_library.STATE_IDLE
         if self._control.paused():
             # *Not* qualified the same way: a paused run writes nothing at all,
@@ -1626,7 +1626,7 @@ class Console(QMainWindow):
 
         A plain box rather than a designed screen: it is opened once, read once,
         and closed, so the space it deserves is the space its text takes. The
-        component list is the part that has to be here — the console runs on
+        component list is the part that has to be here — the trainer runs on
         PySide6 and Qt Charts under the LGPL, and this is where a user meets that
         fact (:mod:`md.ui.about` has the reasoning).
         """
@@ -1657,7 +1657,7 @@ class Console(QMainWindow):
 
         Two sources, never both: our own child's pipe if we have one, otherwise
         the file the trainer writes. Reading both would double every line of a
-        run this console started, since the trainer tees rather than redirects.
+        run this trainer started, since the training loop tees rather than redirects.
         """
         if self._run is None:
             batch = self._log_file.poll()
@@ -1721,7 +1721,7 @@ class Console(QMainWindow):
     def _delete_selected(self) -> None:
         """Remove one episode from the run directory.
 
-        It confirms, because this is the console's only destructive act on a
+        It confirms, because this is the trainer's only destructive act on a
         file — everything else it writes is a control marker. A recording is
         cheap to regenerate only while the run that wrote it is still going, so
         the dialog names the file rather than asking "are you sure".
@@ -1771,7 +1771,7 @@ def _default_eval_every() -> int:
     for field in read_params(TRAINER_SOURCES):
         if field.name == "eval_every" and field.default.isdigit():
             return int(field.default)
-    return EVAL_EVERY_FALLBACK  # no trainer beside this console
+    return EVAL_EVERY_FALLBACK  # no md.train beside this trainer
 
 
 def _number(value: float | None, spec: str) -> str:
@@ -1790,7 +1790,7 @@ def _ladder_colour(score: float, ladder: Ladder) -> str:
     Three colours because the ladder has three rungs and a learner watching this
     tile has one question — *is it getting anywhere* — that a red number gives
     the wrong answer to for the whole middle of a run. Green stays reserved for
-    beating HIGH, the only rung worth the colour the rest of the console uses
+    beating HIGH, the only rung worth the colour the rest of the trainer uses
     for "done" (on the canonical block, that is also the published claim).
     """
     cleared, remaining = ladder_standing(score, ladder)
@@ -1816,11 +1816,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     app = QApplication(sys.argv[:1])
-    app.setApplicationName("Missile Defense training console")
+    app.setApplicationName("Missile Defense Trainer")
     app.setStyleSheet(theme.stylesheet())
-    window = Console(paths.runs_dir(args.run_dir))
+    window = Trainer(paths.runs_dir(args.run_dir))
     if args.self_test:
-        # The console's answer to the game's `--report`, and it exists for the
+        # The trainer's answer to the game's `--report`, and it exists for the
         # same reason: an exit code cannot tell "started, read the run, drew it"
         # from "printed a usage message". A packaging test needs to know that the
         # *staged* launcher found its interpreter, its import path, PySide6 and

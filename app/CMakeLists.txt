@@ -76,7 +76,7 @@ endif()
 # what ships; the locators in tools/_util.py and md/ui/runner.py know the layout.
 add_executable(md_app MACOSX_BUNDLE
   main.cpp
-  console.cpp
+  trainer.cpp
   game_window.cpp
   renderer.cpp
   audio.cpp
@@ -186,7 +186,7 @@ endif()
 # dependency. A source tree with no model still builds and still ships; the game
 # handles that state by leaving MODELS out of the WATCH AI menu rather than
 # offering a list with nothing in it. `GameWindow::pretrained_path()` knows
-# these three layouts, and lists this file alongside anything the console has
+# these three layouts, and lists this file alongside anything the trainer has
 # promoted into `models/`.
 include(GNUInstallDirs)
 # Every `.mdp` in models/, not one named file: the game ships the same policy at
@@ -215,7 +215,7 @@ endif()
 # training half installs is tagged `python` (bindings/CMakeLists.txt and the
 # MD_INSTALL_PYTHON_PACKAGE block in the top-level file). That split is not
 # cosmetic: it is what lets `cmake --install --component game` stage the exact
-# game-only product from a build tree that also built the console, which is both
+# game-only product from a build tree that also built the trainer, which is both
 # what the Windows/macOS installers offer as a choice and what
 # python/tests/e2e/test_packages.py asserts is genuinely Python-free. Leaving
 # these untagged put them in "Unspecified", where a component install of the
@@ -224,13 +224,25 @@ if(WIN32)
   # Self-contained layout for the CPack NSIS installer / ZIP: the exe plus its
   # bundled Qt + runtime DLLs (gathered by tools/windeploy.sh at install time)
   # and the licence notices, all under the install root.
-  install(TARGETS md_app RUNTIME DESTINATION . COMPONENT game)
+  #
+  # Installed as `missile-defense.exe`, not as the target's own name. The build
+  # tree keeps `md_app` — every locator that walks a checkout expects it
+  # (tools/_util.py, md/ui/runner.py) and it is the same name on every platform
+  # there — but what a person sees in Explorer, in the taskbar and in Task
+  # Manager is this file, and `md_app` is an abbreviation nothing else in the
+  # product ever shows them. install(PROGRAMS ... RENAME) rather than
+  # install(TARGETS), which has no RENAME; the game links nothing that needs an
+  # install-time RPATH, so the two are equivalent here apart from the name.
+  install(PROGRAMS "$<TARGET_FILE:md_app>"
+    DESTINATION .
+    RENAME "missile-defense.exe"
+    COMPONENT game)
   find_program(BASH_PROGRAM bash REQUIRED)
   install(CODE "
     message(STATUS \"windeploy: bundling Qt + runtime DLLs ...\")
     execute_process(
       COMMAND \"${BASH_PROGRAM}\" \"${CMAKE_SOURCE_DIR}/tools/windeploy.sh\"
-              \"\${CMAKE_INSTALL_PREFIX}/md_app.exe\"
+              \"\${CMAKE_INSTALL_PREFIX}/missile-defense.exe\"
       RESULT_VARIABLE _md_deploy_rc)
     if(NOT _md_deploy_rc EQUAL 0)
       message(FATAL_ERROR \"tools/windeploy.sh failed (code \${_md_deploy_rc})\")
@@ -245,7 +257,30 @@ elseif(APPLE)
   # layout — the bundle carries its own Qt *and* its own Metal driver, and the
   # licence texts sit beside it. The work itself is in deploy_macos.cmake.in,
   # which runs at install time; everything here is finding what it needs.
+  #
+  # The installed bundle is renamed, for the reason the Windows branch renames
+  # the exe. It was left as `md_app.app` on the theory that CFBundleName and
+  # CFBundleDisplayName are what a user reads — they are not, in the one place
+  # that matters most: the Finder labels a bundle with its *filename*, so an icon
+  # dragged into /Applications sat there called "md_app" no matter what the
+  # manifest said. The Dock and Launchpad do read the manifest, which is why this
+  # was invisible to anyone who only ever launched it.
+  #
+  # A rename after the fact rather than an OUTPUT_NAME, because the build tree
+  # must keep `md_app.app`: the locators in tools/_util.py and md/ui/runner.py
+  # walk a checkout looking for that name, and a bundle with a space in it would
+  # make every documented `./build/release/app/...` command need quoting.
+  set(MD_MACOS_BUNDLE "Missile Defense.app")
   install(TARGETS md_app BUNDLE DESTINATION . COMPONENT game)
+  install(CODE "
+    set(md_built \"\${CMAKE_INSTALL_PREFIX}/md_app.app\")
+    set(md_installed \"\${CMAKE_INSTALL_PREFIX}/${MD_MACOS_BUNDLE}\")
+    if(NOT md_built STREQUAL md_installed AND IS_DIRECTORY \"\${md_built}\")
+      file(REMOVE_RECURSE \"\${md_installed}\")
+      file(RENAME \"\${md_built}\" \"\${md_installed}\")
+      message(STATUS \"installed the game as ${MD_MACOS_BUNDLE}\")
+    endif()
+  " COMPONENT game)
 
   # macdeployqt is qtbase's equivalent of tools/windeploy.sh: it copies the Qt
   # frameworks and the cocoa platform plugin into Contents/, then rewrites the

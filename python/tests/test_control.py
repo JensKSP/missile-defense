@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Jens Köhler
 # Assisted-by: Claude Code (Anthropic)
-"""Tests for the control files — the half of the console that is not the console.
+"""Tests for the control files — the half of the trainer that is not the trainer.
 
 `md.control` is what makes `touch runs/STOP` and the Stop button the same act.
 It holds no torch and no Qt, so the protocol is testable on its own, which is the
@@ -24,7 +24,7 @@ def test_a_quiet_directory_asks_for_nothing(tmp_path: Path) -> None:
 
 def test_the_files_are_the_ones_a_shell_would_touch(tmp_path: Path) -> None:
     # The names are the interface. A run is stopped from a terminal with
-    # `touch runs/STOP`, and the console is only a convenience over that.
+    # `touch runs/STOP`, and the trainer is only a convenience over that.
     control = Control(tmp_path)
     assert control.pause_file == tmp_path / "PAUSE"
     assert control.stop_file == tmp_path / "STOP"
@@ -42,7 +42,7 @@ def test_pausing_and_resuming_is_the_file_appearing_and_going(tmp_path: Path) ->
 
 
 def test_a_request_creates_the_run_directory_if_it_is_not_there_yet(tmp_path: Path) -> None:
-    # The console can be pointed at a directory the trainer has not made yet.
+    # The trainer can be pointed at a directory the trainer has not made yet.
     control = Control(tmp_path / "runs")
     control.request_stop()
     assert (tmp_path / "runs" / "STOP").exists()
@@ -92,7 +92,7 @@ def test_names_are_upper_case_so_they_stand_out_in_a_listing() -> None:
 # ---- the one control that carries a value ------------------------------------
 def test_a_setting_survives_the_round_trip_as_json_anyone_can_read(tmp_path: Path) -> None:
     # Readable and writable with `cat` and `echo` for the same reason the markers
-    # are `touch`-able: the console must not be the only way in.
+    # are `touch`-able: the trainer must not be the only way in.
     control = Control(tmp_path)
     control.tune("eval_every", 10)
     assert control.tuned("eval_every", 50) == 10

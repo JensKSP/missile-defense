@@ -6,13 +6,13 @@
 The training loop owns the process; everything else asks politely, through a
 file in the run directory that the loop checks once per update. An update is
 seconds, so that granularity is plenty, and a file works identically on Windows
-and Linux, survives a console crash, and can be produced by a shell:
+and Linux, survives a trainer crash, and can be produced by a shell:
 
     touch runs/STOP        # finish this update, checkpoint, flush, exit
     touch runs/PAUSE       # block between updates
     rm runs/PAUSE          # carry on
 
-The console's buttons write exactly these files. That ordering matters: the
+The trainer's buttons write exactly these files. That ordering matters: the
 mechanism has to work without the UI, or the UI stops being a convenience and
 starts being the only way in (docs/ROADMAP.md, M8).
 
@@ -51,14 +51,15 @@ from pathlib import Path
 from typing import cast
 
 #: Marker file names, relative to a run's ``--out-dir``.
-#: The PID of the trainer that owns this run. The console reads it to answer "is
+#: The PID of the training process that owns this run. The trainer reads it to
+#: answer "is
 #: anything actually running in here?" rather than guessing from how long ago a
 #: file was touched — a guess that lags by however long the threshold is and,
 #: worse, calls a *slow* run dead.
 #:
 #: **Deliberately never deleted.** Removing it on a clean exit sounds tidier and
 #: is worse: the file's absence would then mean either "an old trainer that never
-#: wrote one" or "a new one that finished", and the console cannot tell those
+#: wrote one" or "a new one that finished", and the trainer cannot tell those
 #: apart — so it would fall back to the timestamp and go on claiming a finished
 #: run was live for another ninety seconds, which is the bug this replaces. A
 #: dead PID says "finished" immediately and says it for ever.
@@ -80,7 +81,7 @@ class Control:
     """The control files for one run directory.
 
     Both sides use this: the trainer to ask *"should I still be running?"*, the
-    console to say *"no"*. Neither imports the other.
+    trainer to say *"no"*. Neither imports the other.
     """
 
     def __init__(self, run_dir: Path) -> None:
@@ -161,7 +162,7 @@ class Control:
             sleep(interval)
         return self.stopping()
 
-    # ---- what the console (or a shell) says --------------------------------
+    # ---- what the trainer (or a shell) says --------------------------------
     def request_pause(self) -> None:
         self._write(self.pause_file)
 

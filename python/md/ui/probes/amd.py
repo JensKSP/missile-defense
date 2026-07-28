@@ -7,7 +7,7 @@ Both ship with ROCm rather than as ordinary wheels, which makes this the
 Linux-and-ROCm path in practice: on Windows an AMD card has no supported Python
 telemetry API at all, so the panel says so instead of pretending. That is the
 whole reason the probe is pluggable — a vendor gap is a missing file here, not a
-hole in the console.
+hole in the trainer.
 
 **Not verified against real hardware.** There is no AMD/ROCm machine in this
 project's loop, so this is written from the published API and every field is

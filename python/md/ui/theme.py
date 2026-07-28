@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Jens Köhler
 # Assisted-by: Claude Code (Anthropic)
-"""The console's palette, lifted from the game. Dark by default; no Qt in here.
+"""The trainer's palette, lifted from the game. Dark by default; no Qt in here.
 
 The game already has colours — a deep navy night sky, cool blue cities, amber
 HUD numerals, red-orange warheads — and they are chosen in ``app/renderer.cpp``
-as float triples. The same values are written here as hex so the console reads as
+as float triples. The same values are written here as hex so the trainer reads as
 the same product seen from the other side, rather than a generic tool pointed at
 it. When one of them changes over there, change it here too; there is no shared
 source for a palette that lives in a shader on one side and a stylesheet on the
@@ -32,7 +32,7 @@ SMART = "#4dcc66"
 AMBER = "#f2bf4d"
 MUTED = "#99a6b3"
 
-# ---- console chrome ---------------------------------------------------------
+# ---- trainer chrome ---------------------------------------------------------
 PANEL = "#141a2c"
 EDGE = "#232b45"
 GRID = "#1e2540"
@@ -56,7 +56,7 @@ SANS = "'Segoe UI', 'Inter', 'DejaVu Sans', sans-serif"
 
 
 def stylesheet() -> str:
-    """The whole console's QSS. One place, so nothing is styled twice."""
+    """The whole trainer's QSS. One place, so nothing is styled twice."""
     return f"""
     QWidget {{
         background: {NIGHT};
@@ -156,7 +156,7 @@ def stylesheet() -> str:
     /* Keyboard focus, visibly. A stylesheet that sets `border` on a control
        replaces the platform's focus rectangle with nothing, so every widget
        styled above became invisible to Tab — which is not a cosmetic problem:
-       it makes the whole console unusable without a mouse. One rule, on every
+       it makes the whole trainer unusable without a mouse. One rule, on every
        focusable thing, in the accent that means "this is where you are". */
     QPushButton:focus, QToolButton:focus, QComboBox:focus, QLineEdit:focus,
     QCheckBox:focus, QSpinBox:focus, QDoubleSpinBox:focus, QTabBar::tab:focus,

@@ -13,11 +13,11 @@ Three callers, one parser:
 
 * :mod:`md.train` fills in the settings a ``--resume`` must inherit, and prints
   the resolved configuration at start-up.
-* The console's parameter view shows a run's knobs beside its curves.
-* The console's Start dialog pours them into the form when it continues a run.
+* The trainer's parameter view shows a run's knobs beside its curves.
+* The trainer's Start dialog pours them into the form when it continues a run.
 
 Neither Qt nor torch, for the usual reason (docs/ROADMAP.md, M8, risk 3): the
-console must be able to read this and the trainer must not have to import a
+trainer must be able to read this and the training loop must not have to import a
 window to write it. And nothing here raises — a `config.json` is a text file in
 a directory a person can point anything at, and a run whose settings cannot be
 read is still a run whose curves can be.
@@ -97,7 +97,7 @@ def read(where: Path) -> RunConfig | None:
     """Read a run's configuration. ``None`` when there is not one to read.
 
     ``where`` is a run directory or the file itself, because both are things a
-    caller has in hand — the console holds a run directory, and a command line
+    caller has in hand — the trainer holds a run directory, and a command line
     may well be given the path that was printed to it.
     """
     path = where / FILENAME if where.is_dir() else where
@@ -173,7 +173,7 @@ def describe(
     """Every group as printable lines: a label column, then ``name=value`` pairs.
 
     For a terminal and for the log the trainer tees into the run directory
-    (:mod:`md.runlog`), which is what puts the same block in the console's log
+    (:mod:`md.runlog`), which is what puts the same block in the trainer's log
     pane. Wrapped rather than truncated — a setting that scrolled off the right
     of the window is a setting nobody can check — and continuation lines line up
     under the values, so the label column stays readable as a column.

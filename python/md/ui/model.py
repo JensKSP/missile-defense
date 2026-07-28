@@ -9,7 +9,7 @@ observation and action sizes, which checkpoint is newest and what it scored.
 
 Everything here is read out of ``runs/model.json`` and the ``checkpoints``
 directory. Nothing loads a ``.pt``, because loading one needs torch and the
-console must never import it; the trainer writes the description instead, which
+trainer must never import it; the training loop writes the description instead, which
 is the roadmap's own answer to that rule (:mod:`md.modelcard`).
 
 It sits under the recordings list because that is the column with the room, and

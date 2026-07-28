@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Jens Köhler
 # Assisted-by: Claude Code (Anthropic)
-"""The game finds the recordings the console can see — all of them.
+"""The game finds the recordings the trainer can see — all of them.
 
 The browser used to scan only the top of the runs directory, while every run
-the console creates keeps its episodes one level down, in a directory of its
-own. So for anyone who had used the console — which is everyone the feature is
+the trainer creates keeps its episodes one level down, in a directory of its
+own. So for anyone who had used the trainer — which is everyone the feature is
 *for* — REPLAYS was empty, and there was nothing on screen to suggest why.
 
 Discovery is asserted through `--report` rather than a screenshot: the count is
@@ -69,7 +69,7 @@ def test_an_empty_library_finds_nothing_and_does_not_crash(tmp_path: Path) -> No
 def test_recordings_inside_managed_runs_are_found(episode: Path, tmp_path: Path) -> None:
     runs = tmp_path / "runs"
     _recording(episode, runs / "loose.mdr")  # the flat layout, `--out runs/`
-    _recording(episode, runs / "run-alpha" / "update-00025.mdr")  # the console's
+    _recording(episode, runs / "run-alpha" / "update-00025.mdr")  # the trainer's
     _recording(episode, runs / "run-beta" / "update-00080.mdr")
 
     run = run_app(frames=60, sandbox=tmp_path)

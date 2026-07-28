@@ -191,7 +191,7 @@ What that costs in wall clock, for the shipped presets:
 | `good` | 1000 × 262,144 = 262M | ~1 h 45 (plus evaluations) |
 | `best` | 4000 × 1,048,576 = 4.2B | **~30 hours** (plus evaluations) |
 
-The console shows the observed rate and the remaining time on its update tile,
+The trainer shows the observed rate and the remaining time on its update tile,
 from the run's own `metrics.csv` rather than from this table — your card is not
 this card.
 

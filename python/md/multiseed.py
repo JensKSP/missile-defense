@@ -10,9 +10,13 @@ The winner is chosen only from the trainer's validation rows; the held-out
 canonical benchmark remains untouched until the experiment has selected one
 checkpoint.
 
-Typical use from a checkout::
+Reached as ``missile-defense-train --multiseed`` rather than by a command of its
+own: it is the trainer run several times over, and a second name on ``PATH`` for
+that was a name to explain rather than a distinction to make.  Typical use from a
+checkout::
 
-    md-multiseed --out-dir runs/entity-3seed --num-seeds 3 --seed-start 1000 \
+    missile-defense-train --multiseed \
+        --out-dir runs/entity-3seed --num-seeds 3 --seed-start 1000 \
         -- --architecture entity --updates 750 --envs 4096
 
 Everything after ``--`` is passed to ``md.train``.  ``--seed``, ``--out-dir``,
@@ -376,11 +380,16 @@ def run_experiment(
 
 
 def _parser() -> argparse.ArgumentParser:
+    # `prog` is spelled out because argparse would otherwise derive it from
+    # sys.argv[0] and print `usage: missile-defense-train ...` — the command
+    # without the flag that got here, which is a usage line that does not do what
+    # it says. The flag is consumed in md.cli before this parser ever sees it.
     parser = argparse.ArgumentParser(
+        prog="missile-defense-train --multiseed",
         description=(
             "Train independent policies from zero and select one using only "
             "the validation seed split."
-        )
+        ),
     )
     parser.add_argument(
         "--out-dir",

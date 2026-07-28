@@ -73,7 +73,7 @@ had simply never been reached:
 | `no --report line on stdout` | mesa renamed lavapipe's ICD; the game could not open Vulkan at all |
 | `staging failed` | staged from a *configured* tree with no game built in it |
 | `nanobind not installed` | `python3-dev` missing, so Python was not found at all |
-| `the staged console failed` | the test redirected `HOME`, which is where `pip --user` puts PySide6 |
+| `the staged trainer failed` | the test redirected `HOME`, which is where `pip --user` puts PySide6 |
 | `dh_missing` | a shipped file no `.install` file claimed |
 
 **The surface error almost never names the cause.** Read the log. Do not infer
@@ -100,7 +100,7 @@ log actually read named its cause in one line.
 A shim listing "the five commands `xvfb-run` calls" was wrong the moment it met
 CI, which wanted a sixth (`getopt`). The replacement mirrors `/usr/bin` and
 excludes what must *not* be reachable — anything starting with `python`,
-`md-console`, `md-train` — which is the promise the test actually makes and
+`missile-defense-trainer`, `missile-defense-train` — which is the promise the test actually makes and
 stays true however the wrapper changes.
 
 The same instinct applies to fatal errors. Requiring the native extension

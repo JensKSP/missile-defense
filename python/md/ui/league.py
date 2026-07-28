@@ -201,7 +201,7 @@ class PromoteDialog(QDialog):
             note=self._note.text().strip(),
         )
         # The training runtime's interpreter, because opening a `.pt` needs
-        # torch and this console is built never to have it (`league._export`).
+        # torch and this trainer is built never to have it (`league._export`).
         # A checkout with torch beside it spawns nothing.
         python = training_python()
         try:

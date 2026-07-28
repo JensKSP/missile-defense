@@ -6,7 +6,7 @@
 #
 # Everything that plays or scores this game needs these numbers, and the two
 # halves of the project cannot share a variable: the game is C++ and never loads
-# Python, while `md.benchmark` is deliberately pure Python so the console can
+# Python, while `md.benchmark` is deliberately pure Python so the trainer can
 # read it without the native extension built. So both sides get a *generated*
 # copy of this file and neither is written by hand:
 #
@@ -19,7 +19,7 @@
 # checked rather than remembered.
 #
 # **Change a number here and every consumer moves together.** That is the point:
-# these values are a contract between the game, the trainer, the console and
+# these values are a contract between the game, the training loop, the trainer and
 # every score anyone has ever recorded, and a copy that moved alone would make
 # two runs incomparable without saying so.
 
@@ -87,7 +87,7 @@ policy_magic = "MDPOLICY"
 policy_container_version = 1
 
 [paths]
-# What the run library is called on disk. The console creates these and the game
+# What the run library is called on disk. The trainer creates these and the game
 # goes looking in them, so a literal in one of the two is a game that quietly
 # finds no recordings.
 runs_dir = "runs"

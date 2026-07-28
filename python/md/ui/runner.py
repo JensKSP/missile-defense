@@ -1,16 +1,16 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Jens Köhler
 # Assisted-by: Claude Code (Anthropic)
-"""Starting things from the console: the game, and a training run. No Qt in here.
+"""Starting things from the trainer: the game, and a training run. No Qt in here.
 
 Both are subprocesses, and that is the architecture rather than an implementation
 detail (docs/ROADMAP.md, M8). Training saturates the CPU for hours; inside a Qt
 event loop that is a frozen window, and a UI crash would take the run with it.
-Out of process, the console can be closed, can crash, or can be opened on a
+Out of process, the trainer can be closed, can crash, or can be opened on a
 directory synced from another machine, and the run does not notice.
 
 Nothing here kills a run, either. Stopping is a *request* — see :mod:`md.control`
-— so the loop finishes its update and writes a final checkpoint. The console has
+— so the loop finishes its update and writes a final checkpoint. The trainer has
 no way to take that away.
 
 Finding the game binary is the fiddly part, so it is deliberate rather than a
@@ -18,7 +18,7 @@ fixed path: an explicit ``MD_APP``, then this checkout's build directories, then
 ``PATH`` for a system install from the ``.deb``.
 
 Finding the *interpreter* is the same kind of search and now has the same shape:
-``MD_PYTHON``, then the runtime the console installed itself (:mod:`md.runtime`),
+``MD_PYTHON``, then the runtime the trainer installed itself (:mod:`md.runtime`),
 then this interpreter if torch happens to be importable from it. Only starting a
 run depends on the answer — attaching, browsing and replay never do.
 """
@@ -40,20 +40,20 @@ from typing import IO, Protocol
 
 from .. import runtime
 
-#: <root>/python/md/ui/runner.py — the checkout, when the console runs from one.
+#: <root>/python/md/ui/runner.py — the checkout, when the trainer runs from one.
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 #: The directory ``md`` itself sits in, so a spawned run can import it without
-#: the console having been installed.
+#: the trainer having been installed.
 PACKAGE_PATH = Path(__file__).resolve().parents[2]
 
 #: Where a local build puts the game, best build first.
 BUILD_PATHS = ("build/release/app", "build/debug/app")
 
-#: What the game is called. A build calls it `md_app`; the Debian package
-#: installs it into /usr/games as `missile-defense`, which is on the default
-#: PATH for a login shell but not necessarily for a desktop session — hence the
-#: explicit directory as well as the PATH search.
+#: What the game is called. A build calls it `md_app`; every installer names it
+#: `missile-defense`, which on Debian is on the default PATH for a login shell
+#: but not necessarily for a desktop session — hence the explicit directory as
+#: well as the PATH search.
 BINARY_NAMES = ("md_app", "missile-defense")
 SYSTEM_PATHS = ("/usr/games", "/usr/local/games", "/usr/bin")
 
@@ -61,20 +61,27 @@ SYSTEM_PATHS = ("/usr/games", "/usr/local/games", "/usr/bin")
 #: bundle is ever on PATH, so an installed copy is only findable by looking here.
 MACOS_APP_PATHS = ("/Applications", "~/Applications")
 
+#: The bundle a build produces, and the one an installer leaves. They differ on
+#: purpose (app/CMakeLists.txt): a checkout keeps the target's own name so the
+#: layout matches every other platform, while the installed copy carries the name
+#: Finder shows — which is the bundle's filename, not CFBundleDisplayName.
+BUILD_BUNDLE = "md_app.app"
+INSTALLED_BUNDLE = "Missile Defense.app"
+
 #: An MSYS2 build links against Qt in the CLANG64 prefix and finds it on PATH,
 #: which is there in the CLANG64 shell and absent everywhere else — including the
-#: native interpreter the console is likely started from. Adding it back turns a
+#: native interpreter the trainer is likely started from. Adding it back turns a
 #: silent "nothing happened" into a window (docs/WINDOWS.md).
 MSYS2_BIN = "clang64/bin"
 
 
-#: What the training console is called once installed. The Debian package and
-#: the pyproject entry point agree on the name, so one search finds either.
-CONSOLE_NAMES = ("md-console",)
+#: What the trainer is called once installed. The Debian package and the
+#: pyproject entry point agree on the name, so one search finds either.
+TRAINER_NAMES = ("missile-defense-trainer",)
 
-#: Where an installer leaves it. `/usr/games` is not searched: the console is not
-#: a game and its Debian package puts it in `/usr/bin`.
-CONSOLE_SYSTEM_PATHS = ("/usr/bin", "/usr/local/bin")
+#: Where an installer leaves it. `/usr/games` is not searched: the trainer is
+#: not a game and its Debian package puts it in `/usr/bin`.
+TRAINER_SYSTEM_PATHS = ("/usr/bin", "/usr/local/bin")
 
 
 class AppNotFound(RuntimeError):
@@ -95,9 +102,9 @@ def _spawn(command: list[str], cwd: Path, env: Mapping[str, str]) -> Process:
     return subprocess.Popen(command, cwd=str(cwd), env=dict(env))
 
 
-def _bundle_executable(containing: Path) -> Path:
+def _bundle_executable(containing: Path, bundle: str) -> Path:
     """The executable buried inside the macOS .app bundle in ``containing``."""
-    return containing / "md_app.app" / "Contents" / "MacOS" / "md_app"
+    return containing / bundle / "Contents" / "MacOS" / "md_app"
 
 
 def app_binary(
@@ -122,7 +129,7 @@ def app_binary(
     for build in BUILD_PATHS:
         # macOS builds a bundle, so the executable is nested (app/CMakeLists.txt).
         candidate = (
-            _bundle_executable(root / build)
+            _bundle_executable(root / build, BUILD_BUNDLE)
             if platform == "darwin"
             else root / build / f"md_app{exe}"
         )
@@ -134,7 +141,7 @@ def app_binary(
             return Path(found)
     if platform == "darwin":
         for directory in MACOS_APP_PATHS:
-            candidate = _bundle_executable(Path(directory).expanduser())
+            candidate = _bundle_executable(Path(directory).expanduser(), INSTALLED_BUNDLE)
             if candidate.exists():
                 return candidate
     for directory in SYSTEM_PATHS:
@@ -144,37 +151,37 @@ def app_binary(
     return None
 
 
-def console_executable(
+def trainer_executable(
     environ: Mapping[str, str] | None = None,
     *,
     root: Path | None = None,
     platform: str = sys.platform,
     install_root: Path | None = None,
 ) -> Path | None:
-    """Locate the training console, or ``None`` if this install does not have one.
+    """Locate the training trainer, or ``None`` if this install does not have one.
 
     **This lookup is the boundary between the two products.** The game adds its
     TRAIN AI entry only when this resolves, so on a game-only install — where
-    there is no Python, no ``md`` package and no ``md-console`` — it must return
+    there is no Python, no ``md`` package and no ``missile-defense-trainer`` — it must return
     ``None``, and the menu simply does not offer training. The C++ side searches
     the same places in the same order for exactly that reason: a disagreement
-    between them is a menu entry that launches nothing, or a console that is
+    between them is a menu entry that launches nothing, or a trainer that is
     installed and unreachable.
 
     Four places, most explicit first, mirroring :func:`app_binary`:
 
-    1. ``MD_CONSOLE`` — someone said which one. A path that does not exist is
+    1. ``MD_TRAINER`` — someone said which one. A path that does not exist is
        ``None`` rather than a fallback, because falling back would start a
-       *different* console than the one that was named.
-    2. ``md-console`` on ``PATH``, then the directories an installer uses — the
+       *different* trainer than the one that was named.
+    2. ``missile-defense-trainer`` on ``PATH``, then the directories an installer uses — the
        answer for anyone who installed the package.
     3. the payload an installer left beside the game — ``md/ui`` in
        ``install_root``, run as ``-m md.ui``. This is the Windows answer, where
-       what the installer writes is ``md-console.cmd``: a *script*, which Smart
+       what the installer writes is ``missile-defense-trainer.cmd``: a *script*, which Smart
        App Control blocks on a stock Windows 11, and which no amount of
        searching for an executable would have found anyway.
     4. this checkout's own ``python/md/ui``, run as ``-m md.ui`` — a developer
-       has no installed launcher but does have the console, and the game should
+       has no installed launcher but does have the trainer, and the game should
        still offer it there.
 
     ``install_root`` is the directory the game was installed into. It has no
@@ -183,22 +190,22 @@ def console_executable(
     — is the directory ``md`` is being imported from right now, so it would
     always match and turn step 3 into an unconditional yes. Unset means "this
     caller does not know of one", which is the honest answer from inside a
-    console that was started some other way.
+    trainer that was started some other way.
     """
     env = os.environ if environ is None else environ
     root = PROJECT_ROOT if root is None else root
     exe = ".exe" if platform == "win32" else ""
 
-    override = env.get("MD_CONSOLE")
+    override = env.get("MD_TRAINER")
     if override:
         candidate = Path(override)
         return candidate if candidate.exists() else None
-    for name in CONSOLE_NAMES:
+    for name in TRAINER_NAMES:
         found = shutil.which(f"{name}{exe}", path=env.get("PATH"))
         if found:
             return Path(found)
-    for directory in CONSOLE_SYSTEM_PATHS:
-        for name in CONSOLE_NAMES:
+    for directory in TRAINER_SYSTEM_PATHS:
+        for name in TRAINER_NAMES:
             candidate = Path(directory) / f"{name}{exe}"
             if candidate.exists():
                 return candidate
@@ -209,20 +216,20 @@ def console_executable(
     return None
 
 
-def console_command(
+def trainer_command(
     environ: Mapping[str, str] | None = None,
     *,
     root: Path | None = None,
     platform: str = sys.platform,
     install_root: Path | None = None,
 ) -> list[str] | None:
-    """The console as an argv, or ``None``. Adds ``-m md.ui`` where an interpreter runs it.
+    """The trainer as an argv, or ``None``. Adds ``-m md.ui`` where an interpreter runs it.
 
-    Split from :func:`console_executable` because the game only needs to know
+    Split from :func:`trainer_executable` because the game only needs to know
     *whether* there is one to decide its menu, while starting it needs the whole
     command — and two of the four answers above are not self-contained.
     """
-    found = console_executable(environ, root=root, platform=platform, install_root=install_root)
+    found = trainer_executable(environ, root=root, platform=platform, install_root=install_root)
     if found is None:
         return None
     if found == Path(sys.executable):
@@ -238,7 +245,7 @@ def launch_environ(
     ``platform`` is a parameter so both branches are testable from either OS;
     a quirk that only one machine can check is a quirk that rots.
 
-    Linux imposes nothing. A game launched from the console should look exactly
+    Linux imposes nothing. A game launched from the trainer should look exactly
     like the same game launched from the desktop, and on a Wayland session that
     means a Wayland window. This used to force xcb, from the days when
     ``QVulkanWindow`` could not survive Qt's teardown there; ``GameWindow::event``
@@ -255,8 +262,8 @@ def launch_environ(
 class ReplayLauncher:
     """Opens recordings in the game, and keeps track of the windows it opened.
 
-    The handles are kept only so finished children are reaped; the console never
-    waits on the game, and closing the console leaves it running.
+    The handles are kept only so finished children are reaped; the trainer never
+    waits on the game, and closing the trainer leaves it running.
     """
 
     def __init__(
@@ -334,7 +341,7 @@ class ReplayLauncher:
 
     @property
     def running(self) -> int:
-        """How many game windows this console has open."""
+        """How many game windows this trainer has open."""
         self._children = [child for child in self._children if child.poll() is None]
         return len(self._children)
 
@@ -343,7 +350,7 @@ class ReplayLauncher:
 
 
 class PipedProcess(Protocol):
-    """A child whose output the console reads."""
+    """A child whose output the trainer reads."""
 
     stdout: IO[str] | None
 
@@ -388,15 +395,15 @@ def find_interpreter(
     Three places, in order of how explicit each is:
 
     1. ``MD_PYTHON`` — someone said which one, so it is not second-guessed. It is
-       the split-interpreter case on Windows (docs/WINDOWS.md), where the console
+       the split-interpreter case on Windows (docs/WINDOWS.md), where the trainer
        and the trainer are deliberately different builds.
-    2. the runtime the console installed and health-checked itself
+    2. the runtime the trainer installed and health-checked itself
        (:mod:`md.runtime`) — the answer for anyone who installed a package.
     3. this interpreter, if torch happens to be importable from it — the developer
        case, and what this function used to be in its entirety.
 
     ``find_spec`` locates torch without importing it, which still matters: the
-    console must never pull torch in, and a test asserts it.
+    trainer must never pull torch in, and a test asserts it.
     """
     env = os.environ if environ is None else environ
     explicit = env.get("MD_PYTHON")
@@ -404,7 +411,7 @@ def find_interpreter(
         return Interpreter(explicit, "MD_PYTHON")
     managed = (runtime.Runtime() if store is None else store).python()
     if managed is not None:
-        return Interpreter(str(managed), "the runtime this console installed")
+        return Interpreter(str(managed), "the runtime this trainer installed")
     if importlib.util.find_spec("torch") is not None:
         return Interpreter(sys.executable, "this interpreter")
     return None
@@ -417,7 +424,7 @@ def training_python(
 ) -> str:
     """Which interpreter a run is started with.
 
-    Falls back to the console's own even when nothing can train, because the
+    Falls back to the trainer's own even when nothing can train, because the
     caller that builds a command line should not have to handle ``None`` for a
     case the UI has already disabled.
     """
@@ -435,7 +442,7 @@ def can_train(
     Only Start depends on this. Attaching to a run, browsing recordings and
     replaying them stay available with no runtime installed and no torch
     anywhere — watching a run synced from another machine is a supported way to
-    use the console, and always was.
+    use the trainer, and always was.
     """
     return find_interpreter(environ, store=store) is not None
 
@@ -457,7 +464,7 @@ def training_environ(environ: Mapping[str, str] | None = None) -> dict[str, str]
 
 
 class TrainingRun:
-    """A training run this console started, and the lines it has printed.
+    """A training run this trainer started, and the lines it has printed.
 
     The output is drained by a reader thread into a bounded buffer, and the UI
     picks it up on its ordinary timer tick — so a chatty run cannot block the

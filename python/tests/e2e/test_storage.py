@@ -4,7 +4,7 @@
 """Cleaning up, archiving and restoring a real run through the real dialogs.
 
 `md.archive` has been tested since Task 9 and none of it was reachable from the
-console. What is asserted here is the part unit tests cannot reach: that the
+trainer. What is asserted here is the part unit tests cannot reach: that the
 dialog computes a plan, *shows* it, and then executes the plan it showed — and
 that a round trip out to a ZIP and back leaves a run the library still lists.
 
@@ -80,7 +80,7 @@ def test_the_dialog_executes_the_plan_it_showed(
     finally:
         dialog.close()
 
-    # And nothing that matters went with it: the console still draws this run.
+    # And nothing that matters went with it: the trainer still draws this run.
     after = _run(library_copy)
     assert (after.path / "metrics.csv").is_file()
     assert (after.path / "evals.csv").is_file()
@@ -279,7 +279,7 @@ def test_a_model_can_be_deleted_out_of_the_league(
         (root / model_id / league.CARD_NAME).write_text(
             f'{{"display_name": "{name}"}}', encoding="utf-8"
         )
-    # The view deletes through `md.paths`, exactly as the console does, so the
+    # The view deletes through `md.paths`, exactly as the trainer does, so the
     # guard that refuses a model outside the league stays a real guard here.
     monkeypatch.setenv("MD_MODELS_DIR", str(root))
     monkeypatch.setattr(
@@ -416,7 +416,7 @@ def test_peeking_at_a_head_to_head_records_both_sides(
     assert left_side != right_side
     # The seed is in each recording's header, and `MatchPlayer::pair` refuses two
     # of different seeds — `test_match.py` drives the game itself. What is
-    # asserted here is the console's half: two episodes of the seed in flight,
+    # asserted here is the trainer's half: two episodes of the seed in flight,
     # written and handed on, without the contest's own thread being touched.
     assert seed.to_bytes(8, "little") in left_side.read_bytes()[:64]
     assert seed.to_bytes(8, "little") in right_side.read_bytes()[:64]

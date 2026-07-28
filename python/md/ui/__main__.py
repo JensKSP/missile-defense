@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Jens Köhler
 # Assisted-by: Claude Code (Anthropic)
-"""``python -m md.ui`` — the console's entry point, and the one place that can
+"""``python -m md.ui`` — the trainer's entry point, and the one place that can
 still say something useful when what it needs is not installed.
 
-The console is an *optional* component: PySide6 and Qt Charts are LGPLv3 while
+The trainer is an *optional* component: PySide6 and Qt Charts are LGPLv3 while
 this project is MIT, so they are never a dependency of the game or the ``.deb``
 (docs/ROADMAP.md, M8). A missing package is therefore a normal state to explain,
 not a traceback to dump.
@@ -12,7 +12,7 @@ not a traceback to dump.
 That used to be true of PySide6 alone. Everything else went out as a stack
 trace, and on 2026-07-28 the one that did was ``numpy`` — a *base* dependency of
 ``md``, reached through ``md.league`` → ``md.policy_format``, and absent on any
-machine that got the console from the Windows ZIP rather than from ``pip``.
+machine that got the trainer from the Windows ZIP rather than from ``pip``.
 Started from the game, which is a GUI-subsystem binary with no console attached,
 that trace had nowhere to appear at all: the menu entry did nothing, silently.
 Whatever is missing now gets named.
@@ -47,7 +47,7 @@ def package_of(error: ModuleNotFoundError) -> str:
 
 
 def explain(missing: str, *, managed: bool | None = None, interpreter: str | None = None) -> str:
-    """Why the console cannot start, and the one command that changes it.
+    """Why the trainer cannot start, and the one command that changes it.
 
     Both switches are injected so this is testable as itself. A test that had to
     run on Debian to check the apt branch, and on Windows to check the pip one,
@@ -72,12 +72,9 @@ def explain(missing: str, *, managed: bool | None = None, interpreter: str | Non
     aside = (
         "It is optional, and deliberately not a dependency of the game."
         if missing.startswith("PySide6")
-        else "The console needs it; the game itself does not."
+        else "The trainer needs it; the game itself does not."
     )
-    return (
-        f"The training console needs {missing}, which this interpreter does not have:\n"
-        f"{fix}\n{aside}"
-    )
+    return f"The trainer needs {missing}, which this interpreter does not have:\n{fix}\n{aside}"
 
 
 def main() -> int:

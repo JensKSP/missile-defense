@@ -3,10 +3,10 @@
 # Assisted-by: Claude Code (Anthropic)
 """Tests for the model card — the trainer's description of what it is training.
 
-``md.modelcard`` sits on the boundary: the trainer writes it, the console reads
+``md.modelcard`` sits on the boundary: the trainer writes it, the trainer reads
 it, and neither imports the other (docs/ROADMAP.md, M8). It takes *shapes* rather
 than tensors, which is what lets these run with no torch installed — the same
-reason the console can read the file at all.
+reason the trainer can read the file at all.
 """
 
 from __future__ import annotations

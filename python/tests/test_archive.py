@@ -209,7 +209,7 @@ def test_an_archived_run_comes_back(tmp_path: Path) -> None:
     restored = archive.restore_archive(written, tmp_path / "restored")
     back = library.load_run(restored)
     assert back is not None
-    # The same curves the console drew from the original.
+    # The same curves the trainer drew from the original.
     assert back.best_score == 4321.0
     assert back.checkpoints == 2
     assert back.recordings == 1

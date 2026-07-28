@@ -118,7 +118,7 @@ identity for Gatekeeper to check. Whoever downloads that disk image has to clear
 quarantine by hand:
 
 ```bash
-xattr -dr com.apple.quarantine "/Applications/md_app.app"
+xattr -dr com.apple.quarantine "/Applications/Missile Defense.app"
 ```
 
 With a Developer ID Application certificate in the keychain, point the build at

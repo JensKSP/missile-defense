@@ -365,19 +365,19 @@ endif()
 # Decided *here*, before `add_subdirectory(bindings)`, because that is where the
 # `install(TARGETS _md_native)` rule is registered and a destination chosen
 # afterwards is chosen too late. It used to be overridden further down, next to
-# the .py sources — so on macOS the sources landed inside the console bundle and
+# the .py sources — so on macOS the sources landed inside the trainer bundle and
 # the extension landed beside the prefix, giving a bundle that imports `md` and
-# then cannot import `md._md_native`. A console without the binding is a console
+# then cannot import `md._md_native`. A trainer without the binding is a trainer
 # that cannot train, which is the one thing it is for.
 #
 # A cache entry, so `-DMD_PYTHON_INSTALL_DIR=...` still wins — debian/rules
 # passes the distribution's own dist-packages path and must keep doing so.
 if(APPLE)
   # Inside the bundle: nothing beside an .app is ever on sys.path.
-  set(md_console_bundle "Missile Defense Training.app")
-  set(md_python_install_default "${md_console_bundle}/Contents/Resources/md")
+  set(md_trainer_bundle "Missile Defense Trainer.app")
+  set(md_python_install_default "${md_trainer_bundle}/Contents/Resources/md")
 elseif(WIN32)
-  # Flat beside md_app.exe — see app/CMakeLists.txt.
+  # Flat beside missile-defense.exe — see app/CMakeLists.txt.
   set(md_python_install_default "md")
 elseif(DEFINED SKBUILD)
   # scikit-build-core's install tree *is* the wheel root, so a relative `md` is
@@ -411,18 +411,19 @@ endif()
 
 # ---- The Python half as a distribution package -------------------------------
 # Off by default, and that is the important part: a wheel gets its .py sources
-# and its `md-console` / `md-train` commands from scikit-build-core, so CMake
+# and its `missile-defense-trainer` / `missile-defense-train` commands from
+# scikit-build-core, so CMake
 # installing them too would put two copies of everything in it. Only a
 # distribution package — which is not built by pip and has no entry-point
 # machinery — needs this, and debian/rules is what turns it on.
 #
-# It is what makes the console *reachable from an install* rather than only from
+# It is what makes the trainer *reachable from an install* rather than only from
 # a checkout, which is the whole point of the split: the game is one product and
-# the training console is another, and neither may drag the other in.
+# the trainer is another, and neither may drag the other in.
 option(MD_INSTALL_PYTHON_PACKAGE
-       "Install the md Python sources, launcher scripts and console desktop entry" OFF)
+       "Install the md Python sources, launcher scripts and trainer desktop entry" OFF)
 
-# Where the console lands differs on every platform, and the reason is the same
+# Where the trainer lands differs on every platform, and the reason is the same
 # each time: **nothing may assume the interpreter knows where `md` is.**
 #
 #   Linux    a distribution owns the interpreter, so the package goes where that
@@ -432,7 +433,7 @@ option(MD_INSTALL_PYTHON_PACKAGE
 #   Windows  the *user* owns the interpreter and may not have installed one yet,
 #            so the payload ships beside the game and the .cmd launcher puts its
 #            own directory on PYTHONPATH.
-#   macOS    nothing inside an .app is on any search path at all, so the console
+#   macOS    nothing inside an .app is on any search path at all, so the trainer
 #            becomes its own bundle carrying the package in Contents/Resources —
 #            which is also what makes it a separate icon a person can drag, i.e.
 #            a separate product rather than a hidden feature of the game.
@@ -443,7 +444,7 @@ if(MD_INSTALL_PYTHON_PACKAGE)
   # the job that configured this, not something to paper over with a guess: a
   # relative default resolved against the prefix is how `/usr/local/md/` came
   # about. Fatal for the same reason the binding check below is — a packaging
-  # build that silently puts the console somewhere unimportable produces an
+  # build that silently puts the trainer somewhere unimportable produces an
   # installer nobody notices is broken until it is in someone's hands.
   if(NOT MD_PYTHON_INSTALL_DIR)
     message(FATAL_ERROR
@@ -452,7 +453,7 @@ if(MD_INSTALL_PYTHON_PACKAGE)
       "site-packages directory, the way debian/rules does.")
   endif()
 
-  # A console without the native binding starts, browses and replays — and
+  # A trainer without the native binding starts, browses and replays — and
   # cannot train, which is the one thing it is for. On Debian that cannot happen
   # (python3-md Depends on the binding), but an installer payload is just files
   # and would ship the hole silently. bindings/ skips itself when Python or
@@ -460,7 +461,7 @@ if(MD_INSTALL_PYTHON_PACKAGE)
   #
   # FATAL, not a warning. It was a warning, and it warned exactly as designed —
   # into a CI log nobody reads on a green step — while the Windows job shipped
-  # an installer whose console had no `_md_native.pyd`. Only a packaging
+  # an installer whose trainer had no `_md_native.pyd`. Only a packaging
   # assertion three steps later noticed. Asking to install the Python package
   # and not being able to build it is not a situation with a sensible partial
   # answer, so it stops the configure instead.
@@ -469,22 +470,22 @@ if(MD_INSTALL_PYTHON_PACKAGE)
   # packages, and `tests/e2e/test_packages.py` stages the sources half on its
   # own — so the fault is not "no extension", it is "an extension was requested
   # and silently not produced". That is the Windows case: nanobind was missing,
-  # bindings/ skipped itself, and the installer shipped a console without one.
+  # bindings/ skipped itself, and the installer shipped a trainer without one.
   if(MD_BUILD_BINDINGS AND NOT TARGET _md_native)
     message(FATAL_ERROR
       "MD_INSTALL_PYTHON_PACKAGE is ON but the native binding was not built, so "
-      "the installed console could not start a training run. Enable "
+      "the installed trainer could not start a training run. Enable "
       "MD_BUILD_BINDINGS and install Python development files + nanobind for "
       "*this* interpreter (${Python_EXECUTABLE}), or turn "
       "MD_INSTALL_PYTHON_PACKAGE off.")
   endif()
 
   # And it has to be a binding the *user's* interpreter can load. A packaged
-  # console is exec'd by whatever `python3` the machine has — the distribution's
+  # trainer is exec'd by whatever `python3` the machine has — the distribution's
   # on Debian, the user's own on Windows and macOS — which is never the one that
   # built the module. A version-tagged extension therefore works only where the
   # minor version happens to match, and fails as `ModuleNotFoundError:
-  # md._md_native` on every other machine: an installed console that browses and
+  # md._md_native` on every other machine: an installed trainer that browses and
   # replays and cannot train, with nothing to say why.
   #
   # A developer build may be version-tagged; a build that is being packaged may
@@ -492,7 +493,7 @@ if(MD_INSTALL_PYTHON_PACKAGE)
   if(MD_BUILD_BINDINGS AND NOT MD_NATIVE_IS_ABI3)
     message(FATAL_ERROR
       "MD_INSTALL_PYTHON_PACKAGE is ON but _md_native was built for one "
-      "interpreter rather than against the stable ABI, so the installed console "
+      "interpreter rather than against the stable ABI, so the installed trainer "
       "would only train on a machine running Python ${Python_VERSION} exactly. "
       "The stable ABI needs CPython >= 3.12 and its SABI development files "
       "(Debian: python3-dev; look for Development.SABIModule in the configure "
@@ -503,16 +504,16 @@ if(MD_INSTALL_PYTHON_PACKAGE)
   # `python3` unqualified, so the package follows the distribution's Python
   # rather than pinning the absolute path of whichever one configured the build.
   set(MD_LAUNCHER_PYTHON "python3" CACHE STRING
-      "The interpreter the installed md-console / md-train launchers exec")
+      "The interpreter the installed missile-defense-* launchers exec")
 
   # `MD_PYTHON_INSTALL_DIR` is already decided, above the components — see the
   # note there. Only the launcher directory is left to choose.
   if(APPLE)
-    set(md_console_bindir "${md_console_bundle}/Contents/MacOS")
+    set(md_trainer_bindir "${md_trainer_bundle}/Contents/MacOS")
   elseif(WIN32)
-    set(md_console_bindir ".") # flat, beside md_app.exe — see app/CMakeLists.txt
+    set(md_trainer_bindir ".") # flat, beside the game — see app/CMakeLists.txt
   else()
-    set(md_console_bindir "${CMAKE_INSTALL_BINDIR}")
+    set(md_trainer_bindir "${CMAKE_INSTALL_BINDIR}")
   endif()
 
   # The sources. _md_native and its stub are excluded because bindings/ installs
@@ -526,8 +527,8 @@ if(MD_INSTALL_PYTHON_PACKAGE)
       PATTERN "_md_native.pyi" EXCLUDE
       PATTERN "__pycache__" EXCLUDE)
 
-  foreach(md_launcher md-console md-train)
-    if(md_launcher STREQUAL "md-console")
+  foreach(md_launcher missile-defense-trainer missile-defense-train)
+    if(md_launcher STREQUAL "missile-defense-trainer")
       set(MD_LAUNCHER_MODULE "md.ui")
     else()
       set(MD_LAUNCHER_MODULE "md.cli")
@@ -536,18 +537,18 @@ if(MD_INSTALL_PYTHON_PACKAGE)
       configure_file(packaging/launcher.cmd.in
                      "${CMAKE_CURRENT_BINARY_DIR}/${md_launcher}.cmd" @ONLY)
       install(PROGRAMS "${CMAKE_CURRENT_BINARY_DIR}/${md_launcher}.cmd"
-        DESTINATION "${md_console_bindir}"
+        DESTINATION "${md_trainer_bindir}"
         COMPONENT python)
     elseif(APPLE)
-      configure_file(packaging/console-bundle-launcher.in
+      configure_file(packaging/trainer-bundle-launcher.in
                      "${CMAKE_CURRENT_BINARY_DIR}/${md_launcher}" @ONLY)
       install(PROGRAMS "${CMAKE_CURRENT_BINARY_DIR}/${md_launcher}"
-        DESTINATION "${md_console_bindir}"
+        DESTINATION "${md_trainer_bindir}"
         COMPONENT python)
     else()
       configure_file(packaging/launcher.in "${CMAKE_CURRENT_BINARY_DIR}/${md_launcher}" @ONLY)
       install(PROGRAMS "${CMAKE_CURRENT_BINARY_DIR}/${md_launcher}"
-        DESTINATION "${md_console_bindir}"
+        DESTINATION "${md_trainer_bindir}"
         COMPONENT python)
     endif()
   endforeach()
@@ -556,23 +557,23 @@ if(MD_INSTALL_PYTHON_PACKAGE)
     # The manifest is what makes the directory an application rather than a
     # folder with a script in it: without CFBundleExecutable the Finder will not
     # launch it, and without NSPrincipalClass it never becomes a GUI process.
-    configure_file(packaging/console.Info.plist.in
-                   "${CMAKE_CURRENT_BINARY_DIR}/console.Info.plist" @ONLY)
-    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/console.Info.plist"
-      DESTINATION "${md_console_bundle}/Contents"
+    configure_file(packaging/trainer.Info.plist.in
+                   "${CMAKE_CURRENT_BINARY_DIR}/trainer.Info.plist" @ONLY)
+    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/trainer.Info.plist"
+      DESTINATION "${md_trainer_bundle}/Contents"
       RENAME "Info.plist"
       COMPONENT python)
     install(FILES "${CMAKE_SOURCE_DIR}/LICENSE"
                   "${CMAKE_SOURCE_DIR}/THIRD_PARTY_LICENSES.md"
-      DESTINATION "${md_console_bundle}/Contents/Resources"
+      DESTINATION "${md_trainer_bundle}/Contents/Resources"
       COMPONENT python)
-    # And the texts those notices point at. The console is its own .app, so it
+    # And the texts those notices point at. The trainer is its own .app, so it
     # cannot borrow the game's copy the way the Windows installer can — and it
     # carries `_md_native`, whose nanobind runtime is BSD-3-Clause: clause 2
     # requires the notice to travel with the *binary*, which on macOS means
     # inside this bundle or nowhere.
     install(DIRECTORY "${CMAKE_SOURCE_DIR}/licenses"
-      DESTINATION "${md_console_bundle}/Contents/Resources"
+      DESTINATION "${md_trainer_bundle}/Contents/Resources"
       COMPONENT python)
   elseif(WIN32)
     # No .desktop equivalent; the Start-menu shortcut comes from CPack (below).
@@ -583,7 +584,7 @@ if(MD_INSTALL_PYTHON_PACKAGE)
   else()
     # Its own menu entry, in Development/Science rather than Games — someone
     # looking for the arcade cabinet must not find two of them.
-    install(FILES "${CMAKE_SOURCE_DIR}/packaging/missile-defense-training.desktop"
+    install(FILES "${CMAKE_SOURCE_DIR}/packaging/missile-defense-trainer.desktop"
       DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/applications"
       COMPONENT python)
   endif()
@@ -616,19 +617,19 @@ if(MD_BUILD_APP AND PROJECT_IS_TOP_LEVEL)
     # carries the bundled Qt/runtime DLLs and licence texts (see app/CMakeLists).
     set(CPACK_GENERATOR "NSIS;ZIP")
     set(CPACK_PACKAGE_INSTALL_DIRECTORY "Missile Defense")
-    set(CPACK_PACKAGE_EXECUTABLES "md_app;Missile Defense") # Start-menu shortcut
+    set(CPACK_PACKAGE_EXECUTABLES "missile-defense;Missile Defense") # Start-menu shortcut
     set(CPACK_NSIS_PACKAGE_NAME "Missile Defense")
     set(CPACK_NSIS_DISPLAY_NAME "Missile Defense")
-    set(CPACK_NSIS_MUI_FINISHPAGE_RUN "md_app.exe")         # offer to launch after install
+    set(CPACK_NSIS_MUI_FINISHPAGE_RUN "missile-defense.exe") # offer to launch after install
     set(CPACK_NSIS_ENABLE_UNINSTALL_BEFORE_INSTALL ON)
     set(CPACK_NSIS_URL_INFO_ABOUT "${CPACK_PACKAGE_HOMEPAGE_URL}")
     set(CPACK_NSIS_MUI_ICON "${CMAKE_SOURCE_DIR}/packaging/missile-defense.ico")        # installer
     set(CPACK_NSIS_MUI_UNIICON "${CMAKE_SOURCE_DIR}/packaging/missile-defense.ico")     # uninstaller
-    set(CPACK_NSIS_INSTALLED_ICON_NAME "md_app.exe") # icon in Add/Remove Programs
+    set(CPACK_NSIS_INSTALLED_ICON_NAME "missile-defense.exe") # icon in Add/Remove Programs
   elseif(APPLE)
     # A drag-to-Applications disk image holding the .app, with everything it
     # needs inside it: Qt via macdeployqt, and the Vulkan loader with it because
-    # md_app links it; MoltenVK by hand, because the loader dlopens the driver
+    # the game links it; MoltenVK by hand, because the loader dlopens the driver
     # and macdeployqt therefore never sees it (app/deploy_macos.cmake.in).
     # Single-architecture: it is built for whichever arch the host is, because
     # Homebrew's Qt is not universal. The DMG is unsigned and unnotarised, which
@@ -653,16 +654,16 @@ if(MD_BUILD_APP AND PROJECT_IS_TOP_LEVEL)
   endif()
 
   # ---- Installer components: the two products, as a choice ---------------
-  # `game` is everything app/CMakeLists.txt installs; `python` is the console,
+  # `game` is everything app/CMakeLists.txt installs; `python` is the trainer,
   # its package and the native binding. Declaring them is what lets the Windows
-  # installer offer the console as an *unticked* option — someone who came for a
+  # installer offer the trainer as an *unticked* option — someone who came for a
   # game must be able to decline an interpreter without reading a manual, which
   # is the same promise `debian/control` keeps by splitting the binaries.
   set(CPACK_COMPONENT_GAME_DISPLAY_NAME "Missile Defense")
   set(CPACK_COMPONENT_GAME_DESCRIPTION
       "The game. Self-contained: no Python, no training tools.")
   set(CPACK_COMPONENT_GAME_REQUIRED ON)
-  set(CPACK_COMPONENT_PYTHON_DISPLAY_NAME "Training console")
+  set(CPACK_COMPONENT_PYTHON_DISPLAY_NAME "Missile Defense Trainer")
   set(CPACK_COMPONENT_PYTHON_DESCRIPTION
       "Train your own agent and watch it play. Needs Python 3.11+ with PySide6.")
   set(CPACK_COMPONENT_PYTHON_DISABLED ON) # offered, not preselected

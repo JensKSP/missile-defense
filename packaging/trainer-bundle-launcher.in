@@ -3,16 +3,17 @@
 # Copyright (c) 2026 Jens Köhler
 # Assisted-by: Claude Code (Anthropic)
 #
-# Generated from packaging/console-bundle-launcher.in — do not edit the
-# installed copy. This is `Contents/MacOS/md-console` inside the console's .app.
+# Generated from packaging/trainer-bundle-launcher.in — do not edit the
+# installed copy. This is `Contents/MacOS/missile-defense-trainer` inside the
+# trainer's .app.
 #
-# Why a script and not a binary: the console *is* Python, and a macOS bundle
+# Why a script and not a binary: the trainer *is* Python, and a macOS bundle
 # needs a CFBundleExecutable to launch. A tiny exec wrapper is the standard
 # shape for that, and it is also the only place that can set the import path —
 # nothing inside a bundle is ever on PATH or on `sys.path`, so an installed
-# console would otherwise be a directory full of modules no interpreter can find.
+# trainer would otherwise be a directory full of modules no interpreter can find.
 #
-# `python3` unqualified, and that is the honest behaviour: the console follows
+# `python3` unqualified, and that is the honest behaviour: the trainer follows
 # whichever Python3 the user has, which is the same one `pip install PySide6`
 # installed into. docs/MACOS.md says what to do when there is more than one.
 here=$(cd -- "$(dirname -- "$0")" && pwd)
@@ -23,25 +24,25 @@ export PYTHONPATH
 # process has no terminal — stderr goes to Console.app, which nobody has open —
 # so an exec into a missing interpreter is a bundle that bounces once in the
 # Dock and disappears. That is indistinguishable from a corrupt download, and it
-# is the first thing a new user would ever see the console do.
+# is the first thing a new user would ever see the trainer do.
 #
 # A Mac reaches this script with no usable python3 in two ordinary ways, and
 # neither is the user's mistake: a machine with no Xcode command line tools has
 # no `/usr/bin/python3` at all, and one that has them has 3.9, which predates
-# everything this console is written against.
+# everything this trainer is written against.
 die() {
     printf '%s\n' "$1" >&2
     # `display alert` rather than a plain dialog: it is the modal shape macOS
     # uses for "this cannot continue", and osascript is on every Mac. If it
     # somehow is not, stderr above has already said the same thing.
     /usr/bin/osascript \
-        -e "display alert \"Missile Defense Training\" message \"$1\" as critical" \
+        -e "display alert \"Missile Defense Trainer\" message \"$1\" as critical" \
         >/dev/null 2>&1
     exit 1
 }
 
 if ! command -v python3 >/dev/null 2>&1; then
-    die "This console needs Python 3.11 or newer, and this Mac has no python3.
+    die "The trainer needs Python 3.11 or newer, and this Mac has no python3.
 
 Install one from python.org (or Homebrew: brew install python), then
 pip install PySide6 into it and open this again.
@@ -51,7 +52,7 @@ fi
 
 if ! python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' 2>/dev/null
 then
-    die "This console needs Python 3.11 or newer, and this Mac answers python3 with
+    die "The trainer needs Python 3.11 or newer, and this Mac answers python3 with
 $(python3 -c 'import platform, sys; print(platform.python_version(), "at", sys.executable)' 2>/dev/null).
 
 That is usually Apple's own, which arrives with the developer tools and stays

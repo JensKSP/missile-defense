@@ -229,14 +229,14 @@ themselves against, which the old 19,585 floor was not.
 Export the policy → in-process C++ inference; live spectator mode; human takeover from any
 point in an AI-played game (scripted or learned).
 
-## M8 — Training console (PySide6)
+## M8 — Training trainer (PySide6)
 
 A desktop UI for running and understanding training: start / pause / stop / reset a
 run, tweak the parameters, watch the curves, browse and play back recordings, inspect
 the model, and launch the game — without leaving the window.
 
 **Why it earns a milestone.** The product is a fun way to teach yourself machine
-learning. The console guides the learner through predict → change one thing →
+learning. The trainer guides the learner through predict → change one thing →
 train → watch → measure → explain → challenge. The project already bets on
 interpretability: recordings exist because a return curve cannot tell you the
 policy has learned to ignore MIRVs. Putting the curve, visible behavior, fair
@@ -252,7 +252,7 @@ ornament and indirection, never information you would otherwise go hunting for.
 
 Concretely:
 
-**One screen, not a tab bar.** The run is the subject. A tabbed console makes you
+**One screen, not a tab bar.** The run is the subject. A tabbed trainer makes you
 hunt for the thing you came to look at. The curve gets the space; everything else is
 a strip around it.
 
@@ -284,11 +284,11 @@ the UI should teach, since that is what this project is for.
 
 **The baseline is the hero — on the held-out benchmark.** 13,687 is the final
 number to beat. Routine training curves use a separate validation seed split so
-selecting `policy-best.pt` cannot tune against the headline test; the console
+selecting `policy-best.pt` cannot tune against the headline test; the trainer
 labels the split and only draws a baseline that belongs to the same protocol.
 
 **It should look like it belongs to the game.** The game already has a palette —
-deep navy field, orange fireballs, cool blue cities, a pixel font. The console
+deep navy field, orange fireballs, cool blue cities, a pixel font. The trainer
 should feel like the same product seen from the other side, not a generic tool that
 happens to point at it. Dark by default.
 
@@ -315,8 +315,8 @@ Instead the run is a subprocess and the existing artifacts *are* the interface:
 | `runs/update-*.mdr` | list → ▶ Play (or double-click) launches `md_app --replay` |
 | `runs/checkpoints/*.pt` | list → `--load` to score, or `--resume` to continue |
 | `runs/model.json` | the network being trained — layers, shapes, parameter count |
-| `runs/train.log` | tail → a log pane, for a run this console never started |
-| stdout | the same pane, when the run *is* this console's child |
+| `runs/train.log` | tail → a log pane, for a run this trainer never started |
+| stdout | the same pane, when the run *is* this trainer's child |
 
 > **`evals.csv` was added for this.** The plan said to draw the scripted baseline across the
 > *return* curve, and that turned out to be wrong: the return in `metrics.csv` is
@@ -361,8 +361,8 @@ convenience over the mechanism, never the only way to reach it.
 > tomorrow's run. Passing a *value* rather than a signal is the one thing this cannot
 > do, so `runs/TUNING.json` sits beside them for the eval cadence: parsed, written to a
 > temporary name and renamed into place, and unreadable-is-absent so a typo cannot kill
-> a run that is hours old. The console's **eval every** box writes it. It
-> lives in `md.control`, which the trainer and the console both import and which pulls in
+> a run that is hours old. The trainer's **eval every** box writes it. It
+> lives in `md.control`, which the trainer and the training loop both import and which pulls in
 > neither of them.
 
 ### What it shows
@@ -422,7 +422,7 @@ surface.
   second toolchain — and it is consistent with the game already being Qt 6.
 * Lives in `python/md/ui/`, launched by `poe ui`. It imports `md.env` only for shapes;
   it never steps a simulation itself.
-* Depends on M6 being genuinely runnable — a console for a run that does not learn is a
+* Depends on M6 being genuinely runnable — a trainer for a run that does not learn is a
   pretty window. Sequence it after the first real training run, not before.
 
 ### Execution plan
@@ -447,7 +447,7 @@ python/md/ui/
 ```
 
 The control protocol itself is **not** here: it is `python/md/control.py`, because
-the trainer polls it and the console writes it, and neither should have to import
+the training loop polls it and the trainer writes it, and neither should have to import
 the other to agree on what a pause is.
 
 `sources.py` and `runner.py` hold **no Qt**, so both are unit-testable under
@@ -469,10 +469,10 @@ looking for `libc++.dll` before it can show a window.
 
 **Phase 2 — Control.** ✅ *(implemented — ready for sign-off)* `md.control` and the
 loop's once-per-update check landed first and on their own, so `touch runs/STOP`
-and `touch runs/PAUSE` work with no console anywhere. The bar then reads: one
+and `touch runs/PAUSE` work with no trainer anywhere. The bar then reads: one
 button that changes meaning (Start → Pause → Resume), Stop, and Reset, which
 attaches to the next free run directory and deletes nothing. Pause and Stop work
-on a run this console never started, because they are the same two files. A
+on a run this trainer never started, because they are the same two files. A
 started run's stdout streams into a log pane that opens itself if the run dies.
 
 **Phase 3 — Parameters.** ✅ *(implemented — ready for sign-off)* The four headline
@@ -498,9 +498,9 @@ dropped rather than raised.
 The model half sits above it: architecture, parameter count, the observation and
 action sizes, a line per layer, and which checkpoint is newest with what it
 scored. The rule above ("anything needing model state belongs in `md.train`,
-surfaced as an artifact the UI reads") decided its shape — the console cannot
+surfaced as an artifact the UI reads") decided its shape — the trainer cannot
 open a `.pt` without torch, so the trainer writes `runs/model.json` at start-up
-and the console reads that. `md.modelcard` holds the format and imports torch
+and the trainer reads that. `md.modelcard` holds the format and imports torch
 *nowhere*, not even lazily: `describe()` takes a state dict's **shapes**, and a
 shape is a tuple of ints. Like `md.control`, it is a file both sides agree on
 and neither has to import the other for.
@@ -526,7 +526,7 @@ job is "this is the model you have" the one that lies about it.
 **Phase 5 — Compare.** ✅ *(implemented — ready for sign-off)* A second picker
 beside the run picker — *this run* **vs** *that one* — and every curve gains the
 other run's line in the same colour at a third of the opacity, with its latest
-value under each stat tile. The point at which the console starts answering
+value under each stat tile. The point at which the trainer starts answering
 *"did that change help?"* rather than only *"what is happening now?"*.
 
 Overlaid rather than in a second window beside it. Two plots with independent
@@ -573,7 +573,7 @@ imports the charting module — cheap now, and it keeps the escape hatch open if
 turns out wrong.
 
 > **Licence note:** PySide6 and Qt Charts are LGPLv3 while this project is MIT. Dynamic
-> linking keeps that clean, but the console must stay an *optional* component — never a
+> linking keeps that clean, but the trainer must stay an *optional* component — never a
 > dependency of the game or the `.deb`.
 
 **2. Reading a file while something else is writing it.**
@@ -606,7 +606,7 @@ Make it structural instead of a rule people remember:
 
 * **`md.ui` must never import `torch`.** That is a one-line test — import the package
   and assert `torch` is absent from `sys.modules` — so the boundary is enforced by CI
-  rather than by discipline. It also keeps the console startable in an environment
+  rather than by discipline. It also keeps the trainer startable in an environment
   with no torch at all, which is a feature: you can watch a remote run from anywhere.
 * The UI's only writes are the control file and spawning subprocesses. Everything
   else is read-only.
@@ -615,7 +615,7 @@ Make it structural instead of a rule people remember:
 
 ### Before this: onboarding
 
-Independent of the console, and higher leverage for reach. The README is currently a
+Independent of the trainer, and higher leverage for reach. The README is currently a
 reference, so a newcomer meets a dependency matrix before a missile. Add a **quick
 start** — clone, build, play, watch the AI — with the requirement tables demoted to
 reference below it. Small, self-contained, and the thing most likely to decide

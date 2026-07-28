@@ -10,7 +10,7 @@
 run picker in the header can answer, because a dropdown shows names and this has
 to show scores, sizes and states side by side.
 
-That is also why it is the landing view. Opening the console on `runs/` with
+That is also why it is the landing view. Opening the trainer on `runs/` with
 eleven experiments in it and being dropped into whichever one sorted first is
 how you end up reading the wrong curve for a minute.
 
@@ -45,10 +45,10 @@ from . import sources, theme
 from .params import TRAINER_SOURCES
 
 #: What the screen says on a machine that has never trained anything. Names the
-#: thing that would change it, like every other empty state in this console.
+#: thing that would change it, like every other empty state in this trainer.
 NOTHING_YET = (
     "No runs here yet.\n\n"
-    "Start one with the button above, or point the console at a directory that\n"
+    "Start one with the button above, or point the trainer at a directory that\n"
     "already has some:  poe ui -- path/to/runs"
 )
 

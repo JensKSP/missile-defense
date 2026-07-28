@@ -38,7 +38,7 @@ cd missile-defense
 cmake --preset release && cmake --build --preset release
 
 # 4 — play
-./build/release/app/md_app.exe
+./build/release/app/missile-defense.exe
 ```
 
 **Run it from the CLANG64 shell**, so the Qt and MSYS2 runtime DLLs resolve on
@@ -50,7 +50,7 @@ If `git` is not on the path in that shell, `pacman -S git` installs it (that one
 is an MSYS package, not a `mingw-w64-clang-x86_64-` one).
 
 From here the [main README](../README.md#quick-start) applies unchanged — play
-it, then `./build/release/app/md_app.exe --watch` to hand the crosshair to the
+it, then `./build/release/app/missile-defense.exe --watch` to hand the crosshair to the
 scripted agent.
 
 ## What the packages are
@@ -90,7 +90,7 @@ the exe only starts from that shell. To make the build directory self-contained 
 so it runs from Explorer, or on a machine with no MSYS2 at all:
 
 ```bash
-tools/windeploy.sh build/release/app/md_app.exe
+tools/windeploy.sh build/release/app/missile-defense.exe
 ```
 
 It runs `windeployqt6` for Qt's own DLLs and plugins, then walks the dependency
@@ -108,20 +108,20 @@ builds both shipped Windows artifacts: an NSIS installer and a portable ZIP of
 the same tree. CI does exactly this, and the release attaches both.
 
 The installer offers **two** components. The game is required; the *Training
-console* is offered unticked, because someone who came for an arcade game must
+trainer* is offered unticked, because someone who came for an arcade game must
 be able to decline an interpreter without reading a manual.
 
 That component is the one thing here that is not self-contained, and the reason
-is the ABI. The game is built with MSYS2/CLANG64, but the console is exec'd by
+is the ABI. The game is built with MSYS2/CLANG64, but the trainer is exec'd by
 whatever `python` is on your PATH — a python.org CPython, because that is where
 the PySide6 and torch wheels are, and a mingw-built extension cannot be loaded
-by it. So the console's `_md_native` is built separately, with MSVC against a
+by it. So the trainer's `_md_native` is built separately, with MSVC against a
 python.org CPython, and it is that module the installer ships. It is a stable-ABI
 (`abi3`) `.pyd`, so it works on 3.12 and later rather than on one exact minor
 version.
 
 What that means if you install it: have a **python.org CPython 3.12+** on PATH
-and `pip install PySide6` into it. `md-console.cmd` checks before it execs and
+and `pip install PySide6` into it. `missile-defense-trainer.cmd` checks before it execs and
 says so if either is missing, rather than opening the Microsoft Store — which is
 what a bare `python` does on a machine that has none.
 
@@ -146,8 +146,8 @@ Both module ABIs can sit beside the package at once — each interpreter loads i
 own — so the MSYS2 tooling and the training environment coexist. The rest of
 training is platform-independent: see [TRAINING.md](TRAINING.md).
 
-The **training console** (`poe ui`) belongs to that same native interpreter —
-install the project with its console extra there (`pip install -e ".[console]"`),
+The **trainer** (`poe ui`) belongs to that same native interpreter —
+install the project with its trainer extra there (`pip install -e ".[trainer]"`),
 because PySide6's wheels are MSVC-built like torch's. That extra also includes
 the NVIDIA telemetry binding; AMD SMI is Linux-only.
 
@@ -160,28 +160,28 @@ and the `pip install` that would fix one, rather than failing with an ImportErro
 from inside a module. Set `MD_PYTHON` to skip the search.
 
 Double-clicking a recording starts the MSYS2-built game from a
-non-MSYS2 process, so the console puts `<msys2>\clang64\bin` back on `PATH` for
+non-MSYS2 process, so the trainer puts `<msys2>\clang64\bin` back on `PATH` for
 the child — otherwise it dies looking for `libc++.dll` with no window to say so.
 Set `MSYS2_ROOT` if MSYS2 is not at `C:\msys64`.
 
-### Reaching the console from an installed game
+### Reaching the trainer from an installed game
 
 **TRAIN AI in the game's menu is the way in.** The installer and the portable
-ZIP both put the console's payload — `md\ui\` — beside `md_app.exe`, and the
+ZIP both put the trainer's payload — `md\ui\` — beside `missile-defense.exe`, and the
 game looks there: with a usable `python` on `PATH` the entry appears, and
 choosing it runs `python -m md.ui` with that directory on the import path.
 
-What the game deliberately does *not* use is the `md-console.cmd` sitting in
+What the game deliberately does *not* use is the `missile-defense-trainer.cmd` sitting in
 the same folder. **Smart App Control blocks unsigned scripts** on a stock
 Windows 11, so where that policy is on, the `.cmd` cannot be run at all —
 neither by the game nor by anyone double-clicking it. It stays for machines
 without the policy; nothing depends on it.
 
 Until 2026-07-27 there was no way in at all. The lookup asked for
-`md-console.exe` — the wrong extension for a file called `md-console.cmd` — and
+`missile-defense-trainer.exe` — the wrong extension for a file called `missile-defense-trainer.cmd` — and
 searched `PATH` plus two Unix directories, never the one the installer actually
 writes to. Every Windows install resolved to nothing and the menu offered no
-training, with the console unreachable in the same folder as the binary that
+training, with the trainer unreachable in the same folder as the binary that
 could not find it.
 
 **Nothing is written into the install directory.** The managed PyTorch runtime,
@@ -194,7 +194,7 @@ install in `C:\Program Files` never needs write access of its own.
 `Graphics.CopyFromScreen` for stills and ffmpeg's `gdigrab` for video, so
 nothing extra is installed. `poe shot -- --launch` starts the game, waits for
 its window, raises it and closes it again; `--title` aims the same command at
-the training console instead.
+the trainer instead.
 
 Two things to know, because both give you a *plausible but wrong* picture rather
 than an error. **Capture in windowed mode** — a fullscreen Vulkan swapchain

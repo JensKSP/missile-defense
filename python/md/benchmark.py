@@ -4,7 +4,7 @@
 """Authoritative metadata for policy evaluation.
 
 Training-time validation and the final benchmark deliberately use different seed
-splits.  Keeping the protocol constants here gives the trainer and the console one
+splits.  Keeping the protocol constants here gives the training loop and the trainer one
 lightweight source of truth without making either import the other (or PyTorch).
 """
 
@@ -62,7 +62,7 @@ class Baseline:
 
     @property
     def label(self) -> str:
-        """LOW / MEDIUM / HIGH — the ladder as the console and the HUD name it."""
+        """LOW / MEDIUM / HIGH — the ladder as the trainer and the HUD name it."""
         return self.skill.upper()
 
 

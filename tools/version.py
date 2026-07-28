@@ -11,13 +11,13 @@ Four files declare it, independently, and nothing makes them agree:
     debian/changelog    missile-defense (x.y.z-r)     the .deb
     python/md/__init__  __version__ = "x.y.z"         what `md` reports at run
                                                       time, and what the training
-                                                      console's About box shows
+                                                      trainer's About box shows
 
 A release publishes artifacts built from all four at once, so a disagreement
 does not fail anything — it ships a disk image and a .deb that claim to be
 different versions of the same program, which is discovered by a user. The
 fourth is the one most likely to drift, because nothing builds from it: it is
-read at run time, so a stale value is not a broken build but a console that
+read at run time, so a stale value is not a broken build but a trainer that
 tells its user the wrong version of the thing they are running. Run it
 before tagging:
 

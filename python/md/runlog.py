@@ -3,7 +3,7 @@
 # Assisted-by: Claude Code (Anthropic)
 """A run's own copy of what it printed. No torch, no Qt — both sides read it.
 
-The console could show a log pane only for a run *it* had started, because that
+The trainer could show a log pane only for a run *it* had started, because that
 is the only run whose stdout it holds a pipe to. A run started from a terminal —
 which is the case the whole out-of-process design exists to support
 (docs/ROADMAP.md, M8) — printed into that terminal and nowhere else, so
@@ -11,7 +11,7 @@ attaching to it gave you curves with no words beside them. And words are what
 carry the eval blocks, the "recorded …" lines and, when it dies, the traceback.
 
 So the run writes its own. ``runs/train.log`` joins ``metrics.csv`` and the
-recordings as one more artifact that *is* the interface: the console tails it
+recordings as one more artifact that *is* the interface: the trainer tails it
 exactly as it tails a CSV, and gets the same pane whether or not it started the
 run. `tee` would have done this for one shell on one platform; a file the
 trainer always writes does it for every way a run can be launched, including a
@@ -99,7 +99,7 @@ def teed(run_dir: Path, *, filename: str = FILENAME) -> Generator[Path | None]:
         run_dir.mkdir(parents=True, exist_ok=True)
         # newline="" so a line ends in exactly what it was given, on every
         # platform. A run directory is a thing you sync between machines — the
-        # console is meant to open one copied off the Debian box — and a file
+        # trainer is meant to open one copied off the Debian box — and a file
         # whose line endings depend on which machine wrote it is a file that
         # reads differently on the other one. metrics.csv is opened the same way.
         handle: IO[str] = (run_dir / filename).open(

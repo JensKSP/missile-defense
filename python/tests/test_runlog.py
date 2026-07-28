@@ -3,7 +3,7 @@
 # Assisted-by: Claude Code (Anthropic)
 """Tests for a run's own copy of what it printed.
 
-``md.runlog`` is why the console can show a log pane for a run started from a
+``md.runlog`` is why the trainer can show a log pane for a run started from a
 terminal (docs/ROADMAP.md, M8). It imports neither torch nor Qt, so what it
 promises — the terminal still gets every line, the file gets them too, and
 neither the run nor the process survives losing the other — is checkable here.

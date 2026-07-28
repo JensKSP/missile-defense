@@ -3,7 +3,7 @@
 # Assisted-by: OpenAI Codex
 import pytest
 
-# torch is optional — the console and the environment do not need it, and the
+# torch is optional — the trainer and the environment do not need it, and the
 # gate runs where it is absent. Guarded the way `test_ppo.py` and
 # `test_train_eval.py` already guard: a bare `import torch` here took the whole
 # collection down, so *every* Python test failed in CI over one missing optional

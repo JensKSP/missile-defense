@@ -212,7 +212,7 @@ def test_a_missing_side_says_which_one(paired: Path, tmp_path: Path) -> None:
 def test_a_promoted_model_becomes_playable_in_the_game(tmp_path: Path) -> None:
     """Promotion is the install step, and this is the only proof of it.
 
-    The console writes a `.mdp` into the league; the game scans that same
+    The trainer writes a `.mdp` into the league; the game scans that same
     directory and offers everything in it under WATCH AI → MODELS. Both halves
     have their own tests and neither of them covers the *rule* they share — that
     the two agree on where a model lives — which is precisely the thing that

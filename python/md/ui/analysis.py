@@ -43,7 +43,7 @@ from .charts import BarView, CurveView
 from .sources import EvalRow
 
 #: What the screen says before a run has scored itself even once. Every empty
-#: state in this console names the flag that would change it, and this one is
+#: state in this trainer names the flag that would change it, and this one is
 #: the most likely to be met: a fresh run has no evaluation for `--eval-every`
 #: updates, which can be several minutes.
 NO_EVALS = (

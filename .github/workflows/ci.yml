@@ -63,7 +63,7 @@ jobs:
 
   app-e2e:
     # The shipped surfaces, driven in their own processes: the game binary, a
-    # real short training run, and the console window. Everything else in this
+    # real short training run, and the trainer window. Everything else in this
     # file tests code; this job tests the programs, which is where the failures
     # a person meets first actually live (docs/TESTING.md).
     runs-on: ubuntu-latest
@@ -131,7 +131,7 @@ jobs:
           # installed. That is what "*this* interpreter ()" in the error meant.
           #
           # nanobind because `test_packages.py` stages the *full* install tree —
-          # a second configure with MD_INSTALL_PYTHON_PACKAGE=ON — and a console
+          # a second configure with MD_INSTALL_PYTHON_PACKAGE=ON — and a trainer
           # payload without the binding is the thing those tests exist to catch.
           # Configuring that without nanobind is now a hard error rather than a
           # warning, which is how this job found out it never had it.
@@ -254,15 +254,15 @@ jobs:
           # than a bare `pip install` — which is *better* advice and which broke
           # a grep for the literal string. What has to hold either way: it names
           # what is missing, and it offers a command.
-          ! /tmp/wheelenv/bin/md-train --updates 1 2>&1 | tee /tmp/train.log
+          ! /tmp/wheelenv/bin/missile-defense-train --updates 1 2>&1 | tee /tmp/train.log
           grep -q "torch" /tmp/train.log
           grep -Eq "(pip|apt) install" /tmp/train.log
-          ! /tmp/wheelenv/bin/md-console 2>&1 | tee /tmp/console.log
-          grep -q "PySide6" /tmp/console.log
-          grep -Eq "(pip|apt) install" /tmp/console.log
+          ! /tmp/wheelenv/bin/missile-defense-trainer 2>&1 | tee /tmp/trainer.log
+          grep -q "PySide6" /tmp/trainer.log
+          grep -Eq "(pip|apt) install" /tmp/trainer.log
           # And never a traceback, which is the failure these replaced.
           ! grep -q "Traceback" /tmp/train.log
-          ! grep -q "Traceback" /tmp/console.log
+          ! grep -q "Traceback" /tmp/trainer.log
 
   quick-start:
     # The README's own commands, extracted from the page and run on a clean copy
@@ -282,15 +282,15 @@ jobs:
 
   bootstrap:
     # `python3 -m tools.bootstrap` is what the README tells a developer to run,
-    # and the claim it makes is that the console it produces can train. That claim
+    # and the claim it makes is that the trainer it produces can train. That claim
     # was false for a while and nothing here could see it: every other job pip
     # installs its own dependency list, so the one path a person actually takes
     # was the one path CI never took.
     #
-    # What it missed: bootstrap installed the console and the gate's tools but not
+    # What it missed: bootstrap installed the trainer and the gate's tools but not
     # nanobind, so CMake never created the `_md_native` target and `poe bindings`
     # failed with `unknown target`. The visible symptom was two steps away and
-    # looked like something else entirely — the console's runtime installer
+    # looked like something else entirely — the trainer's runtime installer
     # downloaded five gigabytes of CUDA torch, health-checked it by importing the
     # binding, found none, and reported the *torch* install as failed.
     #
@@ -318,7 +318,7 @@ jobs:
       - name: The venv it made can build the simulation binding
         run: .venv/bin/poe bindings
 
-      - name: And the console can import it
+      - name: And the trainer can import it
         # `hasattr(VecEnv)` rather than a bare import: the health check the
         # runtime installer runs asks the same thing, and a binding that imports
         # but exposes nothing would pass one and fail the other.

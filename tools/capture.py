@@ -56,10 +56,10 @@ from . import _util
 T = TypeVar("T")
 
 #: What the game calls its window. A substring match, so `--title` can aim the
-#: same tool at the training console without knowing its full caption.
+#: same tool at the trainer without knowing its full caption.
 WINDOW_TITLE = "Missile Defense"
 
-#: Windows: the game, and the interpreter the console runs in. Consulted only
+#: Windows: the game, and the interpreter the trainer runs in. Consulted only
 #: when the title search comes up empty — a `QVulkanWindow` is not always
 #: findable by caption, but its process always knows its own main window.
 FALLBACK_PROCESSES = ("md_app", "missile-defense", "python", "pythonw")
@@ -445,7 +445,7 @@ def _no_window(title: str, detail: str) -> str:
 
 
 def _launch_environ() -> dict[str, str]:
-    """The environment the game is started in — the same two quirks as the console.
+    """The environment the game is started in — the same two quirks as the trainer.
 
     Kept in step with `md.ui.runner.launch_environ` by hand rather than by
     import: `tools` is developer scaffolding and must not need the package on
@@ -455,7 +455,7 @@ def _launch_environ() -> dict[str, str]:
     if sys.platform == "linux":
         # The one place that still pins a platform, and the only one with a
         # reason to: a Wayland client cannot have its window grabbed by another
-        # process, so a screenshot needs an X11 window. `poe app` and the console
+        # process, so a screenshot needs an X11 window. `poe app` and the trainer
         # deliberately impose nothing and follow the session instead.
         env.setdefault("QT_QPA_PLATFORM", "xcb")
     elif sys.platform == "win32":

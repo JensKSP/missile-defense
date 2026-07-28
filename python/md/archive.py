@@ -105,7 +105,7 @@ def plan_cleanup(run: library.Run, pins: Collection[Path] = ()) -> CleanupPlan:
     Three things are never offered, and each is a thing you cannot get back:
 
     * **the summary artifacts** — `metrics.csv`, `evals.csv`, `config.json`,
-      `model.json`, `train.log`. They are what the console draws and they are
+      `model.json`, `train.log`. They are what the trainer draws and they are
       kilobytes; deleting them to save space would be trading the whole record
       of a run for nothing.
     * **the best evaluated checkpoint**, and `policy-best.pt` and
@@ -492,7 +492,7 @@ def delete_run(run: library.Run, root: Path) -> int:
 
     Whether the run is still *going* is deliberately not checked here: liveness
     is a ninety-second-old timestamp, and a layer that unlinks files should
-    refuse on facts rather than on a guess. The console asks that question where
+    refuse on facts rather than on a guess. The trainer asks that question where
     it is fresh, before it ever gets this far.
     """
     if not library.within(root, run.path):

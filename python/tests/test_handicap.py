@@ -5,7 +5,7 @@
 
 The handicap is defined twice — `md::protocol::aim_trail` in C++ and
 `md.benchmark.CANONICAL_AIM_TRAIL` in Python — because the trainer and the
-console never read the header, and the game never reads the Python. Two copies
+trainer never read the header, and the game never reads the Python. Two copies
 are fine; two copies that disagree are a ladder whose rungs mean different things
 depending on which program you asked, which is the failure this file exists to
 make impossible.

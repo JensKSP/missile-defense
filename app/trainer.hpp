@@ -10,24 +10,25 @@
 #include <string_view>
 #include <vector>
 
-/// Finding the training console from inside the game.
+/// Finding the trainer from inside the game.
 ///
 /// **This lookup is the boundary between the two products.** The game adds its
 /// TRAIN AI entry only when it resolves, so on a game-only install — no Python,
-/// no `md` package, no `md-console` — it must find nothing and the menu simply
-/// does not offer training. `md.ui.runner.console_executable()` searches the
-/// same four places in the same order for exactly that reason: a disagreement
-/// between them is either a menu entry that launches nothing, or a console that
-/// is installed and unreachable.
+/// no `md` package, no `missile-defense-trainer` — it must find nothing and the
+/// menu simply does not offer training. `md.ui.runner.trainer_executable()`
+/// searches the same four places in the same order for exactly that reason: a
+/// disagreement between them is either a menu entry that launches nothing, or a
+/// trainer that is installed and unreachable.
 ///
 /// The fourth place is the Windows one, and it was missing until 2026-07-27:
-/// there, the console's payload is installed *beside the game* — `md/ui/` next
-/// to `md_app.exe`, under `C:\Program Files\Missile Defense` or wherever the
-/// portable ZIP was unpacked. That directory is on nobody's `PATH`, and the two
-/// system directories searched before it are Unix paths that cannot exist. So
-/// every Windows install, installer and ZIP alike, resolved to nothing and
-/// offered no way into training at all — while `md-console.cmd` sat unreachable
-/// in the same folder as the binary that could not find it.
+/// there, the trainer's payload is installed *beside the game* — `md/ui/` next
+/// to `missile-defense.exe`, under `C:\Program Files\Missile Defense` or
+/// wherever the portable ZIP was unpacked. That directory is on nobody's `PATH`,
+/// and the two system directories searched before it are Unix paths that cannot
+/// exist. So every Windows install, installer and ZIP alike, resolved to nothing
+/// and offered no way into training at all — while
+/// `missile-defense-trainer.cmd` sat unreachable in the same folder as the
+/// binary that could not find it.
 ///
 /// Nothing here touches Qt, and that is deliberate — the search order is the
 /// part worth testing, and a test of it should not need a window, a display or
@@ -35,7 +36,7 @@
 /// make it untestable: reading the environment, and asking whether a file is
 /// there. A test that had to write into `/usr/bin` to prove `/usr/bin` is
 /// searched *after* `PATH` could not be written at all.
-namespace md::console {
+namespace md::trainer {
 
 /// How `Lookup::search_path` is split, as the platform spells it.
 ///
@@ -51,8 +52,8 @@ inline constexpr char path_separator = ':';
 
 /// What the search appends before asking `Lookup::executable` about a name.
 ///
-/// Public for the same reason: the callback is handed `md-console.exe` on
-/// Windows and `md-console` everywhere else, and an implementation that does
+/// Public for the same reason: the callback is handed `missile-defense-trainer.exe` on
+/// Windows and `missile-defense-trainer` everywhere else, and an implementation that does
 /// not expect that answers no to every candidate.
 #ifdef _WIN32
 inline constexpr std::string_view executable_suffix = ".exe";
@@ -71,7 +72,7 @@ struct Lookup {
     std::string search_path;
     /// The checkout this binary was built in, or empty when it was installed.
     std::filesystem::path checkout_root;
-    /// The directory holding the console's Python payload an installer left
+    /// The directory holding the trainer's Python payload an installer left
     /// beside the game (`md/ui/__main__.py` in it), or empty when there is
     /// none. Distinct from `checkout_root`, which holds the *sources* one level
     /// further down in `python/`; these are two different layouts and looking
@@ -79,7 +80,7 @@ struct Lookup {
     std::filesystem::path payload_root;
 };
 
-/// How to start the console: an argv, plus the import path it needs.
+/// How to start the trainer: an argv, plus the import path it needs.
 struct Command {
     std::vector<std::string> argv;
     /// `PYTHONPATH` for the checkout case, where `md` is not installed anywhere
@@ -95,14 +96,14 @@ struct Command {
 /// appears finds the checkout without hard-coding how deep the build tree is.
 [[nodiscard]] Lookup machine_lookup(const std::filesystem::path& own_executable);
 
-/// The console's executable, or nothing when this install does not have one.
+/// The trainer's executable, or nothing when this install does not have one.
 [[nodiscard]] std::optional<std::filesystem::path> find(const Lookup& lookup);
 
 /// The whole command line, or nothing. Adds `-m md.ui` for the checkout case.
 ///
 /// Split from :func:`find` because the menu only needs to know *whether* there
-/// is a console to decide whether to offer training, while starting one needs
+/// is a trainer to decide whether to offer training, while starting one needs
 /// the rest — and only one of the three answers is not self-contained.
 [[nodiscard]] std::optional<Command> command(const Lookup& lookup);
 
-} // namespace md::console
+} // namespace md::trainer

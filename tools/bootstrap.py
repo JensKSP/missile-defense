@@ -1,13 +1,13 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Jens Köhler
-"""Create the development venv with the console and its telemetry backends.
+"""Create the development venv with the trainer and its telemetry backends.
 
 Run from a fresh checkout with::
 
     python3 -m tools.bootstrap
 
 PyTorch remains separate because its correct wheel depends on the host GPU and
-driver. The console is small enough to install consistently, including the
+driver. The trainer is small enough to install consistently, including the
 NVIDIA binding everywhere and AMD SMI on Linux.
 """
 
@@ -42,10 +42,10 @@ DEV_TOOLS = ("poethepoet", "ruff", "pytest", "mypy", "pyright", "build")
 #: written beside the package.
 #:
 #: The visible cost of that was two steps away and looked like something else
-#: entirely: the console's runtime installer downloads five gigabytes of CUDA
+#: entirely: the trainer's runtime installer downloads five gigabytes of CUDA
 #: torch, health-checks the result by importing the binding, finds none, and
-#: reports the install as failed. So a bootstrapped console could watch runs and
-#: never start one — which is exactly the promise `[console]` is supposed to keep.
+#: reports the install as failed. So a bootstrapped trainer could watch runs and
+#: never start one — which is exactly the promise `[trainer]` is supposed to keep.
 BUILD_TOOLS = ("nanobind>=2.0",)
 
 #: Constraints the *gate* needs, over and above what the package needs to run.
@@ -69,14 +69,14 @@ def venv_python(venv: Path, *, platform: str = sys.platform) -> Path:
 
 
 def install_command(venv: Path, *, root: Path = PROJECT_ROOT) -> list[str]:
-    """The one pip invocation that defines a ready development console."""
+    """The one pip invocation that defines a ready development trainer."""
     return [
         str(venv_python(venv)),
         "-m",
         "pip",
         "install",
         "--editable",
-        f"{root}[console]",
+        f"{root}[trainer]",
         *DEV_TOOLS,
         *BUILD_TOOLS,
         *GATE_PINS,
@@ -97,7 +97,7 @@ def windows_cxx_toolchain(environ: Mapping[str, str] | None = None) -> str | Non
     developer shell, ``cl.exe`` on ``PATH``, or vswhere reporting an install
     with the C++ workload. **MinGW deliberately does not count.** An extension
     has to share an ABI with the interpreter importing it, and the interpreter
-    the console runs under is MSVC-built — an MSYS2 clang on ``PATH`` is the
+    the trainer runs under is MSVC-built — an MSYS2 clang on ``PATH`` is the
     wrong compiler for this job, not a substitute for the right one.
     """
     env = os.environ if environ is None else environ
@@ -131,19 +131,19 @@ def windows_cxx_toolchain(environ: Mapping[str, str] | None = None) -> str | Non
     return probe.stdout.strip() or None
 
 
-def console_requirements(root: Path = PROJECT_ROOT) -> list[str]:
-    """What the package and its ``[console]`` extra declare, read from pyproject.
+def trainer_requirements(root: Path = PROJECT_ROOT) -> list[str]:
+    """What the package and its ``[trainer]`` extra declare, read from pyproject.
 
     Read rather than restated. A second copy of the list here would be a second
     thing to keep current, and the way that goes wrong is not abstract: `numpy`
-    is a *base* dependency, so a console assembled from a hand-written list that
+    is a *base* dependency, so a trainer assembled from a hand-written list that
     forgot it starts, imports `md.league`, and dies in `policy_format` with a
     traceback — which is the exact failure this whole path exists to avoid.
     """
     with (root / "pyproject.toml").open("rb") as handle:
         project = tomllib.load(handle)["project"]
     extras = project.get("optional-dependencies", {})
-    return [*project.get("dependencies", ()), *extras.get("console", ())]
+    return [*project.get("dependencies", ()), *extras.get("trainer", ())]
 
 
 def dependency_command(venv: Path, *, root: Path = PROJECT_ROOT) -> list[str]:
@@ -158,7 +158,7 @@ def dependency_command(venv: Path, *, root: Path = PROJECT_ROOT) -> list[str]:
         "-m",
         "pip",
         "install",
-        *console_requirements(root),
+        *trainer_requirements(root),
         *DEV_TOOLS,
         *BUILD_TOOLS,
         *GATE_PINS,
@@ -202,7 +202,7 @@ def activate_hint(venv: Path, *, platform: str = sys.platform) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Create a development venv with tooling and console dependencies."
+        description="Create a development venv with tooling and trainer dependencies."
     )
     parser.add_argument(
         "--venv",
@@ -226,7 +226,7 @@ def main(argv: list[str] | None = None) -> int:
         skip = True
         print(
             "No MSVC toolchain found, so the simulation binding cannot be built here.\n"
-            "Setting up everything else instead — the console will start, browse runs\n"
+            "Setting up everything else instead — the trainer will start, browse runs\n"
             "and play replays; it will refuse to *start* a run and say why.\n"
             "\n"
             "To get the rest, install the C++ build tools and re-run this:\n"

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Jens Köhler
 // Assisted-by: Claude Code (Anthropic)
-#include "console.hpp"
+#include "trainer.hpp"
 
 #include <array>
 #include <cstdint>
@@ -13,16 +13,16 @@
 #include <system_error>
 #include <utility>
 
-namespace md::console {
+namespace md::trainer {
 
 namespace {
 
-/// What the console is called once installed. The Debian package and the
+/// What the trainer is called once installed. The Debian package and the
 /// pyproject entry point agree on the name, so one search finds either.
-constexpr std::array<std::string_view, 1> console_names{"md-console"};
+constexpr std::array<std::string_view, 1> trainer_names{"missile-defense-trainer"};
 
 /// Where an installer leaves it. `/usr/games` is deliberately absent: the
-/// console is not a game and its Debian package puts it in `/usr/bin`.
+/// trainer is not a game and its Debian package puts it in `/usr/bin`.
 constexpr std::array<std::string_view, 2> system_directories{"/usr/bin", "/usr/local/bin"};
 
 /// Anything that could run `-m md.ui`, most specific first.
@@ -31,7 +31,7 @@ constexpr std::array<std::string_view, 2> system_directories{"/usr/bin", "/usr/l
 /// `packaging/launcher.cmd.in`, which runs plain `python`. That is the same
 /// decision made twice, and on a machine where the two names resolve to
 /// different interpreters the menu entry and the shipped script would start
-/// different consoles.
+/// different trainers.
 ///
 /// `python3` is the riskier name to prefer there. Windows ships app execution
 /// aliases for *both* names in `WindowsApps`, and what they lead to depends on
@@ -47,20 +47,20 @@ constexpr std::array<std::string_view, 2> interpreter_names{"python3", "python"}
 #endif
 
 /// The marker that says a directory is this project's checkout rather than any
-/// other. The console's own entry module, because that is precisely the thing
+/// other. The trainer's own entry module, because that is precisely the thing
 /// the checkout fallback would go on to run.
-constexpr std::string_view console_module = "python/md/ui/__main__.py";
+constexpr std::string_view trainer_module = "python/md/ui/__main__.py";
 
 /// The same marker in an *installed* layout, where the payload sits directly
 /// beside the game instead of under a `python/` source directory.
 constexpr std::string_view payload_module = "md/ui/__main__.py";
 
 /// Which of the four answers the search gave, so the caller does not have to
-/// re-derive it from the path. An installed `md-console` can perfectly well sit
+/// re-derive it from the path. An installed `missile-defense-trainer` can perfectly well sit
 /// in the same directory as a `python3`, so the path alone does not say — and
 /// the two interpreter answers are told apart by nothing else at all.
 enum class Origin : std::uint8_t {
-    Named,     ///< MD_CONSOLE
+    Named,     ///< MD_TRAINER
     Installed, ///< a launcher on PATH or in a system directory
     Payload,   ///< the `md` package beside the game, to be handed `-m md.ui`
     Checkout,  ///< an interpreter, to be handed `-m md.ui`
@@ -103,12 +103,12 @@ std::optional<std::filesystem::path> interpreter(const Lookup& lookup) {
     return std::nullopt;
 }
 
-/// The console's executable and how it was found. The order is the contract.
+/// The trainer's executable and how it was found. The order is the contract.
 std::optional<std::pair<std::filesystem::path, Origin>> resolve(const Lookup& lookup) {
     // 1. Someone said which one. A path that does not exist is *nothing* rather
-    //    than a fallback: falling back would start a different console than the
+    //    than a fallback: falling back would start a different trainer than the
     //    one that was named, and the variable exists to pin exactly that.
-    if (const std::string named = lookup.variable("MD_CONSOLE"); !named.empty()) {
+    if (const std::string named = lookup.variable("MD_TRAINER"); !named.empty()) {
         const std::filesystem::path candidate{named};
         if (lookup.executable(candidate)) {
             return std::pair{candidate, Origin::Named};
@@ -117,13 +117,13 @@ std::optional<std::pair<std::filesystem::path, Origin>> resolve(const Lookup& lo
     }
     // 2. An installed launcher: PATH first, then where an installer puts it —
     //    a desktop session's PATH is not a login shell's, so both are needed.
-    for (const std::string_view name : console_names) {
+    for (const std::string_view name : trainer_names) {
         if (auto found = on_search_path(lookup, name)) {
             return std::pair{*found, Origin::Installed};
         }
     }
     for (const std::string_view directory : system_directories) {
-        for (const std::string_view name : console_names) {
+        for (const std::string_view name : trainer_names) {
             std::filesystem::path candidate = std::filesystem::path{directory} / with_suffix(name);
             if (lookup.executable(candidate)) {
                 return std::pair{candidate, Origin::Installed};
@@ -132,7 +132,7 @@ std::optional<std::pair<std::filesystem::path, Origin>> resolve(const Lookup& lo
     }
     // 3. The payload an installer left beside the game. This is the Windows
     //    answer, and there is deliberately no launcher to look for: what the
-    //    installer writes there is `md-console.cmd`, a *script*, which Smart
+    //    installer writes there is `missile-defense-trainer.cmd`, a *script*, which Smart
     //    App Control blocks outright on a stock Windows 11. Running the
     //    interpreter directly is exactly what that script does, minus the one
     //    part of it the platform refuses to execute.
@@ -145,7 +145,7 @@ std::optional<std::pair<std::filesystem::path, Origin>> resolve(const Lookup& lo
     // 4. A checkout, run through an interpreter. Without one there is nothing to
     //    run `-m md.ui` with, and offering the entry anyway would put an item on
     //    screen that does nothing when it is chosen.
-    if (lookup.checkout_root.empty() || !lookup.executable(lookup.checkout_root / console_module)) {
+    if (lookup.checkout_root.empty() || !lookup.executable(lookup.checkout_root / trainer_module)) {
         return std::nullopt;
     }
     if (auto found = interpreter(lookup)) {
@@ -171,7 +171,7 @@ Lookup machine_lookup(const std::filesystem::path& own_executable) {
     };
     lookup.search_path = lookup.variable("PATH");
 
-    // Walk up from the binary looking for the console's sources. An installed
+    // Walk up from the binary looking for the trainer's sources. An installed
     // game finds nothing and stops at the filesystem root; a build tree finds
     // the checkout three or four levels up without this having to know which.
     std::error_code ec;
@@ -191,7 +191,7 @@ Lookup machine_lookup(const std::filesystem::path& own_executable) {
     std::filesystem::path directory = own_directory;
     while (!directory.empty()) {
         std::error_code probe;
-        if (std::filesystem::is_regular_file(directory / console_module, probe)) {
+        if (std::filesystem::is_regular_file(directory / trainer_module, probe)) {
             lookup.checkout_root = directory;
             break;
         }
@@ -227,4 +227,4 @@ std::optional<Command> command(const Lookup& lookup) {
     return Command{{found->first.string()}, {}};
 }
 
-} // namespace md::console
+} // namespace md::trainer

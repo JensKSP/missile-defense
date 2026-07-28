@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Jens Köhler
 # Assisted-by: Claude Code (Anthropic)
-"""The console is not a trainer, and this is what keeps it that way.
+"""The trainer is not a trainer, and this is what keeps it that way.
 
 Scope creep into ``md.ui`` would be the easy mistake — a "quick" model summary
 that loads a checkpoint, and suddenly the window owns GPU memory and a crash
@@ -28,7 +28,7 @@ import md.ui
 PACKAGE = Path(md.ui.__file__).parent
 IMPORT_PATH = str(Path(md.__file__).parents[1])
 
-#: Importing torch anywhere under md.ui would make the console a trainer;
+#: Importing torch anywhere under md.ui would make the trainer a trainer;
 #: md.train and md.ppo are just torch by another name.
 FORBIDDEN = ("torch", "md.train", "md.ppo")
 
@@ -40,7 +40,7 @@ import md.ui.runner
 import md.ui.sources
 import md.ui.theme
 
-try:  # the widgets, where PySide6 is installed — the console is optional
+try:  # the widgets, where PySide6 is installed — the trainer is optional
     import md.ui.app
     import md.ui.charts
     import md.ui.runtime_dialog
@@ -52,7 +52,7 @@ print("torch" in sys.modules)
 """
 
 
-def test_importing_the_console_does_not_import_torch() -> None:
+def test_importing_the_trainer_does_not_import_torch() -> None:
     # A fresh interpreter, so nothing another test imported can mask the answer.
     result = subprocess.run(
         [sys.executable, "-c", CHECK],

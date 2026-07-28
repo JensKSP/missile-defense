@@ -9,7 +9,7 @@ project can produce lives in exactly these seams:
 
 * a Python trainer writes a recording, and a C++ binary has to play it;
 * a run directory is written by one process and read by another;
-* the console has to be able to launch the game on a file it found.
+* the trainer has to be able to launch the game on a file it found.
 
 The first is the strongest single assertion in the suite. A recording is
 `(seed, config, action indices)` and nothing else, so replaying it correctly
@@ -84,24 +84,24 @@ def test_a_replayed_episode_is_not_eligible_for_the_high_score_table(
     assert run.state != "enter-score"
 
 
-def test_the_console_finds_everything_the_trainer_left(trained_run: Path) -> None:
-    # No Qt here on purpose: `md.ui.sources` is the half of the console that has
+def test_the_trainer_finds_everything_the_trainer_left(trained_run: Path) -> None:
+    # No Qt here on purpose: `md.ui.sources` is the half of the trainer that has
     # none, and it is the half that has to agree with the trainer about what a run
     # directory contains.
     from md.ui import sources  # noqa: PLC0415 — imported after the run exists
 
     metrics = sources.metrics_tail(trained_run).poll()
     evals = sources.evals_tail(trained_run).poll()
-    assert metrics.rows, "the console read no metrics from a run that wrote some"
-    assert evals.rows, "the console read no evaluations from a run that wrote some"
+    assert metrics.rows, "the trainer read no metrics from a run that wrote some"
+    assert evals.rows, "the trainer read no evaluations from a run that wrote some"
     assert evals.rows[-1].mean_score > 0.0
     assert sources.list_checkpoints(trained_run)
     assert sources.list_recordings(trained_run)
 
 
-def test_the_console_reads_a_growing_file_without_rereading_it(trained_run: Path) -> None:
+def test_the_trainer_reads_a_growing_file_without_rereading_it(trained_run: Path) -> None:
     # The tail remembers where it stopped, which is the difference between a
-    # console that stays cheap over a run of thousands of updates and one that
+    # trainer that stays cheap over a run of thousands of updates and one that
     # reparses the whole file every second, forever.
     from md.ui import sources  # noqa: PLC0415
 
@@ -111,9 +111,9 @@ def test_the_console_reads_a_growing_file_without_rereading_it(trained_run: Path
     assert not tail.poll().rows, "the same rows were handed out twice"
 
 
-def test_the_console_finds_the_run_inside_a_container_directory(trained_run: Path) -> None:
+def test_the_trainer_finds_the_run_inside_a_container_directory(trained_run: Path) -> None:
     # Runs pile up one --out-dir each, so `runs/` stops being a run and becomes a
-    # container of them. Pointing the console one level too high is the most
+    # container of them. Pointing the trainer one level too high is the most
     # common way to see an empty window, and it is supposed to say which
     # directories below it do hold one.
     from md.ui import sources  # noqa: PLC0415

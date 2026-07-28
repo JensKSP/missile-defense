@@ -9,7 +9,7 @@ pushed; `master` is at `fed710a` and the working tree is clean.
 
 ## Open, in the order I would take them
 
-### 1. Six console end-to-end tests fail
+### 1. Six trainer end-to-end tests fail
 
 ```
 python/tests/e2e/test_console.py
@@ -35,7 +35,7 @@ QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest python/tests/e2e/test_conso
 compares `aim_trail` and `reaction_delay`, which the handicap work made part of
 the protocol — but `EVAL_COLUMNS` in `md/train.py` never gained them. Every row
 read as "nonstandard protocol", so no score could be shown against the ladder and
-the console could never say a run beat HIGH. The trainer writes both columns now
+the trainer could never say a run beat HIGH. The training loop writes both columns now
 and `test_console.py`'s `EVALS_HEADER` was widened to match; the first two tests
 still fail afterwards, so there is at least one more reason. Start by diffing the
 expected and actual tile note in `test_a_new_run_starts_the_tiles_at_nothing_notes_included`
@@ -81,7 +81,7 @@ three things that can each fail alone: the cause still exists, the effect is the
 workaround's, and the shipped binary still applies it. All three skip without a
 compositor, so they run on Jens's desktop and nowhere else.
 
-`poe app`, the console and the desktop entry no longer pin a platform. `poe shot`
+`poe app`, the trainer and the desktop entry no longer pin a platform. `poe shot`
 is the one exception and says why in `tools/capture.py`: a Wayland client cannot
 have its window grabbed.
 
@@ -107,7 +107,7 @@ The new `bootstrap` CI job runs the documented command and then asks the only
 question that matters about its result.
 
 **`Runtime.verify()`** asks the runtime to prove itself rather than trusting the
-manifest, and the console now runs it on a background thread and turns Start back
+manifest, and the trainer now runs it on a background thread and turns Start back
 into Set up when it says no. The two-minute stall I could not explain in an earlier
 commit was a cold CUDA start after a fresh install — one-time, ~1 s warm. The
 window waits for that thread on close, because Qt aborts the process when a running

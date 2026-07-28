@@ -1,4 +1,4 @@
-missile-defense-training for Debian
+missile-defense-trainer for Debian
 ===================================
 
 Getting PyTorch, which this package deliberately does not depend on
@@ -13,15 +13,15 @@ a second copy that no real run uses.
 So the absence has to be arranged for rather than assumed away. There are two
 supported ways, and the first is the one to reach for.
 
-1. Let the console do it (recommended)
+1. Let the trainer do it (recommended)
 --------------------------------------
 
-Open the training console:
+Open the trainer:
 
-    md-console
+    missile-defense-trainer
 
 If this machine has no PyTorch, the Start button is disabled with the reason
-next to it, and the console offers to install a training runtime. It builds a
+next to it, and the trainer offers to install a training runtime. It builds a
 virtualenv under the per-user data directory, picks the right build for the
 hardware it finds — CUDA, ROCm or CPU — and health-checks the result by
 importing both torch and the simulation binding before it becomes the live one.
@@ -41,7 +41,7 @@ thing to work around with --break-system-packages. Use a virtualenv:
 
     python3 -m venv --system-site-packages ~/.venvs/md
     ~/.venvs/md/bin/pip install torch
-    ~/.venvs/md/bin/md-train
+    ~/.venvs/md/bin/missile-defense-train
 
 `--system-site-packages` is the whole trick: the venv sees the packaged
 `_md_native` extension and the `md` package from python3-md, while pip owns
@@ -67,7 +67,7 @@ no runtime data of their own.
 The game is a separate package
 ------------------------------
 
-`missile-defense` is Recommended, not Depended on: the console can start,
+`missile-defense` is Recommended, not Depended on: the trainer can start,
 browse runs and compare policies with no game installed. It is what opens a
 recording when you double-click one, so install it if you want to watch what
 your agent did rather than only read the curve.

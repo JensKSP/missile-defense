@@ -5,7 +5,7 @@
 
 This is not checking that PPO learns — `test_ppo.py` does that, in-process and
 fast. What it checks is the thing only a subprocess can: that a run started the
-way a user starts one produces the files the console tails, the checkpoints the
+way a user starts one produces the files the trainer tails, the checkpoints the
 model panel describes, and the recordings the game plays. Those are a *contract*
 between three programs, and a contract is exactly the sort of thing that breaks
 without any single component's tests noticing.
@@ -58,12 +58,12 @@ from .harness import (
 pytestmark = [pytest.mark.e2e, needs_torch, needs_native]
 
 
-def test_a_run_writes_the_curves_the_console_tails(trained_run: Path) -> None:
+def test_a_run_writes_the_curves_the_trainer_tails(trained_run: Path) -> None:
     metrics = trained_run / "metrics.csv"
     assert metrics.exists()
     rows = list(csv.DictReader(metrics.read_text(encoding="utf-8").splitlines()))
     assert rows, "metrics.csv has a header and no data"
-    # One row per update, and the columns the console actually plots.
+    # One row per update, and the columns the trainer actually plots.
     for column in ("update", "return", "entropy", "value_loss", "clip_fraction"):
         assert column in rows[0], f"metrics.csv has no {column} column"
 
@@ -88,7 +88,7 @@ def test_a_run_scores_itself_on_the_validation_seeds(trained_run: Path) -> None:
     # Only the columns the shared C++ `Summary` has always had. Task 11 widens
     # this file considerably, and its own e2e asserts the new ones — this test
     # must not start failing the moment a column is *added*, which is precisely
-    # the compatibility the console's by-name column matching also provides.
+    # the compatibility the trainer's by-name column matching also provides.
     for column in ("update", "mean_score", "mean_wave", "mean_accuracy", "episodes"):
         assert column in rows[0], f"evals.csv has no {column} column"
 
@@ -216,10 +216,10 @@ def test_the_default_evaluator_is_the_published_held_out_benchmark() -> None:
 def test_every_rung_of_a_ladder_is_what_the_scripted_agent_scores_on_that_block(
     ladder: Ladder, seed_offset: int
 ) -> None:
-    # The console draws three lines per block and tells a learner which one it
+    # The trainer draws three lines per block and tells a learner which one it
     # has beaten; each rung is a promise about what `--skill <name>` actually
     # does on those seeds. A rung that has drifted from its agent is worse than
-    # no rung at all — the console would be measuring a run against a number
+    # no rung at all — the trainer would be measuring a run against a number
     # nothing in the project produces. The two blocks are checked separately
     # because they are genuinely different numbers, which is the entire reason
     # a score is only ever read against its own.
@@ -250,15 +250,15 @@ def test_every_rung_of_a_ladder_is_what_the_scripted_agent_scores_on_that_block(
 
 @needs_agent_eval
 def test_the_published_baseline_is_the_top_canonical_rung() -> None:
-    # Everything outside the console quotes one number. It has to keep being the
+    # Everything outside the trainer quotes one number. It has to keep being the
     # top of the canonical ladder, or the two would drift apart silently.
     assert CANONICAL_LADDER.rungs[-1].mean_score == CANONICAL_BASELINE_MEAN_SCORE
     assert CANONICAL_LADDER.rungs[-1].skill == "high"
 
 
 def test_a_run_records_what_it_was_started_with(trained_run: Path) -> None:
-    # Written by the trainer rather than the console, so a run started from a
-    # terminal has one too — which is what makes the console able to describe a
+    # Written by the trainer rather than the trainer, so a run started from a
+    # terminal has one too — which is what makes the trainer able to describe a
     # run it did not start.
     config = json.loads((trained_run / "config.json").read_text(encoding="utf-8"))
     # Both halves, because a run is only reproducible from the pair: what the
@@ -269,7 +269,7 @@ def test_a_run_records_what_it_was_started_with(trained_run: Path) -> None:
 
 
 def test_a_run_describes_the_network_it_is_training(trained_run: Path) -> None:
-    # The console cannot open a .pt without torch, so the trainer writes this
+    # The trainer cannot open a .pt without torch, so the trainer writes this
     # instead and the model panel reads it (md.modelcard).
     card = json.loads((trained_run / "model.json").read_text(encoding="utf-8"))
     assert card["parameters"] > 0
@@ -297,7 +297,7 @@ def test_a_run_drops_watchable_episodes(trained_run: Path) -> None:
 
 
 def test_a_run_publishes_the_cadence_it_is_evaluating_on(trained_run: Path) -> None:
-    # Published rather than merely obeyed: the console's eval box, and anyone
+    # Published rather than merely obeyed: the trainer's eval box, and anyone
     # with `cat`, has to be able to ask a running trainer what it is on — and a
     # value that only exists inside the process cannot be asked.
     published = json.loads((trained_run / TUNING_NAME).read_text(encoding="utf-8"))
@@ -368,9 +368,9 @@ def test_a_live_run_takes_a_new_eval_cadence_without_being_restarted(tmp_path: P
     assert scored[-1] == 60, "the run stopped scoring before its last update"
 
 
-def test_a_run_logs_itself_so_a_console_can_attach_later(trained_run: Path) -> None:
+def test_a_run_logs_itself_so_a_trainer_can_attach_later(trained_run: Path) -> None:
     # md.runlog: the trainer writes its own log, which is what gives a run
-    # started in a terminal a log pane in a console that never started it.
+    # started in a terminal a log pane in a trainer that never started it.
     log = (trained_run / "train.log").read_text(encoding="utf-8")
     assert "update" in log.lower()
 
@@ -456,7 +456,7 @@ def test_the_settings_of_a_run_can_be_read_back_without_opening_the_file(
 
 
 def test_a_run_prints_the_settings_it_resolved_to(trained_run: Path) -> None:
-    """In the log as well as the terminal, which is where the console reads it."""
+    """In the log as well as the terminal, which is where the trainer reads it."""
     log = (trained_run / "train.log").read_text(encoding="utf-8")
 
     assert f"envs={TINY_RUN['--envs']}" in log

@@ -29,7 +29,7 @@ PYPROJECT = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 def test_every_console_script_points_at_something_that_exists() -> None:
     """A renamed function turns into a `pip install` that produces a dead command."""
     scripts = PYPROJECT["project"]["scripts"]
-    assert set(scripts) == {"md-train", "md-console", "md-multiseed"}
+    assert set(scripts) == {"missile-defense-train", "missile-defense-trainer"}
     for name, target in scripts.items():
         module_name, _, attribute = target.partition(":")
         module = importlib.import_module(module_name)
@@ -63,7 +63,9 @@ def test_the_advice_for_a_missing_torch_is_advice_that_works_here() -> None:
     recipe = "python3 -m venv --system-site-packages"
 
     managed = explain_missing("torch", "torch", "Training", managed=True)
-    assert "md-console" in managed, "the packaged answer is the console's own installer"
+    assert "missile-defense-trainer" in managed, (
+        "the packaged answer is the trainer's own installer"
+    )
     assert recipe in managed
     assert DEBIAN_README in managed
     assert f"{sys.executable} -m pip install" not in managed, (
@@ -82,8 +84,8 @@ def test_the_debian_readme_the_message_points_at_is_shipped() -> None:
     which has no Python in it at all. The per-package spelling is what puts it
     where the command that names it can be run.
     """
-    readme = ROOT / "debian" / "missile-defense-training.README.Debian"
-    assert readme.is_file(), "md-train points at a file the package does not ship"
+    readme = ROOT / "debian" / "missile-defense-trainer.README.Debian"
+    assert readme.is_file(), "missile-defense-train points at a file the package does not ship"
     text = readme.read_text(encoding="utf-8")
     assert "--system-site-packages" in text, "the venv recipe lost the part that matters"
     assert "PEP 668" in text
@@ -101,9 +103,9 @@ def test_neither_heavy_half_is_a_hard_dependency() -> None:
 
     extras = PYPROJECT["project"]["optional-dependencies"]
     assert any("torch" in item for item in extras["train"])
-    assert any("PySide6" in item for item in extras["console"])
-    assert any("nvidia-ml-py" in item for item in extras["console"])
-    assert any(item.startswith("amdsmi;") for item in extras["console"])
+    assert any("PySide6" in item for item in extras["trainer"])
+    assert any("nvidia-ml-py" in item for item in extras["trainer"])
+    assert any(item.startswith("amdsmi;") for item in extras["trainer"])
 
 
 def test_the_extension_is_not_tied_to_the_interpreter_that_built_it() -> None:
@@ -146,7 +148,7 @@ def test_the_extension_is_installed_rather_than_left_in_the_build_tree() -> None
 
 
 # ---- the two products --------------------------------------------------------
-# The game and the training console are one source package and two different
+# The game and the training trainer are one source package and two different
 # products, and the negative half of that matters more than the positive one: the
 # promise is that installing the game brings no Python with it. These read the
 # packaging declarations, which is where that promise is actually kept or broken.
@@ -180,11 +182,11 @@ def _debian_stanzas() -> dict[str, dict[str, str]]:
 
 
 def test_debian_builds_three_binary_packages_from_one_source() -> None:
-    """The game, the Python half, and the console — separately installable."""
+    """The game, the Python half, and the trainer — separately installable."""
     assert set(_debian_stanzas()) == {
         "missile-defense",
         "python3-md",
-        "missile-defense-training",
+        "missile-defense-trainer",
     }
 
 
@@ -203,15 +205,15 @@ def test_the_game_package_pulls_in_no_python_at_all() -> None:
         assert forbidden not in relations, f"the game package relates to {forbidden}"
 
 
-def test_the_console_package_carries_the_dependencies_the_game_refuses() -> None:
-    """And it is the console that depends on the game, never the other way round."""
-    console = _debian_stanzas()["missile-defense-training"]
-    relations = f"{console.get('depends', '')} {console.get('recommends', '')}".lower()
-    assert "python3-md" in relations, "the console does not depend on the Python half"
-    assert "pyside6" in relations, "the console does not depend on PySide6"
+def test_the_trainer_package_carries_the_dependencies_the_game_refuses() -> None:
+    """And it is the trainer that depends on the game, never the other way round."""
+    trainer = _debian_stanzas()["missile-defense-trainer"]
+    relations = f"{trainer.get('depends', '')} {trainer.get('recommends', '')}".lower()
+    assert "python3-md" in relations, "the trainer does not depend on the Python half"
+    assert "pyside6" in relations, "the trainer does not depend on PySide6"
 
 
-def test_the_console_package_can_build_the_runtime_it_offers_to_build() -> None:
+def test_the_trainer_package_can_build_the_runtime_it_offers_to_build() -> None:
     """The install-a-runtime button shells out to `python3 -m venv`.
 
     Debian ships `venv` separately and `${python3:Depends}` does not pull it, so
@@ -220,9 +222,9 @@ def test_the_console_package_can_build_the_runtime_it_offers_to_build() -> None:
     both ends — the declaration and the code that needs it — because either one
     moving alone is the bug.
     """
-    console = _debian_stanzas()["missile-defense-training"]
-    assert "python3-venv" in console.get("depends", ""), (
-        "the console offers to build a virtualenv without depending on venv"
+    trainer = _debian_stanzas()["missile-defense-trainer"]
+    assert "python3-venv" in trainer.get("depends", ""), (
+        "the trainer offers to build a virtualenv without depending on venv"
     )
     assert '"-m", "venv"' in (ROOT / "python" / "md" / "runtime.py").read_text(encoding="utf-8")
 
@@ -231,17 +233,17 @@ def test_each_package_installs_a_disjoint_set_of_paths() -> None:
     """Two products cannot both own a file, and dpkg refuses if they try."""
     manifests = {
         name: set((ROOT / "debian" / f"{name}.install").read_text(encoding="utf-8").split())
-        for name in ("python3-md", "missile-defense-training")
+        for name in ("python3-md", "missile-defense-trainer")
     }
-    assert not manifests["python3-md"] & manifests["missile-defense-training"]
-    # The console's entry point and its menu entry, which are what make it
+    assert not manifests["python3-md"] & manifests["missile-defense-trainer"]
+    # The trainer's entry point and its menu entry, which are what make it
     # reachable from an install rather than only from a checkout.
-    console = " ".join(manifests["missile-defense-training"])
-    assert "md-console" in console
-    assert "missile-defense-training.desktop" in console
+    trainer = " ".join(manifests["missile-defense-trainer"])
+    assert "missile-defense-trainer" in trainer
+    assert "missile-defense-trainer.desktop" in trainer
 
 
-def test_every_platform_has_a_way_to_launch_the_installed_console() -> None:
+def test_every_platform_has_a_way_to_launch_the_installed_trainer() -> None:
     """Three launchers, because three platforms answer "where is `md`?" differently.
 
     Linux hands the package to an interpreter the distribution owns, so a bare
@@ -250,13 +252,13 @@ def test_every_platform_has_a_way_to_launch_the_installed_console() -> None:
     where the payload went, so both launchers have to set the import path
     themselves — from their own location, which is the only thing they know.
 
-    A launcher that forgets is a console that starts and cannot import itself,
+    A launcher that forgets is a trainer that starts and cannot import itself,
     and that is invisible until someone installs it.
     """
     templates = {
         "launcher.in": "@MD_LAUNCHER_PYTHON@ -m @MD_LAUNCHER_MODULE@",
         "launcher.cmd.in": "%~dp0",
-        "console-bundle-launcher.in": "$here/../Resources",
+        "trainer-bundle-launcher.in": "$here/../Resources",
     }
     for name, marker in templates.items():
         text = (ROOT / "packaging" / name).read_text(encoding="utf-8")
@@ -264,7 +266,7 @@ def test_every_platform_has_a_way_to_launch_the_installed_console() -> None:
         assert "@MD_LAUNCHER_MODULE@" in text, f"{name} does not name a module to run"
     # The two that ship outside a distribution's control must not assume the
     # interpreter can already find `md`.
-    for name in ("launcher.cmd.in", "console-bundle-launcher.in"):
+    for name in ("launcher.cmd.in", "trainer-bundle-launcher.in"):
         assert "PYTHONPATH" in (ROOT / "packaging" / name).read_text(encoding="utf-8")
 
 
@@ -275,42 +277,42 @@ def test_the_launchers_that_follow_a_users_python_check_it_first() -> None:
     missing one with a Microsoft Store alias that returns 9009; macOS answers it
     from the Finder with no terminal at all, so the bundle bounces once and
     quits. Neither is a message, and both are somebody's first impression of a
-    console they just installed. The Linux launcher is deliberately exempt: its
+    trainer they just installed. The Linux launcher is deliberately exempt: its
     package depends on the interpreter, so absence is not a state it can be in.
     """
-    for name in ("launcher.cmd.in", "console-bundle-launcher.in"):
+    for name in ("launcher.cmd.in", "trainer-bundle-launcher.in"):
         text = (ROOT / "packaging" / name).read_text(encoding="utf-8")
         assert "version_info >= (3, 11)" in text, f"{name} execs a Python it never checked"
         assert "pip install PySide6" in text, f"{name} does not say what would fix it"
-    # And it has to *say* it where the failure happens: a console window that
+    # And it has to *say* it where the failure happens: a trainer window that
     # closes on exit, or a Finder launch that has no console at all.
     assert "pause" in (ROOT / "packaging" / "launcher.cmd.in").read_text(encoding="utf-8")
-    assert "osascript" in (ROOT / "packaging" / "console-bundle-launcher.in").read_text(
+    assert "osascript" in (ROOT / "packaging" / "trainer-bundle-launcher.in").read_text(
         encoding="utf-8"
     )
 
 
-def test_the_macos_console_is_a_separate_application() -> None:
+def test_the_macos_trainer_is_a_separate_application() -> None:
     """A second `.app` in the disk image, and distinguishable from the game.
 
     The DMG has no checkboxes — the choice is which icon you drag — so "the
-    console is optional on macOS" is only true if it is genuinely a second
+    trainer is optional on macOS" is only true if it is genuinely a second
     application. Sharing the game's bundle identifier would make macOS treat
     them as one, which is the failure this guards against.
     """
-    console = (ROOT / "packaging" / "console.Info.plist.in").read_text(encoding="utf-8")
+    trainer = (ROOT / "packaging" / "trainer.Info.plist.in").read_text(encoding="utf-8")
     game = (ROOT / "app" / "Info.plist.in").read_text(encoding="utf-8")
-    assert "de.koehler-speyer.missile-defense-training" in console
+    assert "de.koehler-speyer.missile-defense-trainer" in trainer
     assert "@MACOSX_BUNDLE_GUI_IDENTIFIER@" in game  # the game's is set from CMake
-    assert "developer-tools" in console, "the console is filed as a game"
+    assert "developer-tools" in trainer, "the trainer is filed as a game"
     assert "arcade-games" in game
     # Without these two the bundle is a folder with a script in it: the Finder
     # will not launch it, and it never becomes a foreground GUI process.
-    assert "CFBundleExecutable" in console
-    assert "NSPrincipalClass" in console
+    assert "CFBundleExecutable" in trainer
+    assert "NSPrincipalClass" in trainer
 
 
-def test_the_installer_offers_the_console_without_preselecting_it() -> None:
+def test_the_installer_offers_the_trainer_without_preselecting_it() -> None:
     """The Windows half of the same promise, read off the CPack declaration.
 
     `game` is required and `python` is offered unticked, so someone who came for
@@ -326,7 +328,7 @@ def test_the_installer_offers_the_console_without_preselecting_it() -> None:
     assert app_cmake.count("COMPONENT game") >= 8
 
 
-def test_a_bundled_model_would_ship_with_the_game_and_not_with_the_console() -> None:
+def test_a_bundled_model_would_ship_with_the_game_and_not_with_the_trainer() -> None:
     """The agent is `game`, not `python`, and that is the whole point.
 
     A `.mdp` is data (docs/API.md §7) and `md::agent::Policy` reads it natively,
@@ -348,10 +350,10 @@ def test_a_bundled_model_would_ship_with_the_game_and_not_with_the_console() -> 
     assert "if(MD_MODELS)" in block
 
 
-def test_the_console_has_a_desktop_entry_of_its_own() -> None:
+def test_the_trainer_has_a_desktop_entry_of_its_own() -> None:
     """A separate product gets a separate launcher, or it is not discoverable."""
-    entry = (ROOT / "packaging" / "missile-defense-training.desktop").read_text(encoding="utf-8")
-    assert "Exec=md-console" in entry
+    entry = (ROOT / "packaging" / "missile-defense-trainer.desktop").read_text(encoding="utf-8")
+    assert "Exec=missile-defense-trainer" in entry
     # Not a game: it belongs in the development/science menu, not beside the
     # arcade cabinet, or someone looking for the game finds two of them.
     categories = next(line for line in entry.splitlines() if line.startswith("Categories="))

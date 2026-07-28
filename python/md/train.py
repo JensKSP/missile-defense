@@ -31,7 +31,7 @@ interpretable rather than just a number going up:
   away. Killing the process instead throws away everything since the last
   checkpoint. The eval cadence is changeable the same way, through
   ``runs/TUNING.json``, because how often you want the yardstick is a judgement
-  made while watching. See :mod:`md.control` — the training console's buttons and
+  made while watching. See :mod:`md.control` — the training trainer's buttons and
   its eval-interval box write exactly these files, and nothing else.
 Where ``runs/`` is depends on where you are: the directory beside you in a
 checkout, and the per-user data directory once this is installed from a package.
@@ -131,7 +131,7 @@ class TrainConfig:
     #: Score the policy on the fixed validation seeds this often (0 disables).
     #: An eval costs most of an update early on and rather more once episodes
     #: run long, so this is the knob a run changes mid-flight: it is published to
-    #: TUNING.json in the run directory and re-read every update, by the console
+    #: TUNING.json in the run directory and re-read every update, by the trainer
     #: or by `echo '{"eval_every": 25}' > runs/TUNING.json` (see md.control).
     eval_every: int = 10
     #: Where the evaluation gap reaches `eval_every`. Before it, evaluations are
@@ -240,7 +240,7 @@ def train(
     # sharpest teeth: `waste_penalty` and `multikill_bonus` are not
     # potential-based, so unlike everything in `phi` they genuinely change what
     # the policy converges to (see `Shaping`). Passing them in rather than
-    # constructing them here is what lets the console offer them at all.
+    # constructing them here is what lets the trainer offer them at all.
     shaping = shaping or Shaping()
     device = _device(config.device)
     torch.manual_seed(config.seed)
@@ -348,7 +348,7 @@ def train(
     # last one must not kill this one before its first update.
     control = Control(out_dir)
     control.clear()
-    # Say who is running this, so the console can answer "is it going?" by asking
+    # Say who is running this, so the trainer can answer "is it going?" by asking
     # the operating system rather than by timing how long ago a file was touched.
     control.claim()
     # And what it is *using*, for the settings it will keep re-reading. Published
@@ -357,7 +357,7 @@ def train(
     control.publish_tuning({"eval_every": config.eval_every})
     payload = _config_payload(config, ppo, schedule, out_dir, shaping)
     _write_config(out_dir / runconfig.FILENAME, config, ppo, schedule, out_dir, shaping)
-    # Beside it, what the run is *training* — the console reads this rather than
+    # Beside it, what the run is *training* — the trainer reads this rather than
     # a checkpoint, because opening one needs torch and it must never import it
     # (docs/ROADMAP.md, M8, risk 3). Written once: within a run the shapes never
     # change, and the iteration is already in each checkpoint's name.
@@ -380,7 +380,7 @@ def train(
     # Every knob this run resolved to, on the way past. Two reasons it is printed
     # and not only written: a terminal is where a mistyped flag is caught, in the
     # first second rather than the third hour — and this goes through the run's
-    # own log (md.runlog), so the console's log pane answers "what is this run
+    # own log (md.runlog), so the trainer's log pane answers "what is this run
     # actually doing?" for a run it never started.
     for line in runconfig.describe(payload):
         print(line)
@@ -391,7 +391,7 @@ def train(
     print(
         f"  evaluating every {config.eval_every} updates{_ramp_note(config.eval_ramp_until)}"
         f" — change it while the run "
-        f"goes in the console, or in {control.tuning_file}"
+        f"goes in the trainer, or in {control.tuning_file}"
     )
 
     #: What the loop is scoring on now, so a change to the tuning file is worth a
@@ -496,7 +496,7 @@ def train(
             if env.save_recording(0, path, update=iteration, label=f"UPDATE {iteration}"):
                 print(f"  recorded {path}")
 
-        # Read once per update, from the file the console writes. How often you
+        # Read once per update, from the file the trainer writes. How often you
         # want the yardstick is a judgement made *while* watching — often early,
         # when the policy changes shape every few updates, and rarely later, when
         # an eval plays sixteen full-length episodes to say what the last one
@@ -648,12 +648,12 @@ def _write_config(
     """Record what produced this run, beside what it produced.
 
     Six months later the checkpoints are still there and the shell history is
-    not. Written on every run, not only the ones a console starts, because the
+    not. Written on every run, not only the ones a trainer starts, because the
     question "what were the settings" is asked of whichever run turned out to be
     interesting. The *resolved* output directory is recorded rather than the
     ``None`` that asked for it, so the file says where the run actually went.
 
-    :mod:`md.runconfig` reads it back — for the console's parameter view, and to
+    :mod:`md.runconfig` reads it back — for the trainer's parameter view, and to
     fill in what a ``--resume`` should inherit.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1780,7 +1780,7 @@ def main(argv: list[str] | None = None) -> int:
         resume=carry.checkpoint if carry is not None else None,
     )
     # A copy of everything below goes to runs/train.log as well as the terminal.
-    # That is what lets the console show a log pane for a run it did not start
+    # That is what lets the trainer show a log pane for a run it did not start
     # — the case the whole out-of-process design exists for (md.runlog).
     ppo = PPOConfig(**({**carry.ppo, **given} if carry is not None else given))
     shaping = Shaping(**({**carry.shaping, **weights} if carry is not None else weights))

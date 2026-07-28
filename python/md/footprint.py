@@ -42,7 +42,7 @@ from __future__ import annotations
 
 #: Floats in one observation, and legal actions in one mask. Fixed by the game's
 #: `Config`, and asserted against the real environment by the native tests —
-#: this module cannot import `md.env` to ask, because an installed console has
+#: this module cannot import `md.env` to ask, because an installed trainer has
 #: the trainer's source but not always its compiled binding.
 OBSERVATION_FLOATS = 1959
 ACTION_COUNT = 385

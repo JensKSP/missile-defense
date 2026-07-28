@@ -4,7 +4,7 @@
 """Fixtures shared by the e2e suite.
 
 The expensive one is :func:`trained_run`, and it is session-scoped on purpose: a
-real training run is the input to most of what follows — the console has to have
+real training run is the input to most of what follows — the trainer has to have
 something to attach to, and the replay tests need a recording that an actual
 trainer wrote — but running one per test would turn minutes into an hour.
 """
@@ -42,7 +42,7 @@ def qt_app() -> Iterator[object]:
 
     Offscreen rather than a virtual X server, because Qt Widgets needs no
     graphics device — only the game does, and only because it is Vulkan. So the
-    console tests run invisibly anywhere, with nothing to install.
+    trainer tests run invisibly anywhere, with nothing to install.
     """
     pytest.importorskip("PySide6", reason="PySide6 is not installed")
     os.environ["QT_QPA_PLATFORM"] = "offscreen"

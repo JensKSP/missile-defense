@@ -8,7 +8,7 @@ people use a handful of *combinations* of them: one to check the machinery
 turns over, one they trust, one they leave going overnight. Naming those is the
 difference between "what did I set last time?" and picking a name.
 
-Three come with the console, and their values are not invented:
+Three come with the trainer, and their values are not invented:
 
 * **fast** is the throughput configuration from `docs/NVIDIA.md` — the batch
   size at which the card saturates — over a short horizon. It is for watching
@@ -27,19 +27,19 @@ Three come with the console, and their values are not invented:
   of this preset did, and ran out of memory on a 32 GiB card before the first
   update finished: on the relational architecture peak memory follows the
   minibatch, not the batch (:mod:`md.footprint`). Every built-in is now checked
-  against that model by a test, and the console shows the estimate before a run
+  against that model by a test, and the trainer shows the estimate before a run
   starts.
 
 The built-ins cannot be edited or deleted, and a saved preset cannot take one of
 their names. That is not tidiness — the names appear in this file's
 documentation and in `docs/TRAINING.md`, so "good" has to keep meaning what is
-written there. Copy one under a new name and change that instead; the console's
+written there. Copy one under a new name and change that instead; the trainer's
 *Save as…* does exactly this.
 
 Values are stored the way the Start dialog produces them and the way the command
 line consumes them: field name to string, with only the fields that differ from
 the trainer's own defaults. So a preset is always readable as flags, and the
-console never becomes the only way to start the run it describes
+trainer never becomes the only way to start the run it describes
 (`docs/ROADMAP.md`, M8).
 """
 
@@ -70,7 +70,7 @@ class Preset:
     #: fields that differ from the trainer's defaults; everything absent is
     #: deliberately left to the dataclass.
     options: Mapping[str, str]
-    #: Ships with the console: read-only, and its name is reserved.
+    #: Ships with the trainer: read-only, and its name is reserved.
     builtin: bool = False
 
     def as_record(self) -> dict[str, object]:
@@ -284,7 +284,7 @@ def delete(name: str, path: Path | None = None) -> None:
 
     cleaned = normalise(name)
     if cleaned in BUILTIN_NAMES:
-        raise PresetError(f"'{cleaned}' ships with the console and cannot be deleted")
+        raise PresetError(f"'{cleaned}' ships with the trainer and cannot be deleted")
     kept = [existing for existing in user_presets(path) if existing.name != cleaned]
     if len(kept) == len(user_presets(path)):
         raise PresetError(f"no saved preset called '{cleaned}'")
@@ -292,7 +292,7 @@ def delete(name: str, path: Path | None = None) -> None:
 
 
 def _write(presets: Iterable[Preset], path: Path | None) -> None:
-    """Replace the file atomically — the console may be reading it to draw a list.
+    """Replace the file atomically — the trainer may be reading it to draw a list.
 
     Indented and newline-terminated because this file is meant to be opened in
     an editor and copied between machines.

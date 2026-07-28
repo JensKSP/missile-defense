@@ -10,7 +10,7 @@ but cannot *act in* — a table you can Tab to and not open — and focus that i
 styled away, so a person navigating by Tab has no idea where they are.
 
 The game half is a state machine over key events and is checked by driving it.
-The console half is Qt, where the two things to get wrong are activation
+The trainer half is Qt, where the two things to get wrong are activation
 signals and a stylesheet that quietly replaces the platform focus ring with
 nothing.
 """
@@ -109,10 +109,10 @@ def test_escape_leaves_a_run_without_touching_the_back_button(
     qt_app: object,  # noqa: ARG001 — the QApplication has to exist
     tmp_path: Path,
 ) -> None:
-    # The console's one navigation, previously reachable only by clicking a
+    # The trainer's one navigation, previously reachable only by clicking a
     # button in the corner. Escape is what every other back control in both
     # binaries answers to, including all eleven of the game's screens.
-    from md.ui.app import Console
+    from md.ui.app import Trainer
     from PySide6.QtCore import Qt
     from PySide6.QtGui import QKeyEvent
 
@@ -120,7 +120,7 @@ def test_escape_leaves_a_run_without_touching_the_back_button(
     run.mkdir(parents=True)
     (run / "metrics.csv").write_text("update,mean_return\n1,0.5\n", encoding="utf-8")
 
-    window = Console(tmp_path / "runs")
+    window = Trainer(tmp_path / "runs")
     try:
         window._open_run(run)
         assert window._pages.currentIndex() == 1

@@ -142,7 +142,7 @@ turns into a pass. They prefer the release build for that reason.
 `poe shot` still asks for `QT_QPA_PLATFORM=xcb`, because a Wayland client cannot
 have its window grabbed by another process. That is the only place in the tree
 that pins a platform, and `tools/capture.py` states the requirement where it
-belongs. `poe app` and the ML console impose nothing.
+belongs. `poe app` and the ML trainer impose nothing.
 
 ## If you want the old behaviour
 

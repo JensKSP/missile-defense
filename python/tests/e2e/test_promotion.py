@@ -29,7 +29,7 @@ pytestmark = [pytest.mark.e2e, needs_torch, needs_native]
 
 @pytest.fixture
 def promoted(trained_run: Path, tmp_path: Path):  # noqa: ANN201 — md.league.Model
-    """A real run, promoted the way the console promotes one."""
+    """A real run, promoted the way the trainer promotes one."""
     from md import league, library  # noqa: PLC0415 — optional dependency
 
     run = library.load_run(trained_run)

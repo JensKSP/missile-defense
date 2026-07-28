@@ -22,7 +22,7 @@ answer rather than a zero:
   would hide the most alarming thing a run can tell you.
 
 Everything is a pure function of rows the tail already parsed, so the numbers on
-the most-read screen in the console are covered by pytest rather than by eye.
+the most-read screen in the trainer are covered by pytest rather than by eye.
 """
 
 from __future__ import annotations

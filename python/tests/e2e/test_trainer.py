@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Jens Köhler
 # Assisted-by: Claude Code (Anthropic)
-"""The console, built for real against a real run directory.
+"""The trainer, built for real against a real run directory.
 
 Offscreen throughout, so nothing appears on anyone's screen: Qt Widgets needs no
 graphics device — only the game does, and only because it is Vulkan.
@@ -10,7 +10,7 @@ What these add over the existing `test_ui_*` tests is the window itself. Those
 cover the Qt-free halves (`sources`, `runner`, `params`) thoroughly and cannot
 touch the part where a `QMainWindow` is constructed, wired to a directory, and
 ticked. Every panel being fed from files a *different process* wrote is the claim
-here, and the failure mode it guards against — a console that starts and shows
+here, and the failure mode it guards against — a trainer that starts and shows
 empty panels next to a run full of data — is invisible to both halves separately.
 """
 
@@ -45,11 +45,11 @@ pytestmark = [pytest.mark.e2e, needs_qt]
 
 
 @pytest.fixture
-def console(qt_app: object, trained_run: Path):  # noqa: ANN201 — PySide6 is optional
-    """A real console window attached to a finished run."""
-    from md.ui.app import Console  # noqa: PLC0415 — optional dependency
+def trainer(qt_app: object, trained_run: Path):  # noqa: ANN201 — PySide6 is optional
+    """A real trainer window attached to a finished run."""
+    from md.ui.app import Trainer  # noqa: PLC0415 — optional dependency
 
-    window = Console(trained_run)
+    window = Trainer(trained_run)
     window.resize(1280, 800)
     yield window
     window.close()
@@ -57,29 +57,29 @@ def console(qt_app: object, trained_run: Path):  # noqa: ANN201 — PySide6 is o
 
 @needs_torch
 @needs_native
-def test_the_console_opens_on_a_run_and_shows_its_curves(console) -> None:  # noqa: ANN001
-    console._tick()
+def test_the_trainer_opens_on_a_run_and_shows_its_curves(trainer) -> None:  # noqa: ANN001
+    trainer._tick()
     # One update counted per row of metrics.csv. An empty window next to a run
     # full of data is the failure this whole file exists to catch, and it is
     # invisible to the Qt-free tests because they never build the window.
-    assert console._updates > 0
+    assert trainer._updates > 0
 
 
 @needs_torch
 @needs_native
-def test_the_console_lists_the_episodes_it_could_play(console) -> None:  # noqa: ANN001
-    console._tick()
-    assert console._list.count() > 0
+def test_the_trainer_lists_the_episodes_it_could_play(trainer) -> None:  # noqa: ANN001
+    trainer._tick()
+    assert trainer._list.count() > 0
 
 
 @needs_torch
 @needs_native
-def test_the_console_describes_the_model_that_was_trained(console) -> None:  # noqa: ANN001
-    console._tick()
+def test_the_trainer_describes_the_model_that_was_trained(trainer) -> None:  # noqa: ANN001
+    trainer._tick()
     # ModelPanel keeps what it last painted; a run with a model.json must have
     # made it paint something other than its empty state.
-    assert console._model._shown is not None
-    assert console._model._headline.text()
+    assert trainer._model._shown is not None
+    assert trainer._model._headline.text()
 
 
 @needs_torch
@@ -88,7 +88,7 @@ def test_a_run_with_no_marker_is_live_while_its_files_are_moving(
     qt_app: object, trained_run: Path, tmp_path: Path
 ) -> None:
     # The timestamp fallback, and the one case still left for it: a run written
-    # by a trainer old enough not to leave a `RUNNING` marker. There the console
+    # by a trainer old enough not to leave a `RUNNING` marker. There the trainer
     # has nothing but how long ago metrics.csv moved, and a run that wrote a
     # moment ago is live — guessing "stopped" would take Pause and Stop away
     # from a run that is still going.
@@ -101,7 +101,7 @@ def test_a_run_with_no_marker_is_live_while_its_files_are_moving(
     # read straight it also asked how fast this suite happens to be, since
     # `LIVE_AFTER_S` is ninety seconds and app-e2e takes five minutes.
     from md.control import RUNNING_NAME  # noqa: PLC0415
-    from md.ui.app import Console  # noqa: PLC0415
+    from md.ui.app import Trainer  # noqa: PLC0415
 
     fresh = tmp_path / "fresh"
     shutil.copytree(trained_run, fresh)
@@ -110,7 +110,7 @@ def test_a_run_with_no_marker_is_live_while_its_files_are_moving(
     for name in ("metrics.csv", "evals.csv"):
         os.utime(fresh / name, (now, now))
 
-    window = Console(fresh)
+    window = Trainer(fresh)
     try:
         window._tick()
         assert window._stop.isEnabled()
@@ -129,7 +129,7 @@ def test_a_finished_run_reads_as_idle_however_fresh_its_files_are(
     # timestamp alone would call it live for another ninety seconds and offer
     # Pause and Stop for a process that has exited.
     from md.control import RUNNING_NAME  # noqa: PLC0415
-    from md.ui.app import Console  # noqa: PLC0415
+    from md.ui.app import Trainer  # noqa: PLC0415
 
     finished = tmp_path / "finished"
     shutil.copytree(trained_run, finished)
@@ -138,7 +138,7 @@ def test_a_finished_run_reads_as_idle_however_fresh_its_files_are(
     for name in ("metrics.csv", "evals.csv"):
         os.utime(finished / name, (now, now))
 
-    window = Console(finished)
+    window = Trainer(finished)
     try:
         window._tick()
         assert window._updates > 0, "the rows were still read"
@@ -155,7 +155,7 @@ def test_a_run_that_has_gone_quiet_reads_as_idle(
     # The other side of the same rule, and the reason it is a timeout rather than
     # a flag: nothing writes "this run is over" to the directory, so silence is
     # the only signal there is.
-    from md.ui.app import LIVE_AFTER_S, Console  # noqa: PLC0415
+    from md.ui.app import LIVE_AFTER_S, Trainer  # noqa: PLC0415
 
     quiet = tmp_path / "quiet"
     quiet.mkdir()
@@ -164,7 +164,7 @@ def test_a_run_that_has_gone_quiet_reads_as_idle(
         shutil.copy(trained_run / name, quiet / name)
         os.utime(quiet / name, (stale, stale))
 
-    window = Console(quiet)
+    window = Trainer(quiet)
     try:
         window._tick()
         assert window._updates > 0, "the rows were still read"
@@ -174,13 +174,13 @@ def test_a_run_that_has_gone_quiet_reads_as_idle(
         window.close()
 
 
-def test_the_console_on_an_empty_directory_explains_itself(qt_app: object, tmp_path: Path) -> None:
+def test_the_trainer_on_an_empty_directory_explains_itself(qt_app: object, tmp_path: Path) -> None:
     # Empty states are part of the design (docs/ROADMAP.md, M8): a fresh
     # directory must say what is missing and what would fill it, not show a
     # blank panel or a zeroed meter.
-    from md.ui.app import Console  # noqa: PLC0415
+    from md.ui.app import Trainer  # noqa: PLC0415
 
-    window = Console(tmp_path)
+    window = Trainer(tmp_path)
     try:
         window._tick()
         message = window.statusBar().currentMessage()
@@ -190,18 +190,18 @@ def test_the_console_on_an_empty_directory_explains_itself(qt_app: object, tmp_p
         window.close()
 
 
-def test_the_console_says_which_build_it_is_and_what_it_runs_on(
+def test_the_trainer_says_which_build_it_is_and_what_it_runs_on(
     qt_app: object, tmp_path: Path
 ) -> None:
     # Two claims a released application has to make from inside itself. The
-    # version, because a bug report without one is unusable and the console is
+    # version, because a bug report without one is unusable and the trainer is
     # usually installed from a package rather than a checkout. And the notice,
     # because this MIT program runs on LGPL-3.0 libraries and the user should
     # not have to find a file in a repository to be told so.
     import md  # noqa: PLC0415
-    from md.ui.app import Console  # noqa: PLC0415
+    from md.ui.app import Trainer  # noqa: PLC0415
 
-    window = Console(tmp_path)
+    window = Trainer(tmp_path)
     try:
         assert window._about.text() == f"v{md.__version__}"
         shown = window._about_text()
@@ -215,19 +215,19 @@ def test_the_console_says_which_build_it_is_and_what_it_runs_on(
         window.close()
 
 
-def test_the_eval_slider_drives_a_run_this_console_never_started(
+def test_the_eval_slider_drives_a_run_this_trainer_never_started(
     qt_app: object, tmp_path: Path
 ) -> None:
-    # The console is a convenience over the files, never the only way in: it
+    # The trainer is a convenience over the files, never the only way in: it
     # reads what a trainer published and writes back the same file a terminal
     # would `echo` into. Nothing about this widget knows which process is
     # training, which is exactly why it works on a run started elsewhere.
     from md.control import Control  # noqa: PLC0415
-    from md.ui.app import Console  # noqa: PLC0415
+    from md.ui.app import Trainer  # noqa: PLC0415
 
     control = Control(tmp_path)
     control.publish_tuning({"eval_every": 50})  # what a starting run does
-    window = Console(tmp_path)
+    window = Trainer(tmp_path)
     try:
         window._tick()
         assert window._eval_every.isEnabled()
@@ -252,10 +252,10 @@ def test_the_eval_slider_shows_an_interval_that_is_not_one_of_its_stops(
     # A run started with --eval-every 30 is on 30, and a handle snapped to the
     # nearest stop would be describing it wrongly. The scale gains a stop.
     from md.control import Control  # noqa: PLC0415
-    from md.ui.app import Console  # noqa: PLC0415
+    from md.ui.app import Trainer  # noqa: PLC0415
 
     Control(tmp_path).publish_tuning({"eval_every": 30})
-    window = Console(tmp_path)
+    window = Trainer(tmp_path)
     try:
         window._tick()
         assert window._eval_shown() == 30
@@ -270,14 +270,14 @@ def test_the_eval_slider_greys_out_when_no_run_publishes_one(
     # A directory with no run in it, or a run started before this existed. A
     # control that happily wrote a file nothing reads would be worse than a dead
     # one, and worse still if it left that file behind for the next run.
-    from md.ui.app import EVAL_EVERY_UNPUBLISHED, Console  # noqa: PLC0415
+    from md.ui.app import EVAL_EVERY_UNPUBLISHED, Trainer  # noqa: PLC0415
 
-    window = Console(tmp_path)
+    window = Trainer(tmp_path)
     try:
         window._tick()
         assert not window._eval_every.isEnabled()
         assert window._eval_every.toolTip() == EVAL_EVERY_UNPUBLISHED
-        assert not (tmp_path / "TUNING.json").exists(), "the console invented a tuning file"
+        assert not (tmp_path / "TUNING.json").exists(), "the trainer invented a tuning file"
     finally:
         window.close()
 
@@ -308,7 +308,7 @@ def test_a_new_run_starts_the_tiles_at_nothing_notes_included(
     # A tile's *note* is the line that describes one particular measurement, so
     # it is the one that goes stale. "—" over "262,144,000 samples" reads as a
     # fresh run that has somehow already seen a quarter of a billion samples.
-    from md.ui.app import Console  # noqa: PLC0415
+    from md.ui.app import Trainer  # noqa: PLC0415
 
     first = tmp_path / "first"
     first.mkdir()
@@ -318,7 +318,7 @@ def test_a_new_run_starts_the_tiles_at_nothing_notes_included(
     (first / "evals.csv").write_text(
         EVALS_HEADER + _canonical_eval(500, CANONICAL_BASELINE_MEAN_SCORE + 100), encoding="utf-8"
     )
-    window = Console(first)
+    window = Trainer(first)
     try:
         window._tick()
         assert window._tile_update._value.text() == "500"
@@ -355,7 +355,7 @@ def test_a_new_run_starts_the_tiles_at_nothing_notes_included(
 def test_a_protocol_change_starts_a_new_score_curve_and_controls_the_ladder(
     qt_app: object, tmp_path: Path
 ) -> None:
-    from md.ui.app import Console  # noqa: PLC0415
+    from md.ui.app import Trainer  # noqa: PLC0415
 
     path = tmp_path / "evals.csv"
     header = (
@@ -367,7 +367,7 @@ def test_a_protocol_change_starts_a_new_score_curve_and_controls_the_ladder(
         f"{SEEDS_PER_SPLIT},4,120000,cpu,{CANONICAL_AIM_TRAIL},{CANONICAL_REACTION_DELAY}\n",
         encoding="utf-8",
     )
-    window = Console(tmp_path)
+    window = Trainer(tmp_path)
     try:
         window._tick()
         assert window._score._count == 1
@@ -407,7 +407,7 @@ def test_a_protocol_nothing_was_measured_under_gets_no_ladder(
     # Frame skip 1 is a different game — the agent reacts four times as often —
     # so no rung on either block applies, and a chart that drew one anyway would
     # be comparing two different measurements.
-    from md.ui.app import Console  # noqa: PLC0415
+    from md.ui.app import Trainer  # noqa: PLC0415
 
     (tmp_path / "evals.csv").write_text(
         "update,mean_score,seed_split,seed_offset,seed_count,frame_skip,"
@@ -416,7 +416,7 @@ def test_a_protocol_nothing_was_measured_under_gets_no_ladder(
         f"1,{CANONICAL_MAX_TICKS},cuda\n",
         encoding="utf-8",
     )
-    window = Console(tmp_path)
+    window = Trainer(tmp_path)
     try:
         window._tick()
         assert window._score._count == 1
@@ -429,7 +429,7 @@ def test_a_protocol_nothing_was_measured_under_gets_no_ladder(
 
 
 def test_comparison_scores_wait_for_the_primary_protocol(qt_app: object, tmp_path: Path) -> None:
-    from md.ui.app import Console  # noqa: PLC0415
+    from md.ui.app import Trainer  # noqa: PLC0415
 
     primary = tmp_path / "primary"
     comparison = tmp_path / "comparison"
@@ -445,7 +445,7 @@ def test_comparison_scores_wait_for_the_primary_protocol(qt_app: object, tmp_pat
         encoding="utf-8",
     )
 
-    window = Console(primary)
+    window = Trainer(primary)
     try:
         window._compare_with(comparison)
         window._tick()
@@ -463,7 +463,7 @@ def test_comparison_scores_wait_for_the_primary_protocol(qt_app: object, tmp_pat
 
 
 def test_the_setup_dialog_offers_only_builds_this_platform_has(qt_app: object) -> None:
-    # The console's answer to "I have no torch". Built for real; nothing is
+    # The trainer's answer to "I have no torch". Built for real; nothing is
     # installed, because the install itself is covered by test_runtime.py against
     # a fake runner and does not need several gigabytes to be exercised again.
     from md import runtime  # noqa: PLC0415
@@ -478,7 +478,7 @@ def test_the_setup_dialog_offers_only_builds_this_platform_has(qt_app: object) -
         dialog.close()
 
 
-def test_the_run_a_console_would_start_is_a_command_you_could_type(
+def test_the_run_a_trainer_would_start_is_a_command_you_could_type(
     qt_app: object, tmp_path: Path
 ) -> None:
     # The parameter dialog teaches the CLI rather than replacing it, so the
@@ -585,13 +585,13 @@ def test_the_update_tile_says_how_fast_it_is_going_and_how_long_is_left(
     qt_app: object, tmp_path: Path
 ) -> None:
     # "Is the GPU actually being used?" was unanswerable from this window: the
-    # trainer prints steps/s every update and the console kept it to itself,
+    # trainer prints steps/s every update and the trainer kept it to itself,
     # leaving a samples counter as the only sign of life. 42k steps/s is a
     # saturated 5090 on the relational architecture — ten times slower than the
     # flat one, and that difference is what looks like an idle card.
     import json  # noqa: PLC0415
 
-    from md.ui.app import Console  # noqa: PLC0415
+    from md.ui.app import Trainer  # noqa: PLC0415
 
     (tmp_path / "config.json").write_text(
         json.dumps({"train": {"updates": 4000, "resume": None}}), encoding="utf-8"
@@ -602,7 +602,7 @@ def test_the_update_tile_says_how_fast_it_is_going_and_how_long_is_left(
         + "2,2097152,54.0783,1.8301,-0.000491,12.290598,0.0047,38894.0\n",
         encoding="utf-8",
     )
-    window = Console(tmp_path)
+    window = Trainer(tmp_path)
     try:
         window._tick()
         note = window._tile_update._note.text()
@@ -623,7 +623,7 @@ def test_a_run_that_cannot_know_its_horizon_still_says_how_fast_it_is_going(
     # left" on a run with a day to go is not.
     import json  # noqa: PLC0415
 
-    from md.ui.app import Console  # noqa: PLC0415
+    from md.ui.app import Trainer  # noqa: PLC0415
 
     (tmp_path / "config.json").write_text(
         json.dumps({"train": {"updates": 4000, "resume": "checkpoints/policy-final.pt"}}),
@@ -633,7 +633,7 @@ def test_a_run_that_cannot_know_its_horizon_still_says_how_fast_it_is_going(
         METRICS_HEADER + "812,212860928,54.0783,1.83,-0.0004,12.29,0.0047,38894.0\n",
         encoding="utf-8",
     )
-    window = Console(tmp_path)
+    window = Trainer(tmp_path)
     try:
         window._tick()
         note = window._tile_update._note.text()
@@ -797,17 +797,17 @@ def test_the_dialog_saves_a_preset_and_refuses_to_overwrite_a_built_in(
 # ---- a stop that nobody is left to obey --------------------------------------
 
 
-def test_a_leftover_stop_does_not_wedge_the_console(qt_app: object, tmp_path: Path) -> None:  # noqa: ARG001
+def test_a_leftover_stop_does_not_wedge_the_trainer(qt_app: object, tmp_path: Path) -> None:  # noqa: ARG001
     """A STOP outlives the run that was asked to stop, and used to be forever.
 
     The trainer clears it on the way out, so the file only survives when a Stop
     arrives after that — pressing it a second time, or in another window, while
-    a finished run still counts as live. The console then reported STOPPING with
+    a finished run still counts as live. The trainer then reported STOPPING with
     no process behind it *and* disabled Start, which is the button whose whole
     job is to clear the file. The status has to expire on its own.
     """
     from md.control import Control  # noqa: PLC0415
-    from md.ui.app import Console  # noqa: PLC0415
+    from md.ui.app import Trainer  # noqa: PLC0415
 
     run = tmp_path / "test1"
     run.mkdir()
@@ -820,7 +820,7 @@ def test_a_leftover_stop_does_not_wedge_the_console(qt_app: object, tmp_path: Pa
     os.utime(run / "metrics.csv", (stale, stale))
     Control(run).request_stop()
 
-    window = Console(run)
+    window = Trainer(run)
     try:
         window._tick()
         assert window._status.text() == "IDLE"
@@ -836,7 +836,7 @@ def test_a_stop_while_the_run_is_going_still_reads_as_stopping(
 ) -> None:
     """The other half: a run that is finishing its update is *not* a leftover."""
     from md.control import Control  # noqa: PLC0415
-    from md.ui.app import Console  # noqa: PLC0415
+    from md.ui.app import Trainer  # noqa: PLC0415
 
     run = tmp_path / "test1"
     run.mkdir()
@@ -847,7 +847,7 @@ def test_a_stop_while_the_run_is_going_still_reads_as_stopping(
     )  # written just now
     Control(run).request_stop()
 
-    window = Console(run)
+    window = Trainer(run)
     try:
         window._tick()
         assert window._status.text() == "STOPPING"
@@ -856,21 +856,21 @@ def test_a_stop_while_the_run_is_going_still_reads_as_stopping(
         window.close()
 
 
-def test_the_console_clears_the_controls_when_its_own_run_exits(
+def test_the_trainer_clears_the_controls_when_its_own_run_exits(
     qt_app: object,  # noqa: ARG001
     tmp_path: Path,
 ) -> None:
     """Hiding a stale STOP in the status line is not the same as removing it.
 
     The file is a request to a process that has gone; leaving it there means the
-    next Start has to clear it, and every other reader — a second console, a
+    next Start has to clear it, and every other reader — a second trainer, a
     person running `ls` — is told a run is stopping that is not.
     """
     from md.control import Control  # noqa: PLC0415
-    from md.ui.app import Console  # noqa: PLC0415
+    from md.ui.app import Trainer  # noqa: PLC0415
 
     class _Exited:
-        """This console's child, already over."""
+        """This trainer's child, already over."""
 
         finished = True
 
@@ -886,7 +886,7 @@ def test_the_console_clears_the_controls_when_its_own_run_exits(
     control = Control(run)
     control.request_stop()
 
-    window = Console(run)
+    window = Trainer(run)
     try:
         window._run = _Exited()  # type: ignore[assignment]
         window._tick()
@@ -1032,7 +1032,7 @@ def test_a_new_run_is_called_what_it_was_named(
     `--resume`, every path, every row in the list — so the name is asked for
     before anything else and is what the directory is called.
     """
-    from md.ui.app import Console  # noqa: PLC0415
+    from md.ui.app import Trainer  # noqa: PLC0415
     from PySide6.QtWidgets import QInputDialog  # noqa: PLC0415
 
     root = tmp_path / "runs"
@@ -1041,10 +1041,10 @@ def test_a_new_run_is_called_what_it_was_named(
     monkeypatch.setattr(
         QInputDialog, "getText", staticmethod(lambda *a, **k: ("Entity policy, 3 seeds", True))
     )
-    window = Console(root)
+    window = Trainer(root)
     # The parameter dialog is a separate decision and a modal; what is asserted
     # here is where the run would go, not that one starts.
-    monkeypatch.setattr(Console, "_primary_pressed", lambda self: None)
+    monkeypatch.setattr(Trainer, "_primary_pressed", lambda self: None)
     try:
         window._new_run_from_library()
         assert window._run_dir == root / "entity-policy-3-seeds"
@@ -1063,7 +1063,7 @@ def test_a_cancelled_name_starts_nothing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from md.ui.app import Console  # noqa: PLC0415
+    from md.ui.app import Trainer  # noqa: PLC0415
     from PySide6.QtWidgets import QInputDialog  # noqa: PLC0415
 
     root = tmp_path / "runs"
@@ -1071,12 +1071,12 @@ def test_a_cancelled_name_starts_nothing(
 
     monkeypatch.setattr(QInputDialog, "getText", staticmethod(lambda *a, **k: ("whatever", False)))
     started: list[int] = []
-    monkeypatch.setattr(Console, "_primary_pressed", lambda self: started.append(1))
-    window = Console(root)
+    monkeypatch.setattr(Trainer, "_primary_pressed", lambda self: started.append(1))
+    window = Trainer(root)
     try:
         window._new_run_from_library()
         assert not started, "cancelling the name still opened the parameter dialog"
-        assert window._run_dir == root, "the console moved off the library anyway"
+        assert window._run_dir == root, "the trainer moved off the library anyway"
         assert [child.name for child in root.iterdir()] == [existing.name]
     finally:
         window.close()
@@ -1093,7 +1093,7 @@ def test_reset_names_the_directory_it_moves_to(
     fortnight later, so Reset asks the same question the library does — and
     still suggests the numbered name, so Enter is a whole answer.
     """
-    from md.ui.app import Console  # noqa: PLC0415
+    from md.ui.app import Trainer  # noqa: PLC0415
     from PySide6.QtWidgets import QInputDialog  # noqa: PLC0415
 
     root = tmp_path / "runs"
@@ -1106,7 +1106,7 @@ def test_reset_names_the_directory_it_moves_to(
         return ("Wider clusters", True)
 
     monkeypatch.setattr(QInputDialog, "getText", staticmethod(_typed))
-    window = Console(first)
+    window = Trainer(first)
     try:
         window._reset_pressed()
         assert asked == ["high-delta-2"], "the numbered name was not offered"
@@ -1121,14 +1121,14 @@ def test_the_name_lands_in_the_library_when_the_run_starts(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The display name is written by the console, and only once there is a run.
+    """The display name is written by the trainer, and only once there is a run.
 
     Both halves matter: written, or naming a run does nothing anybody can see;
     and not before, or every cancelled dialog leaves an orphan directory.
     """
     from md import library  # noqa: PLC0415
     from md.ui import app as app_module  # noqa: PLC0415
-    from md.ui.app import Console  # noqa: PLC0415
+    from md.ui.app import Trainer  # noqa: PLC0415
     from PySide6.QtWidgets import QDialog, QInputDialog  # noqa: PLC0415
 
     class _Accepted:
@@ -1163,7 +1163,7 @@ def test_the_name_lands_in_the_library_when_the_run_starts(
     # "install a runtime" path on any machine that has none, and that is a modal.
     monkeypatch.setattr(app_module, "can_train", lambda **_: True)
 
-    window = Console(root)
+    window = Trainer(root)
     try:
         window._new_run_from_library()
         run_dir = window._run_dir
@@ -1180,19 +1180,19 @@ def test_the_name_lands_in_the_library_when_the_run_starts(
 
 @needs_torch
 @needs_native
-def test_the_console_and_the_trainer_agree_on_what_a_run_directory_is(
-    console,  # noqa: ANN001
+def test_the_trainer_and_the_training_loop_agree_on_what_a_run_directory_is(
+    trainer,  # noqa: ANN001
     trained_run: Path,
 ) -> None:
     # One directory, two programs, no shared code path — only the file names.
     # This is the contract that silently breaks when either side is refactored.
     written = {path.name for path in trained_run.iterdir()}
     assert {"metrics.csv", "evals.csv", "config.json", "model.json", "train.log"} <= written
-    console._tick()
-    # And the console agrees about what is *in* them: the parameter count it
+    trainer._tick()
+    # And the trainer agrees about what is *in* them: the parameter count it
     # shows is the one the trainer wrote, not a plausible number of its own.
     card = json.loads((trained_run / "model.json").read_text(encoding="utf-8"))
-    assert f"{card['parameters']:,}" in console._model._headline.text()
+    assert f"{card['parameters']:,}" in trainer._model._headline.text()
 
 
 # ---- what a run was started with, and continuing it --------------------------
@@ -1200,7 +1200,7 @@ def test_the_console_and_the_trainer_agree_on_what_a_run_directory_is(
 
 @needs_torch
 @needs_native
-def test_the_console_shows_what_the_run_was_started_with(console) -> None:  # noqa: ANN001
+def test_the_trainer_shows_what_the_run_was_started_with(trainer) -> None:  # noqa: ANN001
     """`config.json` has been written since there were runs; nothing read it.
 
     The button beside Log is the answer to "what was this one trained with?" —
@@ -1208,8 +1208,8 @@ def test_the_console_shows_what_the_run_was_started_with(console) -> None:  # no
     terminal that started it has gone. A dialog rather than a panel, because it
     is read once and closed and must cost the curve no space at all.
     """
-    console._tick()
-    dialog = console._parameters_dialog()
+    trainer._tick()
+    dialog = trainer._parameters_dialog()
     settings = {row.name: row for row in dialog.panel.settings}
 
     assert settings["envs"].value == TINY_RUN["--envs"]
@@ -1228,7 +1228,7 @@ def test_a_stopped_run_with_checkpoints_offers_to_continue(
     qt_app: object, trained_run: Path, tmp_path: Path
 ) -> None:
     """Idle in a directory that already has checkpoints is not "start"."""
-    from md.ui.app import LIVE_AFTER_S, Console  # noqa: PLC0415
+    from md.ui.app import LIVE_AFTER_S, Trainer  # noqa: PLC0415
     from md.ui.runner import can_train  # noqa: PLC0415
 
     if not can_train():
@@ -1239,7 +1239,7 @@ def test_a_stopped_run_with_checkpoints_offers_to_continue(
     for path in quiet.rglob("*"):
         os.utime(path, (stale, stale))
 
-    window = Console(quiet)
+    window = Trainer(quiet)
     try:
         window._tick()
         assert window._primary.text() == "Continue"
@@ -1298,20 +1298,20 @@ def test_a_runtime_that_stopped_working_turns_start_back_into_set_up(
 
     `md.runtime.Runtime.status` reads a manifest and checks that a file exists,
     and both stay true of a runtime whose torch was deleted to reclaim disk or
-    whose driver moved under it. The console believed that, showed Start, and
+    whose driver moved under it. The trainer believed that, showed Start, and
     the press appeared to do nothing — the failure surfacing later and somewhere
     unrelated. A background check now asks the runtime to prove it; this is what
     its "no" has to do to the window.
 
-    Deliberately not on the `console` fixture: that one trains, so it needs
+    Deliberately not on the `trainer` fixture: that one trains, so it needs
     torch and skips wherever torch is absent — which is the quality gate, and
     every machine a first-time reader has. An empty directory is enough to ask
     what a button says.
     """
-    from md.ui.app import Console  # noqa: PLC0415 — optional dependency
+    from md.ui.app import Trainer  # noqa: PLC0415 — optional dependency
     from md.ui.runner import can_train  # noqa: PLC0415
 
-    window = Console(tmp_path)
+    window = Trainer(tmp_path)
     try:
         window._runtime_verified(False, "torch will not import")  # noqa: SLF001 — the seam
         assert window._primary.text() == "Set up training…"  # noqa: SLF001
@@ -1339,14 +1339,14 @@ def test_the_button_that_says_set_up_actually_sets_up(
     first import: the one dead end this whole path exists to remove.
     """
     from md.ui import app as app_module  # noqa: PLC0415 — optional dependency
-    from md.ui.app import Console  # noqa: PLC0415
+    from md.ui.app import Trainer  # noqa: PLC0415
 
     opened: list[str] = []
     monkeypatch.setattr(app_module, "can_train", lambda **_: True)  # an interpreter exists
-    monkeypatch.setattr(Console, "_set_up_runtime", lambda self: opened.append("setup"))
-    monkeypatch.setattr(Console, "_start", lambda self: opened.append("parameters"))
+    monkeypatch.setattr(Trainer, "_set_up_runtime", lambda self: opened.append("setup"))
+    monkeypatch.setattr(Trainer, "_start", lambda self: opened.append("parameters"))
 
-    window = Console(tmp_path)
+    window = Trainer(tmp_path)
     try:
         window._runtime_verified(False, "the runtime has torch but not numpy")  # noqa: SLF001
         assert window._primary.text() == "Set up training…"  # noqa: SLF001
@@ -1367,7 +1367,7 @@ def test_the_setup_dialog_offers_a_repair_for_a_runtime_that_fails_its_check(
     """The dialog is the way out, so it must not be the last one still fooled.
 
     A runtime whose manifest is intact and whose torch cannot import reads as
-    ready to `status` and broken to `verify`. The console asks the second and
+    ready to `status` and broken to `verify`. The trainer asks the second and
     turns Start into *Set up training…*; a dialog still asking the first opened
     on "Installed and working" and a button offering *Start a run* — two windows
     disagreeing, and no way from either of them to the reinstall that fixes it.
@@ -1401,7 +1401,7 @@ def test_the_setup_dialog_offers_a_repair_for_a_runtime_that_fails_its_check(
 def test_an_unexpected_error_is_shown_rather_than_left_on_a_terminal(
     qt_app: object, tmp_path: Path
 ) -> None:
-    """A console that survives its own bugs silently is a console that is stuck.
+    """A trainer that survives its own bugs silently is a trainer that is stuck.
 
     PySide6 prints an exception raised inside a slot and returns to the event
     loop, so the window lives — but the button that raised is indistinguishable
@@ -1409,9 +1409,9 @@ def test_an_unexpected_error_is_shown_rather_than_left_on_a_terminal(
     installed copy was never started from. It cost a session: *Start* opened
     nothing, twice, for a reason that was on screen nowhere.
     """
-    from md.ui.app import Console  # noqa: PLC0415 — optional dependency
+    from md.ui.app import Trainer  # noqa: PLC0415 — optional dependency
 
-    window = Console(tmp_path)
+    window = Trainer(tmp_path)
     try:
         error = ValueError("invalid literal for int() with base 10: 'CANONICAL_REACTION_DELAY'")
         window.report_unexpected(type(error), error, error.__traceback__)

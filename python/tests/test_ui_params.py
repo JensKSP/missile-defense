@@ -3,7 +3,7 @@
 # Assisted-by: Claude Code (Anthropic)
 """Tests for reading the trainer's knobs out of the trainer's source.
 
-The console cannot import `md.train` — that would pull in torch, which a test
+The trainer cannot import `md.train` — that would pull in torch, which a test
 forbids — so the parameter form parses it instead. These tests pin both halves:
 the parsing, against a fixture that looks like the real dataclasses, and the
 result against the actual `md/train.py`, so a rename over there is caught here
@@ -67,7 +67,7 @@ def test_a_field_with_no_comment_simply_has_no_tooltip(tmp_path: Path) -> None:
 
 
 def test_the_run_directory_is_not_a_parameter(tmp_path: Path) -> None:
-    # The console supplies it, and resuming belongs to a checkpoint browser.
+    # The trainer supplies it, and resuming belongs to a checkpoint browser.
     names = {field.name for field in read_params(_fixture(tmp_path))}
     assert "out_dir" not in names
     assert "resume" not in names
@@ -85,7 +85,7 @@ def test_floats_are_told_apart_from_ints(tmp_path: Path) -> None:
     assert float(fields["learning_rate"].default) == 3.0e-4
 
 
-def test_no_trainer_beside_the_console_is_not_an_error(tmp_path: Path) -> None:
+def test_no_md_train_beside_the_trainer_is_not_an_error(tmp_path: Path) -> None:
     assert read_params(tmp_path / "nothing-here") == []
 
 
@@ -214,7 +214,7 @@ def test_every_offered_choice_is_one_the_trainer_accepts() -> None:
     from md.policy_format import ARCHITECTURES  # noqa: PLC0415
     from md.ui.params import CHOICES  # noqa: PLC0415
 
-    # Every architecture the console offers must be one the trainer can build.
+    # Every architecture the trainer offers must be one the trainer can build.
     # `md.ppo` is not importable without torch, so the format's own table — which
     # is generated from the same set and *is* importable — stands in for it.
     assert set(CHOICES["architecture"]) == set(ARCHITECTURES)
@@ -305,7 +305,7 @@ def test_a_run_that_kept_a_default_is_not_marked_as_having_changed_it(
     assert not settings["learning_rate"].changed
 
 
-def test_a_knob_this_console_has_never_heard_of_is_still_shown(tmp_path: Path) -> None:
+def test_a_knob_this_trainer_has_never_heard_of_is_still_shown(tmp_path: Path) -> None:
     """A run trained by a newer trainer is still a run somebody has to read."""
     config = _stored(tmp_path, {"train": {"curriculum": "waves"}})
 

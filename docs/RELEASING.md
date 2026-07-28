@@ -85,8 +85,8 @@ To publish automatically instead, drop `--draft` from the last step.
 |---|---|---|
 | macOS (Apple silicon) | `missile-defense-<ver>-macos-arm64.dmg` | `macos-15` |
 | Windows | `missile-defense-<ver>-win64.exe`, `…-win64.zip` | MSYS2 CLANG64 |
-| **Ubuntu 26.04 LTS** | `*-ubuntu-26.04.deb` (game, bindings, console) | `ubuntu:26.04` |
-| Debian trixie | `*-debian-trixie.deb` (game, bindings, console) | `debian:trixie` |
+| **Ubuntu 26.04 LTS** | `*-ubuntu-26.04.deb` (game, bindings, trainer) | `ubuntu:26.04` |
+| Debian trixie | `*-debian-trixie.deb` (game, bindings, trainer) | `debian:trixie` |
 | Ubuntu 24.04 LTS (compatibility) | `missile-defense_<ver>-1_amd64-ubuntu-24.04.deb` | `ubuntu:24.04` |
 
 Plus `SHA256SUMS` over all of them.
@@ -98,7 +98,7 @@ Ubuntu 24.04. Hence the distribution in the filename: mixing them up is not a
 subtle degradation, it is an install that fails at the far end.
 
 Ubuntu 26.04 is the primary Ubuntu target and builds the game, Python bindings,
-and training console. The 24.04 compatibility leg builds the game only because
+and trainer. The 24.04 compatibility leg builds the game only because
 that release has no archive package for nanobind.
 
 ## Nightlies

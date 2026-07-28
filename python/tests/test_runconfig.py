@@ -4,7 +4,7 @@
 """Reading back what a run was started with.
 
 `config.json` is written by the trainer and read by everything that is not the
-trainer — the console's parameter view, the Start dialog when it continues a run,
+trainer — the trainer's parameter view, the Start dialog when it continues a run,
 and `--show-config`. So it is parsed here, once, with no torch and no Qt, and
 against a file a person may well have edited.
 """
@@ -101,7 +101,7 @@ def test_options_are_the_shape_the_start_dialog_and_presets_use(tmp_path: Path) 
 def test_options_leave_out_what_a_form_must_not_restate(tmp_path: Path) -> None:
     options = runconfig.options(runconfig.read(_run(tmp_path)))
 
-    # The console supplies the output directory itself and resuming is a picker,
+    # The trainer supplies the output directory itself and resuming is a picker,
     # so both would be a second, stale answer to a question already asked.
     assert "out_dir" not in options
     assert "resume" not in options

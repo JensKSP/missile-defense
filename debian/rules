@@ -43,9 +43,10 @@ DIST_PACKAGES := $(shell py3versions -d -i) -c \
 MD_DIST_PACKAGES := $(shell $(DIST_PACKAGES))
 
 # One source package, three binaries: the game (no Python at all), the Python
-# bindings, and the training console. MD_INSTALL_PYTHON_PACKAGE is what puts the
-# .py sources and the md-console / md-train launchers into the staging tree for
-# the .install files to split; MD_BUILD_BINDINGS builds the extension beside them.
+# bindings, and the trainer. MD_INSTALL_PYTHON_PACKAGE is what puts the .py
+# sources and the missile-defense-trainer / missile-defense-train launchers into
+# the staging tree for the .install files to split; MD_BUILD_BINDINGS builds the
+# extension beside them.
 # The Python half is a build profile because one supported compatibility target
 # cannot satisfy it: `python3-nanobind` reached Debian after Ubuntu 24.04 froze,
 # so Noble cannot build the extension from archive packages. Building the *game*

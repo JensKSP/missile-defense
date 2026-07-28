@@ -9,7 +9,7 @@ of checkpoints, most of which nobody will ever load again. The backends for
 tidying that up have existed since Task 9 — :func:`md.archive.plan_cleanup`,
 :func:`md.archive.create_archive`, :func:`md.archive.restore_archive` — and
 none of them were reachable without a Python prompt, which is the same as not
-existing for the person the console is for.
+existing for the person the trainer is for.
 
 **Nothing here destroys anything without showing the list first.** A cleanup
 plan is computed, displayed, and then executed *as displayed*: recomputing at
@@ -243,7 +243,7 @@ class StorageDialog(QDialog):
             f"Cleaning up removes these {len(self._plan.remove)} checkpoints and "
             f"frees {sources.human_size(self._plan.reclaim_bytes)}. The newest, the "
             "best-evaluated and every pinned one are kept, and so is every summary "
-            "file the console draws from."
+            "file the trainer draws from."
         )
 
     def _selection(self) -> archive.ArchiveSelection:

@@ -5,7 +5,7 @@
 
 This repo deliberately has more than one Python. The game is built with the
 MSYS2 toolchain and the development venv follows it, but neither torch nor
-PySide6 publishes a MinGW wheel — so the trainer and the console live in a
+PySide6 publishes a MinGW wheel — so the training loop and the trainer live in a
 *native* interpreter beside it (docs/WINDOWS.md). `poe train` and `poe ui` used
 whichever `python` came first on PATH, which on such a machine is the one that
 can run neither, and the failure surfaced as an ImportError from inside a module.
@@ -43,9 +43,9 @@ from ._util import PROJECT_ROOT
 #: table is what decides whether an interpreter counts as able to run the entry
 #: point at all. Listing only the headline package was enough for anyone who got
 #: here through `pip install`, which brings numpy along — and wrong for everyone
-#: who got the console from the Windows ZIP, where the payload is copied beside
+#: who got the trainer from the Windows ZIP, where the payload is copied beside
 #: the game and nothing resolves dependencies. On 2026-07-28 such an interpreter
-#: was picked as usable, started the console, and died in `md.policy_format` on
+#: was picked as usable, started the trainer, and died in `md.policy_format` on
 #: `import numpy`. An entry point's requirements are what it *imports*, not what
 #: distinguishes it from the other entry point.
 #:
@@ -130,7 +130,7 @@ def candidates(
     """Interpreters worth asking, best first, without duplicates.
 
     ``MD_PYTHON`` first because an explicit answer ends the question — it is the
-    same variable the console already uses to pick the interpreter it starts a
+    same variable the trainer already uses to pick the interpreter it starts a
     run with (``md.ui.runner.training_python``), so there is one thing to set
     rather than one per tool. Then the interpreter already running, so a machine
     with a single Python never pays for the search or gets surprised by it.

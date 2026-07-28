@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Jens Köhler
 # Assisted-by: Claude Code (Anthropic)
-"""The reward formula the console shows, checked without a display.
+"""The reward formula the trainer shows, checked without a display.
 
 What is worth pinning here is not the wording but the distinctions: that a run
 which switched shaping off does not get an equation implying otherwise, that a

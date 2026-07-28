@@ -4,10 +4,10 @@
 //
 // The lookup that decides whether the menu offers TRAIN AI at all. It is the
 // boundary between the two products, so what is tested here is the *search
-// order* rather than any one answer: `md.ui.runner.console_executable()` walks
+// order* rather than any one answer: `md.ui.runner.trainer_executable()` walks
 // the same four places in the same sequence, and a disagreement between them is
-// either a menu entry that launches nothing or a console nobody can reach.
-#include "console.hpp"
+// either a menu entry that launches nothing or a trainer nobody can reach.
+#include "trainer.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 #include <filesystem>
@@ -28,7 +28,7 @@ std::string join(std::initializer_list<std::string_view> directories) {
     std::string joined;
     for (const std::string_view directory : directories) {
         if (!joined.empty()) {
-            joined += md::console::path_separator;
+            joined += md::trainer::path_separator;
         }
         joined += directory;
     }
@@ -37,11 +37,11 @@ std::string join(std::initializer_list<std::string_view> directories) {
 
 /// A path as the search will report it, suffix and all.
 ///
-/// `find()` returns what it probed, so on Windows that is `md-console.exe`.
+/// `find()` returns what it probed, so on Windows that is `missile-defense-trainer.exe`.
 /// The fixtures name plain executables — `join()`'s counterpart on the way out.
 /// Compared through `generic_string()`, hence forward slashes here.
 std::string exe(std::string_view path) {
-    return std::string{path} + std::string{md::console::executable_suffix};
+    return std::string{path} + std::string{md::trainer::executable_suffix};
 }
 
 /// `argv[0]`, spelled the way the search spells it.
@@ -52,7 +52,7 @@ std::string exe(std::string_view path) {
 /// a tidier spelling only tests that the fixture and the code disagree.
 std::string launcher(std::string_view directory, std::string_view name) {
     return (std::filesystem::path{directory} /
-            (std::string{name} + std::string{md::console::executable_suffix}))
+            (std::string{name} + std::string{md::trainer::executable_suffix}))
         .string();
 }
 
@@ -70,23 +70,23 @@ struct Machine {
     /// The PATH variable's directories, joined by `join()` with the separator
     /// the search actually splits on — `;` on Windows, `:` elsewhere.
     std::string path;
-    /// The install directory an installer dropped the console's payload into,
+    /// The install directory an installer dropped the trainer's payload into,
     /// beside the game. A member rather than a `lookup()` argument because the
     /// checkout already has that seat and the two are never both the answer.
     std::filesystem::path payload;
 
-    [[nodiscard]] md::console::Lookup lookup(std::filesystem::path root = {}) const {
-        md::console::Lookup probe;
+    [[nodiscard]] md::trainer::Lookup lookup(std::filesystem::path root = {}) const {
+        md::trainer::Lookup probe;
         probe.variable = [this](std::string_view name) -> std::string {
             const auto found = variables.find(std::string{name});
             return found == variables.end() ? std::string{} : found->second;
         };
         probe.executable = [this](const std::filesystem::path& candidate) {
             // The search appends `.exe` on Windows before asking. Strip it back
-            // off so the fixtures can name plain `md-console` and still be
-            // answered on a platform that looks for `md-console.exe`.
+            // off so the fixtures can name plain `missile-defense-trainer` and still be
+            // answered on a platform that looks for `missile-defense-trainer.exe`.
             std::string name = candidate.generic_string();
-            constexpr std::string_view suffix = md::console::executable_suffix;
+            constexpr std::string_view suffix = md::trainer::executable_suffix;
             if (!suffix.empty() && name.size() > suffix.size() &&
                 name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0) {
                 name.resize(name.size() - suffix.size());
@@ -102,7 +102,7 @@ struct Machine {
 
 constexpr std::string_view checkout = "/home/dev/missile-defense";
 
-/// Where a Windows installer leaves the game and the console's payload together.
+/// Where a Windows installer leaves the game and the trainer's payload together.
 /// Spelled with forward slashes so the fixtures compare through
 /// `generic_string()` like every other path here; the separator is not what
 /// these cases are about.
@@ -110,54 +110,56 @@ constexpr std::string_view install_dir = "/c/Program Files/Missile Defense";
 
 } // namespace
 
-TEST_CASE("MD_CONSOLE names the console and nothing else is consulted", "[unit][app][console]") {
+TEST_CASE("MD_TRAINER names the trainer and nothing else is consulted", "[unit][app][trainer]") {
     Machine machine;
-    machine.variables["MD_CONSOLE"] = "/opt/build/md-console";
-    machine.executables = {"/opt/build/md-console", "/usr/bin/md-console"};
+    machine.variables["MD_TRAINER"] = "/opt/build/missile-defense-trainer";
+    machine.executables = {"/opt/build/missile-defense-trainer",
+                           "/usr/bin/missile-defense-trainer"};
     machine.path = "/usr/bin";
 
-    const auto found = md::console::find(machine.lookup());
+    const auto found = md::trainer::find(machine.lookup());
     REQUIRE(found.has_value());
-    CHECK(found->generic_string() == "/opt/build/md-console");
+    CHECK(found->generic_string() == "/opt/build/missile-defense-trainer");
 }
 
-TEST_CASE("A named console that does not exist resolves to nothing, not a fallback",
-          "[unit][app][console]") {
-    // Falling back would start a *different* console than the one that was
+TEST_CASE("A named trainer that does not exist resolves to nothing, not a fallback",
+          "[unit][app][trainer]") {
+    // Falling back would start a *different* trainer than the one that was
     // named, which is worse than not starting one: the flag exists precisely to
     // pin which build is used.
     Machine machine;
-    machine.variables["MD_CONSOLE"] = "/opt/build/md-console";
-    machine.executables = {"/usr/bin/md-console"};
+    machine.variables["MD_TRAINER"] = "/opt/build/missile-defense-trainer";
+    machine.executables = {"/usr/bin/missile-defense-trainer"};
     machine.path = "/usr/bin";
 
-    CHECK_FALSE(md::console::find(machine.lookup()).has_value());
+    CHECK_FALSE(md::trainer::find(machine.lookup()).has_value());
 }
 
 TEST_CASE("PATH is searched before the directories an installer writes to",
-          "[unit][app][console]") {
+          "[unit][app][trainer]") {
     Machine machine;
-    machine.executables = {"/home/dev/.local/bin/md-console", "/usr/bin/md-console"};
+    machine.executables = {"/home/dev/.local/bin/missile-defense-trainer",
+                           "/usr/bin/missile-defense-trainer"};
     machine.path = join({"/home/dev/.local/bin", "/usr/games"});
 
-    const auto found = md::console::find(machine.lookup());
+    const auto found = md::trainer::find(machine.lookup());
     REQUIRE(found.has_value());
-    CHECK(found->generic_string() == exe("/home/dev/.local/bin/md-console"));
+    CHECK(found->generic_string() == exe("/home/dev/.local/bin/missile-defense-trainer"));
 }
 
-TEST_CASE("An installed console off PATH is still found in the system directories",
-          "[unit][app][console]") {
+TEST_CASE("An installed trainer off PATH is still found in the system directories",
+          "[unit][app][trainer]") {
     // Started from a desktop entry, a session's PATH is not a login shell's.
     Machine machine;
-    machine.executables = {"/usr/bin/md-console"};
+    machine.executables = {"/usr/bin/missile-defense-trainer"};
     machine.path = "/nowhere";
 
-    const auto found = md::console::find(machine.lookup());
+    const auto found = md::trainer::find(machine.lookup());
     REQUIRE(found.has_value());
-    CHECK(found->generic_string() == exe("/usr/bin/md-console"));
+    CHECK(found->generic_string() == exe("/usr/bin/missile-defense-trainer"));
 }
 
-TEST_CASE("A checkout offers its own console through the interpreter", "[unit][app][console]") {
+TEST_CASE("A checkout offers its own trainer through the interpreter", "[unit][app][trainer]") {
     // The developer case: no installed launcher, but `python -m md.ui` is right
     // there. Python's lookup answers `sys.executable` here; this side has to go
     // and find an interpreter, which is the one place the two differ in
@@ -166,7 +168,7 @@ TEST_CASE("A checkout offers its own console through the interpreter", "[unit][a
     machine.executables = {std::string{checkout} + "/python/md/ui/__main__.py", "/usr/bin/python3"};
     machine.path = "/usr/bin";
 
-    const auto command = md::console::command(machine.lookup(checkout));
+    const auto command = md::trainer::command(machine.lookup(checkout));
     REQUIRE(command.has_value());
     CHECK(command->argv ==
           std::vector<std::string>{launcher("/usr/bin", "python3"), "-m", "md.ui"});
@@ -174,7 +176,7 @@ TEST_CASE("A checkout offers its own console through the interpreter", "[unit][a
 }
 
 TEST_CASE("An installed payload beside the game is run through the interpreter",
-          "[unit][app][console]") {
+          "[unit][app][trainer]") {
     // The Windows case, and the one that was missing: the installer writes
     // `md\ui\` next to `md_app.exe` and nothing onto PATH, so before this stage
     // existed every Windows install — installer and portable ZIP alike —
@@ -184,7 +186,7 @@ TEST_CASE("An installed payload beside the game is run through the interpreter",
     machine.executables = {std::string{install_dir} + "/md/ui/__main__.py", "/usr/bin/python3"};
     machine.path = "/usr/bin";
 
-    const auto command = md::console::command(machine.lookup());
+    const auto command = md::trainer::command(machine.lookup());
     REQUIRE(command.has_value());
     CHECK(command->argv ==
           std::vector<std::string>{launcher("/usr/bin", "python3"), "-m", "md.ui"});
@@ -194,66 +196,67 @@ TEST_CASE("An installed payload beside the game is run through the interpreter",
 }
 
 TEST_CASE("An installed launcher still wins over the payload beside the game",
-          "[unit][app][console]") {
-    // Someone who pip-installed the package has an `md-console` of their own on
+          "[unit][app][trainer]") {
+    // Someone who pip-installed the package has an `missile-defense-trainer` of their own on
     // PATH. It is the more explicit answer of the two, so the order that put
     // PATH first has to survive the new stage being added underneath it.
     Machine machine;
     machine.payload = install_dir;
     machine.executables = {std::string{install_dir} + "/md/ui/__main__.py",
-                           "/home/dev/.local/bin/md-console", "/usr/bin/python3"};
+                           "/home/dev/.local/bin/missile-defense-trainer", "/usr/bin/python3"};
     machine.path = join({"/home/dev/.local/bin", "/usr/bin"});
 
-    const auto command = md::console::command(machine.lookup());
+    const auto command = md::trainer::command(machine.lookup());
     REQUIRE(command.has_value());
     CHECK(command->argv ==
-          std::vector<std::string>{launcher("/home/dev/.local/bin", "md-console")});
+          std::vector<std::string>{launcher("/home/dev/.local/bin", "missile-defense-trainer")});
     CHECK(command->python_path.empty());
 }
 
-TEST_CASE("A payload with no interpreter offers nothing", "[unit][app][console]") {
+TEST_CASE("A payload with no interpreter offers nothing", "[unit][app][trainer]") {
     // The same rule the checkout case keeps, and it matters more here: a
     // Windows install carries the payload whether or not the machine has any
     // Python, so without this the menu would offer training on every game-only
-    // install that happened to tick the console component.
+    // install that happened to tick the trainer component.
     Machine machine;
     machine.payload = install_dir;
     machine.executables = {std::string{install_dir} + "/md/ui/__main__.py"};
     machine.path = "/usr/bin";
 
-    CHECK_FALSE(md::console::find(machine.lookup()).has_value());
-    CHECK_FALSE(md::console::command(machine.lookup()).has_value());
+    CHECK_FALSE(md::trainer::find(machine.lookup()).has_value());
+    CHECK_FALSE(md::trainer::command(machine.lookup()).has_value());
 }
 
-TEST_CASE("A game-only install offers no console at all", "[unit][app][console]") {
+TEST_CASE("A game-only install offers no trainer at all", "[unit][app][trainer]") {
     // The negative half of the packaging promise, at the level the menu reads
     // it: no launcher, no interpreter, no checkout — so no TRAIN AI entry.
     Machine machine;
     machine.executables = {"/usr/games/missile-defense"};
     machine.path = join({"/usr/games", "/usr/bin"});
 
-    CHECK_FALSE(md::console::find(machine.lookup()).has_value());
-    CHECK_FALSE(md::console::command(machine.lookup()).has_value());
+    CHECK_FALSE(md::trainer::find(machine.lookup()).has_value());
+    CHECK_FALSE(md::trainer::command(machine.lookup()).has_value());
 }
 
-TEST_CASE("A checkout without an interpreter offers nothing", "[unit][app][console]") {
+TEST_CASE("A checkout without an interpreter offers nothing", "[unit][app][trainer]") {
     // `-m md.ui` needs something to run it. Offering the entry anyway would put
     // a menu item on screen that does nothing when chosen.
     Machine machine;
     machine.executables = {std::string{checkout} + "/python/md/ui/__main__.py"};
     machine.path = "/usr/bin";
 
-    CHECK_FALSE(md::console::command(machine.lookup(checkout)).has_value());
+    CHECK_FALSE(md::trainer::command(machine.lookup(checkout)).has_value());
 }
 
 TEST_CASE("An installed launcher is run directly, with no interpreter and no path",
-          "[unit][app][console]") {
+          "[unit][app][trainer]") {
     Machine machine;
-    machine.executables = {"/usr/bin/md-console"};
+    machine.executables = {"/usr/bin/missile-defense-trainer"};
     machine.path = "/usr/bin";
 
-    const auto command = md::console::command(machine.lookup());
+    const auto command = md::trainer::command(machine.lookup());
     REQUIRE(command.has_value());
-    CHECK(command->argv == std::vector<std::string>{launcher("/usr/bin", "md-console")});
+    CHECK(command->argv ==
+          std::vector<std::string>{launcher("/usr/bin", "missile-defense-trainer")});
     CHECK(command->python_path.empty());
 }

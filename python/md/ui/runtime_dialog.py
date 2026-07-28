@@ -4,7 +4,7 @@
 # pyright: reportMissingImports=false
 """One-click setup for the training runtime.
 
-The console could always watch a run and could only start one where torch was
+The trainer could always watch a run and could only start one where torch was
 already importable, which made "open a terminal and pip install torch" the first
 instruction an installed copy had to give. This is the dialog that replaces it.
 
@@ -56,7 +56,7 @@ DIALOG_WIDTH = 640
 
 #: What the dialog opens saying, before a backend has been chosen for you.
 INTRO = (
-    "Training needs PyTorch. This installs a copy the console manages itself, "
+    "Training needs PyTorch. This installs a copy the trainer manages itself, "
     "in your data directory — it does not touch your system Python, and it can "
     "be removed again from here."
 )
@@ -242,10 +242,10 @@ class RuntimeDialog(QDialog):
 
         `verify`, not `status`. This dialog is the only way out of a runtime that
         has stopped working, so it is the last place that may believe a manifest:
-        a store that says ready while the console's own background check says
+        a store that says ready while the trainer's own background check says
         otherwise is a window offering *Start a run* beside a button that says
         *Set up training*, and no way to reconcile them. The result is cached
-        against that manifest and the console has usually paid for it already, so
+        against that manifest and the trainer has usually paid for it already, so
         agreeing with it costs nothing.
         """
         status = self._store.verify()

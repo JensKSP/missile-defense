@@ -3,7 +3,7 @@
 # Assisted-by: Claude Code (Anthropic)
 """Tests for reading a run's artifacts while the trainer is still writing them.
 
-These are the cases the console gets wrong if the tail is naive (docs/ROADMAP.md,
+These are the cases the trainer gets wrong if the tail is naive (docs/ROADMAP.md,
 M8, risk 2), and they are testable at all only because ``md.ui.sources`` holds no
 Qt: pytest writes a CSV a fragment at a time and asserts what comes back.
 """
@@ -78,7 +78,7 @@ def _append(path: Path, text: str) -> None:
 
 
 def test_a_missing_file_is_an_empty_batch_not_an_error(tmp_path: Path) -> None:
-    # A console opened before the run starts is the normal case, not a failure.
+    # A trainer opened before the run starts is the normal case, not a failure.
     tail = metrics_tail(tmp_path)
     batch = tail.poll()
     assert batch.rows == ()
@@ -124,7 +124,7 @@ def test_a_truncated_file_is_read_again_from_the_top(tmp_path: Path) -> None:
 
     path.write_text(HEADER + _row(1), encoding="utf-8", newline="")
     batch = tail.poll()
-    assert batch.restarted  # so the console throws its curves away
+    assert batch.restarted  # so the trainer throws its curves away
     assert [row.update for row in batch.rows] == [1]
 
 
@@ -272,7 +272,7 @@ def test_listing_a_directory_that_is_not_there_is_empty(tmp_path: Path) -> None:
 
 def test_runs_one_level_down_are_found_newest_first(tmp_path: Path) -> None:
     # What a `runs/` directory looks like after a few experiments: no run of its
-    # own, one per sub-directory. The console has to say so rather than "empty".
+    # own, one per sub-directory. The trainer has to say so rather than "empty".
     for name, when in (("sweep-a", 1000), ("sweep-b", 2000)):
         (tmp_path / name).mkdir()
         path = tmp_path / name / "metrics.csv"
@@ -288,7 +288,7 @@ def test_runs_one_level_down_are_found_newest_first(tmp_path: Path) -> None:
 def test_a_neighbour_that_cannot_be_looked_into_is_not_a_run(tmp_path: Path) -> None:
     # `/tmp` on a systemd box holds `systemd-private-*` directories owned by
     # another user. `Path.exists()` inside one raises rather than answering, so a
-    # console opened on a run in `/tmp` died building its picker — before it had
+    # trainer opened on a run in `/tmp` died building its picker — before it had
     # drawn anything, on a machine where nothing was wrong with the run.
     if os.geteuid() == 0:
         pytest.skip("root can read anything, so there is no refusal to survive")
@@ -595,7 +595,7 @@ def test_a_score_is_measured_against_its_own_block_and_no_other() -> None:
 
 
 def test_a_run_scoring_itself_on_validation_gets_the_validation_ladder() -> None:
-    # What the console draws for the hours a run is actually training. The
+    # What the trainer draws for the hours a run is actually training. The
     # backend is not part of it: the scripted agent has none, and pinning CPU
     # would blank the ladder for every GPU run.
     rows = [
@@ -658,7 +658,7 @@ def test_an_unscored_checkpoint_simply_says_nothing_about_a_score(tmp_path: Path
 
 
 def test_the_log_tail_yields_the_lines_appended_since_the_last_poll(tmp_path: Path) -> None:
-    # The console reads this for a run it did not start; the run writes it
+    # The trainer reads this for a run it did not start; the run writes it
     # itself (md.runlog), which is what makes an attached run's log pane work.
     path = tmp_path / "train.log"
     _append(path, "update 1 | return 4.87\n")
@@ -693,7 +693,7 @@ def test_a_fresh_run_in_the_same_directory_restarts_the_log(tmp_path: Path) -> N
 
 
 # ---- what the numbers say ----------------------------------------------------
-# The tiles' peak line and the charts' footnote: the console's own arithmetic,
+# The tiles' peak line and the charts' footnote: the trainer's own arithmetic,
 # tested here rather than read off a screenshot.
 
 

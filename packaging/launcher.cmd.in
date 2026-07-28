@@ -12,7 +12,7 @@ rem user and may not exist yet. So the payload sits beside this script and the
 rem import path is set here, from `%~dp0` — the directory this file is in —
 rem rather than assumed. `%~dp0` keeps its trailing backslash, hence `%~dp0.`.
 rem
-rem `python` unqualified, and that is the honest behaviour: the console follows
+rem `python` unqualified, and that is the honest behaviour: the trainer follows
 rem whichever Python is on PATH, the same one `pip install PySide6` would have
 rem installed into. docs/WINDOWS.md says what to do when there is more than one.
 setlocal
@@ -27,14 +27,14 @@ rem rather than a Store page or a bare "'python' is not recognized".
 python -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)" >nul 2>&1
 if errorlevel 1 (
   echo.
-  echo   The training console needs Python 3.11 or newer, and this machine has
+  echo   The trainer needs Python 3.11 or newer, and this machine has
   echo   no usable "python" on PATH.
   echo.
   echo   Install one from https://www.python.org/downloads/ with "Add python.exe
   echo   to PATH" ticked, then:  python -m pip install PySide6
   echo.
   echo   The game itself needs none of this - it was installed alongside this
-  echo   console and runs on its own.
+  echo   trainer and runs on its own.
   echo.
   pause
   exit /b 1

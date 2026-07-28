@@ -55,15 +55,15 @@ apart from the pretrained model there is nothing beside it to lose.
 
 ### To train your own agent
 
-The training console is a separate, optional product — a second package on
+The trainer is a separate, optional product — a second package on
 Debian, an unticked component in the Windows installer, a second icon in the
 macOS disk image. Installing the game never brings any of it with it.
 
 | | |
 |---|---|
-| **Python** | 3.11 or newer. Debian installs the console against the distribution's own; on Windows and macOS it follows whatever `python` is on your PATH, and tells you if there isn't one. |
+| **Python** | 3.11 or newer. Debian installs the trainer against the distribution's own; on Windows and macOS it follows whatever `python` is on your PATH, and tells you if there isn't one. |
 | **PySide6** | Required (`apt install python3-pyside6.qtcharts`, or `pip install PySide6`). It is LGPL-3 where this project is MIT, which is why it is never a dependency of the game. |
-| **PyTorch** | Required to *start* a run, not to watch or replay one. You do not have to install it yourself — the console offers to build a training runtime for the hardware it finds. |
+| **PyTorch** | Required to *start* a run, not to watch or replay one. You do not have to install it yourself — the trainer offers to build a training runtime for the hardware it finds. |
 | **GPU (optional)** | Training is optimizer-bound, so a GPU is the whole win: about **43× a 16-thread CPU** at the default 1024 environments, which needs ~4.1 GB of VRAM. NVIDIA (CUDA) or AMD (ROCm, Linux only). Without one it still trains, just slowly. |
 | **Disk** | ~5 GB for a CUDA runtime, plus whatever your runs record. |
 | **Network** | Only to install the training runtime. Nothing else phones anywhere. |
@@ -158,7 +158,7 @@ Deeper reading: [design & reward spec](docs/DESIGN.md) ·
   fullscreen), and a persistent **top-10 highscore** table with arcade initials
   entry.
 - **Train an agent, then play against your own** — a PPO trainer, a live
-  training console, and a **Model League**: promote a checkpoint and it is in
+  trainer, and a **Model League**: promote a checkpoint and it is in
   the game's menu, running native C++ inference with no Python anywhere.
 - **Models you can rank, not just run** — score any model over the canonical
   held-out seeds, put two of them head-to-head on identical seeds, then watch
@@ -291,7 +291,7 @@ source .venv/bin/activate
 poe app        # build (Release) and launch the game
 ```
 
-The bootstrap installs the development tools, training console, CPU/RAM
+The bootstrap installs the development tools, trainer, CPU/RAM
 monitor, and its NVIDIA and Linux Radeon telemetry bindings into that same
 environment. PyTorch stays separate because its correct wheel depends on the
 GPU and driver; follow [TRAINING.md](docs/TRAINING.md) when you want to train.
@@ -322,7 +322,7 @@ knowing before you clean:
 |---|---|
 | `build/`, `.venv/`, caches | Time only — the commands above rebuild them. PyTorch is the long pole and is re-installed separately, per [docs/TRAINING.md](docs/TRAINING.md). |
 | `runs/` | **Gone for good.** Training histories, several hundred MB, in no repository. |
-| `models/<name>/`, `matches/` | **Gone for good.** Models the console promoted, and the match records between them. |
+| `models/<name>/`, `matches/` | **Gone for good.** Models the trainer promoted, and the match records between them. |
 
 Bundled models are safe: `models/*.mdp` is tracked, and `.gitignore` ignores only
 the per-model *directories* underneath. `git clean -ffdx` needs the second `-f`
@@ -348,15 +348,15 @@ your three batteries.
 Menu: **START** a new game, **WATCH AI**, **HELP**, **OPTIONS**
 (audio / music / fullscreen), **HIGHSCORES**, **ABOUT**, **EXIT**. Beat a high
 score to enter your initials, arcade style. (A **TRAIN AI** entry appears where
-the training console is installed beside the game.)
+the trainer is installed beside the game.)
 
 ## AI training
 
-The training console puts the policy's real game score beside the scripted
+The trainer puts the policy's real game score beside the scripted
 agent's three skill levels — LOW, MEDIUM and HIGH — with the learning
 diagnostics, recordings, model and hardware on the same screen:
 
-![The AI training console showing a live run's score and diagnostic curves, recordings, model and system use](docs/images/training-console.png)
+![The AI trainer showing a live run's score and diagnostic curves, recordings, model and system use](docs/images/trainer.png)
 
 It can start, pause, resume and stop a run without owning the training process;
 close the window and training carries on. Runs are configured from named
@@ -374,7 +374,7 @@ menu, playing the real thing.
 
 ### Set up your machine for AI training
 
-From a checkout, install the development and console dependencies, then PyTorch
+From a checkout, install the development and trainer dependencies, then PyTorch
 and the native Python binding:
 
 ```bash
@@ -388,7 +388,7 @@ CPU training works everywhere PyTorch does. For a CUDA wheel that matches an
 NVIDIA driver — without installing the CUDA toolkit — use the measured
 [Debian/NVIDIA recipe](docs/NVIDIA.md); Windows has a separate
 [native-Python path](docs/WINDOWS.md#training-on-windows). An installed training
-console can set up its own managed PyTorch runtime from the **Set up training…**
+trainer can set up its own managed PyTorch runtime from the **Set up training…**
 button instead.
 
 ### Run the scripted AI
@@ -434,7 +434,7 @@ histogram.
 
 ### Train your own model
 
-Open the console and press **Start**, or run the same defaults in a terminal:
+Open the trainer and press **Start**, or run the same defaults in a terminal:
 
 ```bash
 poe ui
@@ -453,10 +453,10 @@ the knobs.
 ### Put your model in the game — the Model League
 
 A checkpoint is a file in a run directory; a **model** is something you keep,
-play and compare. The console's **Model League** is where the second kind lives,
+play and compare. The trainer's **Model League** is where the second kind lives,
 and getting there is three steps and about ten seconds:
 
-1. select a run in the console's list — or open it — and press **Enter Model
+1. select a run in the trainer's list — or open it — and press **Enter Model
    League…**;
 2. take the checkpoint it offers — the best *evaluated* one that still exists on
    disk, which is often not the last, because PPO peaks and then regresses;
@@ -695,7 +695,7 @@ produced by CPack's DEB generator directly from the CMake build.
 | `core/` | Pure C++ simulation library (`md::core`) + tests — no Qt, no rendering |
 | `app/` | Qt 6 + Vulkan human client (renderer, input, HUD, menu) |
 | `bindings/` | nanobind vector environment and shared evaluation bindings |
-| `python/` | NumPy environment wrapper, PPO training/evaluation, and training console |
+| `python/` | NumPy environment wrapper, PPO training/evaluation, and trainer |
 | `docs/` | Design spec, roadmap, testing, training, Windows + macOS notes |
 | `tools/` | Cross-platform Python dev tooling (coverage, format/tidy, capture) |
 

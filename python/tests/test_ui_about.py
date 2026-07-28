@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Jens Köhler
 # Assisted-by: Claude Code (Anthropic)
-"""Tests for what the console says about itself.
+"""Tests for what the trainer says about itself.
 
 Two jobs, and only one of them is cosmetic. The version answers "which build am
 I looking at?", which a bug report is useless without. The component list is the
-LGPL notice: the console runs on PySide6 and Qt Charts, and a user is entitled to
+LGPL notice: the trainer runs on PySide6 and Qt Charts, and a user is entitled to
 be told so *by the program*, not only by a file in a repository they may never
 have seen (THIRD_PARTY_LICENSES.md).
 
@@ -36,7 +36,7 @@ def test_it_names_the_author_and_the_licence() -> None:
 
 def test_the_notice_names_pyside6_and_its_licence() -> None:
     # The obligation this satisfies: PySide6 and Qt Charts are LGPL-3.0 and the
-    # console is the only place a user meets them.
+    # trainer is the only place a user meets them.
     named = {component.name: component for component in about.components()}
     assert "PySide6" in named
     assert named["PySide6"].licence == "LGPL-3.0-only"

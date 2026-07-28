@@ -44,7 +44,7 @@ Description: faithful Atari Missile Command clone (Qt 6 + Vulkan)
  game runs silently if neither is available, hence the Recommends.
  .
  This package is the game alone and depends on no Python. Training your own
- agent is the separate missile-defense-training package.
+ agent is the separate missile-defense-trainer package.
 
 Package: python3-md
 Build-Profiles: <!pkg.missile-defense.nopython>
@@ -65,15 +65,15 @@ Description: Python bindings for the Missile Defense simulation
  it is usable on a headless machine. It does not depend on PyTorch — the
  trainer does, and says so when you run it without one.
 
-Package: missile-defense-training
+Package: missile-defense-trainer
 Build-Profiles: <!pkg.missile-defense.nopython>
 # Not `games`, which it inherits from the source stanza: lintian rejects a
 # games-section package that ships no game, and it is right to — this is a
-# training console with charts in it. `science` is where Debian files the
+# training workbench with charts in it. `science` is where Debian files the
 # machine-learning tooling it sits beside.
 Section: science
 Architecture: all
-# python3-venv is not decoration. The console's answer to "this machine has no
+# python3-venv is not decoration. The trainer's answer to "this machine has no
 # PyTorch" is to build one itself — `python3 -m venv` into the per-user data
 # directory, then pip from an allow-listed index (md/runtime.py). Debian ships
 # `venv` in a package of its own and `${python3:Depends}` does not pull it, so
@@ -92,14 +92,14 @@ Recommends:
 Suggests:
  python3-torch,
  python3-pynvml
-Description: training console for the Missile Defense learned agent
- A desktop console for training, watching and comparing learned Missile Defense
- policies: it starts and stops runs, plots the score against the scripted
+Description: trainer for the Missile Defense learned agent
+ A desktop application for training, watching and comparing learned Missile
+ Defense policies: it starts and stops runs, plots the score against the scripted
  baseline live, lists the episodes a run recorded, and opens them in the game.
  .
- The console never needs PyTorch itself — it starts the trainer as a separate
- process, so a run survives the console being closed or crashing, and it can
- install a managed training runtime for you if this machine has no PyTorch.
+ The window never needs PyTorch itself — it starts each training run as a
+ separate process, so a run survives the window being closed or crashing, and it
+ can install a managed training runtime for you if this machine has no PyTorch.
  That is why python3-torch is only Suggested.
  .
  Installing this pulls in PySide6 (LGPL-3), which is why it is a package of its

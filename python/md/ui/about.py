@@ -1,18 +1,18 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Jens Köhler
 # Assisted-by: Claude Code (Anthropic)
-"""What the console says about itself: which build it is, and what it runs on.
+"""What the trainer says about itself: which build it is, and what it runs on.
 
 Two things a shipped application owes its user, and neither is decoration.
 
 **The version.** "It plateaus at 40k" is not a bug report without one, and the
-console is the half most likely to be installed from a package rather than built
+trainer is the half most likely to be installed from a package rather than built
 — so the person running it usually cannot answer the question from a checkout
 they do not have. It comes from :data:`md.__version__`, which
 ``tools/version.py`` checks against the other three declarations so it cannot
 quietly say last release's number.
 
-**The notice.** The console runs on PySide6 and Qt Charts, both LGPL-3.0. The
+**The notice.** The trainer runs on PySide6 and Qt Charts, both LGPL-3.0. The
 project redistributes neither — they arrive from the distribution's packages,
 the user's ``pip``, or the managed runtime — but a user is still owed the fact
 that this MIT program stands on LGPL libraries, and a file in a repository they
@@ -41,11 +41,11 @@ INVENTORY = "THIRD_PARTY_LICENSES.md"
 
 @dataclass(frozen=True)
 class Component:
-    """One package the console runs on, installed or not.
+    """One package the trainer runs on, installed or not.
 
     ``version`` is ``None`` when the package is absent, which is a normal state
     and not an error: every optional half of this project — torch, psutil, both
-    GPU probes — is optional on purpose, and a console that refuses to draw its
+    GPU probes — is optional on purpose, and a trainer that refuses to draw its
     About box on a machine without them would be reporting its own bug as theirs.
     """
 
@@ -84,7 +84,7 @@ def _installed_version(distribution: str) -> str | None:
     ``importlib.metadata`` reads what the installer wrote to disk, so this
     answers for torch without importing torch — which is the whole point.
     Importing it here would put a multi-gigabyte extension module and a CUDA
-    context inside the console process and break the rule the console is built
+    context inside the trainer process and break the rule the trainer is built
     around (docs/ROADMAP.md, M8, risk 3).
     """
     try:
@@ -94,7 +94,7 @@ def _installed_version(distribution: str) -> str | None:
 
 
 def components() -> tuple[Component, ...]:
-    """Every package the console can use, with the version actually present."""
+    """Every package the trainer can use, with the version actually present."""
     return tuple(
         Component(name=name, version=_installed_version(distribution), licence=licence, role=role)
         for name, distribution, licence, role in _KNOWN
@@ -108,7 +108,7 @@ def render_component(component: Component) -> str:
 
 
 def _lines() -> Iterator[str]:
-    yield "Missile Defense — training console"
+    yield "Missile Defense Trainer"
     yield f"version {version()}"
     yield ""
     yield "© 2026 Jens Köhler. Released under the MIT License."
@@ -118,7 +118,7 @@ def _lines() -> Iterator[str]:
     yield "Missile Command is a trademark of Atari. This is an independent,"
     yield "non-commercial homage and is not affiliated with or endorsed by Atari."
     yield ""
-    yield "This console is MIT-licensed and runs on libraries under their own terms:"
+    yield "This trainer is MIT-licensed and runs on libraries under their own terms:"
     for component in components():
         yield f"  {render_component(component)}"
     yield ""

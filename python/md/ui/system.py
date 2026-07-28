@@ -10,7 +10,7 @@ installed (docs/ROADMAP.md, M8). Adding a vendor is one file in ``probes/``.
 
 Everything here is *optional by construction*. A missing psutil, a missing
 probe, a probe whose driver disappears mid-run — each is a normal state that the
-panel explains, never an error that reaches the user as a traceback. The console
+panel explains, never an error that reaches the user as a traceback. The trainer
 is a window onto a run; it must not be the thing that breaks.
 """
 
@@ -26,7 +26,7 @@ from typing import Any, Protocol, cast
 BACKENDS = ("md.ui.probes.nvidia", "md.ui.probes.amd")
 
 #: What to say when none of them import. Name the exact interpreter because the
-#: console and the trainer can deliberately run in a different Python from the
+#: trainer and the training loop can deliberately run in a different Python from the
 #: shell that launched them (tools.launch).
 NO_PROBE = (
     f"no GPU probe in {sys.executable} — "

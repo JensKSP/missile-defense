@@ -8,7 +8,7 @@
 
 The project cannot share a variable between its halves: the game is C++ and
 never loads Python, and `md.benchmark` is deliberately importable without the
-native extension so the console works in a package that does not ship one. So
+native extension so the trainer works in a package that does not ship one. So
 the numbers exist twice — but written by this, from one source, and verified by
 `poe check` rather than by anyone remembering.
 

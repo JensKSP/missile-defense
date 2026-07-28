@@ -3,13 +3,13 @@
      Copyright (c) 2026 Jens Köhler
      Assisted-by: Claude Code (Anthropic)
 
-     The training console's own bundle manifest. It is a *separate product* from
+     The trainer's own bundle manifest. It is a *separate product* from
      the game, so it gets a separate bundle identifier, a separate name in the
      Dock, and a developer-tools category rather than an arcade one — someone
      looking for the game in Launchpad must not find two entries that both look
      like it.
 
-     No CFBundleIconFile: the console is a Qt Widgets application whose window
+     No CFBundleIconFile: the trainer is a Qt Widgets application whose window
      icon comes from Qt, and shipping the game's arcade icon on it would undo the
      distinction this file exists to make.
 
@@ -21,15 +21,15 @@
   <key>CFBundleDevelopmentRegion</key>
   <string>en</string>
   <key>CFBundleExecutable</key>
-  <string>md-console</string>
+  <string>missile-defense-trainer</string>
   <key>CFBundleIdentifier</key>
-  <string>de.koehler-speyer.missile-defense-training</string>
+  <string>de.koehler-speyer.missile-defense-trainer</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>
-  <string>MD Training</string>
+  <string>Missile Defense Trainer</string>
   <key>CFBundleDisplayName</key>
-  <string>Missile Defense Training</string>
+  <string>Missile Defense Trainer</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>

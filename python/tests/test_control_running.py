@@ -3,7 +3,7 @@
 # Assisted-by: Claude Code (Anthropic)
 """Whether a run is going — asked of the operating system, not of a clock.
 
-The console used to answer this by timing how long ago `metrics.csv` was last
+The trainer used to answer this by timing how long ago `metrics.csv` was last
 written, with a ninety-second threshold. That is wrong in both directions, and
 the second one is the dangerous half:
 
@@ -12,7 +12,7 @@ the second one is the dangerous half:
   a perfectly healthy large model on a modest card, and calling it stopped
   invites someone to start a second trainer into the same directory.
 
-So the trainer names its PID in a `RUNNING` file and the console asks the OS.
+So the trainer names its PID in a `RUNNING` file and the trainer asks the OS.
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ def test_the_marker_outlives_the_run_and_still_reads_as_finished(tmp_path: Path)
     """Why the marker is never deleted.
 
     Removing it on a clean exit would make its absence ambiguous — an old trainer
-    that never wrote one, or a new one that finished — and the console would fall
+    that never wrote one, or a new one that finished — and the trainer would fall
     back to the timestamp and go on calling the finished run live for another
     ninety seconds. That is the bug this replaces. Keeping the file and checking
     the PID answers immediately and keeps answering.

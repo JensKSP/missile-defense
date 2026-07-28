@@ -18,8 +18,8 @@ down has landed; `debian/*.install` is the authority for which file goes where.
 | | `/usr/share/man/man6/missile-defense.6.gz` | man page (section 6: games) |
 | | `/usr/share/doc/missile-defense/…` | licence and third-party notices |
 | `python3-md` | `/usr/lib/python3*/dist-packages/md/` | the environment, its native extension |
-| `missile-defense-training` | `/usr/bin/md-console`, `/usr/bin/md-train` | the console and the trainer |
-| | `/usr/share/applications/missile-defense-training.desktop` | menu entry for the console |
+| `missile-defense-trainer` | `/usr/bin/missile-defense-trainer`, `/usr/bin/missile-defense-train` | the trainer window and the training command |
+| | `/usr/share/applications/missile-defense-trainer.desktop` | menu entry for the trainer |
 
 The game package still contains **no Python at all** — that is the boundary the
 split exists to make into a packaging fact rather than a rule people remember,
@@ -38,7 +38,7 @@ the macOS disk image. `poe deb` runs CPack's DEB generator, which is a
 convenience for testing a local package — it cannot express the multi-binary
 split, so `debian/` is where that lives.
 
-On macOS, `poe dmg` builds a drag-to-Applications image containing `md_app.app`
+On macOS, `poe dmg` builds a drag-to-Applications image containing `Missile Defense.app`
 with the Qt frameworks *and* MoltenVK inside it, so it depends on nothing but
 macOS. It is ad-hoc signed by default, which runs but is not distributable;
 [MACOS.md](MACOS.md#signing-it-for-other-people) covers the Developer ID and
@@ -73,7 +73,7 @@ Everything a run writes — `metrics.csv`, `evals.csv`, `config.json`,
 directory**, chosen by this rule
 (`python/md/paths.py`, mirrored in `app/game_window.cpp`):
 
-1. an explicit `--out-dir`, or the console's run picker;
+1. an explicit `--out-dir`, or the trainer's run picker;
 2. `$MD_RUNS_DIR`;
 3. `./runs`, **if that directory already exists**;
 4. otherwise the per-user data directory:
@@ -89,7 +89,7 @@ build-time switch: the same binary does the obvious thing in a source tree and i
 `/usr/games` without being told which one it is in.
 
 Two things live *beside* the runs rather than in one, because both must outlive
-the run that produced them: promoted models in `models/`, and the console's saved
+the run that produced them: promoted models in `models/`, and the trainer's saved
 training presets in `presets.json` (`$MD_MODELS_DIR` and `$MD_PRESETS_FILE`
 override). The presets file is a small, indented JSON list meant to be opened in
 an editor and copied between machines; a missing or damaged one costs you the
@@ -132,21 +132,21 @@ grows one. The division is by *dependency weight*, not by tidiness:
 |---|---|---|---|
 | `missile-defense` | any | the game, as today | Qt 6, Vulkan loader |
 | `python3-md` | any | `md.env`, `md.eval`, `md.control`, `md.paths`, `_md_native*.so` | `${python3:Depends}`, `python3-numpy` |
-| `missile-defense-training` | all | `md.train`, `md.ppo`, `md.ui`, the `md-train`/`md-console` entry points | `python3-md`; **Suggests** torch, PySide6, psutil, pynvml |
+| `missile-defense-trainer` | all | `md.train`, `md.ppo`, `md.ui`, the `missile-defense-train`/`missile-defense-trainer` entry points | `python3-md`; **Suggests** torch, PySide6, psutil, pynvml |
 
 `python3-md` is the piece with reuse value on its own: a deterministic, vectorised
 RL environment that imports without a game installed. Splitting it also makes two
 boundaries into packaging facts rather than rules people remember — the game's
-dependencies never include Python, and the console's LGPLv3 Qt Charts never
+dependencies never include Python, and the trainer's LGPLv3 Qt Charts never
 appear in the game's chain.
 
-The console and the trainer stay in one package for now. Their heavy dependencies
+The trainer and the training loop stay in one package for now. Their heavy dependencies
 are disjoint (PySide6 versus torch), which argues for splitting them, but both are
 `Architecture: all` and neither imports the other, so the cost of being wrong is a
-few unused `.py` files. Split when the console grows a real one.
+few unused `.py` files. Split when the trainer grows a real one.
 
 File locations for that split: `/usr/lib/python3/dist-packages/md/**` for the
-package and its extension, `/usr/bin/md-train` and `/usr/bin/md-console` for the
+package and its extension, `/usr/bin/missile-defense-train` and `/usr/bin/missile-defense-trainer` for the
 tools — `/usr/games` is for the game — and their man pages in section 1 rather
 than the game's section 6.
 
@@ -163,8 +163,8 @@ difference below comes from one fact: **only Debian owns the interpreter.**
 | | How the choice is offered | Where the payload goes | How `md` is found |
 |---|---|---|---|
 | Debian | separate binary packages | `/usr/lib/python3/dist-packages/md` | the distribution's interpreter already looks there |
-| Windows | an unticked **Training console** component in the NSIS installer | `md\` beside `md_app.exe` | `md-console.cmd` puts `%~dp0` on `PYTHONPATH` |
-| macOS | a second `.app` in the disk image, dragged or not | `Missile Defense Training.app/Contents/Resources/md` | `Contents/MacOS/md-console` puts `../Resources` on `PYTHONPATH` |
+| Windows | an unticked **Missile Defense Trainer** component in the NSIS installer | `md\` beside `missile-defense.exe` | `missile-defense-trainer.cmd` puts `%~dp0` on `PYTHONPATH` |
+| macOS | a second `.app` in the disk image, dragged or not | `Missile Defense Trainer.app/Contents/Resources/md` | `Contents/MacOS/missile-defense-trainer` puts `../Resources` on `PYTHONPATH` |
 
 The components are `game` and `python`, declared in the top-level `CMakeLists.txt`
 and tagged on every `install()` rule. `game` is `CPACK_COMPONENT_GAME_REQUIRED`;
@@ -179,10 +179,10 @@ icons in it, not an installer with checkboxes, so splitting it into two images
 would be the wrong shape for the platform; the components exist there to build
 the *layout*, and the user's choice is which icon they drag.
 
-**The console needs the native binding.** The managed runtime (`md.runtime`)
+**The trainer needs the native binding.** The managed runtime (`md.runtime`)
 installs torch and nothing else — `md` and `_md_native` come from the payload —
-so a Windows or macOS build that packages the console without
-`MD_BUILD_BINDINGS=ON` produces a console that starts, browses and replays, and
+so a Windows or macOS build that packages the trainer without
+`MD_BUILD_BINDINGS=ON` produces a trainer that starts, browses and replays, and
 cannot train. `bindings/CMakeLists.txt` skips itself silently when Python or
 nanobind is missing, so the top-level file raises a CMake warning when the
 payload is being installed without it, and both CI jobs assert the extension is
@@ -202,7 +202,7 @@ inside the staged tree.
    ```bash
    python3 -m venv --system-site-packages ~/.venvs/md
    ~/.venvs/md/bin/pip install torch
-   ~/.venvs/md/bin/md-train
+   ~/.venvs/md/bin/missile-defense-train
    ```
 
    `--system-site-packages` is the whole trick: the venv sees the distro-installed
@@ -212,8 +212,8 @@ inside the staged tree.
    environment to run their own agent against.
 
 The price is that a missing torch must be *explained* rather than raised, and
-both commands now do. The console checks with `importlib.util.find_spec` and
-disables Start with a reason (`md.ui.runner.can_train`); `md-train` goes through
+both commands now do. The trainer checks with `importlib.util.find_spec` and
+disables Start with a reason (`md.ui.runner.can_train`); `missile-defense-train` goes through
 `md.cli`, which checks before importing anything heavy and names the `pip
 install` that would fix it. CI installs the wheel into a venv with neither
 package and asserts both messages, because the failure being avoided is one that
@@ -229,8 +229,8 @@ machine.
 | build backend | `scikit-build-core` — compiles the extension through this same CMake tree, with `MD_BUILD_APP=OFF`, so a NumPy array does not cost a Vulkan SDK |
 | the package | `wheel.packages = ["python/md"]` |
 | the extension | `install(TARGETS _md_native …)` in `bindings/CMakeLists.txt`, into `${MD_PYTHON_INSTALL_DIR}` — `md` by default, an absolute `dist-packages` path for a distribution build |
-| commands | `md-train` → `md.cli:train`, `md-console` → `md.ui.__main__:main` |
-| extras | `[train]` = torch, `[console]` = PySide6 + psutil + nvidia-ml-py + amdsmi (Linux); neither is ever required |
+| commands | `missile-defense-train` → `md.cli:train`, `missile-defense-trainer` → `md.ui.__main__:main` |
+| extras | `[train]` = torch, `[trainer]` = PySide6 + psutil + nvidia-ml-py + amdsmi (Linux); neither is ever required |
 
 `STABLE_ABI` is what makes the installed object worth keeping: it is `abi3`, so
 it survives the distribution's Python moving a minor version instead of having
@@ -258,7 +258,7 @@ silent by nature:
   `MD_INSTALL_PYTHON_PACKAGE` is on. A developer build may be tied to one
   interpreter; a build that is being packaged may not.
 * Each packaging job asserts the shipped filename — `python3-md`'s contents, the
-  staged NSIS component, the macOS console bundle — and `test_packaging.py`
+  staged NSIS component, the macOS trainer bundle — and `test_packaging.py`
   asserts both the declaration and the built artifact.
 
 ### Windows ships an extension from a second build
@@ -269,7 +269,7 @@ is the only place that has it.
 
 The game is built in MSYS2/CLANG64 — that is where Qt and Vulkan are — so the
 extension built beside it is a mingw object against MSYS2's interpreter and
-libc++. The installed console does not run there: `md-console.cmd` execs
+libc++. The installed trainer does not run there: `missile-defense-trainer.cmd` execs
 whatever `python` is on PATH, which is a python.org CPython for anyone who
 followed docs/WINDOWS.md, because that is where the PySide6 and torch wheels
 are. Loading one into the other fails inside an import with a DLL error.
@@ -278,7 +278,7 @@ So the Windows job builds `_md_native` twice: once with the game, and once with
 MSVC against a python.org CPython (the `win-native` preset, which exists for
 this reason), and names the second one here. The stable ABI makes the
 substitution total — both are called `_md_native.pyd`, so nothing downstream
-has to know which build it got, and the installed console works on 3.12 and
+has to know which build it got, and the installed trainer works on 3.12 and
 later rather than on one exact minor version.
 
 ## Checklist for the day this is published
@@ -289,11 +289,11 @@ later rather than on one exact minor version.
   `-DMD_PYTHON_INSTALL_DIR=/usr/lib/python3/dist-packages/md`, then
   `dh_auto_install` the `python` component. ✅ the install rule exists; what is
   left is the `debian/` side of it.
-* A `README.Debian` for `missile-defense-training` carrying the venv recipe above.
-  ✅ `debian/missile-defense-training.README.Debian` — spelled per-package, because
+* A `README.Debian` for `missile-defense-trainer` carrying the venv recipe above.
+  ✅ `debian/missile-defense-trainer.README.Debian` — spelled per-package, because
   a bare `debian/README.Debian` is installed into the *first* binary package,
-  which is the game and has no Python in it. `md-train` prints its installed path.
+  which is the game and has no Python in it. `missile-defense-train` prints its installed path.
 * `debian/copyright` extended for the Python sources and for miniaudio, which is
   fetched at build time when `libminiaudio-dev` is absent.
-* Desktop entry for the console under `Categories=Development;Science;` — it is a
+* Desktop entry for the trainer under `Categories=Development;Science;` — it is a
   tool, not a game, and does not belong in the games menu.

@@ -5,7 +5,7 @@ training trajectories it saw. Compare several genuinely independent runs before
 changing the algorithm:
 
 ```bash
-md-multiseed \
+missile-defense-train --multiseed \
   --out-dir runs/entity-3seed \
   --num-seeds 3 \
   --seed-start 1000 \
@@ -33,10 +33,10 @@ runs/entity-3seed/
 
 `experiment.json` records the interpreter, seed schedule, complete commands, and
 exit codes. Each seed directory is an ordinary training run and can be opened in
-the training console. The summary can be rebuilt without training:
+the trainer. The summary can be rebuilt without training:
 
 ```bash
-md-multiseed \
+missile-defense-train --multiseed \
   --out-dir runs/entity-3seed \
   --num-seeds 3 \
   --seed-start 1000 \

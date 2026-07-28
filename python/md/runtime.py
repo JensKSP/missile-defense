@@ -1,16 +1,16 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Jens Köhler
 # Assisted-by: Claude Code (Anthropic)
-"""A training runtime the console installs and owns. No Qt, no torch.
+"""A training runtime the trainer installs and owns. No Qt, no torch.
 
-The console could always *watch* a run from anywhere, and could only *start* one
+The trainer could always *watch* a run from anywhere, and could only *start* one
 where torch already happened to be importable — so the answer to "I installed
 this, how do I train?" was "open a terminal and pip install torch", which is the
 one instruction an installed application should never have to give
 (docs/ROADMAP.md, M8).
 
 This module makes that a button. It sits beside :mod:`md.control` and
-:mod:`md.paths` for the same reason they do: the console writes it, the trainer
+:mod:`md.paths` for the same reason they do: the trainer writes it, the training loop
 is started from it, and neither has to import the other to agree on where the
 interpreter is.
 
@@ -32,7 +32,7 @@ directory. A symlink would be the obvious Unix answer and needs a privilege on
 Windows that a normal user does not have; ``os.replace`` over a text file is
 atomic on both.
 
-**The venv is built from the console's own interpreter**, which is what makes
+**The venv is built from the trainer's own interpreter**, which is what makes
 ``md._md_native`` importable inside it: the binding is a compiled extension
 built for one CPython ABI, and a runtime on a different minor version would
 install torch perfectly and then fail to import the simulation. The health check
@@ -71,7 +71,7 @@ MANIFEST_NAME = "runtime.json"
 #: guessing at their layout — reinstalling costs a download, not a run.
 MANIFEST_SCHEMA = 1
 
-#: Hosts this console will install from, and the whole of the trust decision.
+#: Hosts this trainer will install from, and the whole of the trust decision.
 #: Installing a package is running its code, so the index is not a preference to
 #: be taken from an env var or a text field: it is either one of these two over
 #: https, or there is no install plan. PyPI serves the CPU build; PyTorch's own
@@ -80,7 +80,7 @@ ALLOWED_INDEX_HOSTS = ("pypi.org", "download.pytorch.org")
 
 
 class UnsafeIndex(ValueError):
-    """A plan named a package index this console will not install from."""
+    """A plan named a package index this trainer will not install from."""
 
 
 @dataclass(frozen=True)
@@ -137,7 +137,7 @@ IMPORT_ADVICE = (
 #: torch declares numpy *optional* — so `pip install torch` alone produced a
 #: runtime that imported torch happily, passed a health check that asked no more
 #: than that, and then died on `import numpy` in a subprocess whose output the
-#: console had already moved on from. Every backend gets the same list, because
+#: trainer had already moved on from. Every backend gets the same list, because
 #: the requirement is the trainer's rather than the accelerator's.
 PACKAGES = ("torch", "numpy")
 
@@ -171,7 +171,7 @@ ROCM = Backend(
 )
 
 #: Always installable, never fast. Worth having as the floor: a run that trains
-#: slowly still teaches you what the console does.
+#: slowly still teaches you what the trainer does.
 CPU = Backend(
     name="cpu",
     label="CPU only",
@@ -223,7 +223,7 @@ class SystemInfo:
     """The machine, as much of it as the choice depends on."""
 
     platform: str
-    #: The interpreter a runtime is built from — the console's own, so the
+    #: The interpreter a runtime is built from — the trainer's own, so the
     #: native binding's ABI matches.
     python: Path
     python_version: tuple[int, int]
@@ -340,7 +340,7 @@ def check_index(url: str) -> None:
     parsed = urlparse(url)
     if parsed.scheme != "https" or parsed.hostname not in ALLOWED_INDEX_HOSTS:
         raise UnsafeIndex(
-            f"{url} is not an index this console installs from — "
+            f"{url} is not an index this trainer installs from — "
             f"only https on {', '.join(ALLOWED_INDEX_HOSTS)}"
         )
 
@@ -361,7 +361,7 @@ class RuntimeStatus:
 
     @property
     def ready(self) -> bool:
-        """Whether a run can be started. The only question the console asks."""
+        """Whether a run can be started. The only question the trainer asks."""
         return self.state == READY
 
     @property
@@ -516,8 +516,8 @@ def _missing_binding(python: Path, runner: Runner) -> str | None:
     2026-07-28: `find_spec` said `True`, `import` said `DLL load failed`.
 
     And the interpreter that has to load it is the one the runtime is built
-    *from*, which is not necessarily the one the console runs in. Asking the
-    console proves nothing about the venv it is about to create.
+    *from*, which is not necessarily the one the trainer runs in. Asking the
+    trainer proves nothing about the venv it is about to create.
 
     Costs one interpreter start-up, against a download three orders of magnitude
     larger — and unlike an import in this process, it leaves nothing loaded.
@@ -572,7 +572,7 @@ class Runtime:
     """The managed runtime store: what is installed, and how it got there.
 
     One directory holding numbered runtimes and a marker naming the live one.
-    Every method is safe to call in any state — the console asks :meth:`status`
+    Every method is safe to call in any state — the trainer asks :meth:`status`
     on a timer and must never get an exception for a directory that a user has
     deleted underneath it.
     """
@@ -624,7 +624,7 @@ class Runtime:
         """What the store is, without spawning anything.
 
         The health check ran at install time and its result is in the manifest;
-        re-running it here would mean a subprocess every time the console ticks.
+        re-running it here would mean a subprocess every time the trainer ticks.
         What is checked instead is what can change while nobody is looking — the
         marker, the manifest's integrity, and whether the interpreter is still
         there.
@@ -669,11 +669,11 @@ class Runtime:
         """:meth:`status`, but having actually asked the runtime to prove it.
 
         :meth:`status` believes the manifest and checks that the interpreter file
-        exists. That is right for polling — the console asks it once a second —
+        exists. That is right for polling — the trainer asks it once a second —
         and wrong for deciding whether to offer Start, because everything it
         checks can be true of a runtime that no longer works: a torch deleted to
         reclaim disk, a CUDA driver downgraded under it, a binding rebuilt for a
-        different Python. The console then shows Start, the button appears to do
+        different Python. The trainer then shows Start, the button appears to do
         nothing, and the failure surfaces somewhere unrelated.
 
         So this runs the same health script the install had to pass. It costs a

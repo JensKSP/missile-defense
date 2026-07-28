@@ -150,11 +150,11 @@ def test_a_promoted_model_records_where_it_came_from(tmp_path: Path, checkpoint:
 def test_promoting_with_no_torch_here_says_where_torch_is(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The console has no torch, on purpose, and promotion is where that bites.
+    """The trainer has no torch, on purpose, and promotion is where that bites.
 
     Everything else about a run is read from the files it left — which is what
-    lets a console with no CUDA anywhere near it watch and compare runs — but a
-    `.pt` cannot be opened without torch. From a packaged console this raised
+    lets a trainer with no CUDA anywhere near it watch and compare runs — but a
+    `.pt` cannot be opened without torch. From a packaged trainer this raised
     `ModuleNotFoundError` out of a Qt slot, which is a button that does nothing.
     A sentence naming the way out is the least it can do.
     """
@@ -330,7 +330,7 @@ def test_replacing_keeps_the_id_and_drops_the_results(tmp_path: Path, checkpoint
 
 
 def test_replacing_a_model_that_is_gone_is_refused(tmp_path: Path, checkpoint: Path) -> None:
-    """Two consoles, and the other one deleted it. Better an error than a ghost."""
+    """Two trainers, and the other one deleted it. Better an error than a ghost."""
     root = tmp_path / "models"
     model = league.promote(league.Promotion(checkpoint, "Anvil"), root=root)
     shutil.rmtree(model.path)

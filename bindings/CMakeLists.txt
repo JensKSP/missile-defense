@@ -189,7 +189,7 @@ endif()
 # Windows needs this, and only Windows. The game is built in MSYS2/CLANG64 —
 # that is what Qt and Vulkan are there — so the extension built alongside it is a
 # mingw object linked against MSYS2's libc++ and MSYS2's interpreter. The
-# installed console does not run in MSYS2: `md-console.cmd` execs whatever
+# installed trainer does not run in MSYS2: `missile-defense-trainer.cmd` execs whatever
 # `python` is on PATH, which for anyone who followed docs/WINDOWS.md is a
 # python.org CPython, because that is where the PySide6 and torch wheels go.
 # Those two do not mix, and the failure is a DLL load error inside an import.

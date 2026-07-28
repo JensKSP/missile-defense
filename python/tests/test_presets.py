@@ -111,7 +111,7 @@ def test_a_built_in_name_can_be_neither_taken_nor_deleted(tmp_path: Path) -> Non
     file = tmp_path / "presets.json"
     with pytest.raises(PresetError, match="built-in"):
         presets.save("good", {"envs": "16384"}, path=file)
-    with pytest.raises(PresetError, match="ships with the console"):
+    with pytest.raises(PresetError, match="ships with the trainer"):
         presets.delete("fast", file)
     assert presets.find("good", file) == presets.find("good")
 
@@ -138,7 +138,7 @@ def test_a_name_is_trimmed_and_must_say_something(tmp_path: Path) -> None:
         presets.save("Custom", {"envs": "1024"}, path=file)
 
 
-def test_a_missing_or_broken_file_is_no_presets_rather_than_no_console(tmp_path: Path) -> None:
+def test_a_missing_or_broken_file_is_no_presets_rather_than_no_trainer(tmp_path: Path) -> None:
     # This is a convenience over the flags. A file somebody edited into nonsense
     # must not be the reason a run cannot be started, so every one of these is
     # "there are no saved presets" and the built-ins still list.
@@ -181,7 +181,7 @@ def test_hand_edited_records_are_narrowed_field_by_field(tmp_path: Path) -> None
 
 def test_the_file_is_replaced_atomically_and_left_readable(tmp_path: Path) -> None:
     # It is meant to be opened in an editor and copied between machines, and the
-    # console may be reading it to draw the picker while a save lands.
+    # trainer may be reading it to draw the picker while a save lands.
     file = tmp_path / "nested" / "presets.json"
     presets.save("mine", {"envs": "1024"}, summary="one line", path=file)
     text = file.read_text(encoding="utf-8")

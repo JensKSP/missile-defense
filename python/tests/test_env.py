@@ -353,7 +353,7 @@ def test_evaluate_rejects_a_truncated_observation_spec() -> None:
 
 
 def test_evaluate_reports_the_full_statistics() -> None:
-    # The complete per-run stat set the console will draw on: survival, damage,
+    # The complete per-run stat set the trainer will draw on: survival, damage,
     # ammunition spend and the kills-per-shot distribution — all aggregated by the
     # same C++ summarize() the scripted baseline goes through.
     from md.eval import evaluate, format_summary

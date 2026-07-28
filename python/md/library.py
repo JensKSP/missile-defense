@@ -14,7 +14,7 @@ comparing four agents, and a bare checkpoint path is worse. So every run carries
 two names: the directory it lives in, which is **immutable** and is what every
 file inside it refers to, and a **display name** a person can change at any time
 without moving a single byte. The second lives in `LIBRARY.json`, written by the
-console and never by the trainer — which is the whole reason renaming is safe
+trainer and never by the training loop — which is the whole reason renaming is safe
 while a run is going.
 
 `LIBRARY.json` also holds the pins. A pinned recording is one cleanup must not
@@ -48,7 +48,7 @@ from .control import Control
 # done; nothing here depends on the direction being wrong.
 from .ui import sources
 
-#: The console's own per-run file: the display name, the pins, the note. Upper
+#: The trainer's own per-run file: the display name, the pins, the note. Upper
 #: case like `TUNING.json`, which is the other file a *person* drives rather
 #: than the trainer — the run's own artifacts are all lower case.
 LIBRARY_NAME = "LIBRARY.json"
@@ -125,7 +125,7 @@ class Run:
         return self.state == STATE_LIVE
 
 
-# ---- the console's own per-run file ------------------------------------------
+# ---- the trainer's own per-run file ------------------------------------------
 
 
 @dataclass
@@ -140,14 +140,14 @@ class Metadata:
 def read_metadata(run: Path) -> Metadata:
     """Never raises. A missing or malformed file is simply no metadata.
 
-    A run directory can be anything a user points the console at, including one
+    A run directory can be anything a user points the trainer at, including one
     with a `LIBRARY.json` a text editor mangled. Refusing to list the run over
     that would lose them the run, which is a far worse outcome than losing a
     name they can retype.
     """
     try:
         # `object`, not `Any`: every field is narrowed before it is used, which
-        # is what keeps a hand-edited file from reaching the rest of the console
+        # is what keeps a hand-edited file from reaching the rest of the trainer
         # as something with the wrong shape.
         raw: object = json.loads((run / LIBRARY_NAME).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -169,7 +169,7 @@ def read_metadata(run: Path) -> Metadata:
 def write_metadata(run: Path, metadata: Metadata) -> Path:
     """Replace `LIBRARY.json` atomically.
 
-    Atomic because a run may be *going*: the console writes this while the
+    Atomic because a run may be *going*: the trainer writes this while the
     trainer writes everything else in the same directory, and a half-written
     name that a later read rejects would silently lose the rename.
     """
@@ -196,7 +196,7 @@ def rename(run: Path, display_name: str) -> Path:
     """Give a run a name a person chose. The directory never moves.
 
     Renaming the directory instead would break every path inside the run, every
-    `--resume` anyone has written down, and the console window that is watching
+    `--resume` anyone has written down, and the trainer window that is watching
     it. A name is a label, not an address.
     """
     metadata = read_metadata(run)

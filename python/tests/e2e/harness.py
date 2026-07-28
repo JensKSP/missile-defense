@@ -4,7 +4,7 @@
 """Drive the shipped surfaces the way a user does. No tests in here.
 
 Everything below starts a **real process** — the game binary, the trainer, the
-console — against **real files** in a temporary directory, and reads back what a
+trainer — against **real files** in a temporary directory, and reads back what a
 person could observe. That process boundary is the whole definition of an e2e
 test here: if a claim can be checked by calling a function, it belongs beside the
 code as a unit test (docs/TESTING.md).
@@ -247,7 +247,7 @@ class AppRun:
         """The main menu's labels.
 
         The one part of the game whose *contents* depend on what else is
-        installed beside it — TRAIN AI is there only where a training console
+        installed beside it — TRAIN AI is there only where a training trainer
         was found — so it is how a packaging test tells the game-only product
         from the full one without a screenshot and a pair of eyes.
         """
@@ -419,7 +419,7 @@ def train(
 ) -> subprocess.CompletedProcess[str]:
     """Run a real short training run into ``out_dir``.
 
-    Real, not mocked: the point is that the artifacts a console and a game later
+    Real, not mocked: the point is that the artifacts a trainer and a game later
     read were written by the actual trainer, through the actual bindings, in a
     separate process — which is where the integration failures live.
     """

@@ -3,7 +3,7 @@
 # Assisted-by: Claude Code (Anthropic)
 """The type-checker skip lists must describe reality, not somebody's memory.
 
-PySide6 is optional — the console is LGPLv3 and never a dependency of the game —
+PySide6 is optional — the trainer is LGPLv3 and never a dependency of the game —
 so the widget modules are checked on a machine that has it, and skipped where it
 is absent. Both checkers are told which those are by hand, in `pyproject.toml`.
 

@@ -39,8 +39,8 @@ GameWindow::GameWindow() {
     load_settings(); // restore audio/music/fullscreen from the previous session
     // Once, here, rather than whenever the menu is drawn: the answer cannot
     // change while the game is running, and it costs a handful of stat() calls.
-    console_ = console::command(
-        console::machine_lookup(QCoreApplication::applicationFilePath().toStdString()));
+    trainer_ = trainer::command(
+        trainer::machine_lookup(QCoreApplication::applicationFilePath().toStdString()));
     // The bundled agent, if this build ships one. A missing file is the normal
     // state today and not an error; a *present but unreadable* one is worth
     // saying out loud, because it means the package is broken rather than lean.
@@ -184,7 +184,7 @@ QVulkanWindowRenderer* GameWindow::createRenderer() {
 
 int GameWindow::menu_count() const noexcept {
     // Eight on a full install, seven on a game-only one. TRAIN AI is *absent*
-    // rather than disabled: on the game-only package there is no console to
+    // rather than disabled: on the game-only package there is no trainer to
     // enable, so an item explaining that would be advertising a product the
     // person did not install. The layout follows — menu_item_top_y() derives
     // its row step from active_count(), so one more item shrinks the list
@@ -616,7 +616,7 @@ void GameWindow::start_ai_game(agent::Skill skill) {
     ai_assisted_ = true; // sticky: taking over later does not make it your score
     watch_driver_.reset();
     // Through the published handicap, so the rung on screen plays the game the
-    // console's ladder was measured on.
+    // trainer's ladder was measured on.
     scripted_driver_.emplace(skill);
     handicapped_.emplace(*scripted_driver_, agent::canonical_handicap);
     // The rung, on screen. "SCRIPTED" alone was fine when there was one; with
@@ -685,7 +685,7 @@ bool GameWindow::watch_model(const std::string& path) {
 
 /// The WATCH AI submenu, when there is more than one agent to choose between.
 void GameWindow::open_watch() {
-    // Counted on every visit, not at startup: the console can promote a model
+    // Counted on every visit, not at startup: the trainer can promote a model
     // while the game sits on its menu, and a MODELS row that only appears after
     // a restart is a feature the person has no reason to look for again.
     installed_models_ = installed_model_count();
@@ -777,7 +777,7 @@ static std::filesystem::path runs_directory() {
     return std::filesystem::path{data.toStdString()} / protocol::runs_dir;
 }
 
-/// Where the console installs models, by the rule in `md/paths.py`:
+/// Where the trainer installs models, by the rule in `md/paths.py`:
 /// `$MD_MODELS_DIR`, else a `models/` sibling of the runs directory.
 ///
 /// Sibling and not a subdirectory of a run: a model is promoted precisely so it
@@ -800,7 +800,7 @@ static std::string menu_label(std::string name) {
 }
 
 /// Every model this install can play: the bundled one, then whatever the
-/// console has promoted into the league.
+/// trainer has promoted into the league.
 ///
 /// `Policy::describe` and not `Policy::load`: naming eight models on a screen
 /// should not read eight multi-megabyte tensor blocks and verify eight
@@ -847,7 +847,7 @@ static std::vector<std::pair<std::string, std::string>> installed_models() {
         } catch (const agent::Policy::Error& error) {
             // Not this build's, or not a policy. Absent from the list rather
             // than offered and then failing on Enter — but said out loud, since
-            // a model the console installed and the game will not show is
+            // a model the trainer installed and the game will not show is
             // exactly the situation a person needs a reason for.
             std::println(stderr, "skipping {}: {}", path.string(), error.what());
         }
@@ -954,9 +954,9 @@ void collect_recordings(const std::filesystem::path& directory, std::string_view
 ///
 /// Two levels, because there are two layouts and both are real: a runs
 /// directory whose episodes sit directly in it (what `--out runs/` produces),
-/// and a *library* of managed runs, each its own directory (what the console
+/// and a *library* of managed runs, each its own directory (what the trainer
 /// creates). Scanning only the first is why the browser was empty for anyone
-/// who had used the console — every recording they could see there was one
+/// who had used the trainer — every recording they could see there was one
 /// level down from where the game looked.
 ///
 /// Not recursive beyond that, and no symlinks followed: a runs directory is a
@@ -1005,39 +1005,39 @@ void GameWindow::open_replays() {
     state_ = State::Replays;
 }
 
-/// Start the training console and stay where we are.
+/// Start the trainer and stay where we are.
 ///
-/// Detached, and that is the architecture rather than a shortcut: the console
-/// outlives the game, a run outlives the console, and neither should be able to
+/// Detached, and that is the architecture rather than a shortcut: the trainer
+/// outlives the game, a run outlives the trainer, and neither should be able to
 /// take the other down (docs/ROADMAP.md, M8). So the game does not keep the
 /// handle, does not wait, and does not report an exit code — from here it is a
 /// separate application that happens to have been started from this menu.
 ///
-/// Nothing visible happens in the game itself, which is deliberate: the console
+/// Nothing visible happens in the game itself, which is deliberate: the trainer
 /// is a window of its own and will raise itself. Returning to the menu rather
 /// than to a "launching..." screen means a second press simply opens a second
-/// console, the same as double-clicking its desktop entry twice.
-void GameWindow::open_console() {
-    if (!console_.has_value()) {
+/// trainer, the same as double-clicking its desktop entry twice.
+void GameWindow::open_trainer() {
+    if (!trainer_.has_value()) {
         return; // no entry is drawn in this case, so this is belt and braces
     }
     QStringList arguments;
-    for (std::size_t i = 1; i < console_->argv.size(); ++i) {
-        arguments << QString::fromStdString(console_->argv[i]);
+    for (std::size_t i = 1; i < trainer_->argv.size(); ++i) {
+        arguments << QString::fromStdString(trainer_->argv[i]);
     }
     QProcess process;
-    process.setProgram(QString::fromStdString(console_->argv.front()));
+    process.setProgram(QString::fromStdString(trainer_->argv.front()));
     process.setArguments(arguments);
 
     QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
-    if (!console_->python_path.empty()) {
+    if (!trainer_->python_path.empty()) {
         // The checkout case: `md` is not installed anywhere this interpreter
         // would find on its own, so the import path has to be handed over.
-        environment.insert("PYTHONPATH", QString::fromStdString(console_->python_path.string()));
+        environment.insert("PYTHONPATH", QString::fromStdString(trainer_->python_path.string()));
     }
-    // Do *not* hand the console this game's platform plugin. The game is forced
+    // Do *not* hand the trainer this game's platform plugin. The game is forced
     // onto `xcb` because it needs an X11 surface for Vulkan and for being
-    // screenshot-able; the console is Qt Widgets and needs neither. Inherited,
+    // screenshot-able; the trainer is Qt Widgets and needs neither. Inherited,
     // that choice put it on XWayland, where NVIDIA's lack of implicit sync
     // produces the tearing and artefacts a Wayland-native window does not have.
     // Removing the variable lets Qt pick for itself, which is Wayland on a
@@ -1135,7 +1135,7 @@ void GameWindow::activate(int index) {
         start_model_game();
         break;
     case MenuAction::TrainAi:
-        open_console();
+        open_trainer();
         break;
     case MenuAction::Replays:
         open_replays();

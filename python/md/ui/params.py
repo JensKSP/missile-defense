@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Jens Köhler
 # Assisted-by: Claude Code (Anthropic)
-"""The trainer's knobs, read out of the trainer's source. No Qt, no torch.
+"""The training loop's knobs, read out of md.train's source. No Qt, no torch.
 
 Every hyperparameter already has its reasoning written beside it in
 ``TrainConfig`` and ``PPOConfig`` — that is the project's whole documentation
@@ -20,7 +20,7 @@ The price of reading source is that a default can be a *name*: the trainer write
 places that could drift. So a name is followed to what it stands for, across
 modules, before it is offered to a form — see :func:`_constant`.
 
-If the trainer is not beside the console — an installed console watching a synced
+If md.train is not beside the trainer — an installed trainer watching a synced
 directory — nothing here throws. There are simply no fields, and the form says
 so.
 """
@@ -47,7 +47,7 @@ TRAINER_SOURCES = Path(__file__).resolve().parents[1]
 #: not have to be re-read every time a run is started.
 HEADLINE = ("envs", "steps", "updates", "learning_rate")
 
-#: Not for the form: the console supplies the run directory itself, and resuming
+#: Not for the form: the trainer supplies the run directory itself, and resuming
 #: from a checkpoint is a checkpoint-browser feature, not a text box.
 HIDDEN = ("out_dir", "resume")
 
@@ -176,7 +176,7 @@ def read_params(package_dir: Path) -> list[Param]:
         try:
             source = (package_dir / filename).read_text(encoding="utf-8")
         except OSError:
-            continue  # no trainer beside this console; the form says so
+            continue  # no md.train beside this trainer; the form says so
         found.extend(_fields_of(source, class_name, package_dir))
     return found
 
@@ -300,7 +300,7 @@ def _imports_of(tree: ast.Module, name: str) -> Iterator[tuple[str, str]]:
     """Sibling modules this one imports ``name`` from, as (module, its name there).
 
     Relative single-name imports only — ``from .benchmark import X``. An absolute
-    import is a package this console cannot assume is beside it, and a
+    import is a package this trainer cannot assume is beside it, and a
     ``from . import benchmark`` binds a module rather than a value.
     """
     for node in tree.body:
@@ -315,7 +315,7 @@ def _parsed(path: Path) -> ast.Module | None:
     """``path`` as a syntax tree, or ``None`` when it is missing or unparseable.
 
     Neither is worth raising over: this runs to make a form's default prettier,
-    and a console that refuses to open a dialog because a module it was only
+    and a trainer that refuses to open a dialog because a module it was only
     curious about has a syntax error has made things worse.
     """
     try:
@@ -376,7 +376,7 @@ class Setting:
     name: str
     value: str
     #: The trainer's own default, as its source spells it. Empty when this
-    #: console has no trainer beside it to read, or the field is not one.
+    #: trainer has no md.train beside it to read, or the field is not one.
     default: str
     changed: bool
     help: str
@@ -386,7 +386,7 @@ def settings_of(config: runconfig.RunConfig | None, fields: Sequence[Param] = ()
     """Everything a run recorded about itself, in the order the trainer wrote it.
 
     Driven by the *stored* file rather than by the field list: a run trained by a
-    newer trainer carries knobs this console has never heard of, and hiding them
+    newer md.train carries knobs this trainer has never heard of, and hiding them
     would be answering "what was this trained with?" with "the part I recognise".
     Those simply arrive without a default or a tooltip.
     """
@@ -450,7 +450,7 @@ def command_line(
     Only the values that were *changed* appear: a defaulted field is left to the
     dataclass, so the command line reads as the diff from the defaults rather
     than as a wall of restated numbers. It is shown in the dialog for the same
-    reason — the console should leave you able to start the same run without it.
+    reason — the trainer should leave you able to start the same run without it.
 
     ``resume`` comes last, and from a picker rather than the generic form: it is
     a *file that exists*, so offering it as a text box would be offering a way

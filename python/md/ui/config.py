@@ -5,7 +5,7 @@
 """What a run was started with — the knobs, beside the curves they produced.
 
 The trainer has written `config.json` into every run directory for as long as
-there have been runs, and until now nothing in the console read it. So the
+there have been runs, and until now nothing in the trainer read it. So the
 answer to "what was this one trained with?" — asked of exactly the run that
 turned out interesting, usually a fortnight later — was to leave the window,
 find the directory, and read JSON.
@@ -329,7 +329,7 @@ def settings_for(run_dir: Path, trainer: Path) -> tuple[runconfig.RunConfig | No
     """Read a run's settings and pair them with the trainer's own reasoning.
 
     Both halves in one call because both callers want both, and because the
-    trainer's source may not be beside this console at all — an installed console
+    training loop's source may not be beside this trainer at all — an installed trainer
     watching a synced directory still shows every value, just without the
     tooltips and the comparison against defaults.
     """

@@ -62,9 +62,9 @@ each is worth is measurable — and the answer is lopsided. Ammunition memory
 shots) is worth **~78,000 points**; the `cluster_bonus` that waits for MIRV
 spreads to converge is worth **~1,500**. See the README's skill table.
 
-The console draws that ladder as three reference lines. Because a score may only
+The trainer draws that ladder as three reference lines. Because a score may only
 be read against seeds it was actually played on, the same three agents are also
-measured on the validation block below, and the console picks the ladder that
+measured on the validation block below, and the trainer picks the ladder that
 matches the curve:
 
 | Skill | Canonical (offset 32) | Validation (offset 0) |
@@ -165,7 +165,7 @@ follows the same rule so it finds what the trainer wrote. The order is in
 Those last two are deliberately separate files. `metrics.csv` is the training
 return, which as above is *not* a score; `evals.csv` contains sparse game-score
 summaries. Each row records its seed split and offset, seed count, frame skip,
-tick cap, and inference device. That metadata is what lets the console draw the
+tick cap, and inference device. That metadata is what lets the trainer draw the
 scripted ladder — LOW, MEDIUM and HIGH — from the row's own seed block, and draw
 nothing when the agent was never measured under its protocol.
 
@@ -244,7 +244,7 @@ rm runs/PAUSE        # carry on, exactly where it was
 Pausing blocks the loop *between* updates rather than suspending the process, so
 it keeps its allocations and its place — and a paused run still answers `STOP`.
 Both files are cleared when a run starts and when one finishes, so a stale `STOP`
-cannot kill tomorrow's run. This is the whole mechanism; the console's buttons
+cannot kill tomorrow's run. This is the whole mechanism; the trainer's buttons
 write these same files, which is why they also work on a run you started in a
 terminal.
 
@@ -264,7 +264,7 @@ A starting run writes this file from its own command line, which is what makes i
 the answer to *"what is this run on?"* rather than a pile of overrides. The loop
 reads it once per update and logs the change (`eval interval 10 -> 50 updates`);
 an unreadable or missing file simply leaves the run on what it was started with,
-because a typo must not kill something that is hours old. The console's **eval
+because a typo must not kill something that is hours old. The trainer's **eval
 every** box writes exactly this file, so it drives a terminal-started run too.
 
 ## Watching and driving a run from a window
@@ -280,7 +280,7 @@ and the recordings listed newest-first — select one and press
 you are done with. Under them is the network itself: architecture, parameter
 count, the observation and action sizes and a line per layer, read out of
 `runs/model.json` rather than out of a checkpoint — opening one of those needs
-torch, and the console deliberately cannot. Beside it, which checkpoint is newest
+torch, and the trainer deliberately cannot. Beside it, which checkpoint is newest
 and what it scored.
 
 **Three dashed lines cross the score chart** — the scripted agent at LOW, MEDIUM
@@ -365,11 +365,11 @@ actually looks like.
 It is read-only and always available, including while a run is going. In a
 terminal the same answer is `poe train -- --show-config runs/amber-anvil`, and
 every run prints the block into its own `train.log` as it starts — which is why
-the console's **Log** pane shows it too, even for a run started from a terminal.
+the trainer's **Log** pane shows it too, even for a run started from a terminal.
 
 ### Presets: naming a set of options
 
-At the top of that form is a **preset** picker. Three ship with the console, and
+At the top of that form is a **preset** picker. Three ship with the trainer, and
 what each is for matters more than what each contains:
 
 | Preset | What it is | On a 5090 | VRAM |
@@ -383,17 +383,17 @@ Those times are measured, and the two `entity` presets are **GPU-bound at about
 is ten times the compute per sample. A slow-looking steps/s on `good` or `best`
 is a saturated card, not an idle one; the [comparison is in
 NVIDIA.md](NVIDIA.md#the-relational-architecture-is-a-different-machine), and the
-console shows your own card's rate and the time remaining on the update tile.
+trainer shows your own card's rate and the time remaining on the update tile.
 
 Only `good` has a measured result behind it. `best` is a considered bet, and its
-description in the console says so — a preset promising a number nobody has
+description in the trainer says so — a preset promising a number nobody has
 measured would be the expensive kind of wrong, paid for in GPU hours. Note that
 `best` needs *less* memory than `good` despite training on four times the data:
 see below, because that is the part everyone gets wrong.
 
 **Save as…** keeps whatever is in the form under a name of your own; **Update**
 and **Delete** work on your own presets only. The three above are read-only
-because their names are quoted here and in the console's help, so `good` has to
+because their names are quoted here and in the trainer's help, so `good` has to
 keep meaning what this table says — take a copy and change that instead.
 
 Saved presets live in `presets.json` beside `runs/` (`$MD_PRESETS_FILE`
@@ -449,11 +449,11 @@ So the fix for a run that will not fit is almost never fewer envs:
 * PyTorch *reserves* 10–30% more than it allocates, and your desktop is holding a
   gigabyte or two before you start. Leave headroom.
 
-The console shows this estimate under the command line whenever a card is
+The trainer shows this estimate under the command line whenever a card is
 visible, and warns before you start a run that will not fit. If one runs out
 anyway, the trainer prints the same arithmetic and names the knob.
 
-Training runs as a separate process throughout, so closing the console (or
+Training runs as a separate process throughout, so closing the trainer (or
 crashing it) leaves the run alone. **Log** shows what it has printed, whichever
 way it was started: the trainer writes `runs/train.log` itself, so a run you
 started in a terminal has one too.
@@ -472,7 +472,7 @@ instead of claiming the binding is missing. Adding a vendor is one file in
 `md/ui/probes/`.
 
 It needs **PySide6** (`pip install PySide6`, Qt Charts included), and **psutil**
-for the CPU and memory rows. The `console` extra also installs NVIDIA's small
+for the CPU and memory rows. The `trainer` extra also installs NVIDIA's small
 `nvidia-ml-py` telemetry binding and, on Linux, AMD's `amdsmi` binding. Running
 `python3 -m tools.bootstrap` from a checkout installs all of them into `.venv`.
 These are optional and none is ever a dependency of the game. On Windows install
@@ -481,7 +481,7 @@ them into the same native interpreter that has torch; see
 
 It does **not** need torch. Where there is none, the primary button offers to
 install one instead of being a dead control — see
-[Getting PyTorch](#from-the-console-without-a-terminal).
+[Getting PyTorch](#from-the-trainer-without-a-terminal).
 
 ## The library, and promoting a model
 
@@ -699,7 +699,7 @@ than the artefact it is. They also carry the original learning-rate and entropy
 schedule, so update 401 resumes with update 401's coefficients instead of
 restarting the decay.
 
-In the console this is the **Continue** button: a run directory that already has
+In the trainer this is the **Continue** button: a run directory that already has
 checkpoints says *Continue* rather than *Start*, and the dialog behind it opens
 with that run's own settings filled in and its newest checkpoint picked.
 
@@ -720,7 +720,7 @@ records an episode. It defaults to CPU and pins the canonical seed offset, count
 frame skip, and tick cap. A different `--device` is allowed for diagnosis, but
 the output explicitly disables the published ahead/behind comparison. For a
 checkpoint under a run's `checkpoints/` directory, the result is appended to that
-run's `evals.csv`, which is when the console can draw the *published* ladder
+run's `evals.csv`, which is when the trainer can draw the *published* ladder
 rather than the validation one it uses while a run is in flight.
 
 Use validation scores to decide whether update 800 is better than update 400,
@@ -728,7 +728,7 @@ then run this command once for the selected `policy-best.pt`. Choosing among
 checkpoints from repeated canonical results leaks the benchmark back into
 training.
 
-### Holding one run against another in the console
+### Holding one run against another in the trainer
 
 The compare picker on the dashboard overlays a second run's curves and fills the
 STATISTICS tiles with deltas. It only does that when the two runs were evaluated
@@ -793,7 +793,7 @@ to it. The ones actually worth touching first:
 
 The reward weights are the third group, and the only one that can change *what
 the policy converges to*. They are `--reward-*` on the command line and the last
-block of the console's **Advanced** section:
+block of the trainer's **Advanced** section:
 
 | Flag | Default | What it prices |
 |---|---|---|
@@ -854,12 +854,12 @@ Honest list, so you do not chase these as bugs:
 
 ## Getting PyTorch
 
-### From the console, without a terminal
+### From the trainer, without a terminal
 
 If you installed a package rather than cloning this repository, you do not need
-any of the sections below. Open the training console; where the primary button
+any of the sections below. Open the trainer; where the primary button
 would say **Start** it says **Set up training…** instead, and that dialog
-installs a copy of PyTorch the console manages itself.
+installs a copy of PyTorch the trainer manages itself.
 
 It tells you what it is about to do before doing it: which build it recommends
 for your machine, which index it comes from, and roughly how large the download
@@ -880,7 +880,7 @@ What it does is worth knowing, because it is deliberately boring:
   card, or a cancelled install leaves nothing behind and cannot break a runtime
   that was already working.
 
-The same dialog repairs and removes it again. Everything else in the console —
+The same dialog repairs and removes it again. Everything else in the trainer —
 attaching to a run, the curves, browsing and replaying recordings — has never
 needed torch and still does not.
 

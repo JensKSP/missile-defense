@@ -208,7 +208,7 @@ def test_a_successful_install_is_ready_and_names_its_interpreter(tmp_path: Path)
 
 
 def test_readiness_survives_a_new_store_object(tmp_path: Path) -> None:
-    # The state lives on disk, not in the object: the console is restarted far
+    # The state lives on disk, not in the object: the trainer is restarted far
     # more often than a runtime is installed.
     _install(tmp_path, FakeRunner())
     assert Runtime(tmp_path, runner=FakeRunner(), platform="linux").status().ready
@@ -407,7 +407,7 @@ def test_the_runtime_installs_everything_its_health_check_demands() -> None:
     trainer imports on its first line and torch declares optional — was in
     neither. The result was a runtime that installed cleanly, reported itself
     healthy, and killed every run it was asked to start, in a subprocess whose
-    output the console had already scrolled past.
+    output the trainer had already scrolled past.
 
     A check demanding more than the install provides could never pass; an
     install providing less than a run needs is the bug above. So: the same set,
@@ -437,7 +437,7 @@ def _ready_store(tmp_path: Path) -> tuple[Runtime, FakeRunner]:
     """A store with one installed, healthy runtime — the state before a doubt.
 
     Handed back as a *fresh* store over the same directory, because that is what
-    a console meets when it opens: the install that filled it happened in another
+    a trainer meets when it opens: the install that filled it happened in another
     process and left nothing behind in memory. A store that has just installed is
     a different situation, and has its own test — it remembers the check it ran.
     """
@@ -503,8 +503,8 @@ def test_a_binding_that_was_never_built_says_so() -> None:
 
 
 def test_the_binding_is_probed_in_the_interpreter_the_runtime_will_be_built_from() -> None:
-    # Not in the console's own. They are routinely different on Windows — the
-    # console can be running under MSYS2 while the runtime is made from a
+    # Not in the trainer's own. They are routinely different on Windows — the
+    # trainer can be running under MSYS2 while the runtime is made from a
     # python.org CPython — and only one of them has to load the extension.
     asked: list[list[str]] = []
 
@@ -550,7 +550,7 @@ def test_verify_asks_the_runtime_to_prove_it_rather_than_trusting_the_manifest(
 
     Everything `status()` checks stays true of a runtime that no longer works —
     a torch deleted to reclaim disk, a driver downgraded under it, a binding
-    rebuilt for another Python. The console would keep offering Start, the
+    rebuilt for another Python. The trainer would keep offering Start, the
     button would appear to do nothing, and the failure would surface somewhere
     unrelated.
     """
@@ -564,7 +564,7 @@ def test_verify_asks_the_runtime_to_prove_it_rather_than_trusting_the_manifest(
 
 
 def test_a_verified_runtime_is_not_re_verified_on_every_ask(tmp_path: Path) -> None:
-    """It costs a subprocess and an `import torch`; the console polls once a second."""
+    """It costs a subprocess and an `import torch`; the trainer polls once a second."""
     store, _ = _ready_store(tmp_path)
     calls: list[list[str]] = []
     store._runner = FakeRunner(on_command=calls.append)  # noqa: SLF001
@@ -615,7 +615,7 @@ def test_removing_a_runtime_forgets_that_it_was_verified(tmp_path: Path) -> None
 def test_a_failed_verification_is_not_remembered(tmp_path: Path) -> None:
     """The thing it was missing may since have been built.
 
-    Caching a failure would mean a console that has to be restarted after
+    Caching a failure would mean a trainer that has to be restarted after
     `poe bindings` — exactly the kind of stale answer this method exists to stop
     giving.
     """

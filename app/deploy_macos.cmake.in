@@ -17,7 +17,7 @@ set(macdeployqt "@MACDEPLOYQT@")
 set(moltenvk_lib "@MD_MOLTENVK_LIBRARY@")
 set(moltenvk_icd "@MD_MOLTENVK_ICD@")
 set(codesign_id "@MD_MACOS_CODESIGN_IDENTITY@")
-set(bundle "${CMAKE_INSTALL_PREFIX}/md_app.app")
+set(bundle "${CMAKE_INSTALL_PREFIX}/@MD_MACOS_BUNDLE@")
 
 if(NOT macdeployqt)
   message(FATAL_ERROR

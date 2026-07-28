@@ -73,8 +73,8 @@ jobs:
       - name: Install task runner + Python tools
         # numpy because python/tests/test_env.py imports it above its
         # importorskip guard, so without it that file errors instead of skipping.
-        # nanobind because the disk image now carries the training console, and
-        # a console without the native binding is one that cannot train.
+        # nanobind because the disk image now carries the trainer, and
+        # a trainer without the native binding is one that cannot train.
         run: pip3 install --break-system-packages poethepoet pytest numpy nanobind
 
       - name: Point CMake and the Vulkan loader at Homebrew
@@ -139,12 +139,12 @@ jobs:
 
       - name: The image carries two applications, not one
         # macOS has no installer with checkboxes: the disk image is a window
-        # with icons in it, and a person drags what they want. So "the console
+        # with icons in it, and a person drags what they want. So "the trainer
         # is optional" is expressed as a *second .app* — which means the claim
         # to check is that there are two, that they are distinguishable, and
-        # that the console's one is self-contained (nothing inside a bundle is
+        # that the trainer's one is self-contained (nothing inside a bundle is
         # ever on sys.path, so a payload outside Contents/Resources is a
-        # console that starts and cannot import itself).
+        # trainer that starts and cannot import itself).
         shell: bash
         run: |
           set -euo pipefail
@@ -157,23 +157,23 @@ jobs:
           echo "$staged"
           test -n "$staged" || { echo "::error::no .app bundles were staged" >&2; exit 1; }
           test "$(echo "$staged" | wc -l)" -eq 2
-          console=$(echo "$staged" | grep "Training")
-          test -x "$console/Contents/MacOS/md-console"
-          test -f "$console/Contents/Info.plist"
-          test -f "$console/Contents/Resources/md/ui/app.py"
+          trainer=$(echo "$staged" | grep "Trainer")
+          test -x "$trainer/Contents/MacOS/missile-defense-trainer"
+          test -f "$trainer/Contents/Info.plist"
+          test -f "$trainer/Contents/Resources/md/ui/app.py"
           # `.abi3.so` exactly, not a glob. This bundle is launched with
           # whatever `python3` the person has — never the Homebrew one that
-          # built it — so a version-tagged module is a console that installs,
+          # built it — so a version-tagged module is a trainer that installs,
           # opens, and cannot train on any Mac but this runner. The glob that
           # used to be here passed happily for months while that was true.
-          test -f "$console/Contents/Resources/md/_md_native.abi3.so" || {
-            echo "::error::the console bundle carries no stable-ABI extension:" >&2
-            ls "$console/Contents/Resources/md/"_md_native* >&2
+          test -f "$trainer/Contents/Resources/md/_md_native.abi3.so" || {
+            echo "::error::the trainer bundle carries no stable-ABI extension:" >&2
+            ls "$trainer/Contents/Resources/md/"_md_native* >&2
             exit 1
           }
           # And the game's bundle stays free of it, which is the same promise
           # the Debian split keeps: one product must not contain the other.
-          game=$(echo "$staged" | grep -v "Training")
+          game=$(echo "$staged" | grep -v "Trainer")
           if find "$game" -name "*.py" | grep .; then
             echo "::error::the game bundle ships Python sources" >&2
             exit 1
@@ -191,7 +191,7 @@ jobs:
         run: |
           set -euo pipefail
           app=$(find build/release/_CPack_Packages -maxdepth 4 -name "*.app" -type d \
-            | grep -v Training | head -1)
+            | grep -v Trainer | head -1)
           test -n "$app" || { echo "::error::no game bundle was staged" >&2; exit 1; }
           echo "$app"
           ls "$app/Contents/Frameworks"
@@ -275,8 +275,8 @@ jobs:
             mingw-w64-clang-x86_64-python-pip
 
       - name: Install nanobind
-        # The installer now offers the training console as a component, and a
-        # console without the native binding is one that cannot start a run.
+        # The installer now offers the trainer as a component, and a
+        # trainer without the native binding is one that cannot start a run.
         # The CLANG64 interpreter is the one CMake will find, so nanobind has to
         # go into that one and not into the runner's system Python.
         run: pip install --break-system-packages nanobind
@@ -288,17 +288,17 @@ jobs:
           python --version
 
       - uses: actions/setup-python@v6
-        # The interpreter the *installed* console will actually run on. MSYS2's
+        # The interpreter the *installed* trainer will actually run on. MSYS2's
         # Python builds the game's half of the tree; nobody who downloads an
         # installer has one, and docs/WINDOWS.md sends people to python.org
         # precisely because that is where the PySide6 and torch wheels are. The
-        # console component has to carry an extension for that ABI, so this job
+        # trainer component has to carry an extension for that ABI, so this job
         # needs both interpreters.
         id: native-python
         with:
           python-version: '3.13'
 
-      - name: Build the console's extension for a native CPython
+      - name: Build the trainer's extension for a native CPython
         # MSVC, against the interpreter above, headless (`win-native`: no Qt, no
         # Vulkan — this builds one shared object). The result is what the
         # installer ships; the MSYS2 build stays as it is and keeps serving
@@ -335,7 +335,7 @@ jobs:
           if (-not $module) { throw 'the native CPython extension was not built' }
           # `.pyd` with no interpreter tag is CPython's limited-API name. A
           # tagged one here means STABLE_ABI silently did not apply, and the
-          # console would then need this exact minor version on the target
+          # trainer would then need this exact minor version on the target
           # machine — which is the bug this whole step exists to close.
           if ($module.Name -ne '_md_native.pyd') {
             throw "expected a stable-ABI _md_native.pyd, got $($module.Name)"
@@ -378,7 +378,7 @@ jobs:
 
       - name: Build the installer and the portable ZIP
         # Runs tools/windeploy.sh through the install step, which is the part
-        # worth having in CI: it walks the dependency closure of md_app.exe and
+        # worth having in CI: it walks the dependency closure of missile-defense.exe and
         # copies every CLANG64 DLL beside it. A missing DLL is invisible on the
         # machine that built it and fatal on any other.
         run: cpack --config build/release/CPackConfig.cmake -B build/release -G "NSIS;ZIP"
@@ -388,7 +388,7 @@ jobs:
         # CPack has staged them, so this is the first point where the claim can
         # be checked at all: stage each component on its own and look at what
         # landed. If the game component ever grew a `.py` file, someone who
-        # unticked "Training console" would still be getting one.
+        # unticked "Missile Defense Trainer" would still be getting one.
         shell: msys2 {0}
         run: |
           set -euo pipefail
@@ -396,12 +396,12 @@ jobs:
           cmake --install build/release --prefix stage-game --component game
           cmake --install build/release --prefix stage-full --component game
           cmake --install build/release --prefix stage-full --component python
-          test -f stage-game/md_app.exe
-          if find stage-game -name "*.py" -o -name "md-console.cmd" | grep .; then
+          test -f stage-game/missile-defense.exe
+          if find stage-game -name "*.py" -o -name "missile-defense-trainer.cmd" | grep .; then
             echo "::error::the game component ships part of the training half" >&2
             exit 1
           fi
-          test -f stage-full/md-console.cmd
+          test -f stage-full/missile-defense-trainer.cmd
           test -f stage-full/md/ui/app.py
           # `_md_native.pyd` exactly: the limited-API name, and the one built
           # against a python.org CPython two steps up. A `.cp313-mingw_x86_64`
@@ -409,7 +409,7 @@ jobs:
           # shipping a module the user's interpreter cannot load — which is what
           # it did until this assertion replaced a glob that accepted anything.
           test -f stage-full/md/_md_native.pyd || {
-            echo "::error::the console component carries no stable-ABI extension:" >&2
+            echo "::error::the trainer component carries no stable-ABI extension:" >&2
             ls stage-full/md/_md_native* >&2
             exit 1
           }
@@ -552,22 +552,22 @@ jobs:
           set -euo pipefail
           game=$(echo ../missile-defense_*.deb)
           bindings=$(echo ../python3-md_*.deb)
-          console=$(echo ../missile-defense-training_*.deb)
-          for deb in "$game" "$bindings" "$console"; do
+          trainer=$(echo ../missile-defense-trainer_*.deb)
+          for deb in "$game" "$bindings" "$trainer"; do
             test -f "$deb" || { echo "missing: $deb" >&2; exit 1; }
           done
 
           contents() { dpkg-deb -c "$1" | awk '$NF !~ /\/$/ {print $NF}' | sed 's|^\./|/|'; }
           contents "$game"     | sort > /tmp/game.list
           contents "$bindings" | sort > /tmp/bindings.list
-          contents "$console"  | sort > /tmp/console.list
-          for list in game bindings console; do
+          contents "$trainer"  | sort > /tmp/trainer.list
+          for list in game bindings trainer; do
             echo "--- $list ---"; cat "/tmp/$list.list"
           done
 
           # Nothing Python-shaped in the game. Not the sources, not the
-          # launchers, not the console's menu entry.
-          if grep -Eq '\.(py|pyi|so)$|dist-packages|/md-console$|/md-train$' /tmp/game.list; then
+          # launchers, not the trainer's menu entry.
+          if grep -Eq '\.(py|pyi|so)$|dist-packages|/missile-defense-trainer$|/missile-defense-train$' /tmp/game.list; then
             echo "::error::the game package ships part of the training half" >&2
             exit 1
           fi
@@ -584,8 +584,8 @@ jobs:
           done
 
           # The positive half: each of the other two carries what it is for.
-          grep -q '/usr/bin/md-console$' /tmp/console.list
-          grep -q 'missile-defense-training.desktop$' /tmp/console.list
+          grep -q '/usr/bin/missile-defense-trainer$' /tmp/trainer.list
+          grep -q 'missile-defense-trainer.desktop$' /tmp/trainer.list
           grep -q 'dist-packages/md/ui/app.py$' /tmp/bindings.list
           # Stable ABI, by filename. `_md_native.abi3.so` keeps working when the
           # distribution moves its Python a minor version; a `.cpython-313-`
@@ -602,8 +602,8 @@ jobs:
           # And no file is owned twice — dpkg refuses to install two packages
           # that both claim a path, so this is a broken install, not a nit.
           if comm -12 /tmp/game.list /tmp/bindings.list | grep . ||
-             comm -12 /tmp/game.list /tmp/console.list | grep . ||
-             comm -12 /tmp/bindings.list /tmp/console.list | grep .; then
+             comm -12 /tmp/game.list /tmp/trainer.list | grep . ||
+             comm -12 /tmp/bindings.list /tmp/trainer.list | grep .; then
             echo "::error::two packages own the same path" >&2
             exit 1
           fi
@@ -620,7 +620,7 @@ jobs:
           test -f "$game"
           contents=$(dpkg-deb -c "$game" | awk '$NF !~ /\/$/ {print $NF}' | sed 's|^\./|/|')
           echo "$contents"
-          if grep -Eq '\.(py|pyi|so)$|dist-packages|/md-console$|/md-train$' <<<"$contents"; then
+          if grep -Eq '\.(py|pyi|so)$|dist-packages|/missile-defense-trainer$|/missile-defense-train$' <<<"$contents"; then
             echo "::error::the game package ships part of the training half" >&2
             exit 1
           fi
@@ -637,21 +637,21 @@ jobs:
         if: ${{ !matrix.profiles }}
         # Installing the game alone must succeed with dependency checks on — the
         # thing `apt install missile-defense` does — and must leave the machine
-        # with no console on it. Then adding the console must actually put one
+        # with no trainer on it. Then adding the trainer must actually put one
         # there. The pair is the claim; either half alone proves nothing.
         shell: bash
         run: |
           set -euo pipefail
           apt-get install -y --no-install-recommends ../missile-defense_*.deb
           test -x /usr/games/missile-defense
-          if command -v md-console >/dev/null; then
-            echo "::error::a game-only install left an md-console on the machine" >&2
+          if command -v missile-defense-trainer >/dev/null; then
+            echo "::error::a game-only install left an missile-defense-trainer on the machine" >&2
             exit 1
           fi
           # The other direction, from the same starting point.
           apt-get install -y --no-install-recommends \
-            ../python3-md_*.deb ../missile-defense-training_*.deb
-          command -v md-console
+            ../python3-md_*.deb ../missile-defense-trainer_*.deb
+          command -v missile-defense-trainer
           python3 -c "import md, md.ui; print('md', md.__version__, 'from', md.__file__)"
 
       - name: The installed game starts

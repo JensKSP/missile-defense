@@ -30,10 +30,10 @@ pytestmark = [pytest.mark.e2e, needs_qt]
 
 @pytest.fixture
 def analysis(qt_app: object, trained_run: Path):  # noqa: ANN201 — PySide6 is optional
-    """A real console window, opened on a real run, showing the statistics."""
-    from md.ui.app import Console  # noqa: PLC0415 — optional dependency
+    """A real trainer window, opened on a real run, showing the statistics."""
+    from md.ui.app import Trainer  # noqa: PLC0415 — optional dependency
 
-    window = Console(trained_run)
+    window = Trainer(trained_run)
     window.resize(1400, 900)
     window._tick()
     yield window._analysis
@@ -43,10 +43,10 @@ def analysis(qt_app: object, trained_run: Path):  # noqa: ANN201 — PySide6 is 
 @needs_torch
 @needs_native
 def test_the_statistics_screen_fills_from_a_real_run(analysis) -> None:  # noqa: ANN001
-    """The join, asserted: the trainer's columns reach the console's tiles.
+    """The join, asserted: the trainer's columns reach the trainer's tiles.
 
     `_body` is visible only when more than the score came through, so this fails
-    on exactly the case that matters — a run whose statistics the console could
+    on exactly the case that matters — a run whose statistics the trainer could
     not find, for any reason including a renamed column.
     """
     # `isHidden`, not `isVisible`: nothing is "visible" while the window itself
@@ -71,7 +71,7 @@ def test_the_kills_per_shot_distribution_is_populated(analysis) -> None:  # noqa
 
     The histogram is the one piece of new *core* instrumentation behind this
     screen (it is binned in C++ at blast expiry), so it crosses the most
-    boundaries of anything here: sim → bindings → trainer → CSV → console.
+    boundaries of anything here: sim → bindings → trainer → CSV → trainer.
     """
     chart = analysis._distribution
     assert chart._placeholder.isHidden(), chart._placeholder.text()
@@ -108,12 +108,12 @@ def test_a_second_run_overlays_the_distribution_and_the_curves(
     anything else means the two sides are not reading the same file.
     """
     from md.ui import stats  # noqa: PLC0415 — optional dependency
-    from md.ui.app import Console  # noqa: PLC0415 — optional dependency
+    from md.ui.app import Trainer  # noqa: PLC0415 — optional dependency
 
     other = tmp_path / "other-run"
     shutil.copytree(trained_run, other)
 
-    window = Console(trained_run)
+    window = Trainer(trained_run)
     window.resize(1400, 900)
     window._tick()
     try:
@@ -145,7 +145,7 @@ def test_a_comparison_that_shows_nothing_says_why(
     am holding it wrong", and both answers are wrong.
     """
     from md.ui import sources  # noqa: PLC0415 — optional dependency
-    from md.ui.app import Console  # noqa: PLC0415 — optional dependency
+    from md.ui.app import Trainer  # noqa: PLC0415 — optional dependency
 
     other = tmp_path / "other-protocol"
     shutil.copytree(trained_run, other)
@@ -164,7 +164,7 @@ def test_a_comparison_that_shows_nothing_says_why(
         writer.writeheader()
         writer.writerows(rows)
 
-    window = Console(trained_run)
+    window = Trainer(trained_run)
     window.resize(1400, 900)
     window._tick()
     try:
@@ -190,12 +190,12 @@ def test_a_comparable_run_says_that_too(
 ) -> None:
     # The other half of the rule: the note is a statement of what the panel is
     # doing, not an error channel that only appears when something is wrong.
-    from md.ui.app import Console  # noqa: PLC0415 — optional dependency
+    from md.ui.app import Trainer  # noqa: PLC0415 — optional dependency
 
     other = tmp_path / "same-protocol"
     shutil.copytree(trained_run, other)
 
-    window = Console(trained_run)
+    window = Trainer(trained_run)
     window.resize(1400, 900)
     window._tick()
     try:

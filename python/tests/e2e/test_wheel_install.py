@@ -138,9 +138,9 @@ def test_the_simulation_actually_runs_from_the_wheel(installed: Path, tmp_path: 
 
 
 def test_the_data_half_never_drags_torch_in(installed: Path, tmp_path: Path) -> None:
-    """Everything the console reads with must import without torch.
+    """Everything the trainer reads with must import without torch.
 
-    The rule the console is built around: it has to open on a machine with no
+    The rule the trainer is built around: it has to open on a machine with no
     training runtime and *tell* you how to get one. An import that pulled torch
     in would make the one screen that explains the problem the one screen that
     cannot be shown. Checked against `sys.modules` rather than by uninstalling
@@ -169,13 +169,16 @@ def test_a_bare_install_says_what_is_missing_instead_of_crashing(
     This venv is that machine — it has the wheel and neither optional half.
     """
     scripts = installed.parent
-    for name in ("md-train", "md-console", "md-multiseed"):
+    for name in ("missile-defense-train", "missile-defense-trainer"):
         executable = scripts / (f"{name}.exe" if sys.platform == "win32" else name)
         # A renamed function leaves a script that installs cleanly and dies on
         # the first run. Every one of these is somebody's first command.
         assert executable.is_file(), f"{name} was not installed"
 
-    for name, missing in (("md-train", "torch"), ("md-console", "PySide6")):
+    for name, missing in (
+        ("missile-defense-train", "torch"),
+        ("missile-defense-trainer", "PySide6"),
+    ):
         result = subprocess.run(
             [str(scripts / name), "--help"],
             capture_output=True,

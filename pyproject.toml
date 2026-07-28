@@ -126,7 +126,7 @@ Source = "https://github.com/JensKSP/missile-defense"
 # environment.
 [project.optional-dependencies]
 train = ["torch"]
-console = [
+trainer = [
   "PySide6",
   "psutil",
   "nvidia-ml-py",
@@ -136,10 +136,18 @@ console = [
 # Both go through a shim that checks for the optional half first: an entry point
 # that dies inside `import torch` reads as a broken install rather than as a
 # package someone has not added yet (md.cli, md.ui.__main__).
+#
+# The names are the product's, not the import package's. `md-` meant nothing to
+# anyone who had not read the source: the game installs as `missile-defense`, so
+# the tools that come with it are `missile-defense-*` and a user can find them by
+# typing the only name they were ever shown.
+#
+# There is no separate multi-seed command. It was `md-multiseed`, and it is now
+# `missile-defense-train --multiseed`, because it is the trainer run several
+# times rather than a different program — see md.cli.train.
 [project.scripts]
-md-train = "md.cli:train"
-md-console = "md.ui.__main__:main"
-md-multiseed = "md.multiseed:main"
+missile-defense-train = "md.cli:train"
+missile-defense-trainer = "md.ui.__main__:main"
 
 # ---- Task runner (poe) -------------------------------------------------------
 # Run with: poe <task>   (after `python3 -m tools.bootstrap`)
@@ -165,14 +173,14 @@ profile   = { cmd = "python -m tools.run_bench --profile", help = "Benchmark wit
 # naming a target the reader then has to know to build.
 #
 # `ui` deliberately does not, and the difference is not an oversight. The
-# console without the extension still starts, browses runs and plays replays —
+# trainer without the extension still starts, browses runs and plays replays —
 # only *starting* a run needs it, and it says so itself at the moment you press
 # Start. Making the build a hard dependency would mean that on a machine with no
 # C++ toolchain — a Windows box without MSVC, say — `poe ui` stopped opening a
-# console that would have worked, in order to build something the person may not
+# trainer that would have worked, in order to build something the person may not
 # have come for.
 train     = { cmd = "python -m tools.launch md.train", deps = ["bindings"], help = "Train a policy with PPO (needs torch; see docs/TRAINING.md)" }
-ui        = { cmd = "python -m tools.launch md.ui", help = "Training console: watch a run's curves and replays (needs PySide6)" }
+ui        = { cmd = "python -m tools.launch md.ui", help = "Trainer: watch a run's curves and replays (needs PySide6)" }
 bindings  = { cmd = "python -m tools.build_bindings", help = "Build the Python extension (_md_native) and put it beside the package" }
 shot      = { cmd = "python -m tools.capture screenshot", help = "Screenshot the running app -> shot.png (append --launch to spawn one)" }
 rec       = { cmd = "python -m tools.capture record", help = "Record the running app -> clip.mp4 (append --launch to spawn one)" }
@@ -185,7 +193,7 @@ test-e2e     = { cmd = "ctest --preset debug -L e2e", deps = ["build"], help = "
 test-release = { cmd = "ctest --preset release", deps = ["release"], help = "Build + run all tests in Release (-O2, NDEBUG)" }
 pytest       = { cmd = "pytest -m 'not e2e'", help = "Run Python tests (fast; excludes the e2e suite)" }
 # Drives the real binaries in their own processes: the game into a virtual X
-# server nobody sees, a real short training run, the console offscreen. Minutes,
+# server nobody sees, a real short training run, the trainer offscreen. Minutes,
 # not seconds, which is why it is its own task and not part of `poe pytest`.
 test-app     = { cmd = "pytest -m e2e", deps = ["build"], help = "Run the application end-to-end tests (slow; needs xvfb for the game)" }
 test-all     = { sequence = ["test", "test-release", "pytest"], help = "Run every test in Debug and Release" }
@@ -272,7 +280,7 @@ ignore_missing_imports = true
 module = ["md.auxiliary", "md.ppo", "md.train"]
 ignore_errors = true
 
-# The console is optional (LGPLv3, never a dependency of the game), so PySide6 is
+# The trainer is optional (LGPLv3, never a dependency of the game), so PySide6 is
 # not installed on every machine that runs the gate — including CI. Its Qt-free
 # half is checked everywhere; the two widget modules are checked where PySide6
 # exists, with `pyright --pythonpath <interpreter that has it>`.
@@ -351,7 +359,7 @@ testpaths = ["python/tests"]
 # discovery logic of its own — is testable rather than only type-checked.
 pythonpath = ["python", "."]
 addopts = "-q"
-# e2e tests start real processes — the game, a trainer, the console — so they
+# e2e tests start real processes — the game, a training run, the trainer — so they
 # are minutes rather than seconds and are not part of the inner loop.
 # `poe pytest` stays fast; `poe test-e2e-app` runs these; the gate runs both.
 markers = ["e2e: drives a shipped binary in its own process (slow)"]

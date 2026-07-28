@@ -18,7 +18,7 @@ Create or update that environment with `python3 -m tools.bootstrap`.
 - **Simulation e2e** tests drive a whole episode (`reset` → `step`… → terminal) and
   assert end-to-end invariants (determinism, scoring, termination), in-process.
 - **Application e2e** tests drive the *shipped surfaces* in their own processes —
-  the game binary, a real training run, the console window. See below.
+  the game binary, a real training run, the trainer window. See below.
 - Catch2 test names must **not contain `[` `]`** — those are reserved for tags.
 
 ## Application end-to-end tests
@@ -34,8 +34,8 @@ They cover four subjects:
 | Subject | Driven as | The claim |
 |---|---|---|
 | The game | `md_app` with a frame budget | boots, renders, plays, watches, replays, exits 0 |
-| A training run | `md-train` into a temp `--out-dir` | writes every artifact it owes |
-| The console | `md.ui` offscreen on that directory | attaches, reads, controls, sets up a runtime |
+| A training run | `missile-defense-train` into a temp `--out-dir` | writes every artifact it owes |
+| The trainer | `md.ui` offscreen on that directory | attaches, reads, controls, sets up a runtime |
 | The contest | promotion, pairing, `--match` split screen | a promoted model is playable, a pairing plays as one screen, a broken one is refused |
 
 The contest row was marked *not built yet* long after it was; `test_promotion.py`
@@ -62,7 +62,7 @@ lose them what they were typing. So:
 * everything it would write — recordings, high scores, the audio and fullscreen
   preferences — is redirected into a temporary directory via `XDG_CONFIG_HOME`,
   `XDG_DATA_HOME` and `MD_RUNS_DIR`;
-* the console runs under `QT_QPA_PLATFORM=offscreen`, which needs nothing
+* the trainer runs under `QT_QPA_PLATFORM=offscreen`, which needs nothing
   installed at all.
 
 Qt's `offscreen` platform is *not* an option for the game: it has no Vulkan
@@ -86,7 +86,7 @@ MD_E2E_VISIBLE=1 poe test-app   # watch them on your own screen instead
 ```
 
 Without Xvfb the game tests **skip** with that instruction as the reason; the
-console and training tests still run. That is the right behaviour on a build box
+trainer and training tests still run. That is the right behaviour on a build box
 with no graphics stack.
 
 ### The flags this needed

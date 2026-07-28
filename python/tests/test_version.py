@@ -54,7 +54,7 @@ def test_one_file_left_behind_is_caught(tmp_path: Path) -> None:
 def test_the_packages_own_version_left_behind_is_caught(tmp_path: Path) -> None:
     # `md.__version__` is the one nothing builds from, so a stale value survives
     # every build and every test and is discovered by a user reading the training
-    # console's About box. It has to be checked here or it is not checked at all.
+    # trainer's About box. It has to be checked here or it is not checked at all.
     _tree(tmp_path, "1.2.3", "1.2.3", "1.2.3", package="1.2.2")
     assert check(root=tmp_path) == 1
 

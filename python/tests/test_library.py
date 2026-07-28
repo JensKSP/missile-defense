@@ -202,7 +202,7 @@ def test_the_run_reports_its_best_score_even_when_the_checkpoint_is_gone(
 def test_a_run_is_named_without_moving_it(tmp_path: Path) -> None:
     """Renaming the directory would break every path inside the run.
 
-    Every `--resume` anyone wrote down, the console window watching it, the
+    Every `--resume` anyone wrote down, the trainer window watching it, the
     trainer's own open file handles. A name is a label, not an address.
     """
     path = make_run(tmp_path, "runs-7")
@@ -222,7 +222,7 @@ def test_a_run_with_no_name_shows_its_directory(tmp_path: Path) -> None:
 
 
 def test_a_hand_mangled_metadata_file_loses_the_name_and_not_the_run(tmp_path: Path) -> None:
-    """The console's file, in a directory a person can open in an editor.
+    """The trainer's file, in a directory a person can open in an editor.
 
     Refusing to list the run over a broken name would lose them the run, which
     is a far worse outcome than losing a name they can retype.
@@ -394,11 +394,11 @@ def test_the_library_and_the_dashboard_call_a_stopped_run_the_same_thing() -> No
     names now live in `md.library` and both views spell them from there; this
     fails if a third spelling appears.
 
-    Skipped without PySide6 rather than failing: the console is an optional
+    Skipped without PySide6 rather than failing: the trainer is an optional
     part of this project (LGPL-3 where the rest is MIT, so the game never
     depends on it), and the quality gate runs where it is not installed.
     """
-    pytest.importorskip("PySide6", reason="the console is optional; see README")
+    pytest.importorskip("PySide6", reason="the trainer is optional; see README")
     from md.ui import app
 
     assert library.STATE_IDLE in app.STATUS

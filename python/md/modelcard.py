@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Jens Köhler
 # Assisted-by: Claude Code (Anthropic)
-"""What a run is training, written where the console can read it. No torch here.
+"""What a run is training, written where the trainer can read it. No torch here.
 
-The console must never import torch — that is a test, not a habit
+The trainer must never import torch — that is a test, not a habit
 (docs/ROADMAP.md, M8, risk 3) — and the roadmap's own answer to the rule is that
 anything needing model state belongs in ``md.train``, surfaced as an artifact the
-console reads. This is that artifact: ``runs/model.json``, beside ``config.json``
+trainer reads. This is that artifact: ``runs/model.json``, beside ``config.json``
 and for the same reason. One says what the run was started with, the other says
 what it is training.
 
@@ -183,7 +183,7 @@ def write(run_dir: Path, card: ModelCard) -> Path:
 def read(run_dir: Path) -> ModelCard | None:
     """The card in ``run_dir``, or ``None`` if there is not a readable one.
 
-    ``None`` covers three states the console shows the same way — no file yet, a
+    ``None`` covers three states the trainer shows the same way — no file yet, a
     run written before this file existed, and a file caught mid-write — because
     the answer to all three is "there is nothing to show yet", and the panel
     already says which run it is looking at.

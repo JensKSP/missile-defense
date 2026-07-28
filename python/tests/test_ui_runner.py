@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Jens Köhler
 # Assisted-by: Claude Code (Anthropic)
-"""Tests for launching the game from the console — without launching anything.
+"""Tests for launching the game from the trainer — without launching anything.
 
 ``md.ui.runner`` takes the spawn function as an argument for exactly this: what
 matters is the command line it builds and where it looks for the binary, and
@@ -27,9 +27,9 @@ from md.ui.runner import (
     TrainingRun,
     app_binary,
     can_train,
-    console_executable,
     find_interpreter,
     launch_environ,
+    trainer_executable,
     training_environ,
     training_python,
 )
@@ -147,7 +147,7 @@ def test_md_app_overrides_the_search(tmp_path: Path) -> None:
 
 def test_an_md_app_pointing_at_nothing_is_not_silently_ignored(tmp_path: Path) -> None:
     # Falling back to the build directory would hide the typo; nothing found says
-    # so, and the console explains how to fix it.
+    # so, and the trainer explains how to fix it.
     _build_app(tmp_path, "release")
     assert app_binary({"MD_APP": str(tmp_path / "missing")}, root=tmp_path) is None
 
@@ -165,7 +165,7 @@ def test_a_system_install_is_found_on_path(tmp_path: Path) -> None:
 
 def test_the_debian_package_installs_it_under_another_name(tmp_path: Path) -> None:
     # /usr/games/missile-defense, not md_app: looking only for the build's name
-    # means the console can never open a replay on a machine with the .deb.
+    # means the trainer can never open a replay on a machine with the .deb.
     installed = tmp_path / "games" / f"missile-defense{EXE}"
     installed.parent.mkdir()
     installed.write_text("", encoding="utf-8")
@@ -181,7 +181,7 @@ def test_a_macos_build_is_found_inside_the_app_bundle(tmp_path: Path) -> None:
 
 def test_the_bundle_layout_is_not_looked_for_off_macos(tmp_path: Path) -> None:
     # The bundle and the flat executable are different paths. Getting this branch
-    # backwards would mean a Linux console ignoring the build sitting next to it.
+    # backwards would mean a Linux trainer ignoring the build sitting next to it.
     _build_bundle(tmp_path)
     assert app_binary({"PATH": str(tmp_path)}, root=tmp_path, platform="linux") is None
 
@@ -190,9 +190,16 @@ def test_a_macos_disk_image_install_is_found_in_applications(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Drag-to-Applications is the whole install story on macOS, and nothing inside
-    # a bundle is ever on PATH — so without this the console could never open a
+    # a bundle is ever on PATH — so without this the trainer could never open a
     # replay on a machine that has the .dmg but no checkout.
-    installed = tmp_path / "md_app.app" / "Contents" / "MacOS" / "md_app"
+    #
+    # `Missile Defense.app`, not `md_app.app`, and the difference is the point:
+    # the build tree keeps the target's name (_build_bundle above) while the
+    # installer renames the bundle, because Finder labels an icon with the
+    # filename and not CFBundleDisplayName (app/CMakeLists.txt). Spelled out here
+    # for the reason _build_bundle spells its own out — a test that imports the
+    # constant cannot catch the constant being wrong.
+    installed = tmp_path / "Missile Defense.app" / "Contents" / "MacOS" / "md_app"
     installed.parent.mkdir(parents=True)
     installed.write_text("", encoding="utf-8")
     monkeypatch.setattr(runner, "MACOS_APP_PATHS", (str(tmp_path),))
@@ -284,7 +291,7 @@ def test_peeking_at_a_head_to_head_opens_both_sides(tmp_path: Path) -> None:
 def test_an_unbuilt_game_says_how_to_build_it(tmp_path: Path) -> None:
     launcher = ReplayLauncher(root=tmp_path, environ={"PATH": str(tmp_path)}, spawn=FakeSpawn())
     # Every entry point, not just the first: an unbuilt game is the normal state
-    # of a console-only install, and each of these is somebody's first click.
+    # of a trainer-only install, and each of these is somebody's first click.
     with pytest.raises(AppNotFound, match="cmake --build"):
         launcher.launch_match(tmp_path / "match.json")
     with pytest.raises(AppNotFound, match="cmake --build"):
@@ -311,10 +318,10 @@ def test_finished_windows_stop_being_counted(tmp_path: Path) -> None:
 
 
 def test_linux_lets_the_session_choose_the_window_system() -> None:
-    """A game started from the console is the game started from the desktop.
+    """A game started from the trainer is the game started from the desktop.
 
-    The console used to force xcb here, so a Wayland user got an XWayland window
-    from the console and a Wayland one from the menu — the same binary behaving
+    The trainer used to force xcb here, so a Wayland user got an XWayland window
+    from the trainer and a Wayland one from the menu — the same binary behaving
     two ways, and the tearing only in the path a developer uses least.
     """
     env = launch_environ({"PATH": "/usr/bin"}, platform="linux")
@@ -326,7 +333,7 @@ def test_linux_lets_the_session_choose_the_window_system() -> None:
 
 def test_windows_puts_the_msys2_qt_dlls_back_on_path(tmp_path: Path) -> None:
     # The MinGW build finds Qt on PATH, which is set in the CLANG64 shell and
-    # nowhere else — including the native interpreter the console runs in.
+    # nowhere else — including the native interpreter the trainer runs in.
     (tmp_path / "clang64" / "bin").mkdir(parents=True)
     env = launch_environ({"MSYS2_ROOT": str(tmp_path), "PATH": "C:/Windows"}, platform="win32")
     assert env["PATH"].startswith(str(tmp_path / "clang64" / "bin"))
@@ -359,7 +366,7 @@ def test_an_explicit_interpreter_is_not_second_guessed(tmp_path: Path) -> None:
 
 def test_a_managed_runtime_is_what_a_packaged_user_trains_with(tmp_path: Path) -> None:
     # The whole point of md.runtime: an installed copy with no torch anywhere
-    # can still start a run, and Start does not depend on how the console itself
+    # can still start a run, and Start does not depend on how the trainer itself
     # was installed.
     store = _stub_ready_runtime(tmp_path)
     found = find_interpreter({}, store=store)
@@ -370,7 +377,7 @@ def test_a_managed_runtime_is_what_a_packaged_user_trains_with(tmp_path: Path) -
 
 
 def test_a_machine_with_no_runtime_and_no_torch_cannot_train(tmp_path: Path) -> None:
-    # The packaged console before setup: no managed runtime, and torch is not
+    # The packaged trainer before setup: no managed runtime, and torch is not
     # importable from the interpreter it is running in either.
     store = _empty_store(tmp_path)
     with mock.patch.object(runner.importlib.util, "find_spec", return_value=None):
@@ -379,7 +386,7 @@ def test_a_machine_with_no_runtime_and_no_torch_cannot_train(tmp_path: Path) -> 
 
 
 def test_browsing_and_replay_do_not_depend_on_being_able_to_train(tmp_path: Path) -> None:
-    # A console attached to a directory synced from the training box must stay
+    # A trainer attached to a directory synced from the training box must stay
     # fully useful: only Start is gated on an interpreter.
     root = tmp_path / "checkout"
     binary = _build_app(root)
@@ -391,11 +398,11 @@ def test_browsing_and_replay_do_not_depend_on_being_able_to_train(tmp_path: Path
 
 
 def test_a_spawned_run_can_import_md_without_it_being_installed() -> None:
-    # The console is run from a checkout, and so is the trainer it starts.
+    # The trainer is run from a checkout, and so is the trainer it starts.
     env = training_environ({"PYTHONPATH": "/somewhere/else"})
     assert env["PYTHONPATH"].startswith(str(PACKAGE_PATH))
     assert "/somewhere/else" in env["PYTHONPATH"]
-    # ...and it is not added twice when the console was itself started that way.
+    # ...and it is not added twice when the trainer was itself started that way.
     once = training_environ({"PYTHONPATH": str(PACKAGE_PATH)})
     assert once["PYTHONPATH"] == str(PACKAGE_PATH)
 
@@ -443,58 +450,58 @@ def test_no_msys2_no_change(tmp_path: Path) -> None:
     assert env["PATH"] == "C:/Windows"
 
 
-# ---- finding the console -----------------------------------------------------
+# ---- finding the trainer -----------------------------------------------------
 # The game offers TRAIN AI only when this lookup resolves, so its answer *is* the
 # difference between the two products: a game-only install must find nothing.
 
 
-def _install_console(root: Path, name: str = "md-console") -> Path:
-    console = root / f"{name}{EXE}"
-    console.write_text("", encoding="utf-8")
-    console.chmod(0o755)
-    return console
+def _install_trainer(root: Path, name: str = "missile-defense-trainer") -> Path:
+    trainer = root / f"{name}{EXE}"
+    trainer.write_text("", encoding="utf-8")
+    trainer.chmod(0o755)
+    return trainer
 
 
-def test_a_game_only_install_finds_no_console(tmp_path: Path) -> None:
+def test_a_game_only_install_finds_no_trainer(tmp_path: Path) -> None:
     # The negative half, and the one that matters most: nothing on PATH, no
     # checkout. If this ever starts finding something, the game has stopped being
     # installable on its own.
-    assert console_executable({"PATH": str(tmp_path)}, root=tmp_path / "nowhere") is None
+    assert trainer_executable({"PATH": str(tmp_path)}, root=tmp_path / "nowhere") is None
 
 
-def test_an_installed_console_is_found_on_path(tmp_path: Path) -> None:
-    console = _install_console(tmp_path)
-    found = console_executable({"PATH": str(tmp_path)}, root=tmp_path / "no-checkout")
-    assert found == console
+def test_an_installed_trainer_is_found_on_path(tmp_path: Path) -> None:
+    trainer = _install_trainer(tmp_path)
+    found = trainer_executable({"PATH": str(tmp_path)}, root=tmp_path / "no-checkout")
+    assert found == trainer
 
 
-def test_md_console_overrides_the_search(tmp_path: Path) -> None:
+def test_md_trainer_overrides_the_search(tmp_path: Path) -> None:
     # The same escape hatch MD_APP is for the game: someone who knows where it is
     # is not second-guessed.
-    elsewhere = _install_console(tmp_path, "console-somewhere")
-    found = console_executable({"MD_CONSOLE": str(elsewhere), "PATH": ""}, root=tmp_path)
+    elsewhere = _install_trainer(tmp_path, "trainer-somewhere")
+    found = trainer_executable({"MD_TRAINER": str(elsewhere), "PATH": ""}, root=tmp_path)
     assert found == elsewhere
 
 
-def test_an_md_console_pointing_at_nothing_is_not_silently_ignored(tmp_path: Path) -> None:
-    # Falling back to a search would launch a *different* console than the one
+def test_an_md_trainer_pointing_at_nothing_is_not_silently_ignored(tmp_path: Path) -> None:
+    # Falling back to a search would launch a *different* trainer than the one
     # that was named, which is worse than reporting none.
-    assert console_executable({"MD_CONSOLE": str(tmp_path / "missing")}, root=tmp_path) is None
+    assert trainer_executable({"MD_TRAINER": str(tmp_path / "missing")}, root=tmp_path) is None
 
 
-def test_a_checkout_can_run_the_console_it_contains(tmp_path: Path) -> None:
-    # A developer has no md-console on PATH but does have the package, and the
+def test_a_checkout_can_run_the_trainer_it_contains(tmp_path: Path) -> None:
+    # A developer has no missile-defense-trainer on PATH but does have the package, and the
     # game should still offer TRAIN AI there — the checkout is an install too.
     package = tmp_path / "python" / "md" / "ui"
     package.mkdir(parents=True)
     (package / "__main__.py").write_text("", encoding="utf-8")
-    found = console_executable({"PATH": ""}, root=tmp_path)
+    found = trainer_executable({"PATH": ""}, root=tmp_path)
     assert found is not None
     assert found.name.startswith("python")
 
 
 def _install_payload(root: Path) -> Path:
-    """The console's payload as a Windows installer leaves it, beside the game."""
+    """The trainer's payload as a Windows installer leaves it, beside the game."""
     package = root / "md" / "ui"
     package.mkdir(parents=True)
     (package / "__main__.py").write_text("", encoding="utf-8")
@@ -506,23 +513,23 @@ def test_a_payload_beside_the_game_is_run_by_the_interpreter(tmp_path: Path) -> 
     # nothing onto PATH, and what it calls a launcher is a `.cmd` that Smart App
     # Control refuses to run — so the interpreter is the only way in, and this
     # is the stage that finds it. The C++ side has the same case in
-    # test_console.cpp; the two must not disagree about it.
+    # test_trainer.cpp; the two must not disagree about it.
     install = _install_payload(tmp_path / "Missile Defense")
-    found = console_executable({"PATH": ""}, root=tmp_path / "no-checkout", install_root=install)
+    found = trainer_executable({"PATH": ""}, root=tmp_path / "no-checkout", install_root=install)
     assert found is not None
     assert found.name.startswith("python")
 
 
 def test_an_installed_launcher_still_wins_over_the_payload(tmp_path: Path) -> None:
-    # Someone who pip-installed the package has an md-console of their own, and
+    # Someone who pip-installed the package has an missile-defense-trainer of their own, and
     # it is the more explicit answer. Adding a stage underneath PATH must not
     # reorder the ones above it.
-    console = _install_console(tmp_path)
+    trainer = _install_trainer(tmp_path)
     install = _install_payload(tmp_path / "Missile Defense")
-    found = console_executable(
+    found = trainer_executable(
         {"PATH": str(tmp_path)}, root=tmp_path / "no-checkout", install_root=install
     )
-    assert found == console
+    assert found == trainer
 
 
 def test_an_unknown_install_root_offers_no_payload(tmp_path: Path) -> None:
@@ -530,4 +537,4 @@ def test_an_unknown_install_root_offers_no_payload(tmp_path: Path) -> None:
     # "look wherever `md` happens to be imported from" — which is always true and
     # would turn a game-only install into one that offers training.
     _install_payload(tmp_path / "Missile Defense")
-    assert console_executable({"PATH": str(tmp_path)}, root=tmp_path / "nowhere") is None
+    assert trainer_executable({"PATH": str(tmp_path)}, root=tmp_path / "nowhere") is None

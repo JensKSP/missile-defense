@@ -3,7 +3,7 @@
 # Assisted-by: Claude Code (Anthropic)
 """What a training run leaves on disk, read incrementally. No Qt in here.
 
-The console never talks to the trainer: the artifacts *are* the interface
+The trainer never talks to the training loop: the artifacts *are* the interface
 (docs/ROADMAP.md, M8), which is what lets it attach to a run started from a
 terminal and lets a crashed window leave the run untouched.
 
@@ -56,7 +56,7 @@ RECORDING_SUFFIX = ".mdr"
 CHECKPOINTS_NAME = "checkpoints"
 CHECKPOINT_SUFFIX = ".pt"
 #: The trainer's own copy of what it printed (:mod:`md.runlog`), which is how a
-#: run this console never started still gets a log pane.
+#: run this trainer never started still gets a log pane.
 LOG_NAME = "train.log"
 
 #: Compatibility alias; benchmark.py owns the value and the protocol it belongs to.
@@ -92,7 +92,7 @@ class MetricRow:
 class EvalRow:
     """One line of ``evals.csv`` and the protocol that produced its score.
 
-    Old files have no protocol fields. They remain readable, but the console
+    Old files have no protocol fields. They remain readable, but the trainer
     cannot honestly compare them with a baseline or another run until the seed
     split, offset and count, cadence, cap and inference backend are known.
     """
@@ -120,7 +120,7 @@ class EvalRow:
     reaction_delay: int | None = None
     # The full per-episode statistics (the plan's Task 11). Every one is
     # optional for the same reason the rest are: a run written by an older
-    # trainer simply has no such column, and the console has to keep reading it.
+    # training loop simply has no such column, and the trainer has to keep reading it.
     # They are what the analysis view draws — how long the policy survived, how
     # much damage it took, and how the ammunition was spent.
     mean_ticks: float | None = None
@@ -402,7 +402,7 @@ def log_tail(run_dir: Path) -> LineTail:
     """Tail ``<run_dir>/train.log`` — what the run has printed.
 
     The trainer writes this itself (:mod:`md.runlog`), which is what gives the
-    console a log pane for a run it did not start. Its own child's stdout comes
+    trainer a log pane for a run it did not start. Its own child's stdout comes
     down a pipe instead; this is for every other way a run can be launched.
     """
     return LineTail(run_dir / LOG_NAME)
@@ -413,7 +413,7 @@ class CsvTail(Generic[T]):
 
     Rows are handed to ``parse``, which returns ``None`` for anything it does not
     recognise — that is also how header lines are skipped. Columns are matched by
-    *name*, so a run that gains a column is read correctly by an older console and
+    *name*, so a run that gains a column is read correctly by an older trainer and
     vice versa.
     """
 
@@ -577,7 +577,7 @@ class Peak:
     best one, and a tile showing only the newest cannot answer "has this run
     already been better than it is now?". ``md.train`` keeps exactly this for the
     eval score, because it decides which policy ``policy-best.pt`` is; the
-    console keeps it for the numbers it puts on screen.
+    trainer keeps it for the numbers it puts on screen.
 
     Fed each row as the tail hands it over rather than computed from a curve: the
     rows arrive once, and a widget is the wrong place to keep a fact about a run.
@@ -732,9 +732,9 @@ def _holds_a_run(path: Path) -> bool:
     Both halves are questions for the filesystem, and either can be *refused*
     rather than answered. `/tmp` on a systemd box holds ``systemd-private-*``
     directories owned by another user, and `Path.exists()` propagates the
-    permission error instead of saying no — so a console opened on a run in
+    permission error instead of saying no — so a trainer opened on a run in
     `/tmp` died while building its run picker, before it had drawn anything.
-    A directory that cannot be looked into is not a run this console can offer,
+    A directory that cannot be looked into is not a run this trainer can offer,
     which is the whole of what is being asked.
     """
     try:
@@ -749,7 +749,7 @@ def find_runs(directory: Path) -> list[Path]:
     Runs accumulate: an experiment gets its own ``--out-dir`` and the old one is
     kept rather than overwritten. So a directory with no ``metrics.csv`` of its
     own is usually not "nothing here" but "the runs are one level down", and a
-    console that cannot tell the difference sends you back to the shell to find
+    trainer that cannot tell the difference sends you back to the shell to find
     out which is which.
     """
     try:
@@ -810,7 +810,7 @@ def next_run_dir(run_dir: Path) -> Path:
 
 
 # ---- glanceable formatting --------------------------------------------------
-# Pure, so the console's most-read text is covered by tests rather than by eye.
+# Pure, so the trainer's most-read text is covered by tests rather than by eye.
 
 
 def peak_note(peak: Peak, spec: str) -> str:

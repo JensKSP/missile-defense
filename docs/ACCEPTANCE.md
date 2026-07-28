@@ -51,7 +51,7 @@ a clean machine, without a terminal.
 | 2.2 | Play one game as a human | | | | |
 | 2.3 | Watch the scripted AI at two skill levels | | | | |
 | 2.4 | Watch the bundled learned model | | | | |
-| 2.5 | Open the console — both directly and via **TRAIN AI** | | | | |
+| 2.5 | Open the trainer — both directly and via **TRAIN AI** | | | | |
 | 2.6 | Start the first preset run *without choosing an unexplained parameter* | | | | |
 | 2.7 | The stated time and disk estimate matched what actually happened | | | | |
 | 2.8 | Watch the curves move, and understand what they mean from the screen alone | | | | |
@@ -81,9 +81,9 @@ artifact, not a fresh install.
 | # | Package | Build | Who / when | Evidence | Result |
 |---|---|---|---|---|---|
 | 3.1 | Debian 13 (trixie) — `missile-defense` | | | | |
-| 3.2 | Debian 13 (trixie) — `python3-md` + `missile-defense-training` | | | | |
+| 3.2 | Debian 13 (trixie) — `python3-md` + `missile-defense-trainer` | | | | |
 | 3.3 | Ubuntu 26.04 — `missile-defense` | | | | |
-| 3.4 | Ubuntu 26.04 — `python3-md` + `missile-defense-training` | | | | |
+| 3.4 | Ubuntu 26.04 — `python3-md` + `missile-defense-trainer` | | | | |
 | 3.5 | Ubuntu 24.04 — `missile-defense` **(game only; no training packages exist for it)** | | | | |
 | 3.6 | Windows 10/11 x64 — NSIS installer | | | | |
 | 3.7 | Windows 10/11 x64 — portable ZIP | | | | |
@@ -106,9 +106,9 @@ tick that exists today.
 | # | Item | Build | Who / when | Evidence | Result |
 |---|---|---|---|---|---|
 | 4.1 | Windows: the game launches, renders and plays on real hardware | | | | |
-| 4.2 | Windows: the console launches and can start a run | | | | |
+| 4.2 | Windows: the trainer launches and can start a run | | | | |
 | 4.3 | macOS 14+ Apple silicon: the game launches, renders and plays (MoltenVK) | | | | |
-| 4.4 | macOS: the console launches and can start a run | | | | |
+| 4.4 | macOS: the trainer launches and can start a run | | | | |
 | 4.5 | An AMD GPU renders the game correctly | | | | |
 | 4.6 | An Intel GPU renders the game correctly | | | | |
 | 4.7 | An NVIDIA GPU renders the game correctly | | | | |
@@ -129,7 +129,7 @@ tick that exists today.
 | # | Item | Build | Who / when | Evidence | Result |
 |---|---|---|---|---|---|
 | 6.1 | Every screen of the **game** is fully operable from the keyboard | | | | |
-| 6.2 | Every screen of the **console** is fully operable from the keyboard | | | | |
+| 6.2 | Every screen of the **trainer** is fully operable from the keyboard | | | | |
 | 6.3 | Keyboard focus is always visible | | | | |
 | 6.4 | Text scales with the desktop's font setting without clipping | | | | |
 | 6.5 | Contrast is sufficient in both light and dark desktop themes | | | | |
@@ -143,10 +143,10 @@ a silent no-op, or a corrupted artifact.
 |---|---|---|---|---|---|
 | 7.1 | Cancel a training run mid-update; restart it | | | | |
 | 7.2 | Fill the disk during a run | | | | |
-| 7.3 | Start the console with no torch installed | | | | |
-| 7.4 | Start the console with no game installed | | | | |
+| 7.3 | Start the trainer with no torch installed | | | | |
+| 7.4 | Start the trainer with no game installed | | | | |
 | 7.5 | Open a recording or model from an incompatible build | | | | |
-| 7.6 | Kill the trainer process outright, then reopen the console | | | | |
+| 7.6 | Kill the training process outright, then reopen the trainer | | | | |
 | 7.7 | Interrupt an archive or restore halfway through | | | | |
 | 7.8 | Point the game at a corrupt `.mdr` recording | | | | |
 | 7.9 | Run the game on a machine with no working Vulkan driver | | | | |

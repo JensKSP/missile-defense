@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Jens Köhler
 # Assisted-by: Claude Code (Anthropic)
-"""Where a run's files live. No Qt, no torch — the trainer and the console agree
+"""Where a run's files live. No Qt, no torch — the training loop and the trainer agree
 on this, and so does the game.
 
 In a checkout everything lands in ``./runs`` and always has. Installed from a
@@ -13,7 +13,7 @@ nothing for every packaged user.
 
 So, in order:
 
-1. an explicit ``--out-dir`` (or the console's picker) — always wins;
+1. an explicit ``--out-dir`` (or the trainer's picker) — always wins;
 2. ``$MD_RUNS_DIR`` — one env var for a scratch disk or a shared box;
 3. ``./runs`` **if it already exists** — a checkout keeps behaving as it did,
    with no flag and no migration;
@@ -60,14 +60,14 @@ MODELS_NAME = MODELS_DIR
 #: One override, mirroring the runs one. A shared box wants a shared league.
 MODELS_ENV = "MD_MODELS_DIR"
 
-#: Named sets of training options, saved from the console's Start dialog.
+#: Named sets of training options, saved from the trainer's Start dialog.
 PRESETS_NAME = "presets.json"
 
 #: One override, so a test — or a second machine sharing a home directory — can
-#: point the console at another file.
+#: point the trainer at another file.
 PRESETS_ENV = "MD_PRESETS_FILE"
 
-#: Where the console installs a training runtime it manages itself.
+#: Where the trainer installs a training runtime it manages itself.
 RUNTIME_NAME = "runtime"
 
 #: One override, for a scratch disk — a torch install is several gigabytes.
@@ -163,7 +163,7 @@ def runtime_dir(
     environ: Mapping[str, str] | None = None,
     platform: str = sys.platform,
 ) -> Path:
-    """Where a console-managed training runtime is installed. Creates nothing.
+    """Where a trainer-managed training runtime is installed. Creates nothing.
 
     Deliberately *not* the checkout's rule-3 treatment that :func:`runs_dir` has.
     A run directory belongs beside the source you started it from; a multi-gigabyte

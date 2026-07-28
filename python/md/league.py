@@ -365,10 +365,10 @@ def _export(
 ) -> None:
     """Convert a checkpoint here, or in the interpreter that has torch.
 
-    **The one console action that needs torch.** Everything else about a run is
-    read from the files it left, which is what lets a console with no CUDA and
+    **The one trainer action that needs torch.** Everything else about a run is
+    read from the files it left, which is what lets a trainer with no CUDA and
     no torch anywhere near it watch, compare and archive runs. Opening a `.pt`
-    is the exception, and importing torch into the console to do it is exactly
+    is the exception, and importing torch into the trainer to do it is exactly
     the dependency this design refuses.
 
     So promotion borrows the interpreter it would start a *run* with. That is
@@ -377,7 +377,7 @@ def _export(
     torch is beside this process — a checkout, and every test here — nothing is
     spawned and the difference is invisible.
 
-    The failure this replaces: promoting from a packaged console raised
+    The failure this replaces: promoting from a packaged trainer raised
     `ModuleNotFoundError: No module named 'torch'` out of a Qt slot, which is a
     button that does nothing.
     """
@@ -392,10 +392,10 @@ def _export(
     if here:
         try:
             export_policy.export_checkpoint(checkpoint, destination, metadata=metadata)
-        except ImportError as error:  # torch is not beside this console
+        except ImportError as error:  # torch is not beside this trainer
             raise LeagueError(
-                "promoting a model needs the training runtime, and this console has "
-                f"no torch of its own ({error}). Set up training from the console, "
+                "promoting a model needs the training runtime, and this trainer has "
+                f"no torch of its own ({error}). Set up training from the trainer, "
                 "or run it from a checkout with torch installed."
             ) from error
         return
@@ -420,7 +420,7 @@ def _export(
             f"{package_root}{os.pathsep}{existing}" if existing else package_root
         )
     try:
-        finished = subprocess.run(  # noqa: S603 — the interpreter this console starts runs with
+        finished = subprocess.run(  # noqa: S603 — the interpreter this trainer starts runs with
             command, capture_output=True, text=True, env=environ, timeout=EXPORT_TIMEOUT_S
         )
     except (OSError, subprocess.SubprocessError) as error:
@@ -457,7 +457,7 @@ def promote(
 
     ``python`` is the interpreter to open the checkpoint with — the managed
     training runtime, normally, since reading a `.pt` needs torch and the
-    console is built never to have it. Leave it out where torch is beside this
+    trainer is built never to have it. Leave it out where torch is beside this
     process, which is what a checkout and every test here are.
 
     Raises :class:`LeagueError`, with the reason, for anything that stops it.
