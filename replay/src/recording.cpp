@@ -9,6 +9,8 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <fstream>
 #include <istream>
@@ -68,6 +70,43 @@ std::streamsize read_raw(std::istream& in, void* data, std::size_t bytes) {
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     in.read(reinterpret_cast<char*>(data), static_cast<std::streamsize>(bytes));
     return in.gcount();
+}
+
+/// Whether a `Config` read off disk is one the simulation can actually be run
+/// with.
+///
+/// The struct is stored as raw bytes, so **every constant the simulation divides
+/// by, counts with or scores by comes out of the file** — and until this existed,
+/// none of it was looked at. Fuzzing the loader found the consequence in under a
+/// minute: a config carrying `dt = NaN` and a world of zero width drove the
+/// scoring arithmetic through signed overflow and hung `award_bonus_cities` in a
+/// loop with no exit. The game opens these files from its own browser.
+///
+/// Plausibility, not policy: the bounds are wide enough that any recording this
+/// build ever wrote passes, and finite enough that the simulation's arithmetic
+/// stays in range. A file outside them is corrupt or was not written by us, and
+/// either way replaying it would not show the run it claims to.
+bool plausible(const Config& c) noexcept {
+    const auto positive = [](float value) { return std::isfinite(value) && value > 0.0f; };
+    const auto scoring = [](std::int32_t value) { return value >= 0 && value <= 1'000'000; };
+    return positive(c.world_width) && positive(c.world_height) && positive(c.dt) && c.dt <= 1.0f &&
+           positive(c.interceptor_speed) && positive(c.blast_max_radius) &&
+           positive(c.blast_lifetime) && positive(c.explosion_lifetime) &&
+           std::isfinite(c.aim_max_speed) && c.aim_max_speed >= 0.0f &&
+           std::isfinite(c.fire_interval) && c.fire_interval >= 0.0f &&
+           std::isfinite(c.base_cooldown) && c.base_cooldown >= 0.0f &&
+           std::isfinite(c.threat_base_speed) && std::isfinite(c.threat_speed_per_wave) &&
+           std::isfinite(c.spawn_interval) && c.spawn_interval >= 0.0f &&
+           std::isfinite(c.wave_break) && c.wave_break >= 0.0f &&
+           std::isfinite(c.smart_bomb_chance) && std::isfinite(c.smart_bomb_dodge_range) &&
+           std::isfinite(c.smart_bomb_dodge_accel) && std::isfinite(c.mirv_chance_per_wave) &&
+           std::isfinite(c.mirv_max_chance) && std::isfinite(c.explosion_radius_ground) &&
+           std::isfinite(c.explosion_radius_target) && c.decision_interval > 0 &&
+           c.ammo_per_base <= 10'000 && c.mirv_splits <= max_threats &&
+           c.wave_base_threats <= max_threats && c.wave_threats_increment <= max_threats &&
+           c.score_multiplier_max <= 1'000 && scoring(c.score_per_kill) &&
+           scoring(c.score_per_smart_bomb) && scoring(c.score_per_unused_interceptor) &&
+           scoring(c.score_per_surviving_city) && scoring(c.bonus_city_score);
 }
 
 } // namespace
@@ -156,6 +195,12 @@ std::optional<Recording> load(const std::filesystem::path& path) {
     read_raw(in, &recording.config, sizeof(Config));
     read_raw(in, &recording.spec, sizeof(ObsSpec));
     if (!in) {
+        return std::nullopt;
+    }
+    // Both structs arrive as raw bytes, so nothing so far has been *read* — only
+    // copied in. Everything downstream divides by, counts with and scores by
+    // these numbers, and `Player` hands them straight to a live `Sim`.
+    if (!plausible(recording.config) || recording.spec.size() == 0) {
         return std::nullopt;
     }
 

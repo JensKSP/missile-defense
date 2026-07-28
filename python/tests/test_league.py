@@ -24,7 +24,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from missile_defense.runs import league
+from missile_defense.runs import league, runner
 from missile_defense.sim import policy_format
 
 OBS = 8
@@ -209,8 +209,13 @@ def test_promoting_borrows_the_interpreter_it_is_given(tmp_path: Path) -> None:
     argv, pythonpath = record.read_text(encoding="utf-8").splitlines()
     assert argv.startswith(f"-m missile_defense.sim.export_policy {checkpoint} ")
     assert '"display_name": "Borrowed"' in argv
-    package_root = str(Path(league.__file__).resolve().parents[1])
-    assert package_root in pythonpath.removeprefix("PYTHONPATH=").split(os.pathsep)
+    # `runner.PACKAGE_PATH`, not a path recomputed here. This line used to say
+    # `parents[1]` — the package directory — which is what the code under test
+    # said, so the test agreed with the bug and pinned it: a promotion through a
+    # managed runtime put the wrong directory on PYTHONPATH and the exporter died
+    # with `No module named 'missile_defense'`. A test that recomputes what its
+    # subject computes cannot tell you the subject is wrong.
+    assert str(runner.PACKAGE_PATH) in pythonpath.removeprefix("PYTHONPATH=").split(os.pathsep)
     assert not list((tmp_path / "models").glob(".*incoming"))
 
 
@@ -582,3 +587,64 @@ def test_deleting_refuses_anything_that_is_not_an_entry_in_this_league(
     with pytest.raises(league.LeagueError, match="league directory itself"):
         league.delete(itself, root)
     assert root.is_dir()
+
+
+def test_the_exporter_is_told_where_the_package_is() -> None:
+    """The import root, not the package directory — the third copy of one fact.
+
+    Promotion through a managed runtime runs `python -m missile_defense.sim.
+    export_policy` in a bare venv, and that venv has no `missile_defense` in it:
+    the package reaches it through PYTHONPATH and nothing else, exactly as a
+    training run does. So the path put there has to be the directory *containing*
+    the package.
+
+    This module computed it as `parents[1]` while `runner` and `runtime` — from
+    the same directory — said `parents[2]`, so it exported with the package
+    directory on the path and the subprocess died with `No module named
+    'missile_defense'`. That is the same regression `runtime.PACKAGE_PATH`
+    carries a paragraph about, which is the point of asserting all three agree
+    rather than only that this one is right: the failure was drift, not
+    arithmetic.
+    """
+    from missile_defense.runs import runtime  # noqa: PLC0415 — the sibling under comparison
+
+    assert runner.PACKAGE_PATH == runtime.PACKAGE_PATH
+    assert (runner.PACKAGE_PATH / "missile_defense" / "__init__.py").is_file(), (
+        f"{runner.PACKAGE_PATH} is not the directory `missile_defense` lives in"
+    )
+
+
+def test_promotion_puts_the_import_root_on_the_subprocess_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """And through the real call, because agreement alone is not the behaviour.
+
+    Captures the environment `_export` hands to the interpreter it starts, so a
+    future edit that recomputes the path locally fails here rather than in a
+    packaged install nobody can reproduce.
+    """
+    captured: dict[str, object] = {}
+
+    class Finished:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(command: list[str], **kwargs: object) -> Finished:
+        captured["command"] = command
+        captured["env"] = kwargs["env"]
+        return Finished()
+
+    monkeypatch.setattr(league.subprocess, "run", fake_run)
+    league._export(
+        tmp_path / "policy.pt",
+        tmp_path / "policy.mdp",
+        {},
+        "/somewhere/else/bin/python",
+    )
+
+    env = captured["env"]
+    assert isinstance(env, dict)
+    first = str(env["PYTHONPATH"]).split(os.pathsep)[0]
+    assert first == str(runner.PACKAGE_PATH)
+    assert (Path(first) / "missile_defense" / "__init__.py").is_file()

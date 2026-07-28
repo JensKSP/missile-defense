@@ -51,7 +51,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..sim import policy_format
-from . import paths
+from . import paths, runner
 
 #: How long the exporter gets. It reads one checkpoint and writes one file, so
 #: this is a bound on a hang rather than a budget — a runtime that has to page
@@ -413,8 +413,15 @@ def _export(
     # The runtime is a bare venv with torch in it; `missile_defense` itself lives here, in
     # this checkout or this installation, so it has to be put on the path the
     # same way starting a trainer does (`missile_defense.runs.runner.training_environ`).
+    #
+    # Imported rather than recomputed, and that is the fix rather than a tidy-up.
+    # This said `parents[1]` while its two siblings said `parents[2]`, from the
+    # same directory — so it put the *package* directory on the path instead of
+    # the directory containing it, and the exporter it starts died with
+    # `No module named 'missile_defense'`. Exactly the regression `runtime.py`
+    # carries a paragraph about, in a third copy of one fact. There is now one.
     environ = dict(os.environ)
-    package_root = str(Path(__file__).resolve().parents[1])
+    package_root = str(runner.PACKAGE_PATH)
     existing = environ.get("PYTHONPATH", "")
     if package_root not in existing.split(os.pathsep):
         environ["PYTHONPATH"] = (

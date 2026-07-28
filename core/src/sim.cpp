@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <limits>
 
 namespace md {
 
@@ -605,13 +606,27 @@ bool Sim::pick_target(TargetKind& kind, std::uint32_t& index) noexcept {
 void Sim::award_bonus_cities() noexcept {
     // Earn: bank a credit per threshold crossed. Banking (rather than rebuilding on
     // the spot) is what stops a bonus earned while all six cities still stand from
-    // being silently forfeited — which used to punish playing well. The guard on a
-    // non-positive threshold also keeps this loop finite for degenerate configs.
-    if (config_.bonus_city_score > 0) {
-        while (score_ >= next_bonus_score_) {
-            banked_cities_ = std::min(banked_cities_ + 1u, max_cities);
-            next_bonus_score_ += config_.bonus_city_score;
-        }
+    // being silently forfeited — which used to punish playing well.
+    //
+    // Counted rather than iterated, in 64-bit. This was a `while` loop adding
+    // `bonus_city_score` to an `std::int32_t` until it passed the score, and
+    // `next_bonus_score_` overflowed to negative on the way — after which the
+    // condition was permanently true and the loop never ended. A replay carries
+    // its own `Config` as raw bytes, so every constant in that arithmetic comes
+    // out of the file: libFuzzer reached this in under a minute and the game
+    // froze with no way out but a kill. The guard on a non-positive threshold
+    // was there and was not enough; the loop itself had to stop being a loop.
+    if (config_.bonus_city_score > 0 && score_ >= next_bonus_score_) {
+        const auto threshold = static_cast<std::int64_t>(config_.bonus_city_score);
+        const std::int64_t crossed =
+            ((static_cast<std::int64_t>(score_) - next_bonus_score_) / threshold) + 1;
+        banked_cities_ = static_cast<std::uint32_t>(
+            std::min<std::int64_t>(banked_cities_ + crossed, max_cities));
+        // Saturating, so the next threshold is always *above* any reachable
+        // score rather than wrapping back below it.
+        next_bonus_score_ = static_cast<std::int32_t>(std::min<std::int64_t>(
+            static_cast<std::int64_t>(next_bonus_score_) + (crossed * threshold),
+            std::numeric_limits<std::int32_t>::max()));
     }
 
     // Spend: fill the first gap in the skyline, as soon as there is one.

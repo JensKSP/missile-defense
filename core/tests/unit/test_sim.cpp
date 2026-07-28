@@ -3,6 +3,7 @@
 // Assisted-by: Claude Code (Anthropic)
 #include "md/action.hpp"
 #include "md/config.hpp"
+#include "md/intercept.hpp"
 #include "md/sim.hpp"
 #include "md/vec2.hpp"
 
@@ -919,4 +920,36 @@ TEST_CASE("cities and ammunition are credited at each wave end", "[sim][score]")
         REQUIRE(sim.city_credit() >= 0); // the one threat may have taken a city
         REQUIRE(sim.kill_credit() + sim.city_credit() + sim.ammo_credit() == sim.score());
     }
+}
+
+TEST_CASE("a bonus threshold that would overflow ends the loop rather than the game",
+          "[sim][score]") {
+    // Found by fuzzing the replay loader, which reads a `Config` as raw bytes: a
+    // large `bonus_city_score` made `next_bonus_score_` overflow `std::int32_t`
+    // on its way past the score, and once it wrapped negative the loop condition
+    // was permanently true. The game froze with no way out but a kill.
+    //
+    // `1 << 30` twice is the smallest pair that reaches it: one kill scores
+    // 2^30, the first threshold is 2^30, and the second addition is 2^31.
+    //
+    // The assertion that matters most is that this test *finishes* — but the
+    // banked count is checked too, so a version that terminated by doing the
+    // wrong arithmetic would not pass either.
+    Config cfg = unpaced();
+    cfg.score_per_kill = 1 << 30;
+    cfg.bonus_city_score = 1 << 30;
+    Sim sim{cfg};
+    sim.reset(11);
+
+    // Stopped at the first kill on purpose. One is all it takes to cross the
+    // threshold, and a second would put `score_` itself past INT32_MAX — which
+    // is a different overflow, still present, and not what this test is about.
+    for (int i = 0; i < 4000 && !sim.terminated() && sim.score() == 0; ++i) {
+        // Engage whatever is in slot 0, which is the shared steer-then-fire
+        // macro the agents use, so this kills threats rather than hoping to.
+        sim.step(sim.threats().empty() ? Action::noop() : md::engage(sim, BaseId::Alpha, 0));
+    }
+
+    REQUIRE(sim.score() == 1 << 30); // exactly one kill, so the threshold was crossed once
+    REQUIRE(sim.bonus_cities_banked() == 1);
 }

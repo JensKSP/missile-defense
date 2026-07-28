@@ -13,11 +13,15 @@
 #include "md/sim.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -289,5 +293,45 @@ TEST_CASE("junk and truncated files are rejected, not replayed", "[replay]") {
             out.write(bytes.data(), static_cast<std::streamsize>(size));
         }
         CHECK_FALSE(md::replay::load(lying.path()).has_value());
+    }
+
+    SECTION("a config the simulation could not be run with") {
+        // The `Config` is stored as raw bytes, so every constant the simulation
+        // divides by and scores with comes out of the file — and none of it was
+        // looked at. libFuzzer needed under a minute to find a config carrying
+        // `dt = NaN` and a zero-width world that drove the scoring arithmetic
+        // through signed overflow and hung the bonus-city loop forever. The game
+        // opens these files from its own browser, so that was a freeze with no
+        // way out but a kill.
+        const TempFile whole{"md_replay_ok.mdr"};
+        REQUIRE(md::replay::save(make_recording(5, 100, 4), whole.path()));
+        const auto size = static_cast<std::size_t>(std::filesystem::file_size(whole.path()));
+        std::vector<char> bytes(size);
+        {
+            std::ifstream in(whole.path(), std::ios::binary);
+            in.read(bytes.data(), static_cast<std::streamsize>(size));
+        }
+
+        // `dt` is the third float of the Config, which starts right after the
+        // 80-byte header.
+        const auto poison = [&bytes](std::size_t at, float value) {
+            std::vector<char> copy = bytes;
+            std::memcpy(copy.data() + 80 + (at * sizeof(float)), &value, sizeof(float));
+            return copy;
+        };
+        const float nan_value = std::numeric_limits<float>::quiet_NaN();
+        for (const auto& [name, corrupt] : std::vector<std::pair<std::string, std::vector<char>>>{
+                 {"nan-dt.mdr", poison(2, nan_value)},
+                 {"zero-dt.mdr", poison(2, 0.0F)},
+                 {"zero-width.mdr", poison(0, 0.0F)},
+                 {"nan-height.mdr", poison(1, nan_value)}}) {
+            const TempFile file{"md_replay_" + name};
+            {
+                std::ofstream out(file.path(), std::ios::binary);
+                out.write(corrupt.data(), static_cast<std::streamsize>(corrupt.size()));
+            }
+            INFO("config poisoned: " << name);
+            CHECK_FALSE(md::replay::load(file.path()).has_value());
+        }
     }
 }
