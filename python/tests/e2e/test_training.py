@@ -167,7 +167,20 @@ def test_the_evaluator_prints_the_full_statistics_block() -> None:
     result = agent_eval("--seeds", "2", "--seed-offset", "0", "--max-ticks", "2000")
     assert result.returncode == 0, result.stderr
     assert "seed stream offset 0" in result.stdout
-    for line in ("mean score", "survived", "last wave", "cities", "bases", "ammo unfired"):
+    # `score from` and `shots per wave` where `ammo unfired` used to be: what is
+    # *left* at the end of an episode is nothing, because the game ends when the
+    # cities run out and the ammunition is what was spent defending them. The
+    # score's three sources are collected at each wave end instead, while the
+    # assets are still held.
+    for line in (
+        "mean score",
+        "survived",
+        "last wave",
+        "cities",
+        "bases",
+        "score from",
+        "shots per wave",
+    ):
         assert line in result.stdout, f"the eval printout has no {line!r} line"
     # The distribution, spelled out — the one statistic that is a shape rather
     # than a number, and the reason the block exists at all.

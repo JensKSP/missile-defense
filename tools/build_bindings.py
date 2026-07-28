@@ -72,7 +72,7 @@ def msvc_environment() -> dict[str, str] | None:
     )
     if probe.returncode != 0:
         return None
-    found = {}
+    found: dict[str, str] = {}
     for line in probe.stdout.splitlines():
         key, separator, value = line.partition("=")
         if separator:

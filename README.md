@@ -1,9 +1,18 @@
 # Missile Defense
 
+[![CI](https://github.com/JensKSP/missile-defense/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/JensKSP/missile-defense/actions/workflows/ci.yml)
+[![Nightly](https://github.com/JensKSP/missile-defense/actions/workflows/nightly.yml/badge.svg)](https://github.com/JensKSP/missile-defense/actions/workflows/nightly.yml)
+
 A faithful clone of Atari's **Missile Command** (1980), built as a personal
 project for learning AI / machine learning. The same deterministic C++
 simulation is played by humans (Qt 6 + Vulkan) and — as a headless, fast,
 reproducible environment — used to train a reinforcement-learning agent.
+
+**CI** is the quality gate and every shipped artifact — the Linux gate (format,
+lint, types, clang-tidy, coverage, both test suites), the application e2e suite,
+and the game built on Linux, Windows and macOS. **Nightly** rebuilds `master`
+and publishes the pre-release. A red badge means the tree is red; neither is
+decorative.
 
 ![Missiles, MIRVs and interceptors crossing the sky through several fireballs](docs/images/gameplay.png)
 
