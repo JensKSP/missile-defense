@@ -706,6 +706,16 @@ EVAL_COLUMNS = (
     # HIGH. Older files are widened by `_migrate_eval_schema`.
     "aim_trail",
     "reaction_delay",
+    # What the score was made of, appended for the same append-only reason as the
+    # two above. These three sum to `mean_score`, and they are what
+    # `mean_cities_left` — zero in every row of every run ever written, because
+    # the game ends when the cities do — was being asked for and could not
+    # answer. `mean_shots_per_wave` is the ammunition half: it is how a policy
+    # emptying its magazines into the first wave becomes visible.
+    "mean_kill_credit",
+    "mean_city_credit",
+    "mean_ammo_credit",
+    "mean_shots_per_wave",
 )
 
 
@@ -772,6 +782,10 @@ def _log_eval(
                 inference_device,
                 aim_trail,
                 reaction_delay,
+                f"{summary.mean_kill_credit:.2f}",
+                f"{summary.mean_city_credit:.2f}",
+                f"{summary.mean_ammo_credit:.2f}",
+                f"{summary.mean_shots_per_wave:.2f}",
             ]
         )
 

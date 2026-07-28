@@ -372,12 +372,27 @@ def test_evaluate_reports_the_full_statistics() -> None:
     assert summary.mean_hits <= summary.mean_shots
     assert summary.mean_cities_lost >= 0.0
     assert summary.mean_bases_left <= 3.0
-    # Ammo held in reserve at the end — the "shots left" ledger entry.
+    # Ammo held in reserve at the end — the "shots left" ledger entry. Still
+    # recorded, no longer printed: it is ~0 in any episode that ran to the end,
+    # because the game ends when the cities do and the ammunition is what was
+    # spent defending them.
     assert summary.mean_ammo_left >= 0.0
 
+    # What the score was made of. The three credits are the answer `mean_ammo_left`
+    # and `mean_cities_left` could not give, and they reconcile with the total —
+    # the same invariant the C++ unit tests assert per tick, checked here across
+    # the Python path that aggregates them.
+    assert (
+        summary.mean_kill_credit + summary.mean_city_credit + summary.mean_ammo_credit
+        == pytest.approx(summary.mean_score)
+    )
+    assert summary.kill_share + summary.city_share + summary.ammo_share == pytest.approx(1.0)
+    assert summary.mean_shots_per_wave >= 0.0
+
     text = format_summary(summary)
-    for label in ("survived", "last wave", "cities", "bases", "ammo unfired", "kills per shot"):
+    for label in ("survived", "last wave", "cities", "bases", "score from", "shots per wave"):
         assert label in text
+    assert "kills per shot" in text
 
 
 def test_episode_result_histogram_reconciles_with_kills() -> None:

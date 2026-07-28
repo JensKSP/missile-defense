@@ -179,6 +179,9 @@ EpisodeResult run_episode(const Config& config, std::uint64_t seed, Driver& driv
 
     bin_active_blasts(result, sim.blasts()); // count blasts still expanding at the end
     result.score = sim.score();
+    result.kill_credit = sim.kill_credit();
+    result.city_credit = sim.city_credit();
+    result.ammo_credit = sim.ammo_credit();
     result.wave_reached = sim.wave();
     result.ticks = sim.tick();
     for (const City& city : sim.cities()) {
@@ -223,6 +226,10 @@ Summary summarize(std::span<const EpisodeResult> episodes) {
     double hits_sum = 0.0;
     double accuracy_sum = 0.0;
     double hit_rate_sum = 0.0;
+    double kill_credit_sum = 0.0;
+    double city_credit_sum = 0.0;
+    double ammo_credit_sum = 0.0;
+    double shots_per_wave_sum = 0.0;
     bool first = true;
 
     for (const EpisodeResult& episode : episodes) {
@@ -242,6 +249,18 @@ Summary summarize(std::span<const EpisodeResult> episodes) {
         hits_sum += static_cast<double>(episode.hits());
         accuracy_sum += episode.accuracy();
         hit_rate_sum += episode.hit_rate();
+        kill_credit_sum += static_cast<double>(episode.kill_credit);
+        city_credit_sum += static_cast<double>(episode.city_credit);
+        ammo_credit_sum += static_cast<double>(episode.ammo_credit);
+        // Per *cleared* wave, not per wave reached: the wave in progress when
+        // the game ended was never finished, and charging its shots against it
+        // would read as a spending spree in every episode's last moments.
+        // Averaged per episode rather than as a ratio of the two means, so one
+        // long episode cannot dominate the figure.
+        if (episode.waves_cleared > 0u) {
+            shots_per_wave_sum +=
+                static_cast<double>(episode.shots) / static_cast<double>(episode.waves_cleared);
+        }
         for (std::size_t b = 0; b < summary.kills_per_shot.size(); ++b) {
             summary.kills_per_shot[b] += episode.kills_per_shot[b];
         }
@@ -276,6 +295,10 @@ Summary summarize(std::span<const EpisodeResult> episodes) {
     summary.mean_hits = hits_sum / n;
     summary.mean_accuracy = accuracy_sum / n;
     summary.mean_hit_rate = hit_rate_sum / n;
+    summary.mean_kill_credit = kill_credit_sum / n;
+    summary.mean_city_credit = city_credit_sum / n;
+    summary.mean_ammo_credit = ammo_credit_sum / n;
+    summary.mean_shots_per_wave = shots_per_wave_sum / n;
     return summary;
 }
 

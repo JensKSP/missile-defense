@@ -53,6 +53,9 @@ void Sim::reset(std::uint64_t seed) noexcept {
     crosshair_ = Vec2{config_.world_width * 0.5f, config_.world_height * 0.5f};
     fire_cooldown_remaining_ = 0.0f;
     score_ = 0;
+    kill_credit_ = 0;
+    city_credit_ = 0;
+    ammo_credit_ = 0;
     tick_ = 0;
     latched_action_ = {};
     terminated_ = false;
@@ -112,7 +115,9 @@ StepResult Sim::step(const Action& action) noexcept {
     steer_smart_bombs();             // smart bombs adjust heading to dodge blasts
     move_threats();                  // integrate threat positions
     split_mirvs();                   // MIRVs split into child warheads at altitude
-    score_ += resolve_blast_hits();  // blasts kill threats (blasts win ties)
+    const std::int32_t killed = resolve_blast_hits(); // blasts kill threats (blasts win ties)
+    score_ += killed;
+    kill_credit_ += killed;
     resolve_ground_hits();           // landings destroy whatever stands there
     update_waves();                  // spawn, and advance waves with end-of-wave bonus
     award_bonus_cities();            // rebuild a destroyed city at score thresholds
@@ -530,20 +535,35 @@ std::int32_t Sim::score_multiplier() const noexcept {
 }
 
 void Sim::award_end_of_wave_bonus() noexcept {
-    std::int32_t bonus = 0;
+    // Counted apart rather than into one running `bonus`, because these two
+    // numbers are the answer to "did it hold its cities?" and "did it keep its
+    // ammunition?" at the one moment both are still true. Summed and multiplied
+    // together they were indistinguishable in the total, which is why the only
+    // surviving answer used to be `cities_left` — measured after the game had
+    // already ended for want of cities, and therefore always zero.
+    std::int32_t ammo_bonus = 0;
     for (const auto& base : bases_) {
         if (base.alive) {
-            bonus += (static_cast<std::int32_t>(base.ammo) * config_.score_per_unused_interceptor);
+            ammo_bonus +=
+                (static_cast<std::int32_t>(base.ammo) * config_.score_per_unused_interceptor);
         }
     }
+    std::int32_t city_bonus = 0;
     for (const auto& city : cities_) {
         if (city.alive) {
-            bonus += config_.score_per_surviving_city;
+            city_bonus += config_.score_per_surviving_city;
         }
     }
     // The multiplier is the one for the wave just cleared: this runs before
-    // start_wave advances the counter.
-    score_ += bonus * score_multiplier();
+    // start_wave advances the counter. Distributed over the two halves rather
+    // than applied to their sum — identical in integer arithmetic, and it keeps
+    // each credit the exact number of points that half contributed.
+    const std::int32_t multiplier = score_multiplier();
+    ammo_bonus *= multiplier;
+    city_bonus *= multiplier;
+    ammo_credit_ += ammo_bonus;
+    city_credit_ += city_bonus;
+    score_ += ammo_bonus + city_bonus;
 }
 
 bool Sim::pick_target(TargetKind& kind, std::uint32_t& index) noexcept {

@@ -135,6 +135,14 @@ def evaluate(
 #: Simulation tick rate (`Config::dt` = 1/60 s), for reporting survival in seconds.
 TICKS_PER_SECOND = 60.0
 
+#: Field sizes, for the "of N" the summary prints beside a count. Stated here
+#: rather than read from `Config`, which this module does not construct: they are
+#: fixed capacities of the game (`md::max_cities`, `md::base_count`) and the
+#: reload is `Config::ammo_per_base`, whose default is the only one any protocol
+#: run uses.
+MAX_CITIES = 6
+MAX_AMMO = 30  # 3 batteries x 10, refilled at every wave
+
 
 def format_summary(summary: Summary) -> str:
     """The full per-run statistics, the same shape `poe eval` prints so the
@@ -159,16 +167,26 @@ def format_summary(summary: Summary) -> str:
             f"{summary.survived}/{summary.episodes} reached the cap",
             f"last wave        {summary.mean_wave:10.2f}   "
             f"({summary.mean_waves_cleared:.2f} cleared)",
-            f"cities           {summary.mean_cities_left:10.2f} left   "
-            f"{summary.mean_cities_lost:.2f} lost   {summary.mean_bonus_cities:.2f} rebuilt",
+            f"cities           {summary.mean_cities_lost:10.2f} lost   "
+            f"{summary.mean_bonus_cities:.2f} rebuilt   (of {MAX_CITIES})",
             f"bases            {summary.mean_bases_left:10.2f} left   "
             f"{summary.mean_bases_lost:.2f} lost",
-            f"ammo unfired     {summary.mean_ammo_left:10.2f}   "
-            f"(interceptors still loaded at the end)",
+            # What the score was actually made of. `cities_left` and `ammo_left`
+            # used to stand here and were structurally ~0 in every episode ever
+            # recorded — the game ends *because* the cities ran out, and the
+            # ammunition is what was spent defending them. These three are
+            # collected while the assets are still held, at each wave end, and
+            # they sum to the score exactly.
+            f"score from       {summary.mean_kill_credit:10.0f} kills "
+            f"({100 * summary.kill_share:.0f}%)   "
+            f"{summary.mean_city_credit:.0f} cities ({100 * summary.city_share:.0f}%)   "
+            f"{summary.mean_ammo_credit:.0f} ammo ({100 * summary.ammo_share:.0f}%)",
             f"targets killed   {summary.mean_kills:10.2f}   "
             f"({summary.mean_mirv_splits:.2f} MIRV splits)",
             f"shots fired      {summary.mean_shots:10.2f}   {summary.mean_hits:.2f} hit "
             f"({100 * summary.mean_hit_rate:.0f}%)   {summary.mean_accuracy:.2f} kills/shot",
+            f"shots per wave   {summary.mean_shots_per_wave:10.2f}   "
+            f"(of {MAX_AMMO} reloaded each wave)",
             f"kills per shot   {dist}",
         ]
     )

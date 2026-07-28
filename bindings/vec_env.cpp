@@ -77,6 +77,12 @@ void VecEnv::finish_episode(std::size_t index, bool terminated) {
     agent::EpisodeResult& result = live_result_[index];
     const Sim& sim = sims_[index];
     result.score = sim.score();
+    // The same three fields `run_episode` fills, so a learned policy and the
+    // scripted baseline decompose their scores by identical bookkeeping — which
+    // is the whole point of the two paths sharing `EpisodeResult`.
+    result.kill_credit = sim.kill_credit();
+    result.city_credit = sim.city_credit();
+    result.ammo_credit = sim.ammo_credit();
     result.wave_reached = sim.wave();
     result.ticks = episode_ticks_[index];
     result.terminated = terminated;

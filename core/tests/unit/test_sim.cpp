@@ -854,3 +854,69 @@ TEST_CASE("the fatal impact is still burning when the game ends", "[unit][sim]")
         REQUIRE_THAT(static_cast<double>(sim.explosions().back().age), WithinAbs(0.0, 1e-6));
     }
 }
+
+TEST_CASE("the score decomposes into exactly three sources", "[sim][score]") {
+    // The invariant behind `Sim::kill_credit` and friends. Every point this game
+    // awards runs through `score_multiplier()` and comes from destroying a
+    // threat, from a city standing at a wave end, or from an interceptor left
+    // loaded at a wave end — so the three credits have to add up to the score at
+    // every tick, not merely at the end.
+    //
+    // Stated as a test rather than as a comment because the failure mode is
+    // silent: a fourth scoring source added later, with nothing crediting it,
+    // would leave the decomposition quietly summing to less than the total and
+    // every share it feeds subtly wrong. This is what turns that into a red
+    // build.
+    for (std::uint64_t seed = 1; seed <= 4; ++seed) {
+        Sim sim{Config{}};
+        sim.reset(seed);
+        for (std::uint64_t tick = 0; tick < 200000; ++tick) {
+            if (sim.step(Action::noop()).terminated) {
+                break;
+            }
+            REQUIRE(sim.kill_credit() + sim.city_credit() + sim.ammo_credit() == sim.score());
+        }
+        REQUIRE(sim.kill_credit() + sim.city_credit() + sim.ammo_credit() == sim.score());
+        REQUIRE(sim.score() > 0); // a game that scored nothing would prove nothing
+    }
+}
+
+TEST_CASE("a reset clears the score decomposition with the score", "[sim][score]") {
+    // The counters are separate members, so they are a separate thing to forget.
+    Sim sim{Config{}};
+    sim.reset(7);
+    for (int i = 0; i < 4000 && !sim.terminated(); ++i) {
+        sim.step(Action::noop());
+    }
+    REQUIRE(sim.score() > 0);
+
+    sim.reset(7);
+    REQUIRE(sim.score() == 0);
+    REQUIRE(sim.kill_credit() == 0);
+    REQUIRE(sim.city_credit() == 0);
+    REQUIRE(sim.ammo_credit() == 0);
+}
+
+TEST_CASE("cities and ammunition are credited at each wave end", "[sim][score]") {
+    // The whole point of the split: these two are what `cities_left` and
+    // `ammo_left` were being asked for and could never answer, because the game
+    // ends when the cities run out. Credit accrues *while the assets are still
+    // held*, so a game that cleared a wave with six cities standing has city
+    // credit even though it will finish with none.
+    Config cfg = unpaced();
+    cfg.wave_base_threats = 1; // one threat, so a wave can be cleared by noop-ing
+    Sim sim{cfg};
+    sim.reset(3);
+
+    for (int i = 0; i < 20000 && sim.wave() < 2u && !sim.terminated(); ++i) {
+        sim.step(Action::noop());
+    }
+
+    if (sim.wave() >= 2u) { // a wave was cleared, so the bonus was awarded
+        // Nothing was fired, so every magazine was full and no kill was scored.
+        REQUIRE(sim.kill_credit() == 0);
+        REQUIRE(sim.ammo_credit() > 0);
+        REQUIRE(sim.city_credit() >= 0); // the one threat may have taken a city
+        REQUIRE(sim.kill_credit() + sim.city_credit() + sim.ammo_credit() == sim.score());
+    }
+}

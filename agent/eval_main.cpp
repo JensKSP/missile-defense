@@ -219,16 +219,24 @@ int run(int argc, char** argv) {
                  s.episodes);
     std::println("last wave        {:>10.2f}   ({:.2f} cleared)", s.mean_wave,
                  s.mean_waves_cleared);
-    std::println("cities           {:>10.2f} left   {:.2f} lost   {:.2f} rebuilt   (of {})",
-                 s.mean_cities_left, s.mean_cities_lost, s.mean_bonus_cities, md::max_cities);
+    std::println("cities           {:>10.2f} lost   {:.2f} rebuilt   (of {})", s.mean_cities_lost,
+                 s.mean_bonus_cities, md::max_cities);
     std::println("bases            {:>10.2f} left   {:.2f} lost   (of {})", s.mean_bases_left,
                  s.mean_bases_lost, md::base_count);
-    std::println("ammo unfired     {:>10.2f}   (interceptors still loaded at the end)",
-                 s.mean_ammo_left);
+    // What the score was made of. `cities left` and `ammo unfired` stood here
+    // and were structurally ~0 in every episode: the game ends *because* the
+    // cities ran out. These are collected at each wave end, while the assets are
+    // still held, and sum to the score exactly.
+    std::println("score from       {:>10.0f} kills ({:.0f}%)   {:.0f} cities ({:.0f}%)   "
+                 "{:.0f} ammo ({:.0f}%)",
+                 s.mean_kill_credit, 100.0 * s.kill_share(), s.mean_city_credit,
+                 100.0 * s.city_share(), s.mean_ammo_credit, 100.0 * s.ammo_share());
     std::println("targets killed   {:>10.2f}   ({:.2f} MIRV splits)", s.mean_kills,
                  s.mean_mirv_splits);
     std::println("shots fired      {:>10.2f}   {:.2f} hit ({:.0f}%)   {:.2f} kills/shot",
                  s.mean_shots, s.mean_hits, 100.0 * s.mean_hit_rate, s.mean_accuracy);
+    std::println("shots per wave   {:>10.2f}   (of {} reloaded each wave)", s.mean_shots_per_wave,
+                 md::base_count * md::Config{}.ammo_per_base);
     std::println("kills per shot   0:{} ({:.0f}%)  1:{} ({:.0f}%)  2:{} ({:.0f}%)  3:{} ({:.0f}%)  "
                  "4+:{} ({:.0f}%)",
                  hist[0], pct(hist[0]), hist[1], pct(hist[1]), hist[2], pct(hist[2]), hist[3],

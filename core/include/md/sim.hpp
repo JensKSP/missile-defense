@@ -55,6 +55,29 @@ class Sim {
 
     [[nodiscard]] std::int32_t score() const noexcept { return score_; }
 
+    /// Where the score came from. Every point this game awards passes through
+    /// `score_multiplier()` and originates in exactly one of three places, so
+    /// these three **sum to `score()` exactly** — an invariant the unit tests
+    /// assert, and the reason a fourth source added without accounting for it
+    /// here fails a test rather than silently going missing.
+    ///
+    /// The counts behind them were always computed and then discarded:
+    /// `award_end_of_wave_bonus` already walks the cities and the magazines at
+    /// every wave boundary and kept only the scalar it added. Keeping the split
+    /// costs three additions and answers the question the end-of-episode
+    /// `cities_left` and `ammo_left` cannot — both are ~0 in every episode ever
+    /// recorded, because the game *ends* when the cities run out and the
+    /// ammunition is what was spent defending them.
+    ///
+    /// Read as shares of the total they say what kind of player a policy became:
+    /// a defender's score is city-heavy, a trigger-happy one's is nearly all
+    /// kills with no ammunition credit at all.
+    [[nodiscard]] std::int32_t kill_credit() const noexcept { return kill_credit_; }
+    /// Cities standing at each wave end, at `score_per_surviving_city` x multiplier.
+    [[nodiscard]] std::int32_t city_credit() const noexcept { return city_credit_; }
+    /// Interceptors unspent at each wave end, at `score_per_unused_interceptor` x multiplier.
+    [[nodiscard]] std::int32_t ammo_credit() const noexcept { return ammo_credit_; }
+
     [[nodiscard]] std::uint64_t tick() const noexcept { return tick_; }
 
     /// Whether the action passed to the next `step()` will replace the one
@@ -158,6 +181,11 @@ class Sim {
     Vec2 crosshair_{};                     // the shared aiming cursor (world units)
     float fire_cooldown_remaining_ = 0.0f; // global trigger interval countdown
     std::int32_t score_ = 0;
+    // The three sources `score_` is made of, kept in step with it. See
+    // `kill_credit()` for why they are worth their three additions.
+    std::int32_t kill_credit_ = 0;
+    std::int32_t city_credit_ = 0;
+    std::int32_t ammo_credit_ = 0;
     std::uint64_t tick_ = 0;
     std::uint32_t wave_ = 0;
     bool terminated_ = false;

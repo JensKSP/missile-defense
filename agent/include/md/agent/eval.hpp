@@ -39,6 +39,15 @@ struct EpisodeResult {
     std::uint32_t mirv_splits = 0;   // MIRV warheads that split mid-descent
     std::uint32_t shots = 0;         // interceptors launched
     std::uint32_t kills = 0;         // threats destroyed by a blast ("targets destroyed")
+    // Where the score came from. These three sum to `score` exactly (see
+    // `Sim::kill_credit`). `cities_left` and `ammo_left` above answer "what was
+    // left when it was over", which for this game is always "nothing" — the
+    // episode ends *because* the cities ran out. These answer the question that
+    // was actually being asked: what did it hold, wave after wave, while it
+    // still mattered.
+    std::int32_t kill_credit = 0; // points from destroying threats
+    std::int32_t city_credit = 0; // points from cities standing at each wave end
+    std::int32_t ammo_credit = 0; // points from interceptors unspent at each wave end
     // Interceptors binned by how many threats their blast destroyed: 0,1,2,3,4+.
     std::array<std::uint32_t, kills_per_shot_bins> kills_per_shot{};
     bool terminated = false; // false => stopped at the tick cap, still alive
@@ -84,6 +93,30 @@ struct Summary {
     double mean_hits = 0.0;     // interceptors that destroyed >=1 threat
     double mean_accuracy = 0.0; // mean kills per interceptor — the documented yardstick
     double mean_hit_rate = 0.0; // mean fraction of interceptors that hit
+    // The score, decomposed. Read as shares of `mean_score` these say what kind
+    // of player a policy became: a defender's is city-heavy, a trigger-happy
+    // one's is nearly all kills with no ammunition credit at all. Two policies
+    // on the same total can differ completely here.
+    double mean_kill_credit = 0.0;
+    double mean_city_credit = 0.0;
+    double mean_ammo_credit = 0.0;
+    // Interceptors fired per wave cleared. Derived rather than measured — the
+    // parts were always both present — and it is what shows a policy emptying
+    // its magazines into the first wave it meets.
+    double mean_shots_per_wave = 0.0;
+
+    /// Share of the score that came from each source, in [0, 1]. Zero when
+    /// nothing was scored, rather than a division by zero.
+    [[nodiscard]] double kill_share() const noexcept { return share(mean_kill_credit); }
+    [[nodiscard]] double city_share() const noexcept { return share(mean_city_credit); }
+    [[nodiscard]] double ammo_share() const noexcept { return share(mean_ammo_credit); }
+
+  private:
+    [[nodiscard]] double share(double part) const noexcept {
+        return mean_score == 0.0 ? 0.0 : part / mean_score;
+    }
+
+  public:
     std::int32_t min_score = 0;
     std::int32_t max_score = 0;
     std::size_t survived = 0; // episodes that hit the tick cap without dying

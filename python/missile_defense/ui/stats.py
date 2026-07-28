@@ -177,14 +177,41 @@ def summary(row: EvalRow | None) -> tuple[Stat, ...]:
         stat("wave", "Wave reached", row.mean_wave, "{:.1f}", "last level entered"),
         stat("waves_cleared", "Waves cleared", row.mean_waves_cleared, "{:.1f}", "fully survived"),
         stat("cities_lost", "Cities lost", row.mean_cities_lost, "{:.1f}", "of 6, plus rebuilt"),
-        stat("cities_left", "Cities left", row.mean_cities_left, "{:.1f}", "standing at the end"),
         stat("bases_lost", "Bases lost", row.mean_bases_lost, "{:.1f}", "of 3"),
         stat("bonus_cities", "Cities rebuilt", row.mean_bonus_cities, "{:.1f}", "earned by score"),
+        # What the score was made of. These replace the "Cities left" and "Ammo
+        # left" tiles, which read 0.0 and ~1.3 on every run this trainer has ever
+        # shown: the game ends *because* the cities run out, so measuring them at
+        # the end measures the moment they are gone. These are collected at each
+        # wave end instead, while the assets are still held.
+        stat(
+            "city_credit",
+            "Score from cities",
+            row.mean_city_credit,
+            "{:,.0f}",
+            "cities held at each wave end",
+        ),
+        stat(
+            "kill_credit", "Score from kills", row.mean_kill_credit, "{:,.0f}", "threats destroyed"
+        ),
+        stat(
+            "ammo_credit",
+            "Score from ammo",
+            row.mean_ammo_credit,
+            "{:,.0f}",
+            "shells unspent at each wave end",
+        ),
         stat("shots", "Shots fired", row.mean_shots, "{:,.0f}", "interceptors launched"),
+        stat(
+            "shots_per_wave",
+            "Shots per wave",
+            row.mean_shots_per_wave,
+            "{:.1f}",
+            "of 30 reloaded each wave",
+        ),
         stat("kills", "Kills", row.mean_kills, "{:,.0f}", "threats destroyed"),
         stat("hit_rate", "Hit rate", row.mean_hit_rate, "{:.1%}", "shots that killed anything"),
         stat("wasted", "Wasted", wasted, "{:,.0f}", "shots that killed nothing"),
-        stat("ammo_left", "Ammo left", row.mean_ammo_left, "{:.1f}", "unspent at the end"),
         stat("mirv_splits", "MIRV splits", row.mean_mirv_splits, "{:.1f}", "faced per episode"),
     )
 

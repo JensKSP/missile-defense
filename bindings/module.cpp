@@ -146,6 +146,10 @@ NB_MODULE(_md_native, m) {
         .def_ro("shots", &md::agent::EpisodeResult::shots)
         .def_ro("kills", &md::agent::EpisodeResult::kills)
         .def_ro("kills_per_shot", &md::agent::EpisodeResult::kills_per_shot)
+        // The score, decomposed. These three sum to `score` exactly.
+        .def_ro("kill_credit", &md::agent::EpisodeResult::kill_credit)
+        .def_ro("city_credit", &md::agent::EpisodeResult::city_credit)
+        .def_ro("ammo_credit", &md::agent::EpisodeResult::ammo_credit)
         .def_ro("terminated", &md::agent::EpisodeResult::terminated)
         .def_prop_ro("wasted", &md::agent::EpisodeResult::wasted)
         .def_prop_ro("hits", &md::agent::EpisodeResult::hits)
@@ -170,6 +174,16 @@ NB_MODULE(_md_native, m) {
         .def_ro("mean_hits", &md::agent::Summary::mean_hits)
         .def_ro("mean_accuracy", &md::agent::Summary::mean_accuracy)
         .def_ro("mean_hit_rate", &md::agent::Summary::mean_hit_rate)
+        // What the score was made of, and how fast the magazines went. The
+        // shares are computed here rather than in Python so the scripted
+        // baseline and a learned policy are described by one implementation.
+        .def_ro("mean_kill_credit", &md::agent::Summary::mean_kill_credit)
+        .def_ro("mean_city_credit", &md::agent::Summary::mean_city_credit)
+        .def_ro("mean_ammo_credit", &md::agent::Summary::mean_ammo_credit)
+        .def_ro("mean_shots_per_wave", &md::agent::Summary::mean_shots_per_wave)
+        .def_prop_ro("kill_share", &md::agent::Summary::kill_share)
+        .def_prop_ro("city_share", &md::agent::Summary::city_share)
+        .def_prop_ro("ammo_share", &md::agent::Summary::ammo_share)
         .def_ro("min_score", &md::agent::Summary::min_score)
         .def_ro("max_score", &md::agent::Summary::max_score)
         .def_ro("survived", &md::agent::Summary::survived)

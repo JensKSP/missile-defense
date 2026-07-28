@@ -61,6 +61,18 @@ class EpisodeResult:
         """Interceptors binned by threats each destroyed: [0, 1, 2, 3, 4+]."""
 
     @property
+    def kill_credit(self) -> int:
+        """Points from destroying threats. With the two below, sums to `score`."""
+
+    @property
+    def city_credit(self) -> int:
+        """Points from cities standing at each wave end."""
+
+    @property
+    def ammo_credit(self) -> int:
+        """Points from interceptors unspent at each wave end."""
+
+    @property
     def terminated(self) -> bool: ...
     @property
     def wasted(self) -> int:
@@ -115,6 +127,34 @@ class Summary:
     def mean_accuracy(self) -> float: ...
     @property
     def mean_hit_rate(self) -> float: ...
+    @property
+    def mean_kill_credit(self) -> float:
+        """Mean points from kills. With the two below, sums to `mean_score`."""
+
+    @property
+    def mean_city_credit(self) -> float:
+        """Mean points from cities standing at each wave end."""
+
+    @property
+    def mean_ammo_credit(self) -> float:
+        """Mean points from interceptors unspent at each wave end."""
+
+    @property
+    def mean_shots_per_wave(self) -> float:
+        """Interceptors fired per wave cleared, averaged per episode."""
+
+    @property
+    def kill_share(self) -> float:
+        """Fraction of the score that came from kills, in [0, 1]."""
+
+    @property
+    def city_share(self) -> float:
+        """Fraction of the score that came from surviving cities, in [0, 1]."""
+
+    @property
+    def ammo_share(self) -> float:
+        """Fraction of the score that came from unspent interceptors, in [0, 1]."""
+
     @property
     def min_score(self) -> int: ...
     @property

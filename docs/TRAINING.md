@@ -40,8 +40,17 @@ under the published protocol and scores:
 |---|---|
 | Mean score | **13,687.28125** (range 8,040–20,270) |
 | Mean wave reached | **7.16** |
-| Cities surviving | **0.00** of 6 |
+| Score from cities | **6,531** (48%) |
 | Kills per interceptor | **0.73** |
+
+> **Not "cities surviving".** That row used to read `0.00 of 6` and was a
+> tautology rather than a measurement: the episode *ends* when the last city
+> falls, so a terminated game has none left by definition, and only one
+> truncated at the 120,000-tick cap could — which `0 / 32 reached the cap`
+> below says never happens. It invited the reader to beat a number nobody can
+> move. What it was really being asked — *did this agent defend its cities?* —
+> is answered by the score they earned at each wave end, while they were still
+> standing.
 
 That last row is where the headroom is. A blast that catches two warheads scores
 twice for one interceptor, and the scripted agent manages that only occasionally.
@@ -187,8 +196,10 @@ stream the agent itself observes — no privileged look inside the simulation:
 |---|---|
 | `ticks` (÷ 60 = seconds) | how long it survived |
 | `wave_reached`, `waves_cleared` | how far it got, and how much it finished |
-| `cities_left` / `cities_lost` / `bonus_cities` | what it was defending, and what it rebuilt |
-| `bases_left` / `bases_lost` / `ammo_left` | what it defended *with*, and what it never spent |
+| `cities_lost` / `bonus_cities` | what it was defending, and what it rebuilt |
+| `bases_left` / `bases_lost` | what it defended *with* |
+| **`kill_credit` / `city_credit` / `ammo_credit`** | what the score was *made of* — these three sum to it exactly |
+| `shots_per_wave` | of 30 reloaded each wave; how fast the magazines go |
 | `shots`, `kills`, `hits`, `mirv_splits` | how the ammunition went |
 | **`kills_per_shot[]`** — bins 0, 1, 2, 3, 4+ | the distribution behind the average |
 
@@ -208,11 +219,12 @@ baseline:
 mean score          13687.3   [8040 .. 20270]
 survived               5068 ticks (84.5 s)   0 / 32 reached the cap
 last wave              7.16   (6.25 cleared)
-cities                 0.00 left   6.91 lost   0.91 rebuilt   (of 6)
+cities                 6.91 lost   0.91 rebuilt   (of 6)
 bases                  0.56 left   5.75 lost   (of 3)
-ammo unfired           1.28   (interceptors still loaded at the end)
+score from             6462 kills (47%)   6531 cities (48%)   694 ammo (5%)
 targets killed        82.78   (4.50 MIRV splits)
 shots fired          114.28   72.94 hit (64%)   0.73 kills/shot
+shots per wave        18.26   (of 30 reloaded each wave)
 kills per shot   0:1315 (36%)  1:2039 (56%)  2:276 (8%)  3:18 (0%)  4+:1 (0%)
 survived cap              0 / 32
 ```
@@ -634,13 +646,14 @@ the plots, is the whole per-episode stat block from the latest evaluation —
 every column [`evals.csv`](#what-a-run-leaves-behind) carries, which until now
 nothing read.
 
-Fourteen tiles, in the order the questions get asked:
+Sixteen tiles, in the order the questions get asked:
 
 | Group | What it answers |
 |---|---|
 | score · survived · wave reached · waves cleared | how well it did, and *how long it lasted* — `survived` is `mean_ticks` as minutes and seconds, because 11,633 is not a duration anyone can feel |
-| cities lost · cities left · bases lost · cities rebuilt | what it cost to get there |
-| shots fired · kills · hit rate · wasted · ammo left · MIRV splits | how the ammunition was spent |
+| cities lost · bases lost · cities rebuilt | what it cost to get there |
+| score from cities · score from kills · score from ammo | what the score was *made of* — these three sum to it, and their shares say what kind of player the policy became |
+| shots fired · shots per wave · kills · hit rate · wasted · MIRV splits | how the ammunition was spent |
 
 **Wasted** is the one to watch: shots that killed nothing at all. Two policies
 with the same score can be spending three times the ammunition on it, and it is

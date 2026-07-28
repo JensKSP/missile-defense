@@ -142,6 +142,17 @@ class EvalRow:
     shots_2kill: int | None = None
     shots_3kill: int | None = None
     shots_4plus: int | None = None
+    #: What the score was made of: kills, cities standing at each wave end, and
+    #: interceptors unspent at each wave end. The three sum to `mean_score`.
+    #: `None` for every row written before they existed, like everything above —
+    #: and unlike `mean_cities_left`, which exists in every row and is zero in
+    #: all of them, because the game ends when the cities run out.
+    mean_kill_credit: float | None = None
+    mean_city_credit: float | None = None
+    mean_ammo_credit: float | None = None
+    #: Interceptors fired per wave cleared — the ammunition half of the same
+    #: question, and what shows a policy emptying its magazines early.
+    mean_shots_per_wave: float | None = None
 
 
 def is_canonical_benchmark(row: EvalRow) -> bool:
@@ -553,6 +564,10 @@ def _eval_row(row: Mapping[str, str]) -> EvalRow | None:
         shots_2kill=_count(row, "shots_2kill"),
         shots_3kill=_count(row, "shots_3kill"),
         shots_4plus=_count(row, "shots_4plus"),
+        mean_kill_credit=_number(row, "mean_kill_credit"),
+        mean_city_credit=_number(row, "mean_city_credit"),
+        mean_ammo_credit=_number(row, "mean_ammo_credit"),
+        mean_shots_per_wave=_number(row, "mean_shots_per_wave"),
     )
 
 

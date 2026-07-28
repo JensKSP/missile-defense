@@ -62,6 +62,13 @@ def _summary(mean_score: float = 12_345.0) -> SimpleNamespace:
         mean_hits=78.0,
         mean_hit_rate=0.975,
         kills_per_shot=(2, 70, 7, 1, 0),
+        # The score, decomposed. Chosen to sum to `mean_score` exactly, because
+        # that is the property the real `Summary` guarantees and a stand-in that
+        # broke it would let a column swap go unnoticed here.
+        mean_kill_credit=mean_score * 0.5,
+        mean_city_credit=mean_score * 0.4,
+        mean_ammo_credit=mean_score * 0.1,
+        mean_shots_per_wave=12.3,
     )
 
 
