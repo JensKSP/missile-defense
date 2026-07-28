@@ -52,6 +52,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..runs import runconfig
+from . import params as params_module
 from . import theme
 from .params import Setting, read_params, settings_of
 from .reward import Formula, Term, formula_of
@@ -67,15 +68,11 @@ NOTHING_STORED = (
 
 COLUMNS = ("Setting", "Value", "Default")
 
-#: Where a group's rows begin, in the order `missile_defense.runs.runconfig` writes them: the shape
-#: of the run, then the optimiser, then what the agent was paid for, then how the
-#: two annealed coefficients moved.
-GROUP_LABELS = {
-    "train": "TRAINING",
-    "ppo": "PPO",
-    "shaping": "REWARD",
-    "schedule": "SCHEDULE",
-}
+#: The headings come from `missile_defense.ui.params.arrange` now — the same
+#: domains and groups the parameter dialog is laid out in, so one run is
+#: described one way on both screens. This used to be a table of the four raw
+#: keys `missile_defense.runs.runconfig` writes (`train`, `ppo`, `shaping`,
+#: `schedule`), which named the storage rather than the decisions.
 
 
 class RewardView(QWidget):
@@ -211,18 +208,26 @@ class ConfigPanel(QWidget):
         if not settings:
             return
 
-        group = ""
-        for setting in settings:
-            if setting.group != group:
-                group = setting.group
-                self._add_header(GROUP_LABELS.get(group, group.upper()))
-            self._add_setting(setting)
+        # Under the dialog's own headings, not `config.json`'s four raw keys.
+        # The run was configured under *Scale*, *Human handicap*, *Annealing*;
+        # reading it back under `train` / `ppo` / `shaping` made the reader
+        # translate between two vocabularies for one run.
+        domain = ""
+        for domain_title, group_name, members in params_module.arrange(settings):
+            if domain_title != domain:
+                domain = domain_title
+                self._add_header(domain_title.upper(), lead=True)
+            self._add_header(group_name)
+            for setting in members:
+                self._add_setting(setting)
 
-    def _add_header(self, label: str) -> None:
+    def _add_header(self, label: str, *, lead: bool = False) -> None:
         row = self._table.rowCount()
         self._table.insertRow(row)
-        item = QTableWidgetItem(label)
-        item.setForeground(QColor(theme.MUTED))
+        item = QTableWidgetItem(label if lead else f"    {label}")
+        # The domain is the louder of the two: it is which of the three questions
+        # you are reading, where the group beneath it is only which handful.
+        item.setForeground(QColor(theme.TEXT if lead else theme.MUTED))
         self._table.setItem(row, 0, item)
         self._table.setSpan(row, 0, 1, len(COLUMNS))
 

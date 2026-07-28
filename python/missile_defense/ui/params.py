@@ -258,7 +258,12 @@ GROUPS: tuple[Group, ...] = (
 #: the shaping-invariance proof assumes it — so offering two controls would be
 #: offering a way to break it. `flags_for` already writes both flags from the one
 #: value; this is what keeps the second out of the form.
-DERIVED = {"Shaping": ("gamma",)}
+#:
+#: Mapped to the group a *stored* one is read under, which is not the same
+#: question: the dialog offers no editor for it, but a finished run recorded a
+#: value and `arrange` has to put it somewhere. The shaping discount belongs
+#: with the potential it discounts.
+DERIVED = {"Shaping": {"gamma": "Potential terms"}}
 
 
 def group_of(name: str, owner: str = "") -> Group | None:
@@ -684,6 +689,54 @@ def settings_of(config: runconfig.RunConfig | None, fields: Sequence[Param] = ()
                 )
             )
     return settings
+
+
+#: The inverse of :data:`GROUP_OF` — which dataclass wrote a `config.json` group.
+#: Needed because a stored setting carries the group name and not the owner, and
+#: `gamma` belongs to two classes.
+OWNER_OF = {group: owner for owner, group in GROUP_OF.items()}
+
+
+def arrange(settings: Sequence[Setting]) -> list[tuple[str, str, list[Setting]]]:
+    """Stored settings, laid out the way the parameter dialog lays out its fields.
+
+    Returns ``(domain title, group name, settings)`` in the dialog's own order,
+    so a finished run is read under the same headings it was configured under —
+    *Scale*, *Human handicap*, *Annealing* — rather than under the four raw keys
+    `missile_defense.runs.runconfig` happens to write (`train`, `ppo`,
+    `shaping`, `schedule`). Two screens describing one run in two vocabularies is
+    a translation the reader should not have to do.
+
+    Anything the dialog has no group for is kept and gathered at the end under
+    *Other*: a run trained by a newer trainer carries knobs this one has never
+    heard of, and dropping them would answer "what was this trained with?" with
+    "the part I recognise".
+    """
+    placed: dict[tuple[str, str], list[Setting]] = {}
+    other: list[Setting] = []
+    by_name = {group.name: group for group in GROUPS}
+    for setting in settings:
+        owner = OWNER_OF.get(setting.group, "")
+        # A derived field has no editor, so `group_of` declines it — but it was
+        # recorded and has to be read somewhere. `DERIVED` names where.
+        target = DERIVED.get(owner, {}).get(setting.name)
+        group = by_name.get(target) if target else group_of(setting.name, owner)
+        if group is None:
+            other.append(setting)
+            continue
+        placed.setdefault((group.domain, group.name), []).append(setting)
+
+    out: list[tuple[str, str, list[Setting]]] = []
+    for domain, title, _ in DOMAINS:
+        for group in GROUPS:
+            if group.domain != domain:
+                continue
+            found = placed.get((domain, group.name))
+            if found:
+                out.append((title, group.name, found))
+    if other:
+        out.append(("Other", "Recorded but not recognised", other))
+    return out
 
 
 def same_value(stored: str, default: str) -> bool:
