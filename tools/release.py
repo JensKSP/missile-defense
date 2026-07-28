@@ -3,12 +3,12 @@
 # Assisted-by: Claude Code (Anthropic)
 """Set the version everywhere, then tag it — which is what publishes a release.
 
-The version lives in three files and nothing keeps them in step, so bumping by
-hand is three chances to ship artifacts that disagree about what they are. This
-does all three, checks the result with the same code CI checks it with, and then
+The version lives in four files and nothing keeps them in step, so bumping by
+hand is four chances to ship artifacts that disagree about what they are. This
+does all four, checks the result with the same code CI checks it with, and then
 stops:
 
-    poe bump 0.2.0             # edit the three files, show what changed
+    poe bump 0.2.0             # edit the four files, show what changed
     poe bump 0.2.0 --commit    # ...and commit it
     poe bump 0.2.0 --tag       # ...and tag it
     poe bump 0.2.0 --push      # ...and push, which starts the release build
@@ -48,6 +48,15 @@ EDITS: tuple[tuple[str, str, str], ...] = (
 )
 
 
+#: Every file `bump()` writes, and therefore every path the release commit has to
+#: stage. Derived rather than listed a second time: a fourth file was added to the
+#: edits once already while the `git add` below kept naming three, which committed
+#: — and tagged — a tree that still declared the old version. `bump()` had written
+#: it, so the check in `main` passed on the working tree and only CI's `verify`
+#: job, reading the tag, would have caught it.
+DECLARING_FILES: tuple[str, ...] = (*(relative for relative, _, _ in EDITS), "debian/changelog")
+
+
 def _maintainer(root: Path) -> str:
     """The Maintainer line from debian/control — the changelog trailer must match."""
     control = (root / "debian" / "control").read_text(encoding="utf-8")
@@ -76,7 +85,7 @@ def changelog_entry(new: str, *, maintainer: str, when: datetime) -> str:
 
 
 def bump(new: str, *, root: Path | None = None, when: datetime | None = None) -> None:
-    """Write ``new`` into all three files. Idempotent; no git involved."""
+    """Write ``new`` into all four files. Idempotent; no git involved."""
     base = _util.PROJECT_ROOT if root is None else root
     for relative, pattern, template in EDITS:
         path = base / relative
@@ -124,11 +133,12 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("error: the bump did not take — the tree still disagrees")
 
     if not commit:
-        print(f"\nDry run. The three files now say {new}; nothing committed.")
+        print(f"\nDry run. The four files now say {new}; nothing committed.")
         print("Re-run with --commit, --tag or --push, or `git checkout -- .` to undo.")
         return 0
 
-    _run(root, "add", "CMakeLists.txt", "pyproject.toml", "debian/changelog")
+    # Explicit paths, never a directory: other work shares this branch.
+    _run(root, "add", *DECLARING_FILES)
     _run(root, "commit", "-m", f"Release {tag}")
     if do_tag:
         _run(root, "tag", "-a", tag, "-m", tag)

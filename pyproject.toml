@@ -258,7 +258,7 @@ vulkan-check   = { sequence = ["vulkan-shaders", "vulkan-runtime"], help = "Both
 deb          = { cmd = "python -m tools.cmake cpack --config build/release/CPackConfig.cmake -B build/release -G DEB", deps = ["release"], help = "Build a .deb into build/release/ (needs dpkg-dev)" }
 dmg          = { cmd = "python -m tools.cmake cpack --config build/release/CPackConfig.cmake -B build/release -G DragNDrop", deps = ["release"], help = "Build a .dmg into build/release/ (macOS; needs macdeployqt)" }
 version      = { cmd = "python -m tools.version", help = "Check CMakeLists/pyproject/changelog agree; `--dev semver|pep440|debian|filename` prints the nightly version" }
-bump         = { cmd = "python -m tools.release", help = "Set the release version in all three files, then --commit / --tag / --push (docs/RELEASING.md)" }
+bump         = { cmd = "python -m tools.release", help = "Set the release version in all four files, then --commit / --tag / --push (docs/RELEASING.md)" }
 
 # --- Quality gates (Python) ---
 lint       = { cmd = "ruff check python tools", help = "Ruff lint the Python code" }

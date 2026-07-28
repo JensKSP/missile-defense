@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pytest
 
-from tools.release import bump, changelog_entry
-from tools.version import DevVersion, read_versions
+from tools.release import DECLARING_FILES, bump, changelog_entry
+from tools.version import SOURCES, DevVersion, read_versions
 
 WHEN = datetime(2026, 7, 26, 11, 0, 0, tzinfo=timezone(timedelta(hours=2)))
 
@@ -50,6 +50,30 @@ def tree(tmp_path: Path) -> Path:
 def test_the_bump_moves_every_declaring_file_at_once(tree: Path) -> None:
     bump("0.2.0", root=tree, when=WHEN)
     assert set(read_versions(tree).values()) == {"0.2.0"}
+
+
+def test_the_commit_stages_every_file_the_gate_reads() -> None:
+    # The bug this exists for: `bump()` grew a fourth file and the `git add` kept
+    # naming three, so the release commit — and the tag on it — carried a tree
+    # that still declared the old version. Nothing local caught it, because the
+    # check in `main` reads the working tree, where the fourth file *had* been
+    # written; only CI's `verify` job, which reads the tag, would have failed.
+    # Asserted against version.SOURCES rather than a list repeated here: the file
+    # the release gate reads is exactly the file the release commit must carry.
+    assert set(DECLARING_FILES) == {relative for relative, _ in SOURCES}
+
+
+def test_the_bump_writes_exactly_the_files_it_claims_to(tree: Path) -> None:
+    # Guards the other direction: a file added to EDITS but not to the gate, or a
+    # bump that quietly writes something nobody stages.
+    before = {path: path.read_bytes() for path in tree.rglob("*") if path.is_file()}
+    bump("0.2.0", root=tree, when=WHEN)
+    touched = {
+        str(path.relative_to(tree))
+        for path in tree.rglob("*")
+        if path.is_file() and before.get(path) != path.read_bytes()
+    }
+    assert touched == set(DECLARING_FILES)
 
 
 def test_the_minimum_required_version_is_left_alone(tree: Path) -> None:

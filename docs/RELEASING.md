@@ -21,7 +21,7 @@ A change to any of those is a minor bump before 1.0 and a major one after.
 
 **The tree always carries the version it is working toward.** So a build off
 `master` is a *pre-release* of that version, not a successor to the last one, and
-`poe version` enforces that all three files agree at all times.
+`poe version` enforces that all four files agree at all times.
 
 **One dev version, spelled the way each ecosystem sorts.** Derived from `git
 describe` by [tools/version.py](../tools/version.py), never written by hand:
@@ -44,7 +44,7 @@ last tag, so nightlies also order among themselves. Print any of them with
 ## Cutting one
 
 ```bash
-poe bump 0.2.0           # edit the three files, show the diff, stop
+poe bump 0.2.0           # edit the four files, show the diff, stop
 poe bump 0.2.0 --push    # ...commit, tag, and push — this starts the build
 ```
 
@@ -52,7 +52,7 @@ poe bump 0.2.0 --push    # ...commit, tag, and push — this starts the build
 before it, and the bare form is a dry run you can read first. It refuses to start
 on a dirty tree, because a bump commit that quietly carries unrelated work is how
 a release ends up shipping something nobody meant to include. Doing it by hand is
-the same three files plus `git tag -a v0.2.0`.
+the same four files plus `git tag -a v0.2.0`.
 
 [.github/workflows/release.yml](../.github/workflows/release.yml) then:
 
