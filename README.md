@@ -244,6 +244,70 @@ sudo apt install python3 python3-pip python3-venv \
   dpkg-dev imagemagick ffmpeg xdotool
 ```
 
+#### What the Python side installs, and where that is declared
+
+There is deliberately no `requirements.txt`. One command sets the tree up —
+
+```bash
+python3 -m tools.bootstrap        # creates .venv and installs everything below
+```
+
+— and what it installs is declared in two places, each of which is the only copy:
+
+| Group | Declared in | Contents |
+|---|---|---|
+| Package runtime | `pyproject.toml` → `dependencies` | `numpy` |
+| The trainer | `pyproject.toml` → `[project.optional-dependencies].trainer` | PySide6, psutil, nvidia-ml-py, amdsmi (Linux) |
+| Training | `pyproject.toml` → `[project.optional-dependencies].train` | torch |
+| Developer tools | `tools/bootstrap.py` → `DEV_TOOLS` | poethepoet, ruff, pytest, mypy, pyright, build |
+| Build backend | `tools/bootstrap.py` → `BUILD_TOOLS` | nanobind |
+| Gate pins | `tools/bootstrap.py` → `GATE_PINS` | numpy<2.5, pillow |
+
+A `requirements.txt` would be a third copy of those lists, and lists that are
+copied drift — which is why `tools/bootstrap.py` reads the extras out of
+`pyproject.toml` rather than restating them, and why `test_tools_bootstrap.py`
+holds it to that.
+
+#### torch, and the seventy-six tests that need it
+
+Twenty unit tests and fifty-six e2e tests import torch, and without it they skip
+— correctly, and invisibly:
+
+```
+550 passed, 20 skipped          poe pytest
+ 71 passed, 69 skipped          poe test-app   (56 of the 69 are torch)
+```
+
+Thirteen of the unit ones are `test_league.py`, which covers model promotion.
+
+**They do not run in CI either** — the gate job installs no torch, so the same
+seventy-six skip there. That is not a theoretical gap: two of them had been
+broken since the day `_log_eval` gained the handicap columns, and nothing said
+so until torch was installed here. Skipping is the right behaviour for an
+optional dependency; a machine where *nobody* has it is how a green pipeline
+stops meaning anything.
+
+`python3 -m tools.bootstrap` installs it — the **CPU** wheel, as a second pip
+call against PyTorch's own index. On an existing checkout, the same command:
+
+```bash
+.venv/bin/pip install --index-url https://download.pytorch.org/whl/cpu torch
+```
+
+The CPU build and not CUDA, because the trainer's managed runtime already holds
+the one real training uses and three gigabytes of it is enough on any machine.
+It cannot quietly become that one either: `find_interpreter` prefers the managed
+runtime over "this interpreter", so a venv torch is what the tests import and
+never what a training run gets.
+
+It is also not shipped, and this is not where that is decided — torch is
+`[project.optional-dependencies].train`, a `Suggests` in `debian/control`, and an
+extra no install pulls. The development venv is the only place it appears.
+
+The step is allowed to fail: it is a large download from a second index, and a
+machine that cannot reach it still gets a working checkout — one where those
+tests skip and say why.
+
 > **Tooling note:** the `poe` tasks take the first name they find on `PATH`,
 > trying a version-suffixed binary before the plain one
 > ([tools/quality.py](tools/quality.py), [tools/coverage.py](tools/coverage.py)),

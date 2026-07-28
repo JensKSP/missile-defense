@@ -48,6 +48,31 @@ DEV_TOOLS = ("poethepoet", "ruff", "pytest", "mypy", "pyright", "build")
 #: never start one — which is exactly the promise `[trainer]` is supposed to keep.
 BUILD_TOOLS = ("nanobind>=2.0",)
 
+#: torch, for the *tests* — and the CPU build, deliberately.
+#:
+#: Fifty-six e2e tests and twenty unit tests skip without it, which on a machine
+#: that has no torch is correct and on this project's own development machines is
+#: a lie: torch is there, in the runtime the trainer manages, and the tests
+#: simply cannot see it. Seventy-six tests that only ever run in CI is how a
+#: failure reaches a release.
+#:
+#: The CPU wheel, because the alternative is three gigabytes of CUDA that would
+#: be the *second* copy on the machine — the managed runtime already has the one
+#: real training uses. And it cannot quietly become that one:
+#: `runner.find_interpreter` prefers the managed runtime over "this interpreter"
+#: (missile_defense/runs/runner.py), so a venv torch is what tests import and
+#: never what a training run gets.
+#:
+#: Not shipped, and this is not where that is decided: torch is
+#: `[project.optional-dependencies].train`, a `Suggests` in debian/control and an
+#: extra nobody's install pulls. This list is the development venv only.
+TEST_TOOLS = ("torch",)
+
+#: Where the CPU wheel comes from. On the allow-list `md.runs.runtime` keeps for
+#: the managed runtime, so the two agree about which hosts this project installs
+#: from.
+TEST_INDEX = "https://download.pytorch.org/whl/cpu"
+
 #: Constraints the *gate* needs, over and above what the package needs to run.
 #:
 #: `numpy<2.5` is a typing requirement rather than a runtime one. numpy 2.5
@@ -80,6 +105,26 @@ def install_command(venv: Path, *, root: Path = PROJECT_ROOT) -> list[str]:
         *DEV_TOOLS,
         *BUILD_TOOLS,
         *GATE_PINS,
+    ]
+
+
+def torch_install_command(venv: Path) -> list[str]:
+    """A second invocation, because it needs a different index.
+
+    Separate rather than folded into :func:`install_command`: `--index-url`
+    applies to the *whole* command, so putting it there would resolve every
+    package above against the PyTorch index instead of PyPI. `--extra-index-url`
+    would work and is the wrong tool — it makes both indexes eligible for every
+    name, which is the dependency-confusion shape. One command, one index.
+    """
+    return [
+        str(venv_python(venv)),
+        "-m",
+        "pip",
+        "install",
+        "--index-url",
+        TEST_INDEX,
+        *TEST_TOOLS,
     ]
 
 
@@ -241,6 +286,15 @@ def main(argv: list[str] | None = None) -> int:
         link_checkout(venv)
     else:
         subprocess.run(install_command(venv), check=True)
+
+    # Its own step, and allowed to fail. torch is a large download from a second
+    # index, and a machine that cannot reach it should still get a working
+    # checkout — it just gets one where seventy-six tests skip and say why. A
+    # bootstrap that aborted here would make an optional dependency mandatory,
+    # which is the thing this project keeps refusing to do.
+    torch = subprocess.run(torch_install_command(venv), check=False)
+    if torch.returncode != 0:
+        print("torch could not be installed; 76 tests will skip and say so", file=sys.stderr)
 
     print(f"ready: {venv}")
     print(f"activate it with: {activate_hint(venv)}")

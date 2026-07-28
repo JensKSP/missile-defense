@@ -474,10 +474,22 @@ LAUNCH_SETTLE_S = 1.5
 
 
 def _launch() -> subprocess.Popen[bytes]:
+    """Start a game to capture, visibly but silently.
+
+    Visible is unavoidable: a screenshot needs a real window, and on Wayland a
+    client's surface cannot be grabbed by another process at all — which is why
+    `_launch_environ` pins xcb. Audible is not. `--silent` also suppresses the
+    persistence of that choice (app/main.cpp), so this cannot leave the sound
+    switched off for whoever is at the keyboard afterwards.
+
+    A capture tool that plays a game's music through someone's speakers is one
+    they stop running, for the same reason the e2e harness renders into a virtual
+    X server rather than onto their screen.
+    """
     binary = _util.app_binary()
     if not binary.exists():
         _util.run(["cmake", "--build", "--preset", "release"], capture=True)
-    return subprocess.Popen([str(binary)], env=_launch_environ())
+    return subprocess.Popen([str(binary), "--silent"], env=_launch_environ())
 
 
 def _wait_for_window(title: str, seconds: float) -> None:

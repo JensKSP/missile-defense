@@ -20,10 +20,12 @@ pytest.importorskip(
 
 import torch  # noqa: E402
 from missile_defense.sim.benchmark import (  # noqa: E402
+    CANONICAL_AIM_TRAIL,
     CANONICAL_BASELINE_MEAN_SCORE,
     CANONICAL_FRAME_SKIP,
     CANONICAL_INFERENCE_DEVICE,
     CANONICAL_MAX_TICKS,
+    CANONICAL_REACTION_DELAY,
     CANONICAL_SEED_OFFSET,
     CANONICAL_SPLIT,
     SEEDS_PER_SPLIT,
@@ -100,6 +102,8 @@ def test_eval_csv_records_the_full_reproduction_protocol(tmp_path: Path) -> None
         frame_skip=7,
         max_ticks=9_999,
         inference_device="cpu",
+        aim_trail=0.5,
+        reaction_delay=7,
     )
 
     row = list(csv.DictReader(path.read_text(encoding="utf-8").splitlines()))[0]
@@ -109,6 +113,13 @@ def test_eval_csv_records_the_full_reproduction_protocol(tmp_path: Path) -> None
     assert int(row["frame_skip"]) == 7
     assert int(row["max_ticks"]) == 9_999
     assert row["inference_device"] == "cpu"
+    # The handicap is part of the protocol a score was produced under, so a row
+    # that omits it is a score nobody can reproduce — which is what this file is
+    # for. Added to `_log_eval` in 9834182 and unasserted until now, because the
+    # whole module skips wherever torch is absent: this checkout *and* the CI
+    # gate job, which installs no torch either.
+    assert float(row["aim_trail"]) == 0.5
+    assert int(row["reaction_delay"]) == 7
 
 
 def test_resuming_an_old_eval_csv_atomically_migrates_its_rows(tmp_path: Path) -> None:
@@ -125,6 +136,8 @@ def test_resuming_an_old_eval_csv_atomically_migrates_its_rows(tmp_path: Path) -
         frame_skip=4,
         max_ticks=120_000,
         inference_device="cpu",
+        aim_trail=CANONICAL_AIM_TRAIL,
+        reaction_delay=CANONICAL_REACTION_DELAY,
     )
 
     rows = list(csv.DictReader(path.read_text(encoding="utf-8").splitlines()))
