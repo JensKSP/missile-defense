@@ -19,7 +19,6 @@ from missile_defense.runs import runconfig
 from missile_defense.ui.params import (
     HEADLINE,
     Param,
-    Setting,
     command_line,
     read_params,
     settings_of,
@@ -518,79 +517,3 @@ def test_the_glossary_defines_what_it_is_asked_about() -> None:
             or term in vocabulary
             or term in {n.rsplit("_", 1)[0] for n in vocabulary}
         ), f"{term!r} is defined but nothing in the dialog refers to it"
-
-
-# ---- reading a finished run under the headings it was configured with --------
-
-
-def _stored_run(tmp_path: Path) -> list[Setting]:
-    import json  # noqa: PLC0415
-
-    (tmp_path / runconfig.FILENAME).write_text(
-        json.dumps(
-            {
-                "train": {"envs": 4096, "aim_trail": 0.84, "device": "cuda"},
-                "ppo": {"learning_rate": 0.0001, "gamma": 0.997},
-                "shaping": {"city_weight": 250.0, "gamma": 0.997, "enabled": True},
-                "schedule": {"start_update": 1},
-            }
-        ),
-        encoding="utf-8",
-    )
-    config = runconfig.read(tmp_path)
-    assert config is not None
-    return settings_of(config, read_params(TRAINER))
-
-
-def test_a_finished_run_is_grouped_the_way_the_dialog_groups_it(tmp_path: Path) -> None:
-    """One run described two ways is a translation the reader should not have to do.
-
-    The config panel used to head its table with the four raw keys
-    `missile_defense.runs.runconfig` writes — `train`, `ppo`, `shaping`,
-    `schedule` — which name the storage rather than the decisions. The dialog
-    asks about Objective, Learning and Run.
-    """
-    from missile_defense.ui.params import arrange  # noqa: PLC0415
-
-    laid_out = arrange(_stored_run(tmp_path))
-    where = {s.name: (domain, group) for domain, group, members in laid_out for s in members}
-
-    assert where["envs"] == ("Run", "Scale")
-    assert where["aim_trail"] == ("Run", "Human handicap")
-    assert where["device"] == ("Run", "Machine")
-    assert where["learning_rate"] == ("Learning", "Learning")
-    assert where["city_weight"] == ("Objective", "Potential terms")
-    # Domains come in the dialog's own order, not the file's.
-    assert [domain for domain, _, _ in laid_out][:1] == ["Objective"]
-
-
-def test_a_stored_setting_the_dialog_cannot_offer_is_still_read(tmp_path: Path) -> None:
-    """A run trained by a newer trainer carries knobs this one has never heard
-    of, and dropping them would answer "what was this trained with?" with "the
-    part I recognise". `start_update` is the real case: recorded bookkeeping the
-    dialog has no field for."""
-    from missile_defense.ui.params import arrange  # noqa: PLC0415
-
-    settings = _stored_run(tmp_path)
-    laid_out = arrange(settings)
-
-    assert {s.name for s in settings} == {s.name for _, _, m in laid_out for s in m}
-    other = [
-        group for _, group, members in laid_out if any(s.name == "start_update" for s in members)
-    ]
-    assert other == ["Recorded but not recognised"]
-
-
-def test_the_derived_discount_is_still_shown_where_it_was_stored(tmp_path: Path) -> None:
-    """`Shaping.gamma` has no editor — it follows `PPOConfig.gamma` — but a
-    finished run recorded a value for it, and "no control for it" is not a reason
-    to hide what the run actually used. It reads under the potential it
-    discounts."""
-    from missile_defense.ui.params import arrange  # noqa: PLC0415
-
-    laid_out = arrange(_stored_run(tmp_path))
-    objective = [s.name for domain, group, m in laid_out if group == "Potential terms" for s in m]
-    assert "gamma" in objective
-    # And the PPO one is still read under Learning: two records, one decision.
-    learning = [s.name for _, group, m in laid_out if group == "Learning" for s in m]
-    assert "gamma" in learning

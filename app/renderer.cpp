@@ -1156,10 +1156,16 @@ void Renderer::startNextFrame() {
         // Advance by what was just drawn rather than by a fixed step, or the
         // small lines would sit in gaps sized for the large ones and the block
         // would look like it had holes in it.
+        //
+        // 0.059 is not arbitrary: it is what lands the last line at 0.205, the
+        // same clearance above "PRESS ENTER" the nine-line block had. Shrinking
+        // the credits without re-deriving this left the whole block ending at
+        // 0.268 — top-heavy, with twice the intended hole underneath it.
+        constexpr float about_gap = 0.059f;
         float y = world_h * 0.82f;
         for (const AboutLine& line : lines) {
             draw_text(inst, line.text, cx, y, world_h * line.scale, line.ink, true);
-            y -= world_h * (line.scale + 0.052f);
+            y -= world_h * (line.scale + about_gap);
         }
         // Tightened by half a percent a line so this one can come up off the
         // floor: at 0.05 its bottom row of pixels fell *below* y = 0 and was

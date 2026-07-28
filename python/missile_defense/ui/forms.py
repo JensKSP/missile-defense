@@ -719,20 +719,31 @@ class ParameterDialog(QDialog):
         self._memory: QLabel | None = None
         self._schedule: QLabel | None = None
         if fields:
+            # The schedule stays in both: "2,000 updates -> 200 evals" is a fact
+            # about the run either way. The memory estimate does not — it is a
+            # prediction, and predicting the future of a run that has already
+            # finished is the dialog not knowing which question it is answering.
             self._schedule = QLabel()
             self._schedule.setProperty("role", "note")
             layout.addWidget(self._schedule)
-            self._memory = QLabel()
-            self._memory.setProperty("role", "note")
-            self._memory.setWordWrap(True)
-            layout.addWidget(self._memory)
+            if not read_only:
+                self._memory = QLabel()
+                self._memory.setProperty("role", "note")
+                self._memory.setWordWrap(True)
+                layout.addWidget(self._memory)
 
         # The command alone is not quite runnable: `md` is imported from the
         # checkout rather than installed, which the trainer arranges for its
         # child. Say so, or "type it in a terminal yourself" is not true.
-        note = QLabel("run from the project root with python/ on PYTHONPATH")
-        note.setProperty("role", "note")
-        layout.addWidget(note)
+        #
+        # Read-only leaves it out, along with the memory estimate above: both
+        # are advice for a run you are about to start, and a finished run being
+        # told it "is likely to run out of memory" is the dialog talking about
+        # something that already happened as though it had not.
+        if not read_only:
+            note = QLabel("run from the project root with python/ on PYTHONPATH")
+            note.setProperty("role", "note")
+            layout.addWidget(note)
 
         if embedded:
             # The host owns the buttons. Without this the window that embeds
