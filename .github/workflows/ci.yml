@@ -387,6 +387,34 @@ jobs:
           print('binding ok:', native.__file__)
           "
 
+      - name: A managed runtime would import it too
+        # The step above cannot fail the way a managed runtime does. It runs the
+        # checkout's own .venv, which has bootstrap's `md-checkout.pth` putting
+        # `python/` on the path — so it passes no matter what
+        # `missile_defense.runs.runtime.PACKAGE_PATH` says. A managed runtime is a
+        # bare venv with no such file, and PYTHONPATH is its only route.
+        #
+        # That gap hid a one-line regression: PACKAGE_PATH pointed at the package
+        # directory instead of the directory containing it, so every install died
+        # with `No module named 'missile_defense'` — after downloading gigabytes of
+        # torch, because the pre-flight binding probe runs against the *source*
+        # interpreter and passes.
+        #
+        # A bare venv and the real PACKAGE_PATH, which is free. The actual CPU
+        # torch install is the same question with a download attached, and runs
+        # nightly on all three platforms (nightly.yml).
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/bare"
+          package_path="$(.venv/bin/python -c \
+            'from missile_defense.runs.runtime import PACKAGE_PATH; print(PACKAGE_PATH)')"
+          echo "PACKAGE_PATH = $package_path"
+          PYTHONPATH="$package_path" "$RUNNER_TEMP/bare/bin/python" -c "
+          import missile_defense._md_native as native
+          assert hasattr(native, 'VecEnv'), 'binding imported but exposes no VecEnv'
+          print('a managed runtime would import:', native.__file__)
+          "
+
   artifacts:
     # The .dmg, the Windows installer and all three Linux distribution builds,
     # from the same definition release.yml uses. Sharing it is the point: a

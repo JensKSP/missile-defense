@@ -278,7 +278,15 @@ def _entity_forward(policy: NativePolicy, observation: Weights) -> tuple[Weights
         query = encoded_t @ tensor(f"{prefix}.query.weight").T
         key = live @ tensor(f"{prefix}.key.weight").T
         value = live @ tensor(f"{prefix}.value.weight").T
-        scores = (query @ key.T) / np.float32(np.sqrt(width))
+        # Multiplied by the reciprocal, not divided — which is what torch's
+        # `scaled_dot_product_attention` does and what `agent/src/policy.cpp`
+        # does. In float32 the two are not the same operation: at the fixture's
+        # width of 4, `sqrt` is exactly 2 and they agree bit for bit, so the
+        # parity test could never see the difference; at the width the shipped
+        # models actually use, 32, they disagree by one ULP on about 40% of
+        # elements. No argmax flip was ever observed from it, and "no divergence
+        # has been observed yet" is not the claim this file makes about itself.
+        scores = (query @ key.T) * (np.float32(1.0) / np.float32(np.sqrt(width)))
         scores = scores - scores.max(axis=1, keepdims=True)
         weights = np.exp(scores)
         weights = weights / weights.sum(axis=1, keepdims=True)

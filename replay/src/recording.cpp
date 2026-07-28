@@ -159,6 +159,26 @@ std::optional<Recording> load(const std::filesystem::path& path) {
         return std::nullopt;
     }
 
+    // The step count is data, and the file it comes from may be corrupt, half
+    // synced from another machine, or simply not what it claims. Sizing the
+    // vector for it first and discovering the truncation afterwards is a
+    // `length_error` or a `bad_alloc` out of a function whose whole contract is
+    // to answer `nullopt` — and `GameWindow::watch_replay` calls it with no
+    // catch, so a header naming 2^62 steps ended the game rather than the
+    // browse. What the file can actually hold is knowable right here, so it is
+    // checked before a byte is reserved.
+    const std::streampos body = in.tellg();
+    in.seekg(0, std::ios::end);
+    const std::streampos end = in.tellg();
+    in.seekg(body);
+    if (body < 0 || end < body || !in) {
+        return std::nullopt;
+    }
+    const auto remaining = static_cast<std::uint64_t>(end - body);
+    if (count > remaining / sizeof(std::int32_t)) {
+        return std::nullopt; // truncated, or a header that lies about its length
+    }
+
     recording.actions.resize(static_cast<std::size_t>(count));
     if (count > 0) {
         const std::size_t bytes = static_cast<std::size_t>(count) * sizeof(std::int32_t);

@@ -209,6 +209,16 @@ Policy::Description Policy::describe(const std::filesystem::path& path) {
     }
     const std::uint32_t manifest_length = read_u32(bytes, magic.size() + 4);
 
+    // Checked against the file *before* the string is sized for it. `load` does
+    // this because it has already read the whole file; this one has not, and a
+    // corrupt header claiming four gigabytes of manifest would reserve them
+    // first and discover the truncation afterwards — during a directory listing,
+    // which is the one place this function is called from.
+    std::error_code size_error;
+    const std::uintmax_t on_disk = std::filesystem::file_size(path, size_error);
+    if (size_error || on_disk < header + manifest_length) {
+        fail(path, "truncated — the manifest runs past the end of the file");
+    }
     std::string text(manifest_length, '\0');
     if (manifest_length > 0 &&
         !file.read(text.data(), static_cast<std::streamsize>(manifest_length))) {
@@ -328,7 +338,17 @@ Policy Policy::load(const std::filesystem::path& path) {
     // check that keeps a hand-edited manifest from reading somebody else's
     // memory, and it is done *before* the slice rather than after.
     std::vector<std::pair<std::string, Located>> located;
-    for (const json& entry : manifest.at("tensors")) {
+    // `find`, not `at`: this is the one manifest lookup that sat outside a
+    // try/catch, so a file without the key threw `json::out_of_range` straight
+    // through `Policy::Error` — and every caller in the game catches only the
+    // latter (app/game_window.cpp). A malformed model then took the process
+    // down instead of being reported and skipped. Same sentence as
+    // `missile_defense.sim.policy_format`, which has always refused it here.
+    const auto tensors = manifest.find("tensors");
+    if (tensors == manifest.end() || !tensors->is_array() || tensors->empty()) {
+        fail(path, "the manifest lists no tensors");
+    }
+    for (const json& entry : *tensors) {
         if (!entry.is_object()) {
             fail(path, "a tensor entry is not an object");
         }
@@ -499,8 +519,22 @@ Policy Policy::load(const std::filesystem::path& path) {
         policy.globals_width_ = policy.observation_size_ - entity_floats;
 
         const std::size_t w = policy.width_;
+        // Every attention block's output projection, checked like any other
+        // layer. `projection` already holds query/key/value to w x w, and these
+        // two were the only tensors in the file whose shape nothing tested:
+        // `attend` feeds `forward` a w-wide input and a w-wide output span
+        // regardless, so a file declaring a 1x1 output read w*w floats out of a
+        // one-element vector. `missile_defense.sim.policy_format` rejects exactly
+        // this (its `width` dimension has to resolve to one value across the
+        // whole file); the two readers must refuse the same files, or the
+        // Python one's refusal is the only thing standing between a downloaded
+        // .mdp and somebody else's heap.
+        const auto attention_chains = [w](const Attention& block) {
+            return block.output.inputs == w && block.output.outputs == w;
+        };
         const bool consistent =
-            policy.batteries_ > 0 &&
+            attention_chains(policy.interceptor_attention_) &&
+            attention_chains(policy.blast_attention_) && policy.batteries_ > 0 &&
             policy.action_count_ == 1 + (policy.batteries_ * policy.threats_) &&
             policy.threat_encoder0_.inputs == ObsSpec::threat_features &&
             policy.interceptor_encoder0_.inputs == ObsSpec::interceptor_features &&

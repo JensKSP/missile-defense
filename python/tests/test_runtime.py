@@ -16,6 +16,7 @@ a cancelled install, and a removed one.
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
@@ -25,6 +26,7 @@ from missile_defense.runs.runtime import (
     ABSENT,
     ALLOWED_INDEX_HOSTS,
     BROKEN,
+    INCOMPLETE,
     READY,
     Runtime,
     RuntimePlan,
@@ -332,6 +334,62 @@ def test_removing_when_there_is_nothing_installed_is_not_an_error(tmp_path: Path
     assert store.status().state == "absent"
 
 
+def test_removing_leaves_directories_this_store_does_not_own(tmp_path: Path) -> None:
+    """`MD_RUNTIME_DIR` is somebody's scratch disk, not necessarily ours alone.
+
+    The store used to treat every subdirectory of its root as a runtime and
+    `remove()` rmtree'd all of them. The env var exists so a person can put a
+    multi-gigabyte torch install somewhere with room — a scratch disk, which is
+    exactly the kind of directory that already has other things in it — and
+    Remove then took those with it. Repair is the same call and runs
+    automatically before an install, with no prompt in front of it.
+    """
+    _install(tmp_path, FakeRunner())
+    (tmp_path / "my-datasets").mkdir()
+    (tmp_path / "my-datasets" / "data.csv").write_text("irreplaceable", encoding="utf-8")
+    (tmp_path / "notes").mkdir()
+
+    store = Runtime(tmp_path, runner=FakeRunner(), platform="linux")
+    store.remove()
+
+    assert (tmp_path / "my-datasets" / "data.csv").read_text(encoding="utf-8") == "irreplaceable"
+    assert (tmp_path / "notes").is_dir()
+    assert list(tmp_path.glob("cuda-*")) == [], "the runtime itself should still have gone"
+
+
+def test_a_foreign_directory_is_not_reported_as_an_unfinished_install(tmp_path: Path) -> None:
+    """And it must not *look* like wreckage either.
+
+    `INCOMPLETE` is what makes `RuntimeStatus.repairable` true, which is what
+    makes the dialog call `repair()` — so mistaking somebody's data directory for
+    a half-finished install is the same bug one step earlier.
+    """
+    (tmp_path / "my-datasets").mkdir()
+
+    store = Runtime(tmp_path, runner=FakeRunner(), platform="linux")
+    status = store.status()
+
+    assert status.state == ABSENT
+    assert not status.repairable
+
+
+def test_an_abandoned_install_is_still_recognised_as_wreckage(tmp_path: Path) -> None:
+    """The state the name test exists to keep catching.
+
+    An install that died between creating its venv and writing its manifest
+    leaves a directory with no `runtime.json` in it. That is what `INCOMPLETE`
+    means, and narrowing `_installed` must not stop `repair()` clearing it.
+    """
+    abandoned = tmp_path / f"cuda-py{PY[0]}.{PY[1]}-1"
+    (abandoned / "bin").mkdir(parents=True)
+
+    store = Runtime(tmp_path, runner=FakeRunner(), platform="linux")
+    assert store.status().state == INCOMPLETE
+    store.repair()
+    assert store.status().state == ABSENT
+    assert not abandoned.exists()
+
+
 def test_repairing_a_broken_runtime_reinstalls_it(tmp_path: Path) -> None:
     _install(tmp_path, FakeRunner())
     runtime.venv_python(next(tmp_path.glob("cuda-*")), platform="linux").unlink()
@@ -627,3 +685,46 @@ def test_a_failed_verification_is_not_remembered(tmp_path: Path) -> None:
     before = len(calls)
     assert store.verify().state == BROKEN
     assert len(calls) > before, "a failure was cached"
+
+
+def test_the_package_path_is_the_import_root_not_the_package_itself() -> None:
+    """The one-line regression that cost several gigabytes to discover.
+
+    `_environ` puts `PACKAGE_PATH` on `PYTHONPATH` so the managed interpreter can
+    import `missile_defense` without it being installed there. That only works if the
+    path is the directory *containing* the package. This module used to sit one
+    level higher, where `parent.parent` was that directory; moving it into
+    `runs/` made the same expression mean `python/missile_defense`, and every install
+    ended in `No module named 'missile_defense'` *after* downloading torch.
+
+    Asserted by name rather than by literal, so it holds wherever the checkout
+    lives — and on all three platforms, since the path is computed identically.
+    """
+    assert (runtime.PACKAGE_PATH / "missile_defense" / "__init__.py").is_file(), (
+        f"{runtime.PACKAGE_PATH} is not the directory `missile_defense` lives in, "
+        "so a managed runtime cannot import it"
+    )
+    assert runtime.PACKAGE_PATH.name != "missile_defense", (
+        "PACKAGE_PATH is the package directory itself, not the import root"
+    )
+
+
+def test_the_managed_interpreter_is_told_where_the_package_is(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """And prepended, so a runtime's own copy never shadows the live checkout."""
+    monkeypatch.delenv("PYTHONPATH", raising=False)
+    env = runtime._environ()  # noqa: SLF001 — the seam this test exists for
+    assert env["PYTHONPATH"].split(os.pathsep)[0] == str(runtime.PACKAGE_PATH)
+
+
+def test_an_existing_pythonpath_is_kept_and_not_duplicated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A person's own PYTHONPATH survives; a second call does not stack up."""
+    monkeypatch.setenv("PYTHONPATH", "/somewhere/of/their/own")
+    kept = runtime._environ()["PYTHONPATH"].split(os.pathsep)  # noqa: SLF001
+    assert kept == [str(runtime.PACKAGE_PATH), "/somewhere/of/their/own"]
+
+    monkeypatch.setenv("PYTHONPATH", str(runtime.PACKAGE_PATH))
+    assert runtime._environ()["PYTHONPATH"] == str(runtime.PACKAGE_PATH)  # noqa: SLF001

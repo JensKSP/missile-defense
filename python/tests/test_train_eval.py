@@ -18,6 +18,7 @@ pytest.importorskip(
     reason="the _md_native extension is not built (cmake -DMD_BUILD_BINDINGS=ON)",
 )
 
+import numpy as np  # noqa: E402
 import torch  # noqa: E402
 from missile_defense.sim.benchmark import (  # noqa: E402
     CANONICAL_AIM_TRAIL,
@@ -365,3 +366,49 @@ def test_the_handicap_reaches_the_validation_eval(monkeypatch: pytest.MonkeyPatc
 
     assert captured["aim_trail"] == 0.5
     assert captured["reaction_delay"] == 7
+
+
+def test_a_rollout_snapshot_does_not_alias_the_live_environment_buffer() -> None:
+    """The one-character bug that trained every CPU run on the wrong state.
+
+    `VecEnv` hands out its observation and mask arrays directly — the native
+    layer writes into them in place — so `torch.from_numpy` on one is a *view*.
+    `Tensor.to(device)` returns the tensor unchanged when it is already on that
+    device, so on CPU the collector's snapshot stayed a window onto the batch and
+    held `s'` by the time the rollout was written. CUDA hid it behind the
+    transfer, which is why it survived: the machines that showed it are exactly
+    the ones with no GPU to test on.
+
+    Asserted on `_snapshot` rather than through `train()`, because a whole update
+    is minutes and the property is one line.
+    """
+    live = np.zeros((2, 3), dtype=np.float32)
+    snapshot = trainer._snapshot(live, torch.device("cpu"))
+
+    live[:] = 1.0  # the native layer writing the next state into the same array
+    assert torch.equal(snapshot, torch.zeros((2, 3))), (
+        "the snapshot followed the environment buffer instead of holding what it said"
+    )
+
+
+def test_the_collector_stores_the_state_its_action_was_chosen_from() -> None:
+    """The same property where it actually matters, through the real buffers.
+
+    `_snapshot` alone could be right while the collector called something else,
+    which is precisely how this arrived: the helper did not exist and the call
+    site spelled it out. So this drives one step of the real loop's shape — take
+    a snapshot, step the environment, then store — and checks the stored row is
+    `s` and not `s'`.
+    """
+    from missile_defense.sim.env import VecEnv  # noqa: PLC0415 — needs the built binding
+
+    env = VecEnv(num_envs=2, frame_skip=4)
+    device = torch.device("cpu")
+
+    obs = trainer._snapshot(env.observations, device)
+    before = env.observations.copy()
+    env.step(np.zeros(2, dtype=np.int32))
+    after = env.observations.copy()
+
+    assert not np.array_equal(before, after), "the step changed nothing; the test proves nothing"
+    assert torch.equal(obs, torch.from_numpy(before))

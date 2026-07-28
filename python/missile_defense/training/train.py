@@ -231,6 +231,27 @@ def _ramp_note(ramp_until: int) -> str:
     return f", ramping up to that from update 1 to {ramp_until}" if ramp_until else ""
 
 
+def _snapshot(buffer: Observations | Flags, device: torch.device) -> torch.Tensor:
+    """A tensor holding what ``buffer`` says *now*, on ``device``.
+
+    ``copy=True`` is the whole function, and it is not defensive programming.
+    `missile_defense.sim.env.VecEnv` hands out its observation and mask arrays
+    directly — the native layer writes into them in place, which is what makes a
+    rollout allocation-free — so every one of them is a live view of the batch
+    rather than a value.
+
+    `torch.from_numpy` shares that memory, and `Tensor.to(device)` **returns the
+    same tensor** when the tensor is already on that device. On CUDA the transfer
+    hid it; on CPU the snapshot stayed a window onto the environment, so by the
+    time the collector stored it the buffer already held the *next* state. The
+    rollout then paired every action with the observation that followed it, and
+    PPO's ratio became `exp(log pi(a|s') - log pi_old(a|s))` — trained on the
+    wrong state, silently, on exactly the CPU-only machines the managed runtime's
+    CPU backend exists to serve.
+    """
+    return torch.from_numpy(buffer).to(device, copy=True)
+
+
 def train(
     config: TrainConfig, ppo: PPOConfig | None = None, shaping: Shaping | None = None
 ) -> nn.Module:
@@ -409,8 +430,11 @@ def train(
         update_config = dataclasses.replace(ppo, entropy_coef=entropy_coef)
 
         for step in range(config.steps):
-            obs = torch.from_numpy(env.observations).to(device)
-            mask = torch.from_numpy(env.action_masks()).to(device)
+            # Snapshots, not views: `env.step` below rewrites both of these
+            # arrays in place, and the rollout is written from them afterwards.
+            # See `_snapshot`.
+            obs = _snapshot(env.observations, device)
+            mask = _snapshot(env.action_masks(), device)
             action, log_prob, value = policy.act(obs, mask)
 
             actions: Actions = action.cpu().numpy().astype(np.int32)

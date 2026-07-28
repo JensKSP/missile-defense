@@ -260,4 +260,34 @@ TEST_CASE("junk and truncated files are rejected, not replayed", "[replay]") {
         }
         CHECK_FALSE(md::replay::load(cut.path()).has_value());
     }
+
+    SECTION("a header that claims more steps than any disk holds") {
+        // The step count is data and it was believed: `actions.resize(count)`
+        // ran before anything compared it against the file. A corrupt or hostile
+        // header naming 2^62 steps therefore threw `std::length_error` out of a
+        // function that promises `nullopt` — and `GameWindow::watch_replay`
+        // catches nothing, so opening one recording in the browser ended the
+        // game. Reproduced exactly here: everything else in the file is valid.
+        const TempFile whole{"md_replay_valid.mdr"};
+        const TempFile lying{"md_replay_lying.mdr"};
+        REQUIRE(md::replay::save(make_recording(5, 100, 4), whole.path()));
+
+        const auto size = static_cast<std::size_t>(std::filesystem::file_size(whole.path()));
+        std::vector<char> bytes(size);
+        {
+            std::ifstream in(whole.path(), std::ios::binary);
+            in.read(bytes.data(), static_cast<std::streamsize>(size));
+        }
+        // step_count sits at offset 40, little-endian, per the layout note in
+        // recording.cpp.
+        const std::uint64_t absurd = 1ULL << 62U;
+        for (std::size_t i = 0; i < 8; ++i) {
+            bytes[40 + i] = static_cast<char>((absurd >> (8U * i)) & 0xFFU);
+        }
+        {
+            std::ofstream out(lying.path(), std::ios::binary);
+            out.write(bytes.data(), static_cast<std::streamsize>(size));
+        }
+        CHECK_FALSE(md::replay::load(lying.path()).has_value());
+    }
 }

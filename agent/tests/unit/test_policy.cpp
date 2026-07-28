@@ -18,13 +18,16 @@
 #include "md/agent/eval.hpp"
 #include "md/agent/policy.hpp"
 #include "md/observation.hpp"
+#include "md/protocol.hpp"
 
 #include <array>
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <nlohmann/json.hpp>
 #include <span>
 #include <string>
@@ -52,6 +55,60 @@ std::filesystem::path scratch(const std::string& name, const std::vector<char>& 
     std::ofstream out{path, std::ios::binary | std::ios::trunc};
     out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
     return path;
+}
+
+/// A copy of `source` whose manifest has been rewritten by `edit`, payload byte
+/// for byte the same.
+///
+/// The `.mdp` checksum covers the **payload**, never the manifest, so a
+/// manifest-only edit produces a file that passes every integrity check and
+/// still lies about its tensors. That is precisely the class of file this reader
+/// has to survive, and rewriting the manifest is the only way to build one here:
+/// changing a weight would need a SHA-256 in the test, and the reader's own is
+/// private (rightly).
+std::filesystem::path with_manifest(const std::string& source, const std::string& name,
+                                    const std::function<void(nlohmann::json&)>& edit) {
+    const std::vector<char> bytes = read_all(fixture(source));
+    const std::size_t magic = md::protocol::policy_magic.size();
+    const std::size_t header = magic + 8;
+    REQUIRE(bytes.size() > header);
+
+    std::uint32_t length = 0;
+    for (std::size_t i = 0; i < 4; ++i) { // little-endian, as the format says
+        length |= static_cast<std::uint32_t>(static_cast<unsigned char>(bytes[magic + 4 + i]))
+                  << (8u * i);
+    }
+    REQUIRE(bytes.size() >= header + length);
+
+    nlohmann::json manifest =
+        nlohmann::json::parse(bytes.begin() + static_cast<std::ptrdiff_t>(header),
+                              bytes.begin() + static_cast<std::ptrdiff_t>(header + length));
+    edit(manifest);
+    const std::string rewritten = manifest.dump();
+
+    std::vector<char> out(bytes.begin(), bytes.begin() + static_cast<std::ptrdiff_t>(magic));
+    const auto size = static_cast<std::uint32_t>(rewritten.size());
+    for (std::size_t i = 0; i < 4; ++i) { // container version, unchanged
+        out.push_back(bytes[magic + i]);
+    }
+    for (std::size_t i = 0; i < 4; ++i) {
+        out.push_back(static_cast<char>((size >> (8u * i)) & 0xFFu));
+    }
+    out.insert(out.end(), rewritten.begin(), rewritten.end());
+    out.insert(out.end(), bytes.begin() + static_cast<std::ptrdiff_t>(header + length),
+               bytes.end());
+    return scratch(name, out);
+}
+
+/// The entry for `name` in a manifest's tensor list, to be edited in place.
+nlohmann::json& tensor_entry(nlohmann::json& manifest, const std::string& name) {
+    for (nlohmann::json& entry : manifest.at("tensors")) {
+        if (entry.at("name") == name) {
+            return entry;
+        }
+    }
+    FAIL("the fixture has no tensor called " + name);
+    return manifest; // unreachable; FAIL throws
 }
 
 /// The parity fixture, parsed just far enough to drive the assertions. A JSON
@@ -317,4 +374,64 @@ TEST_CASE("A policy trained against a different simulation is refused, not run",
     const md::agent::Policy policy = md::agent::Policy::load(fixture("tiny-policy.mdp"));
     const md::ObsSpec current{}; // the real simulation, far wider than the fixture
     CHECK_THROWS_AS(md::agent::PolicyDriver(policy, current), md::agent::Policy::Error);
+}
+
+TEST_CASE("An attention block whose output does not chain is refused", "[unit][agent][policy]") {
+    // The one gap in this reader's shape checking, found by fuzzing the manifest
+    // against the Python reader: `projection` held query/key/value to w x w and
+    // nothing held the *output* projection to anything. `attend` feeds it a
+    // w-wide input and a w-wide output span regardless, so a file declaring a
+    // 1x1 output made `forward` read w*w floats out of a one-element vector —
+    // a heap overflow, reproduced under AddressSanitizer, from a file
+    // `missile_defense.sim.policy_format` had always rejected.
+    //
+    // Both offsets stay inside the payload, so this file passes every bounds and
+    // checksum check in front of the shape test. That is the point: nothing else
+    // was going to catch it.
+    for (const std::string block : {"interceptor_attention", "blast_attention"}) {
+        const std::filesystem::path broken =
+            with_manifest("tiny-entity.mdp", block + "-output.mdp", [&](nlohmann::json& manifest) {
+                nlohmann::json& weight = tensor_entry(manifest, block + ".output.weight");
+                weight["shape"] = nlohmann::json::array({1, 1});
+                weight["bytes"] = 4;
+                nlohmann::json& bias = tensor_entry(manifest, block + ".output.bias");
+                bias["shape"] = nlohmann::json::array({1});
+                bias["bytes"] = 4;
+            });
+        CHECK_THROWS_AS(md::agent::Policy::load(broken), md::agent::Policy::Error);
+    }
+}
+
+TEST_CASE("A manifest with no tensor list is refused as a policy error", "[unit][agent][policy]") {
+    // `manifest.at("tensors")` was the one lookup outside this loader's own
+    // try/catch, so a file without the key threw `nlohmann::json::out_of_range`
+    // straight through `Policy::Error`. Every caller in the game catches only
+    // the latter, so a malformed model ended the process instead of being
+    // reported and skipped. The type is the whole assertion here.
+    const std::filesystem::path missing =
+        with_manifest("tiny-entity.mdp", "no-tensors.mdp",
+                      [](nlohmann::json& manifest) { manifest.erase("tensors"); });
+    CHECK_THROWS_AS(md::agent::Policy::load(missing), md::agent::Policy::Error);
+
+    const std::filesystem::path wrong_type =
+        with_manifest("tiny-entity.mdp", "tensors-not-a-list.mdp", [](nlohmann::json& manifest) {
+            manifest["tensors"] = "all of them, honestly";
+        });
+    CHECK_THROWS_AS(md::agent::Policy::load(wrong_type), md::agent::Policy::Error);
+}
+
+TEST_CASE("A manifest length past the end of the file is refused by describe",
+          "[unit][agent][policy]") {
+    // `describe` reads only the front of a file, so unlike `load` it cannot
+    // compare the declared manifest length against what it has. It used to size
+    // a string for the claim first and discover the truncation afterwards —
+    // four gigabytes for a corrupt header, during a directory listing.
+    std::vector<char> bytes = read_all(fixture("tiny-policy.mdp"));
+    const std::size_t magic = md::protocol::policy_magic.size();
+    REQUIRE(bytes.size() > magic + 8);
+    for (std::size_t i = 0; i < 4; ++i) {
+        bytes[magic + 4 + i] = static_cast<char>(0xFFu); // a manifest of 4 GiB
+    }
+    CHECK_THROWS_AS(md::agent::Policy::describe(scratch("huge-manifest.mdp", bytes)),
+                    md::agent::Policy::Error);
 }

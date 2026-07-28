@@ -299,6 +299,12 @@ select = ["E", "F", "I", "UP", "B"]
 python_version = "3.11"
 files = ["python/missile_defense", "tools"]
 strict = true
+# So `tools/` resolves `missile_defense` to the sources checked right above it rather
+# than to whatever copy is installed in the venv. The installed one ships no
+# `py.typed`, so mypy treats it as untyped and every attribute reached through
+# it becomes an error — which says nothing about the code and everything about
+# which copy was found first.
+mypy_path = "python"
 
 # torch is optional and has no MSYS2/MinGW wheel, so the training modules cannot
 # be checked on every machine the rest of the tree is checked on.

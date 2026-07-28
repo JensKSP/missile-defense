@@ -107,21 +107,21 @@ StepResult Sim::step(const Action& action) noexcept {
     }
 
     update_cooldowns();
-    move_crosshair(latched_action_); // steer the shared cursor (speed-capped)
-    try_fire(latched_action_);       // launches detonate at the crosshair
-    advance_interceptors();          // may spawn blasts
-    advance_blasts();                // age blasts, update radius, expire
-    advance_explosions();            // age cosmetic ground-impact fireballs
-    steer_smart_bombs();             // smart bombs adjust heading to dodge blasts
-    move_threats();                  // integrate threat positions
-    split_mirvs();                   // MIRVs split into child warheads at altitude
+    move_crosshair(latched_action_);                  // steer the shared cursor (speed-capped)
+    try_fire(latched_action_);                        // launches detonate at the crosshair
+    advance_interceptors();                           // may spawn blasts
+    advance_blasts();                                 // age blasts, update radius, expire
+    advance_explosions();                             // age cosmetic ground-impact fireballs
+    steer_smart_bombs();                              // smart bombs adjust heading to dodge blasts
+    move_threats();                                   // integrate threat positions
+    split_mirvs();                                    // MIRVs split into child warheads at altitude
     const std::int32_t killed = resolve_blast_hits(); // blasts kill threats (blasts win ties)
     score_ += killed;
     kill_credit_ += killed;
-    resolve_ground_hits();           // landings destroy whatever stands there
-    update_waves();                  // spawn, and advance waves with end-of-wave bonus
-    award_bonus_cities();            // rebuild a destroyed city at score thresholds
-    update_termination();            // all cities destroyed?
+    resolve_ground_hits(); // landings destroy whatever stands there
+    update_waves();        // spawn, and advance waves with end-of-wave bonus
+    award_bonus_cities();  // rebuild a destroyed city at score thresholds
+    update_termination();  // all cities destroyed?
 
     ++tick_;
     return StepResult{.reward = score_ - score_before,

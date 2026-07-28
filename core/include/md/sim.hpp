@@ -73,8 +73,10 @@ class Sim {
     /// a defender's score is city-heavy, a trigger-happy one's is nearly all
     /// kills with no ammunition credit at all.
     [[nodiscard]] std::int32_t kill_credit() const noexcept { return kill_credit_; }
+
     /// Cities standing at each wave end, at `score_per_surviving_city` x multiplier.
     [[nodiscard]] std::int32_t city_credit() const noexcept { return city_credit_; }
+
     /// Interceptors unspent at each wave end, at `score_per_unused_interceptor` x multiplier.
     [[nodiscard]] std::int32_t ammo_credit() const noexcept { return ammo_credit_; }
 

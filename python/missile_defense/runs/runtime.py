@@ -46,6 +46,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -60,10 +61,28 @@ from . import paths, spawn
 #: Where ``md`` itself sits, so the health check can import it — and so a run
 #: started from the managed interpreter can too, without ``md`` being installed
 #: into it. Mirrors ``missile_defense.runs.runner.PACKAGE_PATH``.
-PACKAGE_PATH = Path(__file__).resolve().parent.parent
+#:
+#: ``parents[2]`` is the directory *containing* the package, not the package
+#: directory: what goes on ``PYTHONPATH`` has to be the import root, or
+#: ``import missile_defense`` finds nothing. This module used to sit one level
+#: higher, where ``parent.parent`` meant the same thing; moving it into ``runs/``
+#: silently turned that into ``python/missile_defense`` and every managed runtime
+#: failed its health check with ``No module named 'missile_defense'`` — after
+#: downloading several gigabytes of torch.
+PACKAGE_PATH = Path(__file__).resolve().parents[2]
 
 #: The file naming the live runtime directory.
 CURRENT_MARKER = "current"
+
+#: What a directory this store owns is called — the shape :func:`_next_target`
+#: builds, and the whole of how one is told apart from a directory that merely
+#: happens to sit beside it.
+#:
+#: There has to be a *name* test and not only a manifest test, because the state
+#: this store most needs to recognise is a half-finished install: a venv created
+#: and then abandoned before its manifest was written. Those are what
+#: :data:`INCOMPLETE` means and what :meth:`Runtime.repair` clears.
+RUNTIME_DIR_PATTERN = re.compile(r"^[a-z0-9]+-py\d+\.\d+-\d+$")
 
 #: What each runtime directory records about itself.
 MANIFEST_NAME = "runtime.json"
@@ -609,10 +628,37 @@ class Runtime:
         return self._root / CURRENT_MARKER
 
     def _installed(self) -> list[Path]:
-        """Every directory that looks like a runtime, current or not."""
+        """Every directory this store owns, current or not.
+
+        **Owns**, not "happens to be in the root". This used to return every
+        subdirectory there, which was fine while the root was ours alone and
+        wrong the moment it was not: ``MD_RUNTIME_DIR``
+        (:data:`missile_defense.runs.paths.RUNTIME_ENV`) is a documented override
+        for putting a multi-gigabyte torch install on a scratch disk, and
+        :meth:`remove` deletes everything this returns. Point it at a directory
+        with anything else in it and Remove — or the Repair that runs before an
+        install, which has no prompt in front of it — took the lot.
+
+        A directory qualifies by being shaped like one of ours
+        (:data:`RUNTIME_DIR_PATTERN`, which is what catches an abandoned install
+        that never got as far as writing a manifest) or by carrying our manifest,
+        plus whatever the marker names — that one is ours by definition, whatever
+        it is called.
+        """
         if not self._root.is_dir():
             return []
-        return sorted(p for p in self._root.iterdir() if p.is_dir())
+        found = {
+            path
+            for path in self._root.iterdir()
+            if path.is_dir()
+            and (
+                RUNTIME_DIR_PATTERN.fullmatch(path.name) is not None
+                or (path / MANIFEST_NAME).is_file()
+            )
+        }
+        if (current := self._current()) is not None:
+            found.add(current)
+        return sorted(found)
 
     def _current(self) -> Path | None:
         try:

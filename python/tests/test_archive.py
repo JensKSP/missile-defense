@@ -99,6 +99,42 @@ def test_a_windows_drive_letter_is_refused(tmp_path: Path) -> None:
         archive.verify_archive(broken)
 
 
+def test_a_backslash_separated_escape_is_refused(tmp_path: Path) -> None:
+    """The traversal the POSIX check could not see, and Windows could.
+
+    `_safe_name` parses names as `PurePosixPath`, where a backslash is an
+    ordinary character: `x\\..\\..\\..\\evil.txt` is one part, contains no `..`,
+    is not absolute, and passed every check. `restore_archive` then joins it with
+    `pathlib.Path` — which on Windows *does* split on backslashes — so the entry
+    landed two directories above the staging root.
+
+    Asserted here rather than by restoring, because the outcome only differs on
+    Windows and the refusal has to be the same everywhere: a file that would
+    escape on one platform is not one to extract on another.
+    """
+    good = archive.create_archive(a_run(tmp_path), tmp_path / "good.zip")
+    broken = with_manifest(
+        good,
+        tmp_path / "backslash.zip",
+        lambda m: m["entries"].append({"name": "x\\..\\..\\..\\evil.txt", "size": 0, "sha256": ""}),
+    )
+    with pytest.raises(archive.ArchiveError, match="backslash"):
+        archive.verify_archive(broken)
+
+
+def test_a_backslash_escape_in_the_zip_itself_is_refused(tmp_path: Path) -> None:
+    """And from the other direction: the archive's own central directory.
+
+    Both lists are checked, because either alone would let the name through —
+    the manifest is what `restore_archive` iterates, and the zip is what a
+    different extractor would.
+    """
+    good = archive.create_archive(a_run(tmp_path), tmp_path / "good.zip")
+    broken = rewrite(good, tmp_path / "zip-backslash.zip", **{"x\\..\\evil.txt": b"payload"})
+    with pytest.raises(archive.ArchiveError, match="backslash"):
+        archive.verify_archive(broken)
+
+
 def test_a_duplicate_entry_is_refused(tmp_path: Path) -> None:
     """Which of two identically named entries wins is a property of the
     extractor, not of the archive — so an archive may not contain both."""

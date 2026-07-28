@@ -6,7 +6,9 @@
 #include <QDir>
 #include <QStandardPaths>
 #include <algorithm>
+#include <cstddef>
 #include <fstream>
+#include <iomanip>
 #include <string>
 
 namespace md {
@@ -50,7 +52,18 @@ void HighscoreTable::load() {
     if (in) {
         std::string initials;
         int score = 0;
-        while (in >> initials >> score) {
+        // `setw` bounds the token, and the loop bounds the table. Neither guards
+        // against a player: this file is three characters and a number per line,
+        // and every board is sorted down to `capacity` two lines below. They
+        // guard against a file that is no longer that — a truncated sync, a
+        // stray binary, an editor that saved something else here — which would
+        // otherwise be read into an unbounded string and an unbounded vector
+        // before anything looked at it. `capacity` rows are all that survive, so
+        // reading more than a few is already work with no purpose.
+        constexpr std::size_t most = HighscoreTable::capacity * 8;
+        while (entries_.size() < most &&
+               in >> std::setw(static_cast<int>(HighscoreEntry{}.initials.size()) + 1) >>
+                   initials >> score) {
             HighscoreEntry entry;
             // Copy as many initials as the file supplied, space-padding the rest.
             entry.initials.fill(' ');

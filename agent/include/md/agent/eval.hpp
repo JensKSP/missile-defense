@@ -108,7 +108,9 @@ struct Summary {
     /// Share of the score that came from each source, in [0, 1]. Zero when
     /// nothing was scored, rather than a division by zero.
     [[nodiscard]] double kill_share() const noexcept { return share(mean_kill_credit); }
+
     [[nodiscard]] double city_share() const noexcept { return share(mean_city_credit); }
+
     [[nodiscard]] double ammo_share() const noexcept { return share(mean_ammo_credit); }
 
   private:

@@ -1107,6 +1107,7 @@ void Renderer::startNextFrame() {
     } else if (state == GameWindow::State::About) {
         draw_text(inst, "ABOUT", cx, world_h * 0.94f, world_h * 0.024f, ink::heading, true);
         const std::string version_line = "VERSION " + std::string(version());
+
         // Uppercase-only legal notices + credits (the pixel font has no lower case
         // or punctuation beyond the period added for the version string). Lines are
         // kept short so none overflows the width, and spaced so none overlaps.
@@ -1135,12 +1136,17 @@ void Renderer::startNextFrame() {
         // ENTER" below.
         struct AboutLine {
             std::string_view text;
-            const std::array<float, 3>& ink;
+            // By value, not by reference: three floats are cheaper to copy than
+            // to indirect through, and a reference data member is a lifetime
+            // question this row does not need to raise
+            // (cppcoreguidelines-avoid-const-or-ref-data-members).
+            std::array<float, 3> ink;
             float scale; // multiplied by world_h
         };
-        constexpr float lead = 0.0115f;  // the name and what this build is
-        constexpr float body = 0.0100f;  // the trademark notice
-        constexpr float fine = 0.0082f;  // third-party credits: obligation, not headline
+
+        constexpr float lead = 0.0115f; // the name and what this build is
+        constexpr float body = 0.0100f; // the trademark notice
+        constexpr float fine = 0.0082f; // third-party credits: obligation, not headline
         const std::array<AboutLine, 10> lines{{
             {"MISSILE DEFENSE", ink::heading, lead},
             {version_line, ink::body, lead},

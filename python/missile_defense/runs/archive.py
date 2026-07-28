@@ -312,8 +312,22 @@ def _safe_name(name: str) -> None:
     """
     if not name or name.endswith("/"):
         raise ArchiveError(f"archive entry {name!r} is not a file")
+    # Before the path checks, because they are the ones it defeats. The zip
+    # format says `/` and only `/`, so a backslash in a name is already outside
+    # the format — but `PurePosixPath` treats it as an ordinary character, so
+    # `x\..\..\evil` has one part, no `..` in it, and sailed through every test
+    # below. `restore_archive` then joins it with `pathlib.Path`, which on
+    # Windows *does* split on backslashes, and the entry landed two directories
+    # above the staging root. Refused rather than translated: an entry that
+    # spells its separators wrong is not one of ours, and guessing what it meant
+    # is how the sanitising this function exists to avoid gets reinvented.
+    if "\\" in name:
+        raise ArchiveError(
+            f"archive entry {name!r} contains a backslash; zip entry names "
+            "separate directories with '/'"
+        )
     path = PurePosixPath(name)
-    if path.is_absolute() or name.startswith(("/", "\\")):
+    if path.is_absolute() or name.startswith("/"):
         raise ArchiveError(f"archive entry {name!r} is an absolute path")
     if ".." in path.parts:
         raise ArchiveError(f"archive entry {name!r} escapes the archive with '..'")
