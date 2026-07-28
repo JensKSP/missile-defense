@@ -1,9 +1,8 @@
 # Python as a Dependency: Naming, Layering and Installation
 
-> **Status (2026-07-28):** Built. Two checkboxes are open and both are named
-> below rather than quietly skipped: the version-drift check, and the CI step
-> that would put a real wheel beside the game. Everything else has landed and is
-> covered by tests.
+> **Status (2026-07-28):** Built, and every checkbox closed. What is *not*
+> proven is listed under "Unverifiable here": three claims need a real Windows
+> or macOS machine, and no amount of local testing will change that.
 
 **Goal:** Make the two products — the game and the trainer — installable and
 findable on every supported platform without shipping a Python interpreter, and
@@ -104,9 +103,11 @@ does.
       available), in the game's own font. **The font has no lowercase** — so a
       command or URL must never be rendered there.
 - [x] `packaging/HOW-TO-TRAIN.html`, installed on all platforms.
-- [ ] Version comparison against the bundled wheel. **Not built.** The record
-      holds a `version=` key already; nothing reads it yet, so an older trainer
-      beside a newer game is still only caught when a `.mdp` is opened.
+- [x] Version comparison against the bundled wheel. `Offer::Update` — and the
+      record is written by the *install*, chained after pip with `&&`, because
+      the game spawns it detached and never learns whether it succeeded. An
+      optimistic record would name an interpreter that exists and cannot import
+      the trainer.
 
 ### 3 — Packaging
 
@@ -114,11 +115,14 @@ does.
 - [x] Delete `packaging/launcher.cmd.in`, `packaging/trainer-bundle-launcher.in`,
       `packaging/trainer.Info.plist.in`, the second `.app`, the `md\` payload
       install rules and the `python` CPack component.
-- [ ] CI: the packaging job consumes the `wheels` job's artifact. **Not wired.**
-      The Windows and macOS jobs assert the wheel only when `MD_TRAINER_WHEEL`
-      is set, and nothing sets it: that needs `needs: wheels` plus a
-      `download-artifact` step, which serialises the pipeline behind the full
-      cibuildwheel matrix and should be a decision rather than a side effect.
+- [x] CI: the packaging jobs `needs: wheels`, download the artifact for their
+      platform and pass `-DMD_TRAINER_WHEEL`. It serialises those two jobs behind
+      the wheel build, which is the price of shipping the file that was actually
+      tested rather than a second one built here.
+- [x] Removed with it: 56 lines of Windows CI that installed a second CPython and
+      built `_md_native` again with MSVC, to be substituted through
+      `MD_PREBUILT_PYTHON_MODULE`. The wheel *is* that module, built by
+      cibuildwheel and import-tested there.
 
 ### 4 — Documentation and Debian polish
 

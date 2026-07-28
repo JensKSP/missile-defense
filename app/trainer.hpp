@@ -104,6 +104,15 @@ inline constexpr std::string_view record_file = "trainer.conf";
 /// The key under which :data:`record_file` holds the interpreter's path.
 inline constexpr std::string_view record_interpreter_key = "interpreter";
 
+/// And the version of the trainer that was installed into it.
+///
+/// Written at install time and compared against the wheel beside the game, so an
+/// upgrade that replaces the game but not the trainer is caught *before* the two
+/// disagree about a policy file rather than after (`policy_container_version` in
+/// core/include/md/protocol.hpp is the check that would otherwise fire, and it
+/// fires when someone opens a model — which looks like a broken model).
+inline constexpr std::string_view record_version_key = "version";
+
 /// A :struct:`Lookup` bound to the real machine, given the running binary.
 ///
 /// `own_executable` is where the checkout root comes from: the game is built to
@@ -122,6 +131,16 @@ inline constexpr std::string_view record_interpreter_key = "interpreter";
 /// Separate from :func:`machine_lookup` so the installer can write the file and
 /// read it back without building a whole `Lookup`.
 [[nodiscard]] std::filesystem::path recorded_interpreter(const std::filesystem::path& data_dir);
+
+/// The trainer version recorded in `data_dir`, or empty when there is no record.
+[[nodiscard]] std::string recorded_version(const std::filesystem::path& data_dir);
+
+/// Write the record the lookup reads. False when the directory cannot be made.
+///
+/// The game's half of what `missile_defense.runs.runner.record_interpreter`
+/// does; both write the same two keys, and `test_ui_runner.py` holds them to it.
+[[nodiscard]] bool record(const std::filesystem::path& data_dir,
+                          const std::filesystem::path& interpreter, std::string_view version);
 
 /// The trainer's executable, or nothing when this install does not have one.
 [[nodiscard]] std::optional<std::filesystem::path> find(const Lookup& lookup);

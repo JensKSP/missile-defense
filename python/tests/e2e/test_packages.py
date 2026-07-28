@@ -276,13 +276,27 @@ def test_the_game_only_tree_contains_no_python_and_no_trainer(game_only_tree: Pa
 @needs_cmake
 @needs_build_tree
 @needs_display
-def test_a_game_only_install_does_not_offer_to_train(game_only_tree: Path, tmp_path: Path) -> None:
-    """The promise, from the outside: no trainer on the machine, no TRAIN AI.
+def test_a_game_only_install_offers_train_ai_but_starts_nothing(
+    game_only_tree: Path, tmp_path: Path
+) -> None:
+    """The promise, from the outside — and it changed shape deliberately.
 
-    Run out of the staged tree rather than the build tree, because the build
-    tree *is* a checkout — the game's third lookup would find `python/missile_defense/ui`
-    right there and correctly offer training. An installed game has no checkout
-    above it, and that is the case this asserts.
+    It used to be "no trainer on the machine, no TRAIN AI", on the reasoning that
+    an entry for a product you did not install is an advertisement. That held
+    while the installer shipped the trainer's payload. It stopped holding when
+    the trainer became something the game installs on request: "not installed
+    yet" is the ordinary state on Windows and macOS, and hiding the entry meant
+    the ordinary user never learned there was a trainer at all.
+
+    So the entry is there and `can_train` is still false, which is the part that
+    matters: nothing is launched, and the screen behind it says what would fix
+    it. A game-only install that reported `can_train` true would be one about to
+    start a trainer it does not have.
+
+    Run out of the staged tree rather than the build tree, because the build tree
+    *is* a checkout — the game's fourth lookup would find
+    `python/missile_defense/ui` right there and correctly offer training. An
+    installed game has no checkout above it, and that is the case this asserts.
     """
     run = run_app(
         frames=90,
@@ -291,8 +305,8 @@ def test_a_game_only_install_does_not_offer_to_train(game_only_tree: Path, tmp_p
         environ=_pathless_environ(tmp_path, None),
     )
     assert_clean(run)
-    assert run.report.get("can_train") is False
-    assert "TRAIN AI" not in run.menu
+    assert run.report.get("can_train") is False, "a game-only install thinks it can train"
+    assert "TRAIN AI" in run.menu, "the way to learn the trainer exists is gone"
     # And the rest of the menu is intact — an entry vanishing is a bug, a menu
     # collapsing to nothing is a different and much worse one.
     assert "START" in run.menu

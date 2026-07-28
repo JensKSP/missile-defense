@@ -123,6 +123,14 @@ std::optional<Interpreter> best(const Machine& machine) {
 
 Offer decide(const Machine& machine, const bool trainer_found) {
     if (trainer_found) {
+        // Both empty is "no opinion" — a developer build, or a distribution one
+        // where apt keeps the two in step. Only a machine that has both a
+        // recorded install and a wheel to compare it against can be out of date.
+        const bool comparable =
+            !machine.wheel_version.empty() && !machine.installed_version.empty();
+        if (comparable && machine.installed_version != machine.wheel_version) {
+            return Offer::Update;
+        }
         return Offer::Start;
     }
     // No wheel means this build cannot install anything itself. Usually that is
@@ -137,32 +145,49 @@ Offer decide(const Machine& machine, const bool trainer_found) {
     return best(machine).has_value() ? Offer::Install : Offer::NeedsPython;
 }
 
-std::vector<std::string> pip_command(const Interpreter& interpreter,
-                                     const std::filesystem::path& wheel) {
-    return {interpreter.path.string(),   "-m", "pip", "install", "--user", "--upgrade",
-            wheel.string() + "[trainer]"};
+std::string wheel_version(const std::filesystem::path& wheel) {
+    const std::string name = wheel.filename().string();
+    if (!name.starts_with("missile_defense-") || !name.ends_with(".whl")) {
+        return {};
+    }
+    const std::size_t first = name.find('-');
+    const std::size_t second = name.find('-', first + 1);
+    if (second == std::string::npos) {
+        return {};
+    }
+    return name.substr(first + 1, second - first - 1);
 }
 
-std::vector<std::string> terminal_command(const std::vector<std::string>& inner) {
-    std::vector<std::string> command;
+std::string install_script(const Interpreter& interpreter, const std::filesystem::path& wheel) {
+    const std::string python = '"' + interpreter.path.string() + '"';
+    // The recording half runs the *installed* package, so it cannot succeed
+    // unless the install did — which is the whole reason it is chained rather
+    // than done here.
+    const std::string remember = "from missile_defense.runs.runner import record_interpreter; "
+                                 "import sys, missile_defense; "
+                                 "record_interpreter(sys.executable, missile_defense.__version__)";
+    return python + " -m pip install --user --upgrade \"" + wheel.string() + "[trainer]\"" +
+           " && " + python + " -c \"" + remember + '"';
+}
+
+std::vector<std::string> terminal_command(const std::string& script) {
 #ifdef _WIN32
-    // `/k` and not `/c`: the window stays open on failure, which is the case
-    // where its contents are the whole point.
-    command = {"cmd.exe", "/k"};
-    command.insert(command.end(), inner.begin(), inner.end());
+    // `/k` and not `/c`: the window stays open afterwards, which is the case
+    // where its contents are the whole point. `cmd.exe` is a system binary and
+    // the script is an argument to it, so there is no script *file* — which
+    // Smart App Control would block (app/trainer.hpp records that lesson).
+    return {"cmd.exe", "/k", script};
 #elifdef __APPLE__
-    // `open -a Terminal` takes a *file* to open, not a command, so the command
-    // goes through `sh -c` and Terminal is asked to run that. Quoting is left to
-    // the caller's argv rather than rebuilt into one string here.
-    command = {"/usr/bin/open", "-a", "Terminal"};
-    command.insert(command.end(), inner.begin(), inner.end());
+    // Terminal.app opens a *file*, not a command, so the script goes to `sh -c`
+    // through `osascript`, which is the one way to get a visible window.
+    return {"/usr/bin/osascript", "-e",
+            "tell application \"Terminal\" to do script \"" + script + "\""};
 #else
     // Never reached: a Linux build ships no wheel, so `decide` answers
-    // NeedsPackage before anything gets here. Returned unchanged rather than
-    // empty so a caller that ignores the platform still has something runnable.
-    command = inner;
+    // NeedsPackage before anything gets here. `sh -c` anyway, so a caller that
+    // ignores the platform still has something runnable rather than nothing.
+    return {"/bin/sh", "-c", script};
 #endif
-    return command;
 }
 
 std::vector<Interpreter> probe_interpreters(const std::string& search_path) {

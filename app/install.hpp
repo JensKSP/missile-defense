@@ -29,8 +29,13 @@ namespace md::install {
 
 /// The four answers, and the only four.
 enum class Offer : std::uint8_t {
-    /// A trainer resolved. Nothing to install; start it.
+    /// A trainer resolved and is the version this game shipped. Start it.
     Start,
+    /// A trainer resolved, but an older one than the wheel beside the game — an
+    /// upgrade replaced the game and left the trainer behind. Offer to reinstall
+    /// *before* the two disagree about a policy file, which is the same fault
+    /// arriving later and looking like a broken model.
+    Update,
     /// No trainer, but a wheel beside the game and an interpreter new enough to
     /// take it. This is the one that spawns anything.
     Install,
@@ -69,6 +74,12 @@ struct Machine {
     std::function<bool(const std::filesystem::path&)> executable;
     /// The wheel this build ships beside itself, or empty when it ships none.
     std::filesystem::path wheel;
+    /// Its version, read out of the filename by :func:`wheel_version`.
+    std::string wheel_version;
+    /// What `trainer.conf` says was installed, or empty when nothing was. Only
+    /// meaningful together with `wheel_version`: two empties mean "no opinion",
+    /// which is every developer build and every distribution one.
+    std::string installed_version;
     /// Every interpreter that was found, in no particular order.
     std::vector<Interpreter> interpreters;
 };
@@ -84,18 +95,7 @@ struct Machine {
 /// Which of the four answers this machine gets.
 [[nodiscard]] Offer decide(const Machine& machine, bool trainer_found);
 
-/// `pip install --user <wheel>[trainer]`, as an argv.
-///
-/// `--user`, so no administrator and no write into the install directory. PEP
-/// 668 would refuse this on a distribution interpreter, which is exactly the
-/// case :enum:`Offer::NeedsPackage` never reaches.
-///
-/// The extra is part of the path argument — `pip install "<path>.whl[trainer]"`
-/// — because PySide6 is optional to the package and required by the window.
-[[nodiscard]] std::vector<std::string> pip_command(const Interpreter& interpreter,
-                                                   const std::filesystem::path& wheel);
-
-/// `inner`, wrapped so it runs in a terminal window the user can watch.
+/// `script`, wrapped so it runs in a terminal window the user can watch.
 ///
 /// A visible terminal and not a progress bar in the game: this downloads about
 /// 150 MB of PySide6, and a terminal gives progress, scrollback and a copyable
@@ -107,7 +107,7 @@ struct Machine {
 /// a system binary and everything after it is an argument, so there is nothing
 /// for it to block. macOS gets `open -a Terminal`, and elsewhere this is never
 /// reached — a distribution build offers `NeedsPackage` instead.
-[[nodiscard]] std::vector<std::string> terminal_command(const std::vector<std::string>& inner);
+[[nodiscard]] std::vector<std::string> terminal_command(const std::string& script);
 
 /// The interpreters a real machine has, newest first.
 ///
@@ -122,5 +122,24 @@ struct Machine {
 /// One directory, not a search: an installer puts it next to the binary, and
 /// looking further up would start finding other people's wheels.
 [[nodiscard]] std::filesystem::path shipped_wheel(const std::filesystem::path& beside);
+
+/// The version out of a wheel filename, or empty when it is not one.
+///
+/// `missile_defense-0.1.0-cp312-abi3-win_amd64.whl` -> `0.1.0`. PEP 427 fixes
+/// the shape — distribution, version, then the tags — so the second
+/// hyphen-separated field is the version by specification rather than by luck.
+[[nodiscard]] std::string wheel_version(const std::filesystem::path& wheel);
+
+/// The whole install, as one command line for a shell.
+///
+/// One line and not two, joined by `&&`, because the record must only be written
+/// when pip *succeeded* — and the game cannot tell: it spawns this detached into
+/// a terminal and returns to the menu. So the child does it, with the package it
+/// has just installed, in the interpreter it was installed into. A record left
+/// behind by a failed install would point at an interpreter that exists and
+/// cannot import the trainer, which is exactly the "menu entry that launches
+/// nothing" this whole lookup is built to avoid.
+[[nodiscard]] std::string install_script(const Interpreter& interpreter,
+                                         const std::filesystem::path& wheel);
 
 } // namespace md::install

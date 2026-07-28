@@ -152,29 +152,52 @@ std::optional<std::pair<std::filesystem::path, Origin>> resolve(const Lookup& lo
 
 } // namespace
 
-std::filesystem::path recorded_interpreter(const std::filesystem::path& data_dir) {
+/// One value out of the record, or empty.
+///
+/// Hand-parsed because the file has two keys and the game links no parser it
+/// would otherwise want. Unknown keys and blank lines are skipped rather than
+/// rejected: a newer trainer writing a third key must not stop an older game
+/// from reading the two it knows.
+std::string record_value(const std::filesystem::path& data_dir, std::string_view key) {
     if (data_dir.empty()) {
         return {};
     }
-    std::ifstream record{data_dir / record_file};
-    if (!record) {
+    std::ifstream file{data_dir / record_file};
+    if (!file) {
         return {}; // never installed from here, which is the ordinary case
     }
-    // Hand-parsed because the file has two keys and the game links no parser it
-    // would otherwise want. Unknown keys and blank lines are skipped rather than
-    // rejected: a newer trainer writing a third key must not stop an older game
-    // from reading the interpreter out of it.
     std::string line;
-    while (std::getline(record, line)) {
+    while (std::getline(file, line)) {
         const std::size_t split = line.find('=');
-        if (split == std::string::npos) {
-            continue;
-        }
-        if (std::string_view{line}.substr(0, split) == record_interpreter_key) {
-            return std::filesystem::path{line.substr(split + 1)};
+        if (split != std::string::npos && std::string_view{line}.substr(0, split) == key) {
+            return line.substr(split + 1);
         }
     }
     return {};
+}
+
+std::filesystem::path recorded_interpreter(const std::filesystem::path& data_dir) {
+    return std::filesystem::path{record_value(data_dir, record_interpreter_key)};
+}
+
+std::string recorded_version(const std::filesystem::path& data_dir) {
+    return record_value(data_dir, record_version_key);
+}
+
+bool record(const std::filesystem::path& data_dir, const std::filesystem::path& interpreter,
+            const std::string_view version) {
+    if (data_dir.empty()) {
+        return false;
+    }
+    std::error_code ec;
+    std::filesystem::create_directories(data_dir, ec);
+    std::ofstream file{data_dir / record_file, std::ios::trunc};
+    if (!file) {
+        return false;
+    }
+    file << record_interpreter_key << '=' << interpreter.string() << '\n'
+         << record_version_key << '=' << version << '\n';
+    return file.good();
 }
 
 Lookup machine_lookup(const std::filesystem::path& own_executable,

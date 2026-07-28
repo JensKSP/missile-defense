@@ -1081,6 +1081,11 @@ void Renderer::startNextFrame() {
             detail = "THE INSTRUCTIONS SAY HOW ON THIS SYSTEM";
             action = "PRESS ENTER FOR INSTRUCTIONS";
             break;
+        case install::Offer::Update:
+            headline = "A NEWER TRAINER CAME WITH THIS GAME";
+            detail = "THE ONE INSTALLED IS OLDER";
+            action = "PRESS ENTER TO UPDATE IT";
+            break;
         case install::Offer::Start:
             // Unreachable: TRAIN AI starts the trainer in this case and never
             // opens this screen. Spelled out anyway, because -Wswitch is what

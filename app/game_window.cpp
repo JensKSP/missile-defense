@@ -54,6 +54,9 @@ GameWindow::GameWindow() {
     };
     machine_.wheel = install::shipped_wheel(
         std::filesystem::path{QCoreApplication::applicationDirPath().toStdString()});
+    machine_.wheel_version = install::wheel_version(machine_.wheel);
+    machine_.installed_version = trainer::recorded_version(
+        QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation).toStdString());
     if (!machine_.wheel.empty()) {
         machine_.interpreters = install::probe_interpreters(
             QProcessEnvironment::systemEnvironment().value("PATH").toStdString());
@@ -1060,7 +1063,7 @@ void GameWindow::start_trainer_install() {
         return; // the notice would not have offered this
     }
     const std::vector<std::string> argv =
-        install::terminal_command(install::pip_command(*chosen, machine_.wheel));
+        install::terminal_command(install::install_script(*chosen, machine_.wheel));
     QStringList arguments;
     for (std::size_t i = 1; i < argv.size(); ++i) {
         arguments << QString::fromStdString(argv[i]);
