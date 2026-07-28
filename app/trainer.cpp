@@ -100,6 +100,28 @@ std::optional<std::filesystem::path> interpreter(const Lookup& lookup) {
     return std::nullopt;
 }
 
+/// The same interpreter, without the console window it would otherwise open.
+///
+/// Only the two answers that run `-m missile_defense.ui` go through this: an
+/// installed launcher already knows what it is (pip builds the trainer's from
+/// the `gui-scripts` table for exactly this reason, and Debian's is a shell
+/// script with no console to speak of).
+///
+/// A sibling that is not there leaves the interpreter alone rather than
+/// failing. The console window is a blemish; not starting the trainer at all
+/// because a file was missing next to a Python that works would be a fault.
+/// `python` rather than `interpreter`: the free function above already has that
+/// name, and `-Wshadow` is on with `-Werror`.
+std::filesystem::path windowless(const Lookup& lookup, std::filesystem::path python) {
+    if constexpr (windowless_interpreter.empty()) {
+        return python;
+    } else {
+        std::filesystem::path candidate =
+            python.parent_path() / std::string{windowless_interpreter};
+        return lookup.executable(candidate) ? candidate : python;
+    }
+}
+
 /// The trainer's executable and how it was found. The order is the contract.
 std::optional<std::pair<std::filesystem::path, Origin>> resolve(const Lookup& lookup) {
     // 1. Someone said which one. A path that does not exist is *nothing* rather
@@ -254,7 +276,7 @@ std::optional<Command> command(const Lookup& lookup) {
         return std::nullopt;
     }
     if (found->second == Origin::Checkout) {
-        return Command{{found->first.string(), "-m", "missile_defense.ui"},
+        return Command{{windowless(lookup, found->first).string(), "-m", "missile_defense.ui"},
                        lookup.checkout_root / "python"};
     }
     if (found->second == Origin::Recorded) {
@@ -262,7 +284,7 @@ std::optional<Command> command(const Lookup& lookup) {
         // it is already on that interpreter's own `sys.path`. Setting PYTHONPATH
         // here would be guessing at a directory we deliberately stopped
         // guessing at.
-        return Command{{found->first.string(), "-m", "missile_defense.ui"}, {}};
+        return Command{{windowless(lookup, found->first).string(), "-m", "missile_defense.ui"}, {}};
     }
     return Command{{found->first.string()}, {}};
 }

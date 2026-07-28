@@ -19,7 +19,7 @@ from pathlib import Path
 from unittest import mock
 
 import pytest
-from missile_defense.runs import runner, runtime
+from missile_defense.runs import runner, runtime, spawn
 from missile_defense.runs.runner import (
     PACKAGE_PATH,
     AppNotFound,
@@ -570,6 +570,66 @@ def test_an_unknown_data_directory_offers_nothing(tmp_path: Path) -> None:
     assert runner.recorded_interpreter(tmp_path / "nowhere") is None
 
 
+def test_nothing_the_trainer_starts_opens_a_console_window(tmp_path: Path) -> None:
+    """Every child of this window is a console program with its output on a pipe.
+
+    A run, and the pip install that provisions a runtime for one. Windows gives
+    each of them a console anyway: a black box per run, in front of the progress
+    pane that already has every line of it, which steals focus when it appears
+    and kills the run when it is closed.
+
+    Asserted at the two real spawn sites rather than on the helper alone —
+    `creation_flags` returning the right number is no use to anybody if the flag
+    is not passed, and that is the half that can be dropped in a refactor.
+    """
+    with mock.patch("subprocess.Popen") as popen:
+        runner._spawn_piped(["md-train"], tmp_path, {})  # noqa: SLF001 — the spawn under test
+    assert popen.call_args.kwargs["creationflags"] == spawn.creation_flags()
+
+    with mock.patch("subprocess.Popen") as popen:
+        runner._spawn(["md_app"], tmp_path, {})  # noqa: SLF001 — the other one
+    assert popen.call_args.kwargs["creationflags"] == spawn.creation_flags()
+
+
+def test_the_flag_is_the_windows_one_and_zero_everywhere_else() -> None:
+    # Zero rather than an absent argument off Windows: `creationflags=0` is what
+    # `subprocess` defaults to, so one call site serves both platforms.
+    assert spawn.creation_flags(platform="linux") == 0
+    assert spawn.creation_flags(platform="darwin") == 0
+    assert spawn.creation_flags(platform="win32") == spawn.CREATE_NO_WINDOW
+
+
+def test_a_windows_trainer_is_started_by_the_interpreter_with_no_console(
+    tmp_path: Path,
+) -> None:
+    """`python.exe` opens a black command window behind the trainer; `pythonw` does not.
+
+    The game hits this through the same lookup (`windowless_interpreter` in
+    app/trainer.hpp), which is why both sides make the swap and why the test
+    below holds them to one spelling of the name.
+    """
+    interpreter = tmp_path / "python.exe"
+    interpreter.write_text("", encoding="utf-8")
+    (tmp_path / runner.WINDOWLESS_INTERPRETER).write_text("", encoding="utf-8")
+
+    swapped = runner.windowless_interpreter(interpreter, platform="win32")
+    assert swapped.name == runner.WINDOWLESS_INTERPRETER
+    # And nothing changes off Windows, where there is no console to withhold.
+    assert runner.windowless_interpreter(interpreter, platform="linux") == interpreter
+
+
+def test_an_interpreter_with_no_windowless_twin_is_still_used(tmp_path: Path) -> None:
+    """A blemish is not a reason to refuse to start.
+
+    Every CPython layout has `pythonw.exe` beside `python.exe`, but "every layout
+    I know of" is not "every layout", and the failure this would otherwise
+    produce — TRAIN AI does nothing — is far worse than a console window.
+    """
+    interpreter = tmp_path / "python.exe"
+    interpreter.write_text("", encoding="utf-8")
+    assert runner.windowless_interpreter(interpreter, platform="win32") == interpreter
+
+
 def test_both_sides_spell_the_record_the_same_way() -> None:
     """The game writes this file and the game reads it — in two languages.
 
@@ -578,11 +638,16 @@ def test_both_sides_spell_the_record_the_same_way() -> None:
     game that cannot find a trainer it installed itself and says nothing about
     why. Read out of the header rather than restated, because a copy here would
     drift with the same silence.
+
+    `windowless_interpreter` is here for the same reason and a different symptom:
+    the game and the trainer would start *different interpreters*, and only one
+    of them would have the package.
     """
     header = (ROOT / "app" / "trainer.hpp").read_text(encoding="utf-8")
     for constant, value in (
         ("record_file", runner.RECORD_FILE),
         ("record_interpreter_key", runner.RECORD_INTERPRETER_KEY),
+        ("windowless_interpreter", runner.WINDOWLESS_INTERPRETER),
     ):
         match = re.search(rf'{constant}\s*=\s*"([^"]+)"', header)
         assert match is not None, f"app/trainer.hpp no longer declares {constant}"

@@ -391,8 +391,15 @@ else()
   install(FILES "${CMAKE_SOURCE_DIR}/packaging/missile-defense.desktop"
     DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/applications" COMPONENT game)
   # Icons for GNOME/KDE menus (hicolor theme; the .desktop's Icon= resolves here).
+  #
+  # The trainer's emblem lives in the same theme directory and is *not* the
+  # game's to install: it belongs to the `python` component, which the top-level
+  # file installs beside the launchers it goes with. A game-only install must
+  # carry no trace of the trainer, and `usr/share/icons/hicolor` claimed whole
+  # would have put its icon in the game's .deb.
   install(DIRECTORY "${CMAKE_SOURCE_DIR}/packaging/icons/hicolor"
-    DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/icons" COMPONENT game)
+    DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/icons" COMPONENT game
+    PATTERN "missile-defense-trainer.png" EXCLUDE)
   install(FILES "${CMAKE_SOURCE_DIR}/LICENSE"
                 "${CMAKE_SOURCE_DIR}/THIRD_PARTY_LICENSES.md"
     DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/doc/missile-defense" COMPONENT game)

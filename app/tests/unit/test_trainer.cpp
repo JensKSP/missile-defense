@@ -245,6 +245,37 @@ TEST_CASE("A checkout without an interpreter offers nothing", "[unit][app][train
     CHECK_FALSE(md::trainer::command(machine.lookup(checkout)).has_value());
 }
 
+TEST_CASE("An interpreter with a windowless twin beside it is started through that one",
+          "[unit][app][trainer]") {
+    // Windows only, and the reason is the game rather than the trainer: this is
+    // a GUI-subsystem process, so a console-subsystem child gets a console
+    // allocated for it — a black command window behind the trainer, for as long
+    // as it runs, which kills the trainer when it is closed. `pythonw.exe` is
+    // the same interpreter linked for the windows subsystem.
+    //
+    // Written to run everywhere: on a platform with no such twin the constant is
+    // empty, the fixture creates nothing extra, and the expected answer is the
+    // interpreter itself — which is the assertion that matters there.
+    Machine machine;
+    machine.recorded = user_python;
+    machine.executables = {std::string{user_python}};
+    std::string expected{user_python};
+    if constexpr (!md::trainer::windowless_interpreter.empty()) {
+        const std::filesystem::path twin = std::filesystem::path{user_python}.parent_path() /
+                                           std::string{md::trainer::windowless_interpreter};
+        // The fixture stores names without the platform's suffix; the search
+        // asks for it back. `windowless_interpreter` carries `.exe` already.
+        std::string bare = twin.generic_string();
+        bare.resize(bare.size() - md::trainer::executable_suffix.size());
+        machine.executables.insert(bare);
+        expected = twin.string();
+    }
+
+    const auto command = md::trainer::command(machine.lookup());
+    REQUIRE(command.has_value());
+    CHECK(command->argv == std::vector<std::string>{expected, "-m", "missile_defense.ui"});
+}
+
 TEST_CASE("An installed launcher is run directly, with no interpreter and no path",
           "[unit][app][trainer]") {
     Machine machine;

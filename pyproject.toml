@@ -174,6 +174,22 @@ trainer = [
 # times rather than a different program — see missile_defense.training.cli.train.
 [project.scripts]
 missile-defense-train = "missile_defense.training.cli:train"
+
+# The console is a `gui-script`, and that is not a cosmetic distinction on
+# Windows. pip builds a *console-subsystem* launcher for `[project.scripts]`, so
+# double-clicking the trainer — or starting it from the game's menu — opens a
+# black command window that sits behind the trainer's own for as long as it runs
+# and cannot be closed without killing it. A `gui-script` gets the pythonw-based
+# launcher instead: same function, same name, no console. It is the packaging
+# half of the same fix as WIN32_EXECUTABLE in app/CMakeLists.txt, which the game
+# needed for exactly this reason.
+#
+# The cost is that this entry point has nowhere to print: `sys.stderr` is None
+# under pythonw when no pipe is attached, which is precisely the case where the
+# console cannot start and has something to say. `missile_defense.ui.__main__`
+# puts that in a message box instead — see `announce()` there. On Linux and macOS
+# a gui-script is an ordinary console script, so nothing changes.
+[project.gui-scripts]
 missile-defense-trainer = "missile_defense.ui.__main__:main"
 
 # ---- Task runner (poe) -------------------------------------------------------

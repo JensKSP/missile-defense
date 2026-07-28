@@ -190,6 +190,24 @@ Python 3.12 and not 3.11: the wheel is `cp312-abi3`, and pip refuses it below
 that. `HOW-TO-TRAIN.html`, which the game opens from the same screen, says so
 with a link.
 
+**No console window, anywhere along that path.** Three separate things arrange
+that, because a console appears for three separate reasons:
+
+* `missile-defense-trainer` is a `[project.gui-scripts]` entry, so pip builds
+  the *pythonw* launcher for it rather than the console-subsystem one;
+* the game starts the trainer through `pythonw.exe` beside the interpreter it
+  resolved (`windowless_interpreter`, app/trainer.hpp — the Python side of the
+  same lookup makes the same swap);
+* everything the trainer itself starts — a run, a pip install into the managed
+  runtime — is spawned with `CREATE_NO_WINDOW`
+  (`missile_defense.runs.spawn`), since their output is already on a pipe and
+  into the progress pane.
+
+The cost of the first is that the trainer has no `stderr` when it is started
+that way: `print` reaches nobody, silently. That is the one place this matters —
+the entry point that explains a missing PySide6 — and it puts the sentence in a
+message box instead (`missile_defense.ui.__main__.announce`).
+
 **Nothing is written into the install directory.** The managed PyTorch runtime,
 the runs and the models all live under `%LOCALAPPDATA%\MissileDefense`, so an
 install in `C:\Program Files` never needs write access of its own.

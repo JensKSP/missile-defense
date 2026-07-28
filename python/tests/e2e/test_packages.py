@@ -271,6 +271,14 @@ def test_the_game_only_tree_contains_no_python_and_no_trainer(game_only_tree: Pa
     assert not [path for path in staged if path.suffix in (".py", ".pyi")]
     assert not [path for path in staged if path.name.startswith("md-")]
     assert not [path for path in staged if "training" in path.name]
+    # The trainer's emblem lives in the same icon theme directory as the game's,
+    # and the game installs that directory. Its component tag is what keeps it
+    # out of here — and, on Debian, out of the game's package, where the file
+    # would otherwise be claimed by a manifest that has no trainer in it.
+    assert not [path for path in staged if path.name == "missile-defense-trainer.png"]
+    # The game's own icon, so the exclusion above is proved to be about *that*
+    # file rather than about the whole theme directory going missing.
+    assert [path for path in staged if path.name == "missile-defense.png"]
 
 
 @needs_cmake
@@ -325,6 +333,13 @@ def test_the_full_tree_carries_the_trainer_and_its_menu_entry(full_tree: Path) -
     assert (full_tree / "share" / "applications" / "missile-defense-trainer.desktop").exists()
     # The package itself, so the launcher has something to run.
     assert (full_tree / PACKAGE_DESTINATION / "ui" / "app.py").exists()
+    # And an icon for both places one is looked for: the theme, which is what the
+    # desktop entry's `Icon=` resolves against, and the package, which is where
+    # the window icon is loaded from at runtime. A menu entry naming an icon
+    # nobody installed draws a blank square and reports nothing.
+    icon = full_tree / "share" / "icons" / "hicolor" / "256x256" / "apps"
+    assert (icon / "missile-defense-trainer.png").exists()
+    assert (full_tree / PACKAGE_DESTINATION / "ui" / "icon.png").exists()
 
 
 @needs_cmake

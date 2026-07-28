@@ -20,6 +20,7 @@ down has landed; `debian/*.install` is the authority for which file goes where.
 | `missile-defense-trainer` | `/usr/bin/missile-defense-trainer`, `/usr/bin/missile-defense-train` | the trainer window and the training command |
 | | `/usr/lib/python3*/dist-packages/missile_defense/` | the Python package and its native extension |
 | | `/usr/share/applications/missile-defense-trainer.desktop` | menu entry for the trainer |
+| | `/usr/share/icons/hicolor/…/missile-defense-trainer.png` | the trainer's own emblem, which that entry resolves |
 
 The game package still contains **no Python at all** — that is the boundary the
 split exists to make into a packaging fact rather than a rule people remember,
@@ -257,7 +258,7 @@ machine.
 | build backend | `scikit-build-core` — compiles the extension through this same CMake tree, with `MD_BUILD_APP=OFF`, so a NumPy array does not cost a Vulkan SDK |
 | the package | `wheel.packages = ["python/missile_defense"]` |
 | the extension | `install(TARGETS _md_native …)` in `bindings/CMakeLists.txt`, into `${MD_PYTHON_INSTALL_DIR}` — `md` by default, an absolute `dist-packages` path for a distribution build |
-| commands | `missile-defense-train` → `missile_defense.training.cli:train`, `missile-defense-trainer` → `missile_defense.ui.__main__:main` |
+| commands | `missile-defense-train` → `missile_defense.training.cli:train` (`[project.scripts]`), `missile-defense-trainer` → `missile_defense.ui.__main__:main` (`[project.gui-scripts]`) |
 | extras | `[train]` = torch, `[trainer]` = PySide6 + psutil + nvidia-ml-py + amdsmi (Linux); neither is ever required |
 
 `STABLE_ABI` is what makes the installed object worth keeping: it is `abi3`, so

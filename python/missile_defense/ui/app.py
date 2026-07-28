@@ -36,7 +36,7 @@ from pathlib import Path
 from types import TracebackType
 
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
-from PySide6.QtGui import QCloseEvent, QKeyEvent
+from PySide6.QtGui import QCloseEvent, QIcon, QKeyEvent
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -72,7 +72,7 @@ from ..runs.runner import (
 )
 from ..runs.sources import EvalRow, MetricRow, Recording
 from ..sim.benchmark import CANONICAL_LADDER, Ladder, ladder_standing
-from . import about, theme
+from . import about, branding, theme
 from .analysis import AnalysisView
 from .charts import CurveView
 from .config import ConfigDialog, settings_for
@@ -1815,8 +1815,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    # Before the QApplication, because Windows reads the AppUserModelID when the
+    # first window is created and ignores it afterwards.
+    branding.claim_taskbar_identity()
     app = QApplication(sys.argv[:1])
     app.setApplicationName("Missile Defense Trainer")
+    # Both, because no single one of them is the icon everywhere: the window icon
+    # is what Windows and macOS draw, and the desktop entry name is what a
+    # Wayland compositor matches on — where a QIcon set in the process is not
+    # consulted at all.
+    app.setWindowIcon(QIcon(str(branding.ICON)))
+    app.setDesktopFileName(branding.DESKTOP_ENTRY)
     app.setStyleSheet(theme.stylesheet())
     window = Trainer(paths.runs_dir(args.run_dir))
     if args.self_test:

@@ -55,7 +55,7 @@ from pathlib import Path
 from typing import Protocol, cast
 from urllib.parse import urlparse
 
-from . import paths
+from . import paths, spawn
 
 #: Where ``md`` itself sits, so the health check can import it — and so a run
 #: started from the managed interpreter can too, without ``md`` being installed
@@ -454,6 +454,9 @@ def _run(command: list[str], emit: Callable[[str], None]) -> int:
         errors="replace",
         bufsize=1,
         env=_environ(),
+        # Every line pip writes is already going to `emit`; the console window
+        # Windows would open beside it only steals focus (missile_defense.runs.spawn).
+        creationflags=spawn.creation_flags(),
     )
     assert process.stdout is not None
     for line in process.stdout:

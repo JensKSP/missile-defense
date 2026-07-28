@@ -2,3 +2,4 @@ usr/bin/missile-defense-trainer
 usr/bin/missile-defense-train
 usr/lib/python3*/dist-packages/missile_defense
 usr/share/applications/missile-defense-trainer.desktop
+usr/share/icons/hicolor/*/apps/missile-defense-trainer.png

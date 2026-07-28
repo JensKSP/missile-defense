@@ -2,6 +2,6 @@ usr/games/missile-defense
 usr/share/missile-defense/models
 usr/share/missile-defense/HOW-TO-TRAIN.html
 usr/share/applications/missile-defense.desktop
-usr/share/icons/hicolor
+usr/share/icons/hicolor/*/apps/missile-defense.png
 usr/share/doc/missile-defense/THIRD_PARTY_LICENSES.md
 usr/share/doc/missile-defense/licenses

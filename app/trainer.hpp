@@ -66,6 +66,31 @@ inline constexpr std::string_view executable_suffix = ".exe";
 inline constexpr std::string_view executable_suffix{};
 #endif
 
+/// The interpreter that runs a windowed application with no console behind it,
+/// or empty on the platforms that have no such thing.
+///
+/// Windows keeps two of them side by side: `python.exe` is linked for the
+/// console subsystem, so starting it from a GUI process — this game — makes
+/// Windows allocate a console for it, and the trainer comes up with a black
+/// command window behind it that stays for as long as it runs. `pythonw.exe` is
+/// the same interpreter linked for the windows subsystem. It sits in the same
+/// directory as its console twin in every CPython layout there is: an installer
+/// build, a Store install, a virtualenv's `Scripts`.
+///
+/// Empty elsewhere, and not because it was forgotten: a console is a Windows
+/// concept, and a POSIX process started from a desktop session has nothing to
+/// hide. Public so a test can describe a machine that has one without needing to
+/// run on it — the search is the part worth testing.
+///
+/// The game is the caller this exists for, but it is not the only one that has
+/// to know: `missile_defense.runs.runner.trainer_command()` makes the same swap,
+/// and `python/tests/test_ui_runner.py` holds the two to each other.
+#ifdef _WIN32
+inline constexpr std::string_view windowless_interpreter = "pythonw.exe";
+#else
+inline constexpr std::string_view windowless_interpreter{};
+#endif
+
 /// Everything the search needs from the machine it is running on.
 struct Lookup {
     /// An environment variable's value, or empty when it is unset.

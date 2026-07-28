@@ -546,12 +546,17 @@ if(MD_INSTALL_PYTHON_PACKAGE)
 
   # The sources. _md_native and its stub are excluded because bindings/ installs
   # those — it is the one that knows whether the extension was built at all.
+  # `*.png` is `missile_defense/ui/icon.png` and nothing else: the console's own
+  # emblem, which has to travel *inside* the package because on Windows and macOS
+  # the console is a wheel with no install prefix beside it to look in. Installed
+  # here too so the one code path that loads it is the same on every platform.
   install(DIRECTORY "${CMAKE_SOURCE_DIR}/python/missile_defense/"
     DESTINATION "${MD_PYTHON_INSTALL_DIR}"
     COMPONENT python
     FILES_MATCHING
       PATTERN "*.py"
       PATTERN "*.pyi"
+      PATTERN "*.png"
       PATTERN "_md_native.pyi" EXCLUDE
       PATTERN "__pycache__" EXCLUDE)
 
@@ -572,6 +577,19 @@ if(MD_INSTALL_PYTHON_PACKAGE)
   install(FILES "${CMAKE_SOURCE_DIR}/packaging/missile-defense-trainer.desktop"
     DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/applications"
     COMPONENT python)
+
+  # And its own icon, which is what makes that entry findable rather than
+  # generic. Installed here rather than with the game's theme directory
+  # (app/CMakeLists.txt, which excludes exactly this file) because a menu entry
+  # in one package whose icon is in another is a package that draws a blank
+  # square whenever the other is not installed.
+  foreach(md_icon_size 16 32 48 64 128 256)
+    install(FILES
+      "${CMAKE_SOURCE_DIR}/packaging/icons/hicolor/${md_icon_size}x${md_icon_size}/apps/missile-defense-trainer.png"
+      DESTINATION
+        "${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/${md_icon_size}x${md_icon_size}/apps"
+      COMPONENT python)
+  endforeach()
 endif()
 
 # ---- Packaging (CPack) -------------------------------------------------------

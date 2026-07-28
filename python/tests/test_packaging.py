@@ -26,14 +26,37 @@ ROOT = Path(missile_defense.__file__).parents[2]
 PYPROJECT = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
 
+def _entry_points() -> dict[str, str]:
+    """Both tables as one mapping. pip installs a command for every entry in each."""
+    project = PYPROJECT["project"]
+    return {**project.get("scripts", {}), **project.get("gui-scripts", {})}
+
+
 def test_every_console_script_points_at_something_that_exists() -> None:
     """A renamed function turns into a `pip install` that produces a dead command."""
-    scripts = PYPROJECT["project"]["scripts"]
+    scripts = _entry_points()
     assert set(scripts) == {"missile-defense-train", "missile-defense-trainer"}
     for name, target in scripts.items():
         module_name, _, attribute = target.partition(":")
         module = importlib.import_module(module_name)
         assert callable(getattr(module, attribute, None)), f"{name} -> {target}"
+
+
+def test_the_two_commands_are_in_the_table_that_matches_what_they_open() -> None:
+    """A window is a `gui-script`; a command that prints is not.
+
+    On Windows the table decides which launcher pip builds. `[project.scripts]`
+    is the console subsystem, so the trainer listed there came up with a black
+    command window behind it — for as long as it ran, in front of nothing, and
+    closing it killed the trainer. `[project.gui-scripts]` is the pythonw
+    launcher, and it is the same fix as `WIN32_EXECUTABLE` for the game.
+
+    The training command stays where it is on purpose: it is a terminal program
+    whose whole output is progress, and a `gui-script` would throw that away.
+    """
+    project = PYPROJECT["project"]
+    assert set(project["gui-scripts"]) == {"missile-defense-trainer"}
+    assert set(project["scripts"]) == {"missile-defense-train"}
 
 
 def test_the_trainer_shim_does_not_import_what_it_checks_for() -> None:

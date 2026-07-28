@@ -12,11 +12,17 @@ trace had nowhere to appear: the menu entry did nothing at all.
 
 So what is asserted here is coverage of the message, not its wording: every
 package it can be handed produces a named fix, on both kinds of interpreter.
+
+And, since the console became a `gui-script`, coverage of where the message
+*goes*: its Windows launcher is `pythonw`, which has no `stderr` to print to, so
+delivery is a decision rather than a `print`.
 """
 
 from __future__ import annotations
 
-from missile_defense.ui.__main__ import explain, package_of
+import io
+
+from missile_defense.ui.__main__ import announce, delivery, explain, package_of
 
 
 def test_a_missing_pyside6_names_pyside6_and_a_pip_command() -> None:
@@ -63,3 +69,29 @@ def test_an_error_naming_nothing_is_not_dressed_up_as_advice() -> None:
     # it: with no name there is nothing the message can say that the traceback
     # does not say better.
     assert package_of(ModuleNotFoundError("something went wrong")) == ""
+
+
+def test_a_message_goes_to_the_stream_when_there_is_one() -> None:
+    # The ordinary case, and the one the packaging e2e test drives: started from
+    # a terminal, or with its output piped, the sentence goes where the reader is
+    # already looking.
+    stream = io.StringIO()
+    assert announce("PySide6 is missing", stream=stream, platform="win32") == "stream"
+    assert stream.getvalue().strip() == "PySide6 is missing"
+
+
+def test_windows_with_no_stream_gets_a_dialog_rather_than_silence() -> None:
+    # `pythonw` — the console's own launcher, and how the game starts it — sets
+    # `sys.stderr` to None, and `print` to it is silent rather than an error.
+    # That is the silent menu entry this module exists to prevent, so the message
+    # becomes a message box. `delivery` rather than `announce`, deliberately: a
+    # message box is modal, and a test that opened one would hang the suite on
+    # the one platform where this branch is live.
+    assert delivery(stream=None, platform="win32") == "dialog"
+
+
+def test_a_desktop_session_elsewhere_is_not_handed_a_windows_api() -> None:
+    # No message box off Windows: a Linux desktop session's streams go to the
+    # journal, and reaching for user32 there would be a second failure on the
+    # failure path.
+    assert announce("PySide6 is missing", stream=None, platform="linux") == "nowhere"

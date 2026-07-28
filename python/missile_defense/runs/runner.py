@@ -38,7 +38,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Protocol
 
-from . import paths, runtime
+from . import paths, runtime, spawn
 
 #: <root>/python/missile_defense/runs/runner.py — the checkout, when the trainer runs from one.
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -82,6 +82,19 @@ TRAINER_NAMES = ("missile-defense-trainer",)
 #: Where an installer leaves it. `/usr/games` is not searched: the trainer is
 #: not a game and its Debian package puts it in `/usr/bin`.
 TRAINER_SYSTEM_PATHS = ("/usr/bin", "/usr/local/bin")
+
+#: The Windows interpreter that opens a window without a console behind it.
+#:
+#: `python.exe` is linked for the console subsystem, so starting a Qt application
+#: through it — from the game's menu, or from here — makes Windows allocate a
+#: console and leave that black box behind the trainer for as long as it runs.
+#: `pythonw.exe` is the same interpreter linked for the windows subsystem and
+#: lives beside it in every CPython layout: installer, Store, virtualenv.
+#:
+#: The C++ side makes the same swap (`windowless_interpreter` in
+#: app/trainer.hpp), and `test_ui_runner.py` holds the two to each other — a
+#: divergence here is the game and the trainer starting different interpreters.
+WINDOWLESS_INTERPRETER = "pythonw.exe"
 
 
 #: Where the game records the interpreter it installed the trainer into, inside
@@ -142,7 +155,9 @@ Spawn = Callable[[list[str], Path, Mapping[str, str]], Process]
 
 
 def _spawn(command: list[str], cwd: Path, env: Mapping[str, str]) -> Process:
-    return subprocess.Popen(command, cwd=str(cwd), env=dict(env))
+    return subprocess.Popen(
+        command, cwd=str(cwd), env=dict(env), creationflags=spawn.creation_flags()
+    )
 
 
 def _bundle_executable(containing: Path, bundle: str) -> Path:
@@ -289,7 +304,20 @@ def trainer_command(
     # cannot be `== sys.executable` any more.
     if found.name.startswith("missile-defense-"):
         return [str(found)]
-    return [str(found), "-m", "missile_defense.ui"]
+    return [str(windowless_interpreter(found, platform=platform)), "-m", "missile_defense.ui"]
+
+
+def windowless_interpreter(interpreter: Path, *, platform: str = sys.platform) -> Path:
+    """``interpreter``'s console-free twin on Windows, or ``interpreter``.
+
+    See :data:`WINDOWLESS_INTERPRETER`. A missing twin is not an error: the
+    console window is a blemish, and refusing to start the trainer because a file
+    was absent next to a Python that works would be a fault.
+    """
+    if platform != "win32":
+        return interpreter
+    candidate = interpreter.with_name(WINDOWLESS_INTERPRETER)
+    return candidate if candidate.exists() else interpreter
 
 
 def launch_environ(
@@ -427,6 +455,10 @@ def _spawn_piped(command: list[str], cwd: Path, env: Mapping[str, str]) -> Piped
         encoding="utf-8",  # agreed with PYTHONIOENCODING below, not guessed
         errors="replace",
         bufsize=1,
+        # The run's output is already being read into the progress pane; the
+        # console window Windows would open for it shows nothing new and closing
+        # it kills the run (missile_defense.runs.spawn).
+        creationflags=spawn.creation_flags(),
     )
 
 
