@@ -23,9 +23,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pytest
+
+if TYPE_CHECKING:
+    from missile_defense.training.ppo import Policy
 from missile_defense.sim import export_policy, policy_format
 
 torch = pytest.importorskip("torch", reason="torch is not installed")
@@ -276,7 +280,7 @@ def _flat_policy(best: int | None = None) -> policy_format.NativePolicy:
     )
 
 
-def _load(path: Path):  # noqa: ANN202 — torch is optional
+def _load(path: Path) -> tuple[Policy, dict[str, Any]]:
     from missile_defense.training.ppo import Policy  # noqa: PLC0415 — optional dependency
 
     payload = torch.load(path, map_location="cpu", weights_only=True)

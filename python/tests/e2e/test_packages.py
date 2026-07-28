@@ -195,7 +195,12 @@ def exported_policy(tmp_path_factory: pytest.TempPathFactory) -> Path:
         metadata={"display_name": "Bundled Test"},
     )
     destination = tmp_path_factory.mktemp("model") / "test.mdp"
-    return torch_free.write(destination, policy)
+    # `importorskip` hands back an untyped module, so this is Any until it is
+    # checked. Asserting rather than casting: a `write` that stopped returning
+    # the path would otherwise be discovered by the caller, not here.
+    written = torch_free.write(destination, policy)
+    assert isinstance(written, Path)
+    return written
 
 
 #: What the game must not be able to reach through `PATH`: an interpreter (which

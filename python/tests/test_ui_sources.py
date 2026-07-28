@@ -10,6 +10,7 @@ Qt: pytest writes a CSV a fragment at a time and asserts what comes back.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 from pathlib import Path
@@ -618,7 +619,7 @@ def test_no_ladder_spans_two_blocks_or_an_unmeasured_protocol() -> None:
     assert shared_ladder([]) == NO_LADDER
     # A cadence nothing was measured at, and a row from before protocols were
     # recorded at all.
-    assert row_ladder(EvalRow(**{**validation.__dict__, "frame_skip": 1})) == NO_LADDER
+    assert row_ladder(dataclasses.replace(validation, frame_skip=1)) == NO_LADDER
     assert row_ladder(EvalRow(10, 50_000, None, None, None, None, None, None, None)) == NO_LADDER
 
 
@@ -640,8 +641,8 @@ def test_run_scores_only_compare_when_every_protocol_field_matches() -> None:
         max_ticks=120_000,
         inference_device="cpu",
     )
-    same = EvalRow(**{**validation.__dict__, "mean_score": 11_000})
-    different_cadence = EvalRow(**{**validation.__dict__, "frame_skip": 1})
+    same = dataclasses.replace(validation, mean_score=11_000)
+    different_cadence = dataclasses.replace(validation, frame_skip=1)
     legacy = EvalRow(50, 10_000, None, None, None, None, None, None, None)
 
     assert matching_eval_protocol(validation, same)

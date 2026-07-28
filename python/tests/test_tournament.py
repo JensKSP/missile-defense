@@ -18,7 +18,9 @@ is exactly the part that can be unfair while every piece it calls is correct.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -96,7 +98,8 @@ def test_changing_any_part_of_the_protocol_stops_it_ranking() -> None:
     ):
         import dataclasses  # noqa: PLC0415
 
-        assert not dataclasses.replace(base, **{field: value}).canonical, field
+        change: dict[str, Any] = {field: value}
+        assert not dataclasses.replace(base, **change).canonical, field
 
 
 # ---- rule 1: the same seeds ---------------------------------------------------
@@ -118,7 +121,13 @@ def test_both_contestants_are_handed_the_identical_seed_list(
 
     handed: list[tuple[int, ...]] = []
 
-    def fake(model, protocol, *, seeds=None, **_):  # noqa: ANN001, ANN202
+    def fake(
+        model: league.Model,
+        protocol: tournament.Protocol,
+        *,
+        seeds: Sequence[int] | None = None,
+        **_: object,
+    ) -> tournament.Result:
         handed.append(tuple(seeds or ()))
         return tournament.Result(
             model_id=model.model_id,
@@ -180,7 +189,13 @@ def test_a_cancelled_match_records_nothing(tmp_path: Path, monkeypatch: pytest.M
 
     calls = {"n": 0}
 
-    def fake(model, protocol, *, seeds=None, **_):  # noqa: ANN001, ANN202
+    def fake(
+        model: league.Model,
+        protocol: tournament.Protocol,
+        *,
+        seeds: Sequence[int] | None = None,
+        **_: object,
+    ) -> tournament.Result:
         calls["n"] += 1
         if calls["n"] == 2:
             raise tournament.Cancelled

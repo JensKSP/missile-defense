@@ -35,7 +35,7 @@ from missile_defense.sim.benchmark import (  # noqa: E402
 )
 from missile_defense.sim.eval import default_seeds, validation_seeds  # noqa: E402
 from missile_defense.training import train as trainer  # noqa: E402
-from missile_defense.training.ppo import PPOConfig  # noqa: E402
+from missile_defense.training.ppo import PPOConfig, build_policy  # noqa: E402
 from missile_defense.training.train import TrainConfig  # noqa: E402
 from torch import nn  # noqa: E402
 
@@ -248,7 +248,7 @@ def test_checkpoint_selection_state_is_not_reused_across_protocols() -> None:
 def test_resume_copies_the_verified_best_policy_into_a_new_run(tmp_path: Path) -> None:
     layout, action_count = trainer._current_environment_schema()
     ppo = PPOConfig(hidden=8)
-    policy = trainer.build_policy(ppo.architecture, layout, action_count, ppo.hidden)
+    policy = build_policy(ppo.architecture, layout, action_count, ppo.hidden)
     optimizer = torch.optim.Adam(policy.parameters())
     schedule = trainer.LinearSchedule(1, 100, 3e-4, 1e-5, 0.02, 0.002)
     protocol = trainer._validation_protocol(TrainConfig(), "cpu")

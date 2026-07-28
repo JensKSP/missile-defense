@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import json
 import zipfile
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 from missile_defense.runs import archive, library
@@ -48,7 +50,9 @@ def rewrite(source: Path, destination: Path, **entries: bytes) -> Path:
     return destination
 
 
-def with_manifest(source: Path, destination: Path, mutate) -> Path:  # noqa: ANN001
+def with_manifest(
+    source: Path, destination: Path, mutate: Callable[[dict[str, Any]], None]
+) -> Path:
     with zipfile.ZipFile(source) as original:
         manifest = json.loads(original.read(archive.MANIFEST_NAME).decode("utf-8"))
     mutate(manifest)

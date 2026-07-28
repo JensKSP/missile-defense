@@ -19,15 +19,39 @@ import torch
 class Layout(Protocol):
     """The observation offsets needed here, without importing the policy module."""
 
-    threats: int
-    interceptors: int
-    blasts: int
-    interceptors_at: int
-    blasts_at: int
-    globals_at: int
-    threat_features: int
-    interceptor_features: int
-    blast_features: int
+    # Every member read-only, because this only ever *reads* a layout — and
+    # because the one type meant to satisfy it, `ppo.ObsLayout`, is a frozen
+    # dataclass whose last three are computed `@property`. Spelled as plain
+    # attributes, the Protocol demanded something settable and `ObsLayout`
+    # satisfied none of it. Nothing caught that: this module and `ppo`, its only
+    # caller, are both on the type checkers' skip list, and until now no test
+    # that passes one to the other was checked either.
+    @property
+    def threats(self) -> int: ...
+
+    @property
+    def interceptors(self) -> int: ...
+
+    @property
+    def blasts(self) -> int: ...
+
+    @property
+    def threat_features(self) -> int: ...
+
+    @property
+    def interceptor_features(self) -> int: ...
+
+    @property
+    def blast_features(self) -> int: ...
+
+    @property
+    def interceptors_at(self) -> int: ...
+
+    @property
+    def blasts_at(self) -> int: ...
+
+    @property
+    def globals_at(self) -> int: ...
 
 
 @dataclass(frozen=True)

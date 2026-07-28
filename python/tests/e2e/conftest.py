@@ -50,4 +50,4 @@ def qt_app() -> Iterator[object]:
 
     app = QApplication.instance() or QApplication([])
     yield app
-    app.quit()  # type: ignore[union-attr]
+    app.quit()  # type: ignore[union-attr,unused-ignore]

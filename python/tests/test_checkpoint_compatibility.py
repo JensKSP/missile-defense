@@ -7,11 +7,16 @@ from __future__ import annotations
 
 import dataclasses
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
-torch = pytest.importorskip("torch", reason="torch is optional; see docs/TRAINING.md")
+if TYPE_CHECKING:
+    # The real module, so `torch.nn.Sequential` below is a type rather than an
+    # attribute of whatever `importorskip` returned.
+    import torch
+else:
+    torch = pytest.importorskip("torch", reason="torch is optional; see docs/TRAINING.md")
 pytest.importorskip(
     "missile_defense._md_native",
     reason="the _md_native extension is not built (cmake -DMD_BUILD_BINDINGS=ON)",
@@ -158,5 +163,12 @@ def test_load_policy_uses_the_checkpoints_architecture_and_hidden_size(tmp_path:
     policy, loaded_payload = load_policy(checkpoint)
 
     assert type(policy).__name__ == "EntityPolicy"
-    assert policy.context[0].out_features == 48
+    # Narrowed twice on purpose: `policy.context` is `Tensor | Module` in torch's
+    # stubs, and only a `Sequential` can be indexed, only a `Linear` has
+    # `out_features`. Both asserts also fail loudly if the architecture changes.
+    context = policy.context
+    assert isinstance(context, torch.nn.Sequential)
+    first = context[0]
+    assert isinstance(first, torch.nn.Linear)
+    assert first.out_features == 48
     assert loaded_payload["hidden"] == 48

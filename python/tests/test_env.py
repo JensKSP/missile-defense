@@ -295,10 +295,12 @@ def test_a_batch_is_reproducible_from_its_seed() -> None:
         env.reset(123)
         rng = np.random.default_rng(7)
         total = np.zeros(env.num_envs, dtype=np.float64)
+        obs: np.ndarray | None = None
         for _ in range(25):
             actions = rng.integers(0, env.action_count, size=env.num_envs, dtype=np.int32)
             obs, reward, _, _, _ = env.step(actions)
             total += reward
+        assert obs is not None
         return obs.copy(), total
 
     first_obs, first_total = rollout()

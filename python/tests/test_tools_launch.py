@@ -18,6 +18,7 @@ import sys
 from collections.abc import Sequence
 
 from tools import launch
+from tools._util import PROJECT_ROOT
 from tools.launch import Report, candidates, child_environ, explain, parse_launcher_line, survey
 
 
@@ -141,18 +142,18 @@ def test_a_line_that_is_not_an_entry_is_skipped() -> None:
 def test_the_checkout_is_put_on_the_import_path() -> None:
     """The chosen interpreter is a stranger to this source tree."""
     env = child_environ({})
-    assert str(launch.PROJECT_ROOT / "python") in env["PYTHONPATH"].split(os.pathsep)
+    assert str(PROJECT_ROOT / "python") in env["PYTHONPATH"].split(os.pathsep)
 
 
 def test_an_existing_pythonpath_is_kept() -> None:
     env = child_environ({"PYTHONPATH": "/somewhere/else"})
     entries = env["PYTHONPATH"].split(os.pathsep)
-    assert entries[0] == str(launch.PROJECT_ROOT / "python")
+    assert entries[0] == str(PROJECT_ROOT / "python")
     assert "/somewhere/else" in entries
 
 
 def test_the_checkout_is_not_added_twice() -> None:
-    package = str(launch.PROJECT_ROOT / "python")
+    package = str(PROJECT_ROOT / "python")
     env = child_environ({"PYTHONPATH": package})
     assert env["PYTHONPATH"] == package
 

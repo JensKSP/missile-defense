@@ -14,10 +14,13 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
 from missile_defense.runs import runlog
 
 
-def test_the_terminal_still_gets_every_line(capsys, tmp_path: Path) -> None:
+def test_the_terminal_still_gets_every_line(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
     """A copy, not a redirect: watching a run in a shell must still work."""
     with runlog.teed(tmp_path):
         print("update 1 | return 4.87")
@@ -100,4 +103,7 @@ def test_the_tee_reports_the_terminal_s_own_tty_answer(tmp_path: Path) -> None:
     # A progress bar asking "am I being watched" must not get a different answer
     # because a log file happens to exist.
     with runlog.teed(tmp_path):
+        # `sys.__stdout__` is Optional: it is None under `pythonw` and when the
+        # interpreter was started with stdio closed. Neither is this test.
+        assert sys.__stdout__ is not None
         assert sys.stdout.isatty() == sys.__stdout__.isatty()

@@ -19,19 +19,34 @@ shape of `runs/deadline-1330`, which is where they were found.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 from missile_defense.runs.sources import Latest
 
-try:  # the widgets, where PySide6 is installed — the trainer is optional
+if TYPE_CHECKING:
+    # The real classes, so `-> CurveView` below is a type rather than a variable
+    # that might be None — which is what a checker sees when the only binding it
+    # can find is the `= None` fallback. The runtime half keeps the guard it
+    # always had: the trainer is optional and this suite skips without it.
     from missile_defense.ui.charts import CurveView
     from PySide6.QtWidgets import QApplication
-except ModuleNotFoundError as error:  # pragma: no cover - depends on the machine
-    if error.name is None or not error.name.startswith("PySide6"):
-        raise
-    CurveView = None  # type: ignore[assignment,misc]
-    QApplication = None  # type: ignore[assignment,misc]
 
-needs_qt = pytest.mark.skipif(CurveView is None, reason="PySide6 is not installed")
+    HAVE_QT = True
+else:  # the widgets, where PySide6 is installed — the trainer is optional
+    try:
+        from missile_defense.ui.charts import CurveView
+        from PySide6.QtWidgets import QApplication
+
+        HAVE_QT = True
+    except ModuleNotFoundError as error:  # pragma: no cover - depends on the machine
+        if error.name is None or not error.name.startswith("PySide6"):
+            raise
+        CurveView = None
+        QApplication = None
+        HAVE_QT = False
+
+needs_qt = pytest.mark.skipif(not HAVE_QT, reason="PySide6 is not installed")
 
 
 # ---- the tile ---------------------------------------------------------------
@@ -68,17 +83,17 @@ def test_no_measurement_at_all_is_left_as_a_dash() -> None:
 
 @pytest.fixture(scope="module")
 def qt_app():  # type: ignore[no-untyped-def]
-    if QApplication is None:  # pragma: no cover - skipped by needs_qt
+    if not HAVE_QT:  # pragma: no cover - skipped by needs_qt
         pytest.skip("PySide6 is not installed")
     yield QApplication.instance() or QApplication([])
 
 
-def _curve():  # type: ignore[no-untyped-def]
+def _curve() -> CurveView:
     return CurveView(title="t", colour="#ffffff")
 
 
 @needs_qt
-def test_a_curve_never_runs_backwards(qt_app) -> None:  # type: ignore[no-untyped-def]
+def test_a_curve_never_runs_backwards(qt_app: object) -> None:
     """The property the backwards line violated, stated once for any input."""
     curve = _curve()
     for update in (*range(645, 662), 651, 652):
@@ -88,7 +103,7 @@ def test_a_curve_never_runs_backwards(qt_app) -> None:  # type: ignore[no-untype
 
 
 @needs_qt
-def test_a_resume_discards_the_branch_it_abandoned(qt_app) -> None:  # type: ignore[no-untyped-def]
+def test_a_resume_discards_the_branch_it_abandoned(qt_app: object) -> None:
     curve = _curve()
     for update in range(645, 662):  # the branch that was thrown away
         curve.append(update, 1.0)
@@ -100,7 +115,7 @@ def test_a_resume_discards_the_branch_it_abandoned(qt_app) -> None:  # type: ign
 
 
 @needs_qt
-def test_the_seam_is_recorded_rather_than_closed_over(qt_app) -> None:  # type: ignore[no-untyped-def]
+def test_the_seam_is_recorded_rather_than_closed_over(qt_app: object) -> None:
     curve = _curve()
     for update in range(645, 662):
         curve.append(update, 1.0)
@@ -109,7 +124,7 @@ def test_the_seam_is_recorded_rather_than_closed_over(qt_app) -> None:  # type: 
 
 
 @needs_qt
-def test_a_run_that_never_rewinds_records_no_seam(qt_app) -> None:  # type: ignore[no-untyped-def]
+def test_a_run_that_never_rewinds_records_no_seam(qt_app: object) -> None:
     curve = _curve()
     for update in range(1, 50):
         curve.append(update, float(update))
@@ -118,7 +133,7 @@ def test_a_run_that_never_rewinds_records_no_seam(qt_app) -> None:  # type: igno
 
 
 @needs_qt
-def test_the_axis_rescales_when_a_discarded_branch_held_the_extreme(qt_app) -> None:  # type: ignore[no-untyped-def]
+def test_the_axis_rescales_when_a_discarded_branch_held_the_extreme(qt_app: object) -> None:
     """A y-axis still scaled to a deleted peak leaves the live curve flat."""
     curve = _curve()
     curve.append(1, 1.0)
@@ -129,7 +144,7 @@ def test_the_axis_rescales_when_a_discarded_branch_held_the_extreme(qt_app) -> N
 
 
 @needs_qt
-def test_repeated_resumes_each_leave_a_seam(qt_app) -> None:  # type: ignore[no-untyped-def]
+def test_repeated_resumes_each_leave_a_seam(qt_app: object) -> None:
     curve = _curve()
     for update in range(1, 11):
         curve.append(update, 1.0)

@@ -165,7 +165,9 @@ def test_describe_gives_an_unset_setting_a_word(tmp_path: Path) -> None:
 
 
 def test_resumed_from_is_the_checkpoint_a_continuation_names(tmp_path: Path) -> None:
-    payload = dict(PAYLOAD) | {"train": dict(PAYLOAD["train"]) | {"resume": "/runs/x/p.pt"}}
+    train = PAYLOAD["train"]
+    assert isinstance(train, dict)
+    payload = dict(PAYLOAD) | {"train": dict(train) | {"resume": "/runs/x/p.pt"}}
     config = runconfig.read(_run(tmp_path, payload))
     assert config is not None
 

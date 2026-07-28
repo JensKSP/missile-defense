@@ -16,10 +16,16 @@ stray Enter is not evidence of anything.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
+from missile_defense.sim import benchmark
+from missile_defense.sim.policy_format import NativePolicy
 
-from .harness import needs_native, needs_qt, needs_torch
+from .harness import needs_native, needs_qt, needs_torch, present
+
+if TYPE_CHECKING:
+    from missile_defense.runs.library import Run
 
 pytestmark = [pytest.mark.e2e, needs_qt, needs_native, needs_torch]
 
@@ -39,7 +45,7 @@ def library_copy(trained_run: Path, tmp_path: Path) -> Path:
     return root
 
 
-def _run(root: Path):  # noqa: ANN202 — missile_defense.runs.library is an optional-dependency import
+def _run(root: Path) -> Run:
     from missile_defense.runs import library
 
     runs = library.discover(root)
@@ -227,7 +233,7 @@ def test_a_model_can_be_exported_and_imported_back(
     assert policy_format.read(out) == policy
 
 
-def _a_policy(name: str) -> object:
+def _a_policy(name: str) -> NativePolicy:
     """The smallest thing `policy_format` and the game both accept."""
     import numpy as np
     from missile_defense.sim import policy_format
@@ -294,10 +300,13 @@ def test_a_model_can_be_deleted_out_of_the_league(
     view = LeagueView()
     try:
         view.refresh()
-        rows = {view._table.item(row, 0).text() for row in range(view._table.rowCount())}
+        rows = {
+            present(view._table.item(row, 0), "the model-name cell").text()
+            for row in range(view._table.rowCount())
+        }
         assert rows == {"Keeper", "Goner"}
         for row in range(view._table.rowCount()):
-            if view._table.item(row, 0).text() == "Goner":
+            if present(view._table.item(row, 0), "the model-name cell").text() == "Goner":
                 view._table.selectRow(row)
         assert (view.selected() or league.Model(root, "", "")).name == "Goner"
         view._delete_selected()
@@ -387,8 +396,8 @@ def test_peeking_at_a_head_to_head_records_both_sides(
     # A short protocol: what is under test is that two recordings arrive, not
     # how long an episode is.
     brief = tournament.Protocol(
-        seed_split=tournament.benchmark.CANONICAL_SPLIT,
-        seed_offset=tournament.benchmark.CANONICAL_SEED_OFFSET,
+        seed_split=benchmark.CANONICAL_SPLIT,
+        seed_offset=benchmark.CANONICAL_SEED_OFFSET,
         seed_count=1,
         frame_skip=4,
         max_ticks=600,

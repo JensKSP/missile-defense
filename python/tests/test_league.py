@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import subprocess
 from pathlib import Path
 
 import numpy as np
@@ -635,7 +636,7 @@ def test_promotion_puts_the_import_root_on_the_subprocess_path(
         captured["env"] = kwargs["env"]
         return Finished()
 
-    monkeypatch.setattr(league.subprocess, "run", fake_run)
+    monkeypatch.setattr(subprocess, "run", fake_run)
     league._export(
         tmp_path / "policy.pt",
         tmp_path / "policy.mdp",

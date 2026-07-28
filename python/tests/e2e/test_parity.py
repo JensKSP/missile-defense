@@ -97,11 +97,16 @@ def _python_actions(policy: Path) -> list[int]:
     from missile_defense.sim.benchmark import (
         CANONICAL_FRAME_SKIP,  # noqa: PLC0415 — optional dependency
     )
+    from missile_defense.sim.env import (  # noqa: PLC0415 — optional dependency
+        Actions,
+        Flags,
+        Observations,
+    )
 
     loaded = policy_format.read(policy)
     chosen: list[int] = []
 
-    def act(observations, masks):  # noqa: ANN001, ANN202 — numpy arrays
+    def act(observations: Observations, masks: Flags) -> Actions:
         actions = np.zeros(len(observations), dtype=np.int32)
         for i, (observation, mask) in enumerate(zip(observations, masks, strict=True)):
             decision = export_policy.evaluate(loaded, observation, mask)

@@ -81,7 +81,9 @@ def test_each_bin_carries_its_share_of_every_shot_fired() -> None:
     assert found is not None
     assert found.shots == 3807 + 6394 + 708 + 20
     assert found.bins[0].share == pytest.approx(3807 / found.shots)
-    assert sum(b.share for b in found.bins) == pytest.approx(1.0)
+    shares = [b.share for b in found.bins]
+    assert None not in shares, "a row with shots has a share for every bin"
+    assert sum(s for s in shares if s is not None) == pytest.approx(1.0)
 
 
 def test_the_wasted_share_is_the_zero_kill_bin() -> None:
@@ -89,7 +91,9 @@ def test_the_wasted_share_is_the_zero_kill_bin() -> None:
     found = stats.distribution(row(**FULL))
     assert found is not None
     assert found.wasted_share == pytest.approx(3807 / found.shots)
-    assert found.hit_share == pytest.approx(1.0 - found.wasted_share)
+    wasted = found.wasted_share
+    assert wasted is not None
+    assert found.hit_share == pytest.approx(1.0 - wasted)
 
 
 def test_mean_kills_per_shot_weights_the_bins_by_their_kill_count() -> None:

@@ -21,6 +21,7 @@ import os
 import shutil
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from missile_defense.sim.benchmark import (
@@ -39,13 +40,24 @@ from missile_defense.sim.benchmark import (
     VALIDATION_SPLIT,
 )
 
-from .harness import TINY_RUN, needs_native, needs_qt, needs_torch
+from .harness import TINY_RUN, needs_native, needs_qt, needs_torch, present
+
+# Only for the annotations below, which `from __future__ import annotations` keeps
+# as strings: naming the type costs nothing at run time and the import never
+# happens on a machine without PySide6, which is the whole reason the fixture
+# imports `Trainer` in its body rather than at module scope.
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+    from missile_defense.ui.app import Trainer
+    from missile_defense.ui.forms import ParameterDialog, ToggleSwitch, ValueSlider
+    from PySide6.QtWidgets import QWidget
 
 pytestmark = [pytest.mark.e2e, needs_qt]
 
 
 @pytest.fixture
-def trainer(qt_app: object, trained_run: Path):  # noqa: ANN201 — PySide6 is optional
+def trainer(qt_app: object, trained_run: Path) -> Iterator[Trainer]:
     """A real trainer window attached to a finished run."""
     from missile_defense.ui.app import Trainer  # noqa: PLC0415 — optional dependency
 
@@ -57,7 +69,7 @@ def trainer(qt_app: object, trained_run: Path):  # noqa: ANN201 — PySide6 is o
 
 @needs_torch
 @needs_native
-def test_the_trainer_opens_on_a_run_and_shows_its_curves(trainer) -> None:  # noqa: ANN001
+def test_the_trainer_opens_on_a_run_and_shows_its_curves(trainer: Trainer) -> None:
     trainer._tick()
     # One update counted per row of metrics.csv. An empty window next to a run
     # full of data is the failure this whole file exists to catch, and it is
@@ -67,14 +79,14 @@ def test_the_trainer_opens_on_a_run_and_shows_its_curves(trainer) -> None:  # no
 
 @needs_torch
 @needs_native
-def test_the_trainer_lists_the_episodes_it_could_play(trainer) -> None:  # noqa: ANN001
+def test_the_trainer_lists_the_episodes_it_could_play(trainer: Trainer) -> None:
     trainer._tick()
     assert trainer._list.count() > 0
 
 
 @needs_torch
 @needs_native
-def test_the_trainer_describes_the_model_that_was_trained(trainer) -> None:  # noqa: ANN001
+def test_the_trainer_describes_the_model_that_was_trained(trainer: Trainer) -> None:
     trainer._tick()
     # ModelPanel keeps what it last painted; a run with a model.json must have
     # made it paint something other than its empty state.
@@ -547,10 +559,13 @@ def test_a_preset_fills_the_form_and_editing_it_stops_claiming_to_be_one(
         out_dir=tmp_path,
         presets_file=file,
     )
+
     # By name, through the dialog's own lookup: editors are keyed by owner *and*
     # name now, because `gamma` is a field of two config classes and keying by
     # name alone gave them one editor between them.
-    shown = lambda name: _read(dialog._editor_named(name))  # noqa: E731 — used often
+    def shown(name: str) -> str:
+        return _read(present(dialog._editor_named(name), f"an editor named {name!r}"))
+
     try:
         assert dialog._presets.itemText(0) == presets.CUSTOM
         assert [dialog._presets.itemText(i) for i in range(1, 4)] == ["fast", "good", "best"]
@@ -579,7 +594,7 @@ def test_a_preset_fills_the_form_and_editing_it_stops_claiming_to_be_one(
         # Through `_write` rather than a widget-specific setter, because a
         # bounded number is a slider-and-readout now and the point of the test is
         # the preset bookkeeping, not which control the field happens to get.
-        _write(dialog._editor_named("updates"), "37")
+        _write(present(dialog._editor_named("updates"), "the updates editor"), "37")
         assert dialog._presets.currentIndex() == 0
         assert dialog.values()["updates"] == "37"
         assert dialog.values()["envs"] == "4096"
@@ -741,16 +756,16 @@ def test_the_dialog_says_what_a_run_will_cost_the_card_before_it_starts(
     try:
         cramped._presets.setCurrentIndex(cramped._presets.findData("best"))
         assert cramped._memory is not None
-        warning = cramped._memory.text()
+        warning = present(cramped._memory, "the memory label").text()
         assert warning.startswith("⚠")
         assert "run out" in warning
         assert "--minibatches" in warning, "the warning does not name the cheapest fix"
-        assert cramped._memory.property("role") == "warning"
+        assert present(cramped._memory, "the memory label").property("role") == "warning"
 
         # And `fast` fits in the same 8 GiB, so the warning is about the
         # configuration rather than a permanent scold on a small card.
         cramped._presets.setCurrentIndex(cramped._presets.findData("fast"))
-        assert "⚠" not in cramped._memory.text()
+        assert "⚠" not in present(cramped._memory, "the memory label").text()
     finally:
         cramped.close()
 
@@ -794,8 +809,8 @@ def test_the_memory_bar_goes_green_amber_red_with_what_the_run_asks_for(
         dialog._presets.setCurrentIndex(dialog._presets.findData("best"))
         assert bar._level == "tight"
         assert MemoryBar.LEVEL_COLOURS[bar._level] == theme.AMBER
-        assert "most of the card" in dialog._memory.text()
-        assert "⚠" not in dialog._memory.text()
+        assert "most of the card" in present(dialog._memory, "the memory label").text()
+        assert "⚠" not in present(dialog._memory, "the memory label").text()
 
         # The tooltip carries the reading the bar cannot spell out.
         assert "already in use" in bar.toolTip()
@@ -809,7 +824,7 @@ def test_the_memory_bar_goes_green_amber_red_with_what_the_run_asks_for(
         assert cramped._memory_bar is not None
         assert cramped._memory_bar._level == "over"
         assert MemoryBar.LEVEL_COLOURS[cramped._memory_bar._level] == theme.THREAT
-        assert cramped._memory.text().startswith("⚠")
+        assert present(cramped._memory, "the memory label").text().startswith("⚠")
     finally:
         cramped.close()
 
@@ -825,7 +840,7 @@ def test_the_memory_bar_goes_green_amber_red_with_what_the_run_asks_for(
     try:
         assert headless._memory_bar is not None
         assert not headless._memory_bar.isVisibleTo(headless)
-        assert headless._memory.text() == "≈ 2.8 GiB of GPU memory"
+        assert present(headless._memory, "the memory label").text() == "≈ 2.8 GiB of GPU memory"
     finally:
         headless.close()
 
@@ -835,14 +850,16 @@ def test_the_dialog_saves_a_preset_and_refuses_to_overwrite_a_built_in(
 ) -> None:
     from missile_defense.runs import presets  # noqa: PLC0415
     from missile_defense.runs.runner import PACKAGE_PATH  # noqa: PLC0415
-    from missile_defense.ui import forms as forms_module  # noqa: PLC0415
     from missile_defense.ui.forms import ParameterDialog, _write  # noqa: PLC0415
     from missile_defense.ui.params import read_params  # noqa: PLC0415
 
     warned: list[str] = []
+    # By dotted name rather than through `forms_module.QMessageBox`: `forms` only
+    # re-exports the symbol, and under `--strict` reaching it through the module
+    # is an implicit re-export. The string form patches the same attribute on the
+    # same object without naming a Qt type in this file.
     monkeypatch.setattr(
-        forms_module.QMessageBox,
-        "warning",
+        "missile_defense.ui.forms.QMessageBox.warning",
         staticmethod(lambda _parent, _title, text: warned.append(text)),
     )
 
@@ -854,7 +871,7 @@ def test_the_dialog_saves_a_preset_and_refuses_to_overwrite_a_built_in(
         presets_file=file,
     )
     try:
-        _write(dialog._editor_named("envs"), "8192")
+        _write(present(dialog._editor_named("envs"), "the envs editor"), "8192")
         dialog._store("overnight", "the long one")
         # Saved, listed, and selected — the name you just gave it is what the
         # picker should be showing, not "custom".
@@ -1262,7 +1279,7 @@ def test_the_name_lands_in_the_library_when_the_run_starts(
 @needs_torch
 @needs_native
 def test_the_trainer_and_the_training_loop_agree_on_what_a_run_directory_is(
-    trainer,  # noqa: ANN001
+    trainer: Trainer,
     trained_run: Path,
 ) -> None:
     # One directory, two programs, no shared code path — only the file names.
@@ -1281,7 +1298,7 @@ def test_the_trainer_and_the_training_loop_agree_on_what_a_run_directory_is(
 
 @needs_torch
 @needs_native
-def test_the_trainer_shows_what_the_run_was_started_with(trainer) -> None:  # noqa: ANN001
+def test_the_trainer_shows_what_the_run_was_started_with(trainer: Trainer) -> None:
     """`config.json` has been written since there were runs; nothing read it.
 
     The button beside Log is the answer to "what was this one trained with?" —
@@ -1310,7 +1327,10 @@ def test_the_trainer_shows_what_the_run_was_started_with(trainer) -> None:  # no
     # And the control actually shows it, sitting at the run's value and refusing
     # to be moved — a read-only dialog whose editors still worked would invite
     # someone to "fix" a run that has already finished.
-    editor = dialog.parameters._editor_named("envs")  # noqa: SLF001
+    editor = present(
+        dialog.parameters._editor_named("envs"),  # noqa: SLF001
+        "the envs editor",
+    )
     assert _read(editor) == TINY_RUN["--envs"]
     assert not editor.isEnabled()
     dialog.close()
@@ -1378,7 +1398,7 @@ def test_continuing_restates_the_original_run_rather_than_the_defaults(
 
         # Choosing to start over instead is still one click, and the dialog
         # stops calling itself a continuation the moment it is.
-        dialog._resume.setCurrentIndex(0)
+        present(dialog._resume, "the resume picker").setCurrentIndex(0)
         assert "--resume" not in " ".join(dialog.command())
         assert dialog._go.text() == "Start run"
     finally:
@@ -1519,7 +1539,30 @@ def test_an_unexpected_error_is_shown_rather_than_left_on_a_terminal(
 # ---- the control station: sliders, folds, locks and the schedule -------------
 
 
-def _station(tmp_path: Path):  # type: ignore[no-untyped-def]
+def _slider(editor: QWidget | None) -> ValueSlider:
+    """The named editor, as the slider-and-readout every bounded field gets.
+
+    `_editor_named` and `_editors` are typed for the general case — a dict of
+    mixed controls, possibly missing the name — while every field driven below is
+    a bounded number, which is a `ValueSlider`. `set_value` lives only on that
+    class, so asserting it both narrows the type and says which control the test
+    means. The alternative was an AttributeError on QWidget three frames in.
+    """
+    from missile_defense.ui.forms import ValueSlider  # noqa: PLC0415 — optional dependency
+
+    assert isinstance(editor, ValueSlider), f"expected a ValueSlider, got {editor!r}"
+    return editor
+
+
+def _toggle(editor: QWidget | None) -> ToggleSwitch:
+    """The named editor, as the on/off switch a boolean field gets."""
+    from missile_defense.ui.forms import ToggleSwitch  # noqa: PLC0415 — optional dependency
+
+    assert isinstance(editor, ToggleSwitch), f"expected a ToggleSwitch, got {editor!r}"
+    return editor
+
+
+def _station(tmp_path: Path) -> ParameterDialog:
     from missile_defense.runs.runner import PACKAGE_PATH  # noqa: PLC0415
     from missile_defense.ui.forms import ParameterDialog  # noqa: PLC0415
     from missile_defense.ui.params import read_params  # noqa: PLC0415
@@ -1547,7 +1590,7 @@ def test_a_bounded_number_gets_a_slider_that_still_shows_its_own_default(tmp_pat
         assert isinstance(ammo, ValueSlider)
         assert float(ammo.value()) == 5.0
         # And a learning rate keeps its notation rather than becoming 0.000300.
-        rate = dialog._editor_named("learning_rate")  # noqa: SLF001
+        rate = _slider(dialog._editor_named("learning_rate"))  # noqa: SLF001
         assert float(rate.value()) == pytest.approx(3e-4)
         # Untouched, the dialog still passes nothing: a slider that quietly
         # rounded its own default would put every field on the command line.
@@ -1567,7 +1610,7 @@ def test_the_discount_written_once_reaches_both_config_classes(tmp_path: Path) -
     dialog = _station(tmp_path)
     try:
         assert dialog._editors.get(("Shaping", "gamma")) is None  # noqa: SLF001
-        dialog._editors[("PPOConfig", "gamma")].set_value("0.997")  # noqa: SLF001
+        _slider(dialog._editors[("PPOConfig", "gamma")]).set_value("0.997")  # noqa: SLF001
         command = dialog.command()
         assert "--gamma" in command
         assert "--reward-gamma" in command
@@ -1604,13 +1647,16 @@ def test_continuing_a_run_locks_what_the_checkpoint_already_decided(tmp_path: Pa
             editor = dialog._editor_named(name)  # noqa: SLF001
             assert editor is None or editor.isEnabled(), name
 
-        dialog._resume.setCurrentIndex(1)  # noqa: SLF001
+        present(dialog._resume, "the resume picker").setCurrentIndex(1)  # noqa: SLF001
         assert dialog.resume() == saved
         for name in LOCKED_ON_RESUME:
             editor = dialog._editor_named(name)  # noqa: SLF001
             assert editor is None or not editor.isEnabled(), f"{name} is still editable"
         # And the ones a resume genuinely may change stay open.
-        assert dialog._editor_named("learning_rate").isEnabled()  # noqa: SLF001
+        assert present(
+            dialog._editor_named("learning_rate"),  # noqa: SLF001
+            "the learning_rate editor",
+        ).isEnabled()
     finally:
         dialog.close()
 
@@ -1620,10 +1666,10 @@ def test_the_schedule_says_what_the_cadence_actually_produces(tmp_path: Path) ->
     "evaluate every 10" was a number with no consequence attached."""
     dialog = _station(tmp_path)
     try:
-        dialog._editor_named("updates").set_value("2000")  # noqa: SLF001
-        dialog._editor_named("checkpoint_every").set_value("100")  # noqa: SLF001
+        _slider(dialog._editor_named("updates")).set_value("2000")  # noqa: SLF001
+        _slider(dialog._editor_named("checkpoint_every")).set_value("100")  # noqa: SLF001
         dialog._refresh_schedule()  # noqa: SLF001
-        text = dialog._schedule.text()  # noqa: SLF001
+        text = present(dialog._schedule, "the schedule line").text()  # noqa: SLF001
         assert "2,000 updates" in text
         assert "20 checkpoints" in text
     finally:
@@ -1662,19 +1708,19 @@ def test_the_reward_equation_shows_the_weights_that_are_on_screen(tmp_path: Path
     """
     dialog = _station(tmp_path)
     try:
-        shown = dialog._equation.text()  # noqa: SLF001
+        shown = present(dialog._equation, "the equation line").text()  # noqa: SLF001
         assert "φ(s)" in shown
         assert "200 × batteries" in shown  # the defaults, not placeholders
         assert "100 × cities" in shown
         # Off by default, so absent from the equation rather than written as +0.
         assert "wasted shots" not in shown
 
-        dialog._editors[("Shaping", "waste_penalty")].set_value("10")  # noqa: SLF001
+        _slider(dialog._editors[("Shaping", "waste_penalty")]).set_value("10")  # noqa: SLF001
         dialog._refresh_preview()  # noqa: SLF001
-        assert "10 × wasted shots" in dialog._equation.text()  # noqa: SLF001
+        assert "10 × wasted shots" in present(dialog._equation, "the equation line").text()  # noqa: SLF001
         # And the note changes with it: a priced event means this run is no
         # longer comparable with one that left them alone.
-        assert "different things" in dialog._equation_note.text()  # noqa: SLF001
+        assert "different things" in present(dialog._equation_note, "the equation note").text()  # noqa: SLF001
     finally:
         dialog.close()
 
@@ -1686,17 +1732,17 @@ def test_switching_shaping_off_disables_every_term_it_governs(tmp_path: Path) ->
     form claiming they still matter."""
     dialog = _station(tmp_path)
     try:
-        dialog._editor_named("enabled").setChecked(False)  # noqa: SLF001
+        _toggle(dialog._editor_named("enabled")).setChecked(False)  # noqa: SLF001
         dialog._refresh_preview()  # noqa: SLF001
 
         for name in ("city_weight", "ammo_weight", "base_weight", "waste_penalty"):
             assert not dialog._editors[("Shaping", name)].isEnabled(), name  # noqa: SLF001
-        assert not dialog._balance.isEnabled()  # noqa: SLF001
+        assert not present(dialog._balance, "the balance bar").isEnabled()  # noqa: SLF001
         # The equation drops the shaped half rather than showing weights that
         # are not being paid.
-        assert "φ(s)" not in dialog._equation.text().split("\n")[0]  # noqa: SLF001
+        assert "φ(s)" not in present(dialog._equation, "the equation line").text().split("\n")[0]  # noqa: SLF001
 
-        dialog._editor_named("enabled").setChecked(True)  # noqa: SLF001
+        _toggle(dialog._editor_named("enabled")).setChecked(True)  # noqa: SLF001
         dialog._refresh_preview()  # noqa: SLF001
         assert dialog._editors[("Shaping", "city_weight")].isEnabled()  # noqa: SLF001
     finally:
@@ -1709,18 +1755,18 @@ def test_the_balance_bar_reads_as_the_ratio_rather_than_the_numbers(tmp_path: Pa
     dialog = _station(tmp_path)
     try:
         # 200 : 100 : 5 — batteries priced above cities on purpose.
-        assert dialog._balance.toolTip().startswith("batteries 66%")  # noqa: SLF001
+        assert present(dialog._balance, "the balance bar").toolTip().startswith("batteries 66%")  # noqa: SLF001
 
-        dialog._editors[("Shaping", "city_weight")].set_value("400")  # noqa: SLF001
+        _slider(dialog._editors[("Shaping", "city_weight")]).set_value("400")  # noqa: SLF001
         dialog._refresh_preview()  # noqa: SLF001
-        assert "cities 66%" in dialog._balance.toolTip()  # noqa: SLF001
+        assert "cities 66%" in present(dialog._balance, "the balance bar").toolTip()  # noqa: SLF001
 
         # Every weight zero is a real state, and it says so rather than dividing
         # by zero or drawing an empty bar with no explanation.
         for name in ("base_weight", "city_weight", "ammo_weight"):
-            dialog._editors[("Shaping", name)].set_value("0")  # noqa: SLF001
+            _slider(dialog._editors[("Shaping", name)]).set_value("0")  # noqa: SLF001
         dialog._refresh_preview()  # noqa: SLF001
-        assert "zero" in dialog._balance.toolTip()  # noqa: SLF001
+        assert "zero" in present(dialog._balance, "the balance bar").toolTip()  # noqa: SLF001
     finally:
         dialog.close()
 
@@ -1776,13 +1822,19 @@ def test_the_ramp_is_a_tick_rather_than_a_second_number(tmp_path: Path) -> None:
             assert tick.isChecked(), f"{name} ramps by default, as the trainer does"
 
             tick.setChecked(False)
-            assert int(_read(dialog._editor_named(partner))) == cadence.NO_RAMP  # noqa: SLF001
+            assert (
+                int(_read(present(dialog._editor_named(partner), "the paired editor")))
+                == cadence.NO_RAMP
+            )  # noqa: SLF001
             assert f"--{partner.replace('_', '-')}" in dialog.command()
 
             # Back on, and the flag disappears again: the trainer's own default
             # is not something the command line should restate.
             tick.setChecked(True)
-            assert int(_read(dialog._editor_named(partner))) > cadence.NO_RAMP  # noqa: SLF001
+            assert (
+                int(_read(present(dialog._editor_named(partner), "the paired editor")))
+                > cadence.NO_RAMP
+            )  # noqa: SLF001
             assert f"--{partner.replace('_', '-')}" not in dialog.command()
     finally:
         dialog.close()

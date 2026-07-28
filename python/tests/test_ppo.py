@@ -17,11 +17,20 @@ gate here and execute on Linux/CI and on the native Windows interpreter.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 
-torch = pytest.importorskip("torch", reason="torch is optional; see docs/TRAINING.md")
+if TYPE_CHECKING:
+    # The real module, so `torch.Tensor` is a type below rather than an
+    # attribute of whatever `importorskip` returned.
+    import torch
+else:
+    torch = pytest.importorskip("torch", reason="torch is optional; see docs/TRAINING.md")
 
 from missile_defense.training import ppo as ppo_module  # noqa: E402
+from missile_defense.training.auxiliary import AuxiliaryTargets  # noqa: E402
+from missile_defense.training.auxiliary import targets as auxiliary_targets  # noqa: E402
 from missile_defense.training.ppo import (  # noqa: E402
     MASKED_LOGIT,
     EntityPolicy,
@@ -190,7 +199,7 @@ def test_auxiliary_predictions_reuse_per_threat_features_and_mask_padding(
 
     assert predictions.shape == (2, THREATS, 3)
     assert torch.count_nonzero(predictions[:, 1:]) == 0
-    predictions[:, 0].sum().backward()
+    predictions[:, 0].sum().backward()  # type: ignore[no-untyped-call]
     assert policy.auxiliary_head.weight.grad is not None
     assert policy.relation[0].weight.grad is not None
     assert all(parameter.grad is None for parameter in policy.critic_trunk.parameters())
@@ -234,20 +243,24 @@ def test_ppo_update_trains_the_auxiliary_head(
         logits, values = policy(rollout.obs[0], rollout.masks[0])
         distribution = torch.distributions.Categorical(logits=logits)
         rollout.actions[0] = torch.tensor([0, 1])
-        rollout.log_probs[0] = distribution.log_prob(rollout.actions[0])
+        rollout.log_probs[0] = distribution.log_prob(  # type: ignore[no-untyped-call]
+            rollout.actions[0]
+        )
         rollout.values[0] = values
 
     before = policy.auxiliary_head.weight.detach().clone()
     optimizer = torch.optim.Adam(policy.parameters(), lr=1.0e-3)
     calls: list[str] = []
-    original_targets = ppo_module.auxiliary_targets
+    original_targets = auxiliary_targets
     original_forward = EntityPolicy.forward_with_auxiliary
 
-    def tracked_targets(obs, layout):  # noqa: ANN001, ANN202 - mirrors torch helper
+    def tracked_targets(obs: torch.Tensor, layout: ObsLayout) -> AuxiliaryTargets:
         calls.append("targets")
         return original_targets(obs, layout)
 
-    def tracked_forward(self, obs, mask):  # noqa: ANN001, ANN202 - mirrors module method
+    def tracked_forward(
+        self: EntityPolicy, obs: torch.Tensor, mask: torch.Tensor
+    ) -> tuple[torch.Tensor, ...]:
         calls.append("forward")
         return original_forward(self, obs, mask)
 

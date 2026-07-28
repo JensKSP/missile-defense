@@ -10,7 +10,6 @@ import json
 import subprocess
 from pathlib import Path
 
-import missile_defense.training.multiseed as multiseed
 import pytest
 from missile_defense.sim.benchmark import VALIDATION_SPLIT
 from missile_defense.training.multiseed import (
@@ -189,7 +188,7 @@ def test_runner_launches_distinct_fresh_runs_and_aggregates_them(
         _eval(run_dir, score=50_000 + seed, update=100)
         return subprocess.CompletedProcess(command, 0)
 
-    monkeypatch.setattr(multiseed.subprocess, "run", fake_run)
+    monkeypatch.setattr(subprocess, "run", fake_run)
 
     status = run_experiment(
         experiment,

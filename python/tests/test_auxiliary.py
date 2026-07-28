@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Jens Köhler
 # Assisted-by: OpenAI Codex
+from typing import TYPE_CHECKING
+
 import pytest
 
 # torch is optional — the trainer and the environment do not need it, and the
@@ -8,7 +10,13 @@ import pytest
 # `test_train_eval.py` already guard: a bare `import torch` here took the whole
 # collection down, so *every* Python test failed in CI over one missing optional
 # dependency, and the error named this file rather than the policy behind it.
-torch = pytest.importorskip("torch", reason="torch is optional; see docs/TRAINING.md")
+if TYPE_CHECKING:
+    # The real module, so `torch.Tensor` below is a type rather than an
+    # attribute of a variable. `importorskip` returns a value, and mypy cannot
+    # spell an annotation out of one.
+    import torch
+else:
+    torch = pytest.importorskip("torch", reason="torch is optional; see docs/TRAINING.md")
 
 from missile_defense.training.auxiliary import targets  # noqa: E402 — after the skip, by design
 from missile_defense.training.ppo import ObsLayout  # noqa: E402

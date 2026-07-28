@@ -272,7 +272,9 @@ def truncate_payload(raw: bytes) -> bytes:
 
 def duplicate_tensor(raw: bytes) -> bytes:
     manifest, payload = _split(raw)
-    tensors = list(manifest["tensors"])  # type: ignore[arg-type]
+    raw_tensors = manifest["tensors"]
+    assert isinstance(raw_tensors, list)
+    tensors = list(raw_tensors)
     tensors[1] = {**tensors[1], "name": tensors[0]["name"]}
     manifest["tensors"] = tensors
     return _rebuild(manifest, payload)
@@ -301,7 +303,9 @@ def non_finite_weight(raw: bytes) -> bytes:
 def offset_out_of_bounds(raw: bytes) -> bytes:
     """The one that would be a buffer overrun in the C++ reader."""
     manifest, payload = _split(raw)
-    tensors = list(manifest["tensors"])  # type: ignore[arg-type]
+    raw_tensors = manifest["tensors"]
+    assert isinstance(raw_tensors, list)
+    tensors = list(raw_tensors)
     tensors[-1] = {**tensors[-1], "offset": len(payload) + 1024}
     manifest["tensors"] = tensors
     return _rebuild(manifest, payload)
@@ -314,7 +318,9 @@ def bad_magic(raw: bytes) -> bytes:
 def missing_tensor(raw: bytes) -> bytes:
     """An MLP without its value head is not an MLP."""
     manifest, payload = _split(raw)
-    manifest["tensors"] = list(manifest["tensors"])[:-1]  # type: ignore[arg-type]
+    raw_tensors = manifest["tensors"]
+    assert isinstance(raw_tensors, list)
+    manifest["tensors"] = list(raw_tensors)[:-1]
     return _rebuild(manifest, payload)
 
 

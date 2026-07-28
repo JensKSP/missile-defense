@@ -10,11 +10,12 @@ neither needs a window to check.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import re
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from unittest import mock
 
@@ -87,7 +88,10 @@ class FakeSpawn:
         self.calls: list[tuple[list[str], Path, dict[str, str]]] = []
         self.processes: list[FakeProcess] = []
 
-    def __call__(self, command: list[str], cwd: Path, env: dict[str, str]) -> FakeProcess:
+    # `Mapping`, not `dict`, because that is what `runner.Spawn` declares and a
+    # callback's parameters are contravariant: one that insists on `dict` is not
+    # substitutable for one promising to accept any `Mapping`.
+    def __call__(self, command: list[str], cwd: Path, env: Mapping[str, str]) -> FakeProcess:
         self.calls.append((command, cwd, dict(env)))
         process = FakeProcess()
         self.processes.append(process)
@@ -390,7 +394,7 @@ def test_a_machine_with_no_runtime_and_no_torch_cannot_train(tmp_path: Path) -> 
     # The packaged trainer before setup: no managed runtime, and torch is not
     # importable from the interpreter it is running in either.
     store = _empty_store(tmp_path)
-    with mock.patch.object(runner.importlib.util, "find_spec", return_value=None):
+    with mock.patch.object(importlib.util, "find_spec", return_value=None):
         assert not can_train({}, store=store)
         assert find_interpreter({}, store=store) is None
 
@@ -401,7 +405,7 @@ def test_browsing_and_replay_do_not_depend_on_being_able_to_train(tmp_path: Path
     root = tmp_path / "checkout"
     binary = _build_app(root)
     launcher = ReplayLauncher(root=root, environ={}, spawn=(spawn := FakeSpawn()))
-    with mock.patch.object(runner.importlib.util, "find_spec", return_value=None):
+    with mock.patch.object(importlib.util, "find_spec", return_value=None):
         assert not can_train({}, store=_empty_store(tmp_path))
         launcher.launch(tmp_path / "episode.mdr")
     assert spawn.calls[0][0][0] == str(binary)

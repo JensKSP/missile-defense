@@ -19,16 +19,25 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
+from missile_defense.sim import benchmark
 
 from .harness import agent_eval_binary, needs_agent_eval, needs_native, needs_qt, needs_torch
+
+# Only for the annotations below, which `from __future__ import annotations` keeps
+# as strings: naming these types costs nothing at run time and the import never
+# happens on a machine without the optional dependency that provides them.
+if TYPE_CHECKING:
+    from missile_defense.runs.league import Model
+    from missile_defense.ui.league import PromoteDialog
 
 pytestmark = [pytest.mark.e2e, needs_torch, needs_native]
 
 
 @pytest.fixture
-def promoted(trained_run: Path, tmp_path: Path):  # noqa: ANN201 — missile_defense.runs.league.Model
+def promoted(trained_run: Path, tmp_path: Path) -> Model:
     """A real run, promoted the way the trainer promotes one."""
     from missile_defense.runs import league, library  # noqa: PLC0415 — optional dependency
 
@@ -51,7 +60,7 @@ def promoted(trained_run: Path, tmp_path: Path):  # noqa: ANN201 — missile_def
 
 
 @needs_agent_eval
-def test_a_promoted_model_is_one_the_native_evaluator_can_play(promoted) -> None:  # noqa: ANN001
+def test_a_promoted_model_is_one_the_native_evaluator_can_play(promoted: Model) -> None:
     """The claim. A file only Python can read would pass `test_league.py` and
     fail here, which is exactly the gap this test exists to close."""
     binary = agent_eval_binary()
@@ -79,7 +88,7 @@ def test_a_promoted_model_is_one_the_native_evaluator_can_play(promoted) -> None
     assert promoted.display_name.split()[0] in result.stdout
 
 
-def test_promotion_carries_the_name_into_the_file(promoted) -> None:  # noqa: ANN001
+def test_promotion_carries_the_name_into_the_file(promoted: Model) -> None:
     """Where the game's HUD reads it from, and the league's table too."""
     from missile_defense.sim import policy_format  # noqa: PLC0415 — optional dependency
 
@@ -152,9 +161,11 @@ def test_a_run_can_be_promoted_from_the_run_list(
     monkeypatch.setenv("MD_MODELS_DIR", str(root))
     monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a, **k: None))
 
-    def straight_to_ok(dialog: object) -> int:
+    def straight_to_ok(dialog: PromoteDialog) -> int:
         dialog._promote()  # noqa: SLF001 — standing in for the button press
-        return (
+        # `int(...)` explicitly: `DialogCode` is an IntEnum, and where PySide6 is
+        # absent — CI — the whole expression is Any, which `-> int` will not take.
+        return int(
             QDialog.DialogCode.Accepted
             if dialog.promoted is not None
             else QDialog.DialogCode.Rejected
@@ -185,7 +196,7 @@ def test_a_run_can_be_promoted_from_the_run_list(
 
 @needs_agent_eval
 def test_a_league_score_is_the_number_the_published_evaluator_prints(
-    promoted,  # noqa: ANN001
+    promoted: Model,
 ) -> None:
     """The league's number and `md_agent_eval`'s are the same number.
 
@@ -230,7 +241,7 @@ def test_a_league_score_is_the_number_the_published_evaluator_prints(
     assert int(row.split()[4]) == episode.ticks
 
 
-def test_evaluating_a_model_counts_the_seeds_it_has_finished(promoted) -> None:  # noqa: ANN001
+def test_evaluating_a_model_counts_the_seeds_it_has_finished(promoted: Model) -> None:
     """A progress bar with a number in it, which is what makes a contest waitable.
 
     The old callback passed a hardcoded zero — every report said "0 of 32 seeds"
@@ -241,8 +252,8 @@ def test_evaluating_a_model_counts_the_seeds_it_has_finished(promoted) -> None: 
     from missile_defense.runs import tournament  # noqa: PLC0415 — optional dependency
 
     protocol = tournament.Protocol(
-        seed_split=tournament.benchmark.CANONICAL_SPLIT,
-        seed_offset=tournament.benchmark.CANONICAL_SEED_OFFSET,
+        seed_split=benchmark.CANONICAL_SPLIT,
+        seed_offset=benchmark.CANONICAL_SEED_OFFSET,
         seed_count=2,
         frame_skip=4,
         max_ticks=600,

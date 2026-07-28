@@ -20,16 +20,25 @@ from __future__ import annotations
 import csv
 import shutil
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from .harness import needs_native, needs_qt, needs_torch
 
+# Only for the annotations below, which `from __future__ import annotations` keeps
+# as strings: naming these types costs nothing at run time and the import never
+# happens on a machine without the optional dependency that provides them.
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+    from missile_defense.ui.analysis import AnalysisView
+
 pytestmark = [pytest.mark.e2e, needs_qt]
 
 
 @pytest.fixture
-def analysis(qt_app: object, trained_run: Path):  # noqa: ANN201 — PySide6 is optional
+def analysis(qt_app: object, trained_run: Path) -> Iterator[AnalysisView]:
     """A real trainer window, opened on a real run, showing the statistics."""
     from missile_defense.ui.app import Trainer  # noqa: PLC0415 — optional dependency
 
@@ -42,7 +51,7 @@ def analysis(qt_app: object, trained_run: Path):  # noqa: ANN201 — PySide6 is 
 
 @needs_torch
 @needs_native
-def test_the_statistics_screen_fills_from_a_real_run(analysis) -> None:  # noqa: ANN001
+def test_the_statistics_screen_fills_from_a_real_run(analysis: AnalysisView) -> None:
     """The join, asserted: the trainer's columns reach the trainer's tiles.
 
     `_body` is visible only when more than the score came through, so this fails
@@ -66,7 +75,7 @@ def test_the_statistics_screen_fills_from_a_real_run(analysis) -> None:  # noqa:
 
 @needs_torch
 @needs_native
-def test_the_kills_per_shot_distribution_is_populated(analysis) -> None:  # noqa: ANN001
+def test_the_kills_per_shot_distribution_is_populated(analysis: AnalysisView) -> None:
     """Five bars with a real total under them, not the empty state.
 
     The histogram is the one piece of new *core* instrumentation behind this
@@ -84,7 +93,7 @@ def test_the_kills_per_shot_distribution_is_populated(analysis) -> None:  # noqa
 
 @needs_torch
 @needs_native
-def test_the_cause_curves_are_populated(analysis) -> None:  # noqa: ANN001
+def test_the_cause_curves_are_populated(analysis: AnalysisView) -> None:
     from missile_defense.ui import stats  # noqa: PLC0415 — optional dependency
 
     for curve in stats.CURVES:

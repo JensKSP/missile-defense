@@ -297,7 +297,11 @@ select = ["E", "F", "I", "UP", "B"]
 # ---- mypy (strict static typing) --------------------------------------------
 [tool.mypy]
 python_version = "3.11"
-files = ["python/missile_defense", "tools"]
+# The tests are in here too, and were not until a release nearly shipped on a
+# harness that reported the wrong number. `python/tests` had never been type
+# checked, so the scaffolding every other check depends on was the one thing
+# nothing checked — 106 errors had accumulated where no one could see them.
+files = ["python/missile_defense", "python/tests", "tools"]
 strict = true
 # So `tools/` resolves `missile_defense` to the sources checked right above it rather
 # than to whatever copy is installed in the venv. The installed one ships no
@@ -373,7 +377,7 @@ ignore_errors = true
 
 # ---- pyright (strict static typing) -----------------------------------------
 [tool.pyright]
-include = ["python/missile_defense", "tools"]
+include = ["python/missile_defense", "python/tests", "tools"]
 # `missile_defense` lives under python/, which is a source root for the package itself but
 # not something pyright infers when checking a script in tools/ that imports it.
 extraPaths = ["python"]
@@ -409,6 +413,39 @@ ignore = [
 ]
 pythonVersion = "3.11"
 typeCheckingMode = "strict"
+
+# The tests are checked too, but not for reaching into privates. Driving the
+# window means calling `_tick()` and reading `_table`: that is the whole point of
+# `test_trainer.py`, ruff's equivalent rule (SLF001) is already suppressed at
+# those call sites by hand, and pyright counted 406 of them. Every other strict
+# rule still applies here — this turns off one, deliberately, rather than turning
+# the directory off.
+#
+# `extraPaths` is repeated per environment on purpose: declaring any execution
+# environment stops the top-level one applying, and without it `missile_defense`
+# stops resolving — which shows up as 14 missing-import errors rather than as
+# anything about paths.
+[[tool.pyright.executionEnvironments]]
+root = "python/tests"
+extraPaths = ["python", "."]
+reportPrivateUsage = false
+# The "this expression is Unknown" family, off here and nowhere else. In tests it
+# fires on what tests are made of — a pytest fixture's value, a torch or numpy
+# member, the parameter of a one-line lambda — and reported 162 of those against
+# zero real defects. The rules that find actual mistakes (optional access,
+# attribute and argument errors, unbound names) all stay on below.
+reportUnknownVariableType = false
+reportUnknownMemberType = false
+reportUnknownArgumentType = false
+reportUnknownLambdaType = false
+reportUnknownParameterType = false
+# pytest resolves fixtures by name and by `autouse`; neither is a call a
+# checker can see, so every fixture reads as dead code.
+reportUnusedFunction = false
+
+[[tool.pyright.executionEnvironments]]
+root = "."
+extraPaths = ["python"]
 
 # ---- pytest ------------------------------------------------------------------
 [tool.pytest.ini_options]

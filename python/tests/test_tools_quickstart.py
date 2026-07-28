@@ -18,6 +18,7 @@ from __future__ import annotations
 import pytest
 
 from tools import quickstart
+from tools._util import PROJECT_ROOT
 from tools.quickstart import GAME_COMMAND, GAME_PATH, extract, rewrite
 
 MARKDOWN = """\
@@ -104,7 +105,7 @@ def test_a_piped_sudo_goes_away_too() -> None:
 
 
 def test_the_real_readme_still_has_a_quick_start_this_can_run() -> None:
-    readme = (quickstart.PROJECT_ROOT / quickstart.README).read_text(encoding="utf-8")
+    readme = (PROJECT_ROOT / quickstart.README).read_text(encoding="utf-8")
     lines = extract(readme)
     assert any(line.strip().startswith("git clone") for line in lines)
     # `in`, not `startswith`: the real line may carry a `CXX=…` prefix.

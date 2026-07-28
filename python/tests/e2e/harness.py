@@ -35,8 +35,25 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TypeVar
 
 import pytest
+
+_T = TypeVar("_T")
+
+
+def present(value: _T | None, what: str) -> _T:
+    """``value``, having asserted that it is there.
+
+    Qt attributes built after ``__init__`` are typed ``X | None``, and a test that
+    pokes one already knows it exists by the time it looks. Narrowing through this
+    rather than at each call site keeps the failure legible: "the memory label is
+    not there" names the thing, where the alternative is an ``AttributeError`` on
+    ``NoneType`` raised three frames inside Qt.
+    """
+    assert value is not None, f"{what} is not there"
+    return value
+
 
 #: <root>/python/tests/e2e/harness.py
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -92,6 +109,27 @@ VISIBLE_ENV = "MD_E2E_VISIBLE"
 #: what lets a Vulkan swapchain exist without a window appearing on anyone's
 #: desktop. `-a` picks a free display number, so parallel runs do not collide.
 XVFB = ("xvfb-run", "-a", "--server-args=-screen 0 1280x720x24")
+
+#: Where the shim below writes the game's real exit status.
+STATUS_ENV = "MD_E2E_EXIT_STATUS"
+
+#: Runs the game, records what *it* returned, then returns it again.
+#:
+#: `xvfb-run` does not simply pass its command's exit status through. If its own
+#: temp-directory cleanup fails it prints "problem while cleaning up temporary
+#: directory" and exits 5, discarding whatever the game returned — so a test
+#: asserting on an exit code was asserting on the wrapper's, and a cleanup race
+#: on a loaded runner turned a correct refusal (exit 2) into a failed test.
+#:
+#: The masking is the dangerous half rather than the flake: it can hide a real
+#: non-zero exit just as easily as it invented this one, and `exit "$status"`
+#: keeps the normal path byte-identical to what it was before.
+STATUS_SHIM = f'"$@"; status=$?; printf %s "$status" > "${STATUS_ENV}"; exit "$status"'
+
+#: Absolute, for the reason `_display_wrapper` resolves `xvfb-run` absolutely:
+#: the packaging tests run the staged game on a deliberately minimal `PATH`, and
+#: a bare `sh` would vanish from it along with everything else in /usr/bin.
+SH = shutil.which("sh")
 
 
 def wants_visible() -> bool:
@@ -213,34 +251,53 @@ class AppRun:
         """
         return self.stdout + "\n" + self.stderr
 
+    def _number(self, key: str) -> int:
+        """One numeric field of the report, or 0 where the game reported none.
+
+        `report` is `dict[str, object]` because it is parsed JSON and nothing
+        constrains what the game puts in it. Narrowing in one place rather than
+        at each of the six call sites below is what lets those stay one-liners —
+        and a field that is *present* but not a number is a bug in the report
+        worth an assertion, not something to quietly turn into a default.
+        """
+        value = self.report.get(key)
+        if value is None:
+            return 0
+        assert isinstance(value, (int, float)), f"report[{key!r}] is {value!r}, not a number"
+        return int(value)
+
+    def _text(self, key: str) -> str:
+        value = self.report.get(key)
+        return "" if value is None else str(value)
+
     @property
     def models(self) -> int:
         """How many installed models the game says it can actually run."""
-        return int(self.report.get("models", 0))
+        return self._number("models")
 
     @property
     def mode(self) -> str:
-        return str(self.report.get("mode", ""))
+        return self._text("mode")
 
     @property
     def state(self) -> str:
-        return str(self.report.get("state", ""))
+        return self._text("state")
 
     @property
     def ticks(self) -> int:
-        return int(self.report.get("ticks", 0))
+        return self._number("ticks")
 
     @property
     def score(self) -> int:
-        return int(self.report.get("score", 0))
+        return self._number("score")
 
     @property
     def frames(self) -> int:
-        return int(self.report.get("frames", 0))
+        return self._number("frames")
 
     @property
     def cities_left(self) -> int:
-        return int(self.report.get("cities_left", 0))
+        return self._number("cities_left")
 
     @property
     def menu(self) -> list[str]:
@@ -251,7 +308,9 @@ class AppRun:
         was found — so it is how a packaging test tells the game-only product
         from the full one without a screenshot and a pair of eyes.
         """
-        return [str(label) for label in self.report.get("menu", [])]
+        labels = self.report.get("menu", [])
+        assert isinstance(labels, list), f"report['menu'] is {labels!r}, not a list"
+        return [str(label) for label in labels]
 
 
 def app_environ(sandbox: Path) -> dict[str, str]:
@@ -287,6 +346,23 @@ def app_environ(sandbox: Path) -> dict[str, str]:
     return env
 
 
+def _exit_status(returncode: int, status_path: Path | None) -> int:
+    """What the *game* returned, preferring the shim's record over the wrapper's.
+
+    Falls back to ``returncode`` whenever the shim left nothing readable, which
+    is the honest answer for the cases where the game never got to run at all:
+    `xvfb-run` failing to start a server, or the shell being killed. Those have
+    no game exit status to report, and inventing one would hide them.
+    """
+    if status_path is None:
+        return returncode
+    try:
+        recorded = status_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return returncode
+    return int(recorded) if recorded.isdigit() else returncode
+
+
 def run_app(
     *args: str,
     sandbox: Path,
@@ -319,18 +395,32 @@ def run_app(
     wrapper = _display_wrapper()
     assert wrapper is not None, "no way to render this invisibly"
 
-    command = [*wrapper, str(chosen), *args, "--frames", str(frames), "--silent"]
+    inner = [str(chosen), *args, "--frames", str(frames), "--silent"]
     if until_done:
-        command.append("--until-done")
+        inner.append("--until-done")
     if expect_report:
-        command.append("--report")
+        inner.append("--report")
+
+    env = app_environ(sandbox) if environ is None else dict(environ)
+
+    # Only under the wrapper, and only if there is a shell to do it with: without
+    # `xvfb-run` in front there is nothing between the game and `returncode` to
+    # lose it. See STATUS_SHIM for what is being defended against.
+    status_path: Path | None = None
+    if wrapper and SH is not None:
+        status_path = sandbox / ".app-exit-status"
+        status_path.unlink(missing_ok=True)
+        env[STATUS_ENV] = str(status_path)
+        command = [*wrapper, SH, "-c", STATUS_SHIM, "sh", *inner]
+    else:
+        command = [*wrapper, *inner]
 
     result = subprocess.run(
         command,
         capture_output=True,
         text=True,
         timeout=timeout,
-        env=app_environ(sandbox) if environ is None else dict(environ),
+        env=env,
         check=False,
     )
     report: dict[str, object] = {}
@@ -338,7 +428,7 @@ def run_app(
         if line.startswith("{"):
             report = json.loads(line)
             break
-    run = AppRun(result.returncode, report, result.stdout, result.stderr)
+    run = AppRun(_exit_status(result.returncode, status_path), report, result.stdout, result.stderr)
     if expect_report:
         assert report, f"no --report line on stdout:\n{result.stdout}\n{result.stderr}"
     return run
