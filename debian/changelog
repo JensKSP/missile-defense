@@ -1,4 +1,4 @@
-missile-defense (0.9.1-1) UNRELEASED; urgency=medium
+missile-defense (0.9.1-1) unstable; urgency=medium
 
   * Windows installer: the Start-menu shortcut pointed at
     bin\missile-defense.exe, one directory below where the game actually
@@ -37,7 +37,7 @@ missile-defense (0.9.1-1) UNRELEASED; urgency=medium
     ran, a decision the WATCH AI submenu has since taken over by naming
     all three rungs itself; the row set something nothing read.
 
- -- Jens Köhler <jens@koehler-speyer.de>  Wed, 29 Jul 2026 00:30:14 +0200
+ -- Jens Köhler <jens@koehler-speyer.de>  Wed, 29 Jul 2026 01:29:03 +0200
 
 missile-defense (0.9.0-1) unstable; urgency=medium
 
