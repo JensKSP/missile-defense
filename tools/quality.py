@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import sys
 
@@ -31,6 +32,44 @@ def tidy() -> None:
         exts=("cpp",),
         exclude=("/tests/", "miniaudio_impl", "module"),
     )
+
+    # One clang-tidy process analysed all eighteen translation units in series —
+    # 141 seconds on a 32-core machine, and the single largest thing in `poe
+    # check` by a wide margin. clang-tidy has no parallelism of its own; the
+    # answer is `run-clang-tidy`, which ships with LLVM and forks one process per
+    # file over the same compile database. Measured here: 141s -> 18s, and the
+    # remainder is one file (`app/game_window.cpp` alone takes 17.7s), so more
+    # cores buy nothing beyond this.
+    #
+    # It is also the step that never gets cheaper on its own: nothing about it is
+    # incremental, so every gate run re-analyses all eighteen files even when the
+    # change was to a Python module.
+    #
+    # Optional rather than required, because it is a *speed* choice and the gate
+    # must not stop working on a machine that ships clang-tidy without it. The
+    # serial call below stays as the fallback, and the two are equivalent in what
+    # they accept and reject — `test_quality.py` holds them to that.
+    jobs = os.cpu_count() or 1
+    parallel = _util.tool_optional("run-clang-tidy-21", "run-clang-tidy")
+    if parallel is not None:
+        # `-clang-tidy-binary` is spelled out rather than left to the default
+        # search: `run-clang-tidy` looks for a bare `clang-tidy`, which on a
+        # machine that only has the versioned name is a different tool or none.
+        _util.run(
+            [
+                parallel,
+                "-p",
+                "build/debug",
+                "-clang-tidy-binary",
+                clang_tidy,
+                "-quiet",
+                "-warnings-as-errors=*",
+                "-j",
+                str(jobs),
+                *files,
+            ]
+        )
+        return
     _util.run([clang_tidy, "-p", "build/debug", "--warnings-as-errors=*", *files])
 
 

@@ -227,10 +227,15 @@ pyright    = { cmd = "pyright", help = "pyright strict" }
 typecheck  = { sequence = ["mypy", "pyright"], help = "Static type-check (mypy + pyright, strict)" }
 
 # --- Aggregate gates ---
-check = { sequence = [
+# The same eleven stages the sequence used to run, but concurrently and each into
+# its own log — see tools/gate.py for why that is a module rather than a longer
+# list here. The stage list lives there; the tasks it names live here, so each is
+# still defined exactly once and `poe tidy` on its own keeps working.
+check = { cmd = "python -m tools.gate", help = "Full local CI gate — Debug + Release, tests, coverage ≥80%, zero warnings" }
+check-serial = { sequence = [
   "format-check", "fmt-py-chk", "lint", "typecheck",
   "tidy", "protocol-check", "vulkan-shaders", "test", "test-release", "pytest", "coverage",
-], help = "Full local CI gate — Debug + Release, tests, coverage ≥80%, zero warnings" }
+], help = "The gate one stage at a time — for bisecting a failure the parallel run interleaves" }
 
 # The gate plus the application end-to-end suite. Separate from `check` because
 # it is minutes rather than seconds and because the game half needs a virtual X
