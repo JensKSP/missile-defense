@@ -210,7 +210,7 @@ def test_paths_resolve_with_no_checkout_anywhere_above(installed: Path, tmp_path
     elsewhere.mkdir()
     result = _python(
         installed,
-        "import json\nfrom md import paths\n"
+        "import json\nfrom missile_defense.runs import paths\n"
         "print(json.dumps({'runs': str(paths.runs_dir()), 'models': str(paths.models_dir())}))\n",
         cwd=elsewhere,
     )

@@ -262,6 +262,15 @@ def test_each_package_installs_a_disjoint_set_of_paths() -> None:
     trainer = " ".join(manifests["missile-defense-trainer"])
     assert "missile-defense-trainer" in trainer
     assert "dist-packages/missile_defense" in trainer
+    # Every file an install() rule produces has to be claimed by exactly one
+    # package: dh_install fails the build on anything left over, and it is right
+    # to — an unclaimed file is one that silently does not ship. This one was
+    # added to the game's install rules and to no manifest, and the whole Debian
+    # matrix went red on it.
+    game = " ".join(manifests["missile-defense"])
+    assert "HOW-TO-TRAIN.html" in game, (
+        "the game installs the instructions page but no package claims it"
+    )
     assert "missile-defense-trainer.desktop" in trainer
 
 

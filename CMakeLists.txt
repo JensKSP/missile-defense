@@ -57,38 +57,6 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# ---- Minimum compiler --------------------------------------------------------
-# Every supported compiler is welcome; each has a floor, and the floor is the
-# same idea in three dialects — the newest complete C++ standard this tree is
-# written in is C++23, and the library half of it (the <print> that agent/ and
-# bench/ use) arrives with the standard library, not the front end.
-#
-#   GCC 14      the default on Debian 13 and Ubuntu 26.04. libstdc++ 13 has no
-#               <print>, which is what makes 14 rather than 13 the number.
-#   Clang 19    the newest in Debian 13's `main`, so a development machine needs
-#               no backport and no third-party apt repository to get one.
-#   AppleClang  numbered on Xcode's own scale, so it is not compared against
-#               either of the above; docs/MACOS.md carries its requirement.
-#   MSVC        docs/WINDOWS.md carries its requirement.
-#
-# Refused here, with a sentence, rather than eight screens into a template error.
-# NOT MSVC excludes the MSVC-frontend clang-cl, which versions itself on LLVM's
-# scale but is Windows' business.
-if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
-   AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 14)
-  message(FATAL_ERROR
-    "GCC ${CMAKE_CXX_COMPILER_VERSION} is older than this project's minimum, "
-    "GCC 14 — earlier libstdc++ has no C++23 <print>, which the command-line "
-    "tools use. Ubuntu 24.04 ships g++-14 alongside its default g++-13: install "
-    "it and configure with CXX=g++-14.")
-elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND NOT MSVC
-       AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 19)
-  message(FATAL_ERROR
-    "Clang ${CMAKE_CXX_COMPILER_VERSION} is older than this project's minimum, "
-    "Clang 19 — the `clang` package on Debian 13. Install a newer one and point "
-    "CXX / -DCMAKE_CXX_COMPILER at it.")
-endif()
-
 # Always emit compile_commands.json (clangd / clang-tidy consume it).
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -136,6 +104,46 @@ option(MD_BUILD_BINDINGS "Build the nanobind Python extension (needs Python + na
 # is g++-13, with no <print>. The wheel ships only _md_native, so it has no
 # reason to build them and every reason not to.
 option(MD_BUILD_TOOLS "Build the headless CLI tools (md_agent_eval, md_bench)" ON)
+# ---- Minimum compiler --------------------------------------------------------
+# Every supported compiler is welcome; each has a floor, and the floor is the
+# same idea in three dialects — the newest complete C++ standard this tree is
+# written in is C++23, and the library half of it (the <print> that agent/ and
+# bench/ use) arrives with the standard library, not the front end.
+#
+#   GCC 14      the default on Debian 13 and Ubuntu 26.04. libstdc++ 13 has no
+#               <print>, which is what makes 14 rather than 13 the number.
+#   Clang 19    the newest in Debian 13's `main`, so a development machine needs
+#               no backport and no third-party apt repository to get one.
+#   AppleClang  numbered on Xcode's own scale, so it is not compared against
+#               either of the above; docs/MACOS.md carries its requirement.
+#   MSVC        docs/WINDOWS.md carries its requirement.
+#
+# Refused here, with a sentence, rather than eight screens into a template error.
+# NOT MSVC excludes the MSVC-frontend clang-cl, which versions itself on LLVM's
+# scale but is Windows' business.
+# **Only when something that uses it is being built.** `<print>` lives in
+# agent/, bench/ and app/, so a build with all three off — which is exactly what
+# a wheel is (pyproject.toml turns MD_BUILD_APP, MD_BUILD_TOOLS and BUILD_TESTING
+# off) — compiles perfectly on the g++-13 that Ubuntu 24.04 defaults to. Refusing
+# it there refused the one configuration the option exists to permit, and took
+# `pip install --editable .` down with it on every 24.04 machine.
+if(MD_BUILD_TOOLS OR MD_BUILD_APP)
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
+   AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 14)
+  message(FATAL_ERROR
+    "GCC ${CMAKE_CXX_COMPILER_VERSION} is older than this project's minimum, "
+    "GCC 14 — earlier libstdc++ has no C++23 <print>, which the command-line "
+    "tools use. Ubuntu 24.04 ships g++-14 alongside its default g++-13: install "
+    "it and configure with CXX=g++-14.")
+elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND NOT MSVC
+       AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 19)
+  message(FATAL_ERROR
+    "Clang ${CMAKE_CXX_COMPILER_VERSION} is older than this project's minimum, "
+    "Clang 19 — the `clang` package on Debian 13. Install a newer one and point "
+    "CXX / -DCMAKE_CXX_COMPILER at it.")
+endif()
+endif()
+
 set(MD_PGO "off" CACHE STRING "Profile-guided optimisation: off | generate | use")
 set_property(CACHE MD_PGO PROPERTY STRINGS off generate use)
 # macOS only. "-" is an ad-hoc signature: enough to launch the bundle on the
@@ -372,16 +380,26 @@ endif()
 #
 # A cache entry, so `-DMD_PYTHON_INSTALL_DIR=...` still wins — debian/rules
 # passes the distribution's own dist-packages path and must keep doing so.
-if(APPLE OR WIN32)
-  # Nothing: the trainer is not installed by this build on either platform. It
+if(DEFINED SKBUILD)
+  # **First, and on every platform.** scikit-build-core's install tree *is* the
+  # wheel root, so a relative path is the package directory the wheel unpacks
+  # into site-packages.
+  #
+  # This clause used to sit *below* the Apple/Windows one, and that ordering cost
+  # two wheels: a build on either of those platforms got no destination at all,
+  # so `install(TARGETS _md_native)` was never registered and the wheel shipped a
+  # package whose second import fails. The Linux wheel was unaffected, which is
+  # why CI reported it as two unrelated platform bugs — "cannot import
+  # _md_native" on Windows, and delocate finding "no binary with the required
+  # architecture" on macOS, because there was no binary at all.
+  set(md_python_install_default "missile_defense")
+elseif(APPLE OR WIN32)
+  # Nothing: the trainer is not installed by *this* build on either platform. It
   # ships as a wheel beside the game and the game pip-installs it on request
   # (app/install.hpp), because only whoever owns the interpreter can put a Python
-  # package into it — and on these two that is the user, not us.
+  # package into it — and on these two that is the user, not us. A wheel is the
+  # exception, and it is handled above.
   set(md_python_install_default "")
-elseif(DEFINED SKBUILD)
-  # scikit-build-core's install tree *is* the wheel root, so a relative `missile_defense` is
-  # the package directory the wheel unpacks into site-packages.
-  set(md_python_install_default "missile_defense")
 else()
   # Nothing can guess this on Linux. A distribution owns the interpreter and
   # knows where its dist-packages are; debian/rules asks it and passes the

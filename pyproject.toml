@@ -40,14 +40,21 @@ wheel.py-api = "cp312"
 # a build that reads (and can destroy) the environment it is being run from. It
 # went unnoticed while nothing built an sdist here; the moment cibuildwheel did,
 # it swept up the venv on its first run.
+#
+# **Anchored, every one of them.** `runs/` used to be here unanchored and meant
+# the training-output directory at the root — until the package gained a layer
+# called `missile_defense/runs/`, which the same pattern then matched. The sdist
+# lost it, `python -m build` builds the wheel *from the sdist*, and the wheel
+# shipped a package whose second import fails. Nothing in the tree could see it:
+# the checkout has the directory, so only an install from the artifact does.
 sdist.exclude = [
   "**/*.pyd",
   "**/*.so",
   "**/__pycache__",
-  ".venv/",
-  ".git/",
-  "build/",
-  "runs/",
+  "/.venv/",
+  "/.git/",
+  "/build/",
+  "/runs/",
 ]
 
 [tool.scikit-build.cmake.define]

@@ -768,8 +768,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Listed once into a file, and grepped from there. `tar | grep -q` is
+          # the obvious spelling and it is a trap under `pipefail`: grep exits at
+          # the first match and closes the pipe, tar takes SIGPIPE, and the
+          # pipeline reports the failure of a command that succeeded — with
+          # `tar: stdout: write error` as the only hint. It surfaces once the
+          # archive is big enough that tar is still writing when grep is done, so
+          # it arrives as a mystery on the day a package grows.
+          tar -tzf dist/*.tar.gz > /tmp/sdist.list
           for needed in CMakeLists.txt bindings/CMakeLists.txt core/CMakeLists.txt; do
-            tar -tzf dist/*.tar.gz | grep -q "/$needed$" \
+            grep -q "/$needed$" /tmp/sdist.list \
               || { echo "::error::sdist is missing $needed"; exit 1; }
           done
 
