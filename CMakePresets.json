@@ -10,22 +10,15 @@
       "name": "base",
       "hidden": true,
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/${presetName}"
-    },
-    {
-      "name": "unix",
-      "hidden": true,
-      "description": "The GCC/Clang presets. Hidden on Windows, where the compiler is MSVC and every flag below is spelled differently — an -O3 offered there is a preset that cannot configure.",
-      "condition": {
-        "type": "notEquals",
-        "lhs": "${hostSystemName}",
-        "rhs": "Windows"
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_PREFIX_PATH": "$env{QT_ROOT_DIR}"
       }
     },
     {
       "name": "debug",
-      "inherits": ["base", "unix"],
-      "displayName": "Debug (ASan+UBSan)",
+      "inherits": "base",
+      "displayName": "Debug (ASan+UBSan on Linux/macOS; plain Debug on MSVC)",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "MD_SANITIZE": "ON",
@@ -35,17 +28,16 @@
     },
     {
       "name": "release",
-      "inherits": ["base", "unix"],
-      "displayName": "RelWithDebInfo -O3 + ThinLTO (system compiler)",
+      "inherits": "base",
+      "displayName": "RelWithDebInfo, optimised + LTO (system compiler)",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
-        "CMAKE_CXX_FLAGS_RELWITHDEBINFO": "-O3 -g -DNDEBUG",
         "MD_LTO": "ON"
       }
     },
     {
       "name": "profile",
-      "inherits": ["base", "unix"],
+      "inherits": "base",
       "displayName": "-O3 + LTO, built for external sampling profilers",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
@@ -58,41 +50,13 @@
     },
     {
       "name": "coverage",
-      "inherits": ["base", "unix"],
+      "inherits": "base",
       "displayName": "Coverage (core only)",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "MD_COVERAGE": "ON",
         "MD_BUILD_APP": "OFF",
         "MD_DEV_TOOLCHAIN": "ON"
-      }
-    },
-    {
-      "name": "windows",
-      "inherits": "base",
-      "displayName": "Windows (MSVC): the game and the Python bindings, one tree",
-      "description": "MSVC builds all of Windows — Qt app, Vulkan, and the _md_native extension. There used to be two: MSYS2/CLANG64 for the game and this one for the bindings, because torch and PySide6 publish no MinGW wheels and an extension must share an ABI with the interpreter importing it. One compiler means one ABI and no split. Qt is found through CMAKE_PREFIX_PATH; set QT_ROOT_DIR to the kit (e.g. C:/Qt/6.9.3/msvc2022_64) or pass -DCMAKE_PREFIX_PATH. Warnings are not errors here: the Linux gate holds the zero-warning line on a pinned compiler, and MSVC's warning set differs enough that gating on it would mean tuning the tree twice for no extra safety.",
-      "condition": {
-        "type": "equals",
-        "lhs": "${hostSystemName}",
-        "rhs": "Windows"
-      },
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
-        "CMAKE_PREFIX_PATH": "$env{QT_ROOT_DIR}",
-        "MD_BUILD_APP": "ON",
-        "MD_BUILD_BINDINGS": "ON",
-        "MD_WERROR": "OFF"
-      }
-    },
-    {
-      "name": "windows-debug",
-      "inherits": "windows",
-      "displayName": "Windows (MSVC) Debug + Vulkan validation",
-      "description": "ASan/UBSan are deliberately absent: sanitizer coverage is a Linux property of this project (CMakeLists degrades MD_SANITIZE on Windows), so this is a plain Debug build with the Vulkan validation layer on.",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
-        "MD_VULKAN_VALIDATION": "ON"
       }
     }
   ],
@@ -112,14 +76,6 @@
     {
       "name": "coverage",
       "configurePreset": "coverage"
-    },
-    {
-      "name": "windows",
-      "configurePreset": "windows"
-    },
-    {
-      "name": "windows-debug",
-      "configurePreset": "windows-debug"
     }
   ],
   "testPresets": [
@@ -136,26 +92,6 @@
     {
       "name": "release",
       "configurePreset": "release",
-      "output": {
-        "outputOnFailure": true
-      },
-      "execution": {
-        "jobs": 0
-      }
-    },
-    {
-      "name": "windows",
-      "configurePreset": "windows",
-      "output": {
-        "outputOnFailure": true
-      },
-      "execution": {
-        "jobs": 0
-      }
-    },
-    {
-      "name": "windows-debug",
-      "configurePreset": "windows-debug",
       "output": {
         "outputOnFailure": true
       },

@@ -19,7 +19,7 @@ def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
     binary = _util.PROJECT_ROOT / "build" / "release" / "agent" / f"md_agent_eval{_util.EXE}"
     if not binary.exists():
-        _util.run(["cmake", "--build", "--preset", "release"])
+        _util.run([sys.executable, "-m", "tools.cmake", "cmake", "--build", "--preset", "release"])
     return subprocess.call([str(binary), *args])
 
 

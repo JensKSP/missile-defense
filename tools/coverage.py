@@ -25,8 +25,11 @@ def measure(threshold: float) -> int:
     profdata = _util.tool("llvm-profdata-21", "llvm-profdata")
     llvm_cov = _util.tool("llvm-cov-21", "llvm-cov")
 
-    _util.run(["cmake", "--preset", "coverage"], capture=True)
-    _util.run(["cmake", "--build", "--preset", "coverage"], capture=True)
+    _util.run([sys.executable, "-m", "tools.cmake", "cmake", "--preset", "coverage"], capture=True)
+    _util.run(
+        [sys.executable, "-m", "tools.cmake", "cmake", "--build", "--preset", "coverage"],
+        capture=True,
+    )
 
     build = _util.PROJECT_ROOT / "build" / "coverage"
     unit = build / "core" / "tests" / f"md_core_unit_tests{_util.EXE}"

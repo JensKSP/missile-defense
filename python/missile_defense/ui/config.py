@@ -54,7 +54,8 @@ from PySide6.QtWidgets import (
 from ..runs import runconfig
 from . import params as params_module
 from . import theme
-from .params import Setting, read_params, settings_of
+from .forms import ParameterDialog
+from .params import TRAINER_SOURCES, Param, Setting, read_params, settings_of
 from .reward import Formula, Term, formula_of
 
 #: A run directory with no `config.json`. Names the file, because a run that
@@ -315,19 +316,68 @@ class ConfigDialog(QDialog):
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(f"Parameters — {name}")
-        self.resize(620, 560)
+        self.resize(720, 760)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 14, 16, 12)
         layout.setSpacing(10)
 
-        self.panel = ConfigPanel()
-        self.panel.show_settings(config, settings)
-        layout.addWidget(self.panel, stretch=1)
+        # The run screen's own dialog, read-only. "What was this trained with?"
+        # and "what shall I train with?" are the same values under the same
+        # headings, and answering them in two different layouts — a form there,
+        # a three-column table here — made the reader translate between them.
+        # Same tabs, same folds, same sliders sitting at the values the run
+        # used, same equation with that run's numbers in it. Nothing editable.
+        #: What this dialog is showing, as `missile_defense.ui.params` read it.
+        #: Kept beside the widgets because "which values did this run use" is a
+        #: question worth answering without walking a widget tree — the tests
+        #: ask it, and so did the table this replaced.
+        self.settings: tuple[Setting, ...] = tuple(settings)
+
+        fields = read_params(TRAINER_SOURCES)
+        self.parameters = ParameterDialog(
+            fields,
+            python="",
+            out_dir=Path(),
+            initial={setting.name: setting.value for setting in settings},
+            read_only=True,
+            title=f"Parameters — {name}",
+            embedded=True,
+            parent=self,
+        )
+        # Embedded rather than opened: it is a `QDialog`, but here it is the
+        # body of this one. `setWindowFlags(Widget)` is what lets a dialog be a
+        # child widget without trying to be a window of its own.
+        self.parameters.setWindowFlags(Qt.WindowType.Widget)
+        layout.addWidget(self.parameters, stretch=1)
+
+        # Anything the dialog has no control for is still a value this run was
+        # trained with, and a trainer that showed only the part it recognised
+        # would be answering the question dishonestly. A newer training loop's
+        # knobs, and `schedule`'s bookkeeping, land here.
+        unknown = [s for s in settings if not _has_field(s, fields)]
+        if unknown:
+            also = QLabel(
+                "Also recorded, with no control on this trainer:  "
+                + " · ".join(f"{s.name} {s.value or runconfig.NOTHING}" for s in unknown)
+            )
+            also.setProperty("role", "note")
+            also.setWordWrap(True)
+            layout.addWidget(also)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(self.reject)
         buttons.accepted.connect(self.accept)
         layout.addWidget(buttons)
+
+
+def _has_field(setting: Setting, fields: Sequence[Param]) -> bool:
+    """Whether the parameter dialog has a control that shows this setting.
+
+    By name alone, because that is what the dialog's editors are keyed by from
+    the outside — and the one name owned by two config classes is derived, so it
+    has exactly one control between them.
+    """
+    return any(field.name == setting.name and not field.derived for field in fields)
 
 
 def settings_for(run_dir: Path, trainer: Path) -> tuple[runconfig.RunConfig | None, list[Setting]]:

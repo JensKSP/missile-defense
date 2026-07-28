@@ -72,6 +72,20 @@ _KNOWN: tuple[tuple[str, str, str, str], ...] = (
     ("amdsmi", "amdsmi", "MIT", "the AMD GPU probe"),
 )
 
+#: Compiled *into* `missile_defense._md_native`, which is the difference that
+#: matters here. Everything in `_KNOWN` above is a separate package pip
+#: installed and this program merely imports; these two are inside a binary this
+#: project ships, so their notices travel with it — which is what their licences
+#: ask for, and why `licenses/` carries both.
+#:
+#: No version: they are compiled in, so there is no metadata to ask, and a
+#: number written here by hand would be one more thing to drift. The inventory
+#: file records the versions the build actually used.
+_COMPILED_IN: tuple[tuple[str, str, str], ...] = (
+    ("nlohmann/json", "MIT", "reading the policy and match manifests"),
+    ("nanobind", "BSD-3-Clause", "the C++/Python bridge itself"),
+)
+
 
 def version() -> str:
     """The version of the installed ``md`` package."""
@@ -122,7 +136,13 @@ def _lines() -> Iterator[str]:
     for component in components():
         yield f"  {render_component(component)}"
     yield ""
-    yield f"None of them is redistributed here. The full inventory is in {INVENTORY}."
+    yield "None of those is redistributed here — pip installed them and this only"
+    yield "imports them. These two are different: they are compiled into the"
+    yield "simulation extension this project ships, so their notices travel with it."
+    for name, licence, role in _COMPILED_IN:
+        yield f"  {name} — {licence} — {role}"
+    yield ""
+    yield f"The full inventory, with versions, is in {INVENTORY}."
 
 
 def summary() -> str:

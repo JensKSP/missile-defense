@@ -93,8 +93,8 @@ log actually read named its cause in one line.
   `models/pretrained.mdp` in by hand; it is tracked but does not appear in the
   archive.
 * **Windows now reproduces locally**, on a Windows box: it is MSVC throughout —
-  the game, the bindings and the tests in one tree — so `cmake --preset windows`
-  and `ctest --preset windows` are the same commands CI runs. It used to be
+  the game, the bindings and the tests in one tree — so `cmake --preset release`
+  and `ctest --preset release` are the same commands CI runs. It used to be
   MSYS2/CLANG64 for the game and MSVC for the extension, two ABIs that could
   only be assembled by CI, and that is why this line used to say otherwise.
 * macOS still cannot be reproduced by any means available here. For that one,

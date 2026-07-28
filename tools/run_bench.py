@@ -30,8 +30,8 @@ def main(argv: list[str] | None = None) -> int:
     preset = "profile" if profiling else "release"
     binary = _util.PROJECT_ROOT / "build" / preset / "bench" / f"md_bench{_util.EXE}"
     if not binary.exists():
-        _util.run(["cmake", "--preset", preset])
-        _util.run(["cmake", "--build", "--preset", preset])
+        _util.run([sys.executable, "-m", "tools.cmake", "cmake", "--preset", preset])
+        _util.run([sys.executable, "-m", "tools.cmake", "cmake", "--build", "--preset", preset])
     return subprocess.call([str(binary), *args])
 
 

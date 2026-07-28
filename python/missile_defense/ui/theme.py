@@ -146,6 +146,19 @@ def stylesheet() -> str:
         border: 1px solid {AMBER};
         background: {PANEL};
     }}
+    /* Greyed with the terms they describe. `setEnabled(False)` does not dim a
+       label whose colour a stylesheet set explicitly, so without these the
+       Objective panel switched every weight off and left "cannot change the
+       optimum" glowing green over three inert sliders — the panel contradicting
+       itself in its loudest voice. */
+    QLabel[role="tag-invariant"]:disabled, QLabel[role="tag-objective"]:disabled {{
+        color: {MUTED};
+        border-color: {EDGE};
+    }}
+    QLabel[role="caption"]:disabled, QLabel[role="note"]:disabled,
+    QLabel[role="formula"]:disabled {{
+        color: {EDGE};
+    }}
     QLabel[role="placeholder"] {{
         color: {MUTED};
         font-size: 12px;

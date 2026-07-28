@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -89,3 +90,34 @@ def app_binary() -> Path:
     if sys.platform == "darwin":
         return app_dir / "md_app.app" / "Contents" / "MacOS" / "md_app"
     return app_dir / f"md_app{EXE}"
+
+
+def launch_environment(env: Mapping[str, str] | None = None) -> dict[str, str]:
+    """The environment the game needs to start *from the build tree*.
+
+    Windows only, and only in a checkout. An installed copy has Qt's DLLs beside
+    the exe — `windeployqt` puts them there — but a build-tree binary resolves
+    them on ``PATH``, and a developer who has never added the Qt kit to theirs
+    gets a dialog about a missing `Qt6Gui.dll` and no hint which one.
+
+    The kit is read out of the build's own ``CMakeCache.txt`` rather than from
+    ``QT_ROOT_DIR``: that is the Qt this binary was *linked against*, where the
+    environment variable is only the one that happened to be set most recently.
+    On a machine with two kits those differ, and the difference is a load error.
+    """
+    out = dict(os.environ if env is None else env)
+    if sys.platform != "win32":
+        return out
+    cache = PROJECT_ROOT / "build" / "release" / "CMakeCache.txt"
+    try:
+        text = cache.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return out
+    found = re.search(r"^Qt6Core_DIR:PATH=(.+)$", text, re.MULTILINE)
+    if found is None:
+        return out
+    # <kit>/lib/cmake/Qt6Core -> <kit>/bin
+    kit_bin = Path(found.group(1).strip()).parents[2] / "bin"
+    if kit_bin.is_dir():
+        out["PATH"] = f"{kit_bin}{os.pathsep}{out.get('PATH', '')}"
+    return out

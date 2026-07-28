@@ -29,10 +29,6 @@ from pathlib import Path
 from . import _util
 from .bootstrap import windows_cxx_toolchain
 
-#: The Windows preset. Everything is MSVC there — the Qt app and this — so the
-#: name is the platform rather than a toolchain distinction.
-WINDOWS_PRESET = "windows"
-
 
 def msvc_environment() -> dict[str, str] | None:
     """The environment a Developer Command Prompt would have, or ``None``.
@@ -58,8 +54,18 @@ def msvc_environment() -> dict[str, str] | None:
     vcvars = Path(root) / "VC" / "Auxiliary" / "Build" / "vcvars64.bat"
     if not vcvars.is_file():
         return None  # `windows_cxx_toolchain` found cl.exe or VCINSTALLDIR, not a root
+    # `shell=True`, and it has to be. Passing `["cmd", "/c", 'call "..." && set']`
+    # as a list looks tidier and does not work: `subprocess` runs the argument
+    # through `list2cmdline`, which quotes the third element because it contains
+    # spaces, and `cmd` then receives escaped quotes and reports the batch file
+    # "is either misspelled or could not be found" — naming the path it was just
+    # handed, which is the least helpful possible way to say "quoting".
+    #
+    # Nothing here comes from a person: `vcvars` is a fixed filename under a
+    # directory vswhere reported.
     probe = subprocess.run(
-        ["cmd", "/c", f'call "{vcvars}" >nul && set'],
+        f'"{vcvars}" >nul && set',
+        shell=True,
         capture_output=True,
         text=True,
         check=False,
@@ -101,8 +107,10 @@ def missing_build_tools() -> str | None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    default_preset = WINDOWS_PRESET if sys.platform == "win32" else "release"
-    parser.add_argument("preset", nargs="?", default=default_preset, help="CMake configure preset")
+    # `release` on every platform. There used to be a Windows-only preset here,
+    # because the game was MinGW and only the extension was MSVC; with one
+    # compiler the ordinary preset builds both.
+    parser.add_argument("preset", nargs="?", default="release", help="CMake configure preset")
     parser.add_argument(
         "--python",
         default=None,

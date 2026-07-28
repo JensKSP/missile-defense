@@ -178,6 +178,13 @@ if(MSVC)
     /w14640      # non-thread-safe static init
     /w14826      # sign-extending conversion
     /w14928)     # illegal copy-initialization
+  # MSVC's C4996 fires on `getenv`, `freopen` and friends — functions the C
+  # standard has not deprecated and that this tree uses because they are the
+  # portable spelling. Under -Werror that is three files failing to compile over
+  # a diagnostic about a Microsoft-only alternative, so the choice is to define
+  # this or to write `_dupenv_s` into portable code. A definition, not a warning
+  # suppression: `/wd4996` would also hide the genuinely deprecated things.
+  target_compile_definitions(md_warnings INTERFACE _CRT_SECURE_NO_WARNINGS)
 else()
   target_compile_options(md_warnings INTERFACE
     -Wall
@@ -223,6 +230,18 @@ if(MD_WERROR)
 endif()
 
 # ---- Codegen tuning ----------------------------------------------------------
+# `release` asks for a real optimised build, and what that is spelled as depends
+# on the driver. This lives here rather than in the preset because a preset that
+# sets `-O3` is a preset only GCC and Clang can configure — which is what made
+# the whole `release`/`debug` vocabulary Linux-only, and left Windows needing a
+# parallel set of presets under different names for every tool and task to know
+# about. CMake's own RelWithDebInfo default for MSVC (`/O2 /Zi /DNDEBUG`) is
+# already what this asks for, so there is nothing to override there.
+if(NOT MSVC)
+  set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O3 -g -DNDEBUG"
+      CACHE STRING "Flags used by the CXX compiler during RelWithDebInfo builds." FORCE)
+endif()
+
 # All off by default: the shipped artifact must run on any x86-64 and stay exactly
 # reproducible. Each of these is opt-in for throughput work, and each is verified
 # against the golden determinism test before use — see docs/PERFORMANCE.md.
@@ -264,13 +283,19 @@ if(NOT MSVC)
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(/clang:-ffp-contract=off) # clang-cl: same flag, MSVC driver
 else()
-  # cl.exe has no exact equivalent. /fp:precise forbids most reassociation, but
-  # the golden checksum test is the authority — run it before trusting a replay
-  # or a recording produced by an MSVC build.
+  # cl.exe spells it as a default rather than a flag: under `/fp:precise`,
+  # contraction is *off*, and `/fp:contract` is the opt-in that turns it on.
+  # Stated explicitly anyway, so the guarantee survives someone changing the
+  # project-wide floating-point model without reading this.
+  #
+  # This used to raise a configure warning saying parity with the Clang builds
+  # was unverified. It is not unverified: `Trajectory checksum is stable across
+  # builds (Debug == Release)` in core/tests/e2e/test_smoke_e2e.cpp is exactly
+  # that check, it is labelled `[e2e]`, and `ctest --preset release` runs it on
+  # every Windows build including CI's. A warning on every configure that asks
+  # you to run a test the build already runs is noise that trains people to
+  # ignore warnings.
   add_compile_options(/fp:precise)
-  message(WARNING
-    "MSVC: no exact -ffp-contract=off equivalent. Determinism parity with the "
-    "Clang builds is unverified here — run the golden checksum test (ctest -L e2e).")
 endif()
 
 # ---- Sanitizers --------------------------------------------------------------

@@ -59,7 +59,7 @@ import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QLocale, QRectF, Qt, Signal
+from PySide6.QtCore import QEvent, QLocale, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QDoubleValidator, QPainter
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -74,7 +74,6 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
-    QScrollArea,
     QSizePolicy,
     QSlider,
     QSpinBox,
@@ -98,6 +97,36 @@ DIALOG_WIDTH = 680
 READOUT_WIDTH = 92
 #: What the status strip says when nothing is under the pointer or the caret.
 HELP_IDLE = "Point at a parameter, or tab to it, for what it does."
+#: Room for two wrapped lines of `role="note"`, reserved once. See `_help_strip`
+#: for why this is fixed rather than a minimum.
+HELP_STRIP_HEIGHT = 46
+#: About what two lines hold at that height and width. Approximate on purpose:
+#: the alternative is measuring with QFontMetrics on every mouse move to save a
+#: reader from an ellipsis that arrives one word early.
+HELP_STRIP_CHARS = 200
+#: Room for the reward panel's busiest state — caption, two equation lines, and
+#: both notes — reserved whatever is currently shown. Switching a priced event
+#: on adds a line to each, and a panel that grows while you drag the slider
+#: causing it is the jump this avoids.
+EQUATION_PANEL_HEIGHT = 158
+
+
+def _elided(text: str, limit: int) -> str:
+    """``text`` cut to ``limit`` on a word boundary, with an ellipsis if it was."""
+    if len(text) <= limit:
+        return text
+    cut = text[:limit].rsplit(" ", 1)[0].rstrip(" ,;:—-")
+    return f"{cut}…"
+
+
+#: Boolean fields that govern a whole panel rather than one behaviour, and so
+#: get a switch instead of a tick. There is one; the set is here because the
+#: rule is "does this turn off the things under it", not "is it a bool".
+MASTER_SWITCHES = frozenset({"enabled"})
+
+#: What to call them on screen. The flag underneath keeps its own name — the
+#: status strip shows `--reward-enabled` — so nothing is hidden by this.
+MASTER_SWITCH_LABELS = {"enabled": "reward shaping"}
 
 #: The two headings on the Objective panel, and the one word each that changes
 #: how a run may be read. Both sentences come from `missile_defense.ui.reward`,
@@ -209,6 +238,62 @@ def free_vram() -> int | None:
 SLIDER_STEPS = 1000
 
 
+class ToggleSwitch(QCheckBox):
+    """A sliding switch, for the one control that governs a whole panel.
+
+    A `QCheckBox` for this read as a bare tick floating on an empty row: nothing
+    about it said it was a master switch rather than one more option, and with
+    the trainer's stylesheet removing the platform's own indicator frame it did
+    not even read as a box. A switch reads as a *state* — on or off, with the
+    thing it governs greyed behind it — which is what `Shaping.enabled` is.
+
+    Drawn rather than styled: a QSS `::indicator` can take an image, and the
+    project has no image pipeline for two rounded rectangles that must follow
+    the palette.
+    """
+
+    #: Track and knob, in the units the widget is drawn in.
+    WIDTH = 38
+    HEIGHT = 20
+    MARGIN = 2
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def sizeHint(self) -> QSize:  # noqa: N802 — Qt's spelling
+        return QSize(self.WIDTH, self.HEIGHT)
+
+    def hitButton(self, pos: object) -> bool:  # noqa: N802 — Qt's spelling
+        # The whole widget toggles, not just where an indicator would have been.
+        return self.rect().contains(pos)  # type: ignore[arg-type]
+
+    def paintEvent(self, event: object) -> None:  # noqa: N802 — Qt's spelling
+        del event
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        on = self.isChecked()
+        live = self.isEnabled()
+
+        track = QRectF(0, 0, self.WIDTH, self.HEIGHT)
+        radius = self.HEIGHT / 2
+        if not live:
+            fill, edge, knob = theme.GRID, theme.EDGE, theme.MUTED
+        elif on:
+            fill, edge, knob = theme.PANEL, theme.AMBER, theme.AMBER
+        else:
+            fill, edge, knob = theme.PANEL, theme.EDGE, theme.MUTED
+        painter.setPen(QColor(edge))
+        painter.setBrush(QColor(fill))
+        painter.drawRoundedRect(track.adjusted(0.5, 0.5, -0.5, -0.5), radius, radius)
+
+        size = self.HEIGHT - (2 * self.MARGIN)
+        x = self.WIDTH - size - self.MARGIN if on else self.MARGIN
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(knob))
+        painter.drawEllipse(QRectF(x, self.MARGIN, size, size))
+
+
 class BalanceBar(QWidget):
     """The three potential weights drawn as the proportions they actually are.
 
@@ -273,18 +358,23 @@ class BalanceBar(QWidget):
         painter.setPen(Qt.PenStyle.NoPen)
         x = float(rect.left() + 1)
         inner = rect.width() - 2
+        # Disabled means shaping is off, and these weights are not being paid.
+        # Left at full strength this was the brightest thing on a panel where
+        # everything else had just greyed out — the one element still claiming
+        # to matter.
+        live = self.isEnabled()
         for name, label, colour in self.TERMS:
             share = max(self._weights.get(name, 0.0), 0.0) / total
             width = share * inner
             if width <= 0.0:
                 continue
             slice_rect = QRectF(x, rect.top() + 1, width, rect.height() - 1)
-            painter.setBrush(QColor(colour))
+            painter.setBrush(QColor(colour) if live else QColor(theme.GRID))
             painter.drawRect(slice_rect)
             # Only where the label fits: a clipped word is worse than no word,
             # and the tooltip carries the full reading anyway.
             if width > 58:
-                painter.setPen(QColor(theme.NIGHT))
+                painter.setPen(QColor(theme.NIGHT if live else theme.MUTED))
                 painter.drawText(slice_rect, Qt.AlignmentFlag.AlignCenter, label)
                 painter.setPen(Qt.PenStyle.NoPen)
             x += width
@@ -521,9 +611,20 @@ class ParameterDialog(QDialog):
         resume: Path | None = None,
         presets_file: Path | None = None,
         free_vram_bytes: int | None = None,
+        read_only: bool = False,
+        title: str = "",
+        embedded: bool = False,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
+        #: Reading a finished run rather than configuring a new one. The same
+        #: dialog either way, deliberately: "what was this trained with?" and
+        #: "what shall I train with?" are the same thirty-odd values under the
+        #: same headings, and answering them in two different layouts made the
+        #: reader translate between them. What changes is that nothing can be
+        #: edited, and the parts that only make sense for a run that has not
+        #: happened yet — presets, the checkpoint picker, Start — are absent.
+        self._read_only = read_only
         self._fields = fields
         self._python = python
         self._out_dir = out_dir
@@ -546,6 +647,11 @@ class ParameterDialog(QDialog):
         #: Each fold, with the fields it holds, so a closed one can show its
         #: values and say how many of them you have changed.
         self._folds: list[tuple[Group, QToolButton, QWidget, QLabel]] = []
+        #: Every block of the panels — a caption, a frame of rows, a fold, the
+        #: balance bar — paired with the fields it belongs to. The filter hides a
+        #: block whose fields all went away, which is what stops it leaving
+        #: hollow frames and fold digests floating with no button beside them.
+        self._sections: list[tuple[QWidget, tuple[tuple[str, str], ...]]] = []
         #: Which widget explains which field, for the status strip. Keyed by the
         #: widget because that is what an event arrives on.
         self._explains: dict[QWidget, tuple[Param, str]] = {}
@@ -583,13 +689,13 @@ class ParameterDialog(QDialog):
         # Above the fields, because it fills them in: a preset is the answer to
         # "what should these be?", and reading it after the twenty boxes it
         # sets would be reading the answer after the exam.
-        if fields:
+        if fields and not read_only:
             layout.addWidget(self._preset_row())
 
         # No checkpoints means no row at all rather than a disabled one: this is
         # a dialog you dismiss, not a panel you leave open, and "you cannot
         # continue a run that has not happened" is not news.
-        if checkpoints:
+        if checkpoints and not read_only:
             layout.addWidget(self._resume_row(checkpoints, resume))
 
         if fields:
@@ -628,18 +734,37 @@ class ParameterDialog(QDialog):
         note.setProperty("role", "note")
         layout.addWidget(note)
 
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        self._go = buttons.button(QDialogButtonBox.StandardButton.Ok)
-        self._go.setDefault(True)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        if embedded:
+            # The host owns the buttons. Without this the window that embeds
+            # this one showed two Close buttons, one above the other.
+            self._go = QPushButton()
+            buttons = None
+        elif read_only:
+            # Close, and nothing that suggests this run can still be changed.
+            buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+            self._go = buttons.button(QDialogButtonBox.StandardButton.Close)
+            buttons.rejected.connect(self.reject)
+            buttons.accepted.connect(self.reject)
+        else:
+            buttons = QDialogButtonBox(
+                QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+            )
+            self._go = buttons.button(QDialogButtonBox.StandardButton.Ok)
+            self._go.setDefault(True)
+            buttons.accepted.connect(self.accept)
+            buttons.rejected.connect(self.reject)
+        if buttons is not None:
+            layout.addWidget(buttons)
         # Last, so every editor exists to pour into. Not before the preview
         # either: what this fills in is exactly what the preview has to show.
         self._apply_initial(initial or {})
         self._refresh_preview()
+        if read_only:
+            self.setWindowTitle(title or "Run parameters")
+            for editor in self._editors.values():
+                editor.setEnabled(False)
+            for label in self._labels.values():
+                label.setEnabled(False)
 
     # ---- presets ------------------------------------------------------------
     def _preset_row(self) -> QWidget:
@@ -904,25 +1029,32 @@ class ParameterDialog(QDialog):
             # terms that are not optimality-neutral where the others provably
             # are — a distinction `missile_defense.ui.reward` has always drawn
             # for a *finished* run and nothing drew for the person choosing them.
+            keys = tuple(field.key for field in members)
             caption = REWARD_CAPTIONS.get(group.name)
             if caption is not None:
-                box.addWidget(self._caption(*caption))
+                box.addWidget(self._section(self._caption(*caption), keys))
             if group.essential:
-                box.addWidget(self._rows_frame(members))
+                box.addWidget(self._section(self._rows_frame(members), keys))
             else:
-                box.addWidget(self._fold(group, members))
+                box.addWidget(self._section(self._fold(group, members), keys))
             if group.name == "Potential terms":
                 self._balance = BalanceBar()
-                box.addWidget(self._balance)
+                box.addWidget(self._section(self._balance, keys))
         if any(g.domain == "reward" for g in present):
             box.addWidget(self._equation_panel())
         box.addStretch(1)
+        # No scroll area. One wrapped each tab and it was a mistake twice over:
+        # nothing needs scrolling once thirty-odd parameters are split across
+        # three tabs with the rarely-touched ones folded, and a viewport turns
+        # any height change *inside* it into a jump — which the status strip,
+        # growing and shrinking with the length of each explanation, produced on
+        # every mouse move.
+        return page
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setWidget(page)
-        return scroll
+    def _section(self, widget: QWidget, keys: tuple[tuple[str, str], ...]) -> QWidget:
+        """Register a block against the fields it shows, then hand it back."""
+        self._sections.append((widget, keys))
+        return widget
 
     def _caption(self, title: str, tag: str, role: str, why: str) -> QWidget:
         """A group heading with the one word that changes how a run is read."""
@@ -951,8 +1083,15 @@ class ParameterDialog(QDialog):
         all of it in two lines, and `missile_defense.ui.reward` already knew how
         to write it — for a finished run, where nobody was choosing anything.
         """
+        # Fixed height, for the same reason the status strip has one. Switching
+        # a priced event on lengthens the total *and* adds a second note, so the
+        # panel grew by two lines and shoved everything below it down — while
+        # you were dragging the very slider that caused it. Sized for the
+        # busiest state it can reach: two equation lines and both notes.
         frame = QFrame()
         frame.setProperty("role", "panel")
+        frame.setFixedHeight(EQUATION_PANEL_HEIGHT)
+        frame.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         box = QVBoxLayout(frame)
         box.setContentsMargins(14, 10, 14, 10)
         box.setSpacing(6)
@@ -962,12 +1101,14 @@ class ParameterDialog(QDialog):
         self._equation = QLabel()
         self._equation.setProperty("role", "formula")
         self._equation.setWordWrap(True)
+        self._equation.setAlignment(Qt.AlignmentFlag.AlignTop)
         self._equation.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         box.addWidget(self._equation)
         self._equation_note = QLabel()
         self._equation_note.setProperty("role", "note")
         self._equation_note.setWordWrap(True)
-        box.addWidget(self._equation_note)
+        self._equation_note.setAlignment(Qt.AlignmentFlag.AlignTop)
+        box.addWidget(self._equation_note, stretch=1)
         return frame
 
     def _refresh_reward(self) -> None:
@@ -1053,7 +1194,10 @@ class ParameterDialog(QDialog):
 
     def _row(self, field: Param) -> tuple[QLabel, QWidget]:
         """One parameter: its name, its editor, and its reasoning on demand."""
-        label = QLabel(field.name.replace("_", " "))
+        # `enabled` is the dataclass's word and a poor label for a switch that
+        # governs a whole panel — on its own it says nothing about *what* is
+        # enabled. The others read fine as their field names.
+        label = QLabel(MASTER_SWITCH_LABELS.get(field.name, field.name.replace("_", " ")))
         editor = self._editor(field)
         reason = field.help or f"{field.owner}.{field.name}"
         for widget in (label, editor):
@@ -1085,19 +1229,30 @@ class ParameterDialog(QDialog):
                 return
 
     def _help_strip(self) -> QWidget:
+        """The one line that explains whatever is under the pointer.
+
+        **Fixed height, not minimum.** A word-wrapping label whose text changes
+        on every mouse move is a widget whose *height* changes on every mouse
+        move, and in a vertical layout that relays out everything around it —
+        the panel above visibly jumped as the pointer crossed rows, which is the
+        opposite of what a status strip is for. It gets the room for two lines
+        once and keeps it, whether the sentence is short or long.
+        """
         frame = QFrame()
         frame.setProperty("role", "panel")
+        frame.setFixedHeight(HELP_STRIP_HEIGHT)
+        frame.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         box = QHBoxLayout(frame)
-        box.setContentsMargins(12, 8, 12, 8)
+        box.setContentsMargins(12, 6, 12, 6)
         box.setSpacing(10)
-        self._help_key = QLabel("—")
+        self._help_key = QLabel()
         self._help_key.setProperty("role", "stat")
         self._help_key.setAlignment(Qt.AlignmentFlag.AlignTop)
         box.addWidget(self._help_key)
         self._help_text = QLabel(HELP_IDLE)
         self._help_text.setProperty("role", "note")
         self._help_text.setWordWrap(True)
-        self._help_text.setMinimumHeight(34)
+        self._help_text.setAlignment(Qt.AlignmentFlag.AlignTop)
         box.addWidget(self._help_text, stretch=1)
         return frame
 
@@ -1124,7 +1279,12 @@ class ParameterDialog(QDialog):
     def _explain(self, field: Param, reason: str) -> None:
         default = field.default or "auto"
         self._help_key.setText(f"{field.flag} · default {default}")
-        self._help_text.setText(reason)
+        # Elided, because the strip's height is fixed and some of the trainer's
+        # `#:` comments run to a paragraph. A sentence cut off mid-word with no
+        # mark reads as a rendering fault; one ending in an ellipsis reads as
+        # "there is more", and the full text is on the row's tooltip.
+        self._help_text.setText(_elided(reason, HELP_STRIP_CHARS))
+        self._help_text.setToolTip(reason)
 
     def _show_glossary(self) -> None:
         """Every abbreviation the dialog uses, in the game's terms.
@@ -1163,10 +1323,15 @@ class ParameterDialog(QDialog):
             # the whole ancestor chain. Asking the widget produced a filter that
             # could never open the fold holding the match.
             holds = any(key in matched for key in self._rows if key[1] in group.fields)
-            toggle.setVisible(holds or not text)
             # `reveal` follows the toggle, so the body needs no separate handling
             # — and doing it here as well is how the two disagreed.
             toggle.setChecked(bool(text) and holds)
+        # Whole blocks, not just rows. Hiding rows alone left an empty framed
+        # rectangle where a group used to be, and a fold's value digest floating
+        # against the right margin with no button beside it — because the digest
+        # lives next to the toggle, not inside the body the rows are in.
+        for widget, keys in self._sections:
+            widget.setVisible(not text or any(key in matched for key in keys))
         # And come to the match rather than waiting to be found. Searching for a
         # parameter and being shown nothing, because it lives on a tab you are
         # not looking at, is the hunt this box exists to end.
@@ -1192,7 +1357,9 @@ class ParameterDialog(QDialog):
             choose.currentTextChanged.connect(self._edited)
             return choose
         if field.kind == "bool":
-            check = QCheckBox()
+            # A switch for the one that governs a panel, an ordinary box for the
+            # rest: a switch everywhere would make every flag look like a master.
+            check = ToggleSwitch() if field.name in MASTER_SWITCHES else QCheckBox()
             check.setChecked(field.default.strip() == "True")
             check.toggled.connect(self._edited)
             return check
@@ -1346,6 +1513,8 @@ class ParameterDialog(QDialog):
         while a checkpoint is selected turns a late rejection into a control that
         visibly is not yours to move.
         """
+        if self._read_only:
+            return  # everything is locked; there is no resume to reason about
         continuing = self.resume() is not None
         for name in LOCKED_ON_RESUME:
             editor = self._editor_named(name)
@@ -1367,7 +1536,10 @@ class ParameterDialog(QDialog):
         editor = self._editor_named("enabled")
         if editor is None:
             return
-        on = _read(editor) == "True"
+        # `and not read_only`: this is the one refresher that *enables* things,
+        # so without the guard it would undo the read-only pass on every redraw
+        # and hand back editable weights for a run that has already finished.
+        on = _read(editor) == "True" and not self._read_only
         for (owner, name), row in self._rows.items():
             if owner != "Shaping" or name == "enabled":
                 continue
@@ -1377,6 +1549,12 @@ class ParameterDialog(QDialog):
                 label.setEnabled(on)
         if self._balance is not None:
             self._balance.setEnabled(on)
+        # The headings and their chips too. "cannot change the optimum" in full
+        # green, over three greyed-out weights that are not being paid, is the
+        # panel contradicting itself.
+        for widget, keys in self._sections:
+            if keys and all(owner == "Shaping" and name != "enabled" for owner, name in keys):
+                widget.setEnabled(on)
 
     def _refresh_preview(self) -> None:
         self._preview.setText(" ".join(self.command()))
@@ -1388,7 +1566,10 @@ class ParameterDialog(QDialog):
         self._refresh_memory()
         # Two different acts behind one button, so it says which it is about to
         # do. Re-read from the picker rather than set once, because continuing
-        # is a choice that can be changed while the dialog is open.
+        # is a choice that can be changed while the dialog is open. Read-only
+        # has one act — closing — and a title naming the run it is showing.
+        if self._read_only:
+            return
         continuing = self.resume() is not None
         self.setWindowTitle("Continue a training run" if continuing else "Start a training run")
         self._go.setText("Continue run" if continuing else "Start run")

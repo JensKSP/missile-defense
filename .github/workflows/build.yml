@@ -334,10 +334,9 @@ jobs:
           path: wheel
 
       - name: C++ tests (Debug)
-        # `windows-debug`, not `debug`: the GCC/Clang presets are conditioned off
-        # Windows in CMakePresets.json, because every flag in them is spelled
-        # differently for MSVC. Sanitizers are absent here by design — that is a
-        # Linux property of this project — so this is a plain Debug build.
+        # The same `debug` preset every platform uses. Sanitizers are absent here
+        # by design — that is a Linux property of this project — so CMakeLists
+        # degrades MD_SANITIZE to a plain Debug build.
         #
         # No -Werror or -Wpedantic: this job exists to produce an installer, and
         # the Linux gate holds the zero-warning line on a pinned compiler. MSVC's
@@ -346,9 +345,9 @@ jobs:
         env:
           STAMP: ${{ inputs.package-version && format('-DMD_PACKAGE_VERSION={0}', inputs.package-version) || '' }}
         run: |
-          cmake --preset windows-debug -DMD_WERROR=OFF -DMD_PEDANTIC=OFF $STAMP
-          cmake --build --preset windows-debug
-          ctest --preset windows-debug
+          cmake --preset debug -DMD_WERROR=OFF -DMD_PEDANTIC=OFF $STAMP
+          cmake --build --preset debug
+          ctest --preset debug
 
       - name: C++ tests (Release)
         env:
@@ -376,18 +375,18 @@ jobs:
           # what shipped the trainer here was a Python payload beside the exe,
           # and it is a wheel now — built by the `wheels` job against a real
           # CPython, which is what MD_PREBUILT_PYTHON_MODULE was working around.
-          cmake --preset windows -DMD_WERROR=OFF -DMD_PEDANTIC=OFF $STAMP \
+          cmake --preset release -DMD_WERROR=OFF -DMD_PEDANTIC=OFF $STAMP \
             -DMD_BUILD_BINDINGS=OFF \
             -DMD_TRAINER_WHEEL="$(cygpath -m "$(md_one_wheel)")"
-          cmake --build --preset windows
-          ctest --preset windows
+          cmake --build --preset release
+          ctest --preset release
 
       - name: Build the installer and the portable ZIP
         # Runs windeployqt through the install step, which is the part worth
         # having in CI: it copies Qt's DLLs and the C runtime beside
         # missile-defense.exe. A missing DLL is invisible on the machine that
         # built it and fatal on any other.
-        run: cpack --config build/windows/CPackConfig.cmake -B build/windows -G "NSIS;ZIP"
+        run: cpack --config build/release/CPackConfig.cmake -B build/release -G "NSIS;ZIP"
 
       - name: What the installer ships is the game, a wheel and a page
         # The installer has one component now: no Python payload, no `.cmd`
@@ -401,7 +400,7 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf stage-game
-          cmake --install build/windows --prefix stage-game --component game
+          cmake --install build/release --prefix stage-game --component game
           test -f stage-game/missile-defense.exe
           test -f stage-game/HOW-TO-TRAIN.html
           if find stage-game \( -name "*.py" -o -name "*.cmd" \) | grep .; then
@@ -423,8 +422,8 @@ jobs:
         with:
           name: missile-defense-windows
           path: |
-            build/windows/*.exe
-            build/windows/*.zip
+            build/release/*.exe
+            build/release/*.zip
 
   debian:
     # The package Debian itself would build: debian/ via debhelper, which is the

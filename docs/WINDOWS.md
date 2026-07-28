@@ -34,15 +34,15 @@ $env:QT_ROOT_DIR = "C:/Qt/6.9.3/msvc2022_64"
 # 3 — build
 git clone https://github.com/JensKSP/missile-defense.git
 cd missile-defense
-cmake --preset windows
-cmake --build --preset windows
+cmake --preset release
+cmake --build --preset release
 
 # 4 — play
-.\build\windows\app\md_app.exe
+.\build\release\app\md_app.exe
 ```
 
-`QT_ROOT_DIR` is what the `windows` preset reads as `CMAKE_PREFIX_PATH`, so no
-path is baked into the preset. Set it permanently with
+`QT_ROOT_DIR` is what the presets read as `CMAKE_PREFIX_PATH`, so no path is
+baked into any of them (it is empty, and harmless, off Windows). Set it permanently with
 `setx QT_ROOT_DIR C:/Qt/6.9.3/msvc2022_64`, or pass `-DCMAKE_PREFIX_PATH=…`.
 
 **Add `%QT_ROOT_DIR%\bin` to `PATH` to run from the build tree**, or the exe
@@ -50,7 +50,7 @@ will not find `Qt6Gui.dll`. An *installed* copy needs nothing: `windeployqt`
 puts Qt beside the binary — see [The installer](#the-installer).
 
 From here the [main README](../README.md#quick-start) applies unchanged — play
-it, then `.\build\windows\app\md_app.exe --watch` to hand the crosshair to the
+it, then `.\build\release\app\md_app.exe --watch` to hand the crosshair to the
 scripted agent.
 
 ## What the pieces are
@@ -73,27 +73,28 @@ separate `pacman` packages.
 
 ## Build notes
 
-* **`windows` and `windows-debug` are the presets.** The GCC/Clang ones
-  (`debug`, `release`, `profile`, `coverage`) carry flags like `-O3` that MSVC's
-  driver rejects, so [CMakePresets.json](../CMakePresets.json) conditions them
-  off Windows — they will not appear in `cmake --list-presets` there.
+* **The presets are the same ones every platform uses** — `debug`, `release`,
+  `profile`, `coverage`. What differs between toolchains lives in
+  [CMakeLists.txt](../CMakeLists.txt), which already branches on MSVC, rather
+  than in a parallel set of Windows-only preset names that every tool and `poe`
+  task would then have to know about.
 * One tree builds **both halves**: `MD_BUILD_APP` and `MD_BUILD_BINDINGS` are
   both on. With one ABI there is no reason to separate them.
-* **ASan/UBSan are not enabled on Windows**, so `windows-debug` is a plain Debug
-  build with the Vulkan validation layer on. Sanitizer coverage is a Linux-only
-  property of this project.
+* **ASan/UBSan are not enabled on Windows**, so `debug` degrades to a plain
+  Debug build there with the Vulkan validation layer on. Sanitizer coverage is a
+  Linux-only property of this project.
 * **Warnings are not errors here.** The Linux gate holds the zero-warning line
   on a pinned compiler; MSVC's warning set differs enough that gating on it
   would mean tuning the tree for a second compiler with no extra safety.
 
 > **Determinism.** `-ffp-contract=off` is what makes replays bit-identical, and
 > `cl.exe` has no exact equivalent. The MSVC build has been checked against the
-> golden trajectory checksum and matches — `ctest --preset windows -L e2e` is
+> golden trajectory checksum and matches — `ctest --preset release -L e2e` is
 > what says so.
 
 ## The installer
 
-`cpack --config build/windows/CPackConfig.cmake -B build/windows -G "NSIS;ZIP"`
+`cpack --config build/release/CPackConfig.cmake -B build/release -G "NSIS;ZIP"`
 builds both shipped Windows artifacts: an NSIS installer and a portable ZIP of
 the same tree. CI does exactly this, and the release attaches both.
 

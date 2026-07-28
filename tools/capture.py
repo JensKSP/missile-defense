@@ -488,7 +488,10 @@ def _launch() -> subprocess.Popen[bytes]:
     """
     binary = _util.app_binary()
     if not binary.exists():
-        _util.run(["cmake", "--build", "--preset", "release"], capture=True)
+        _util.run(
+            [sys.executable, "-m", "tools.cmake", "cmake", "--build", "--preset", "release"],
+            capture=True,
+        )
     return subprocess.Popen([str(binary), "--silent"], env=_launch_environ())
 
 

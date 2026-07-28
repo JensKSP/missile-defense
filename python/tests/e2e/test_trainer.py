@@ -1213,18 +1213,31 @@ def test_the_trainer_shows_what_the_run_was_started_with(trainer) -> None:  # no
     asked of whichever run turned out to be interesting, usually well after the
     terminal that started it has gone. A dialog rather than a panel, because it
     is read once and closed and must cost the curve no space at all.
+
+    It shows the *same* dialog a run is started with, read-only, rather than a
+    table of its own: the two answer one question — which values — and answering
+    it in two layouts made the reader translate between them.
     """
+    from missile_defense.ui.forms import _read  # noqa: PLC0415
+
     trainer._tick()
     dialog = trainer._parameters_dialog()
-    settings = {row.name: row for row in dialog.panel.settings}
+    settings = {row.name: row for row in dialog.settings}
 
     assert settings["envs"].value == TINY_RUN["--envs"]
     # And the reasoning written beside the field in the trainer's own source,
-    # so the panel teaches rather than listing twenty-six unexplained numbers.
+    # so the dialog teaches rather than listing twenty-six unexplained numbers.
     assert "Environments stepped in parallel" in settings["envs"].help
     # The tiny run is four envs against a default of 1,024: marked, because what
     # a run *changed* is the only readable summary of what it is.
     assert settings["envs"].changed
+
+    # And the control actually shows it, sitting at the run's value and refusing
+    # to be moved — a read-only dialog whose editors still worked would invite
+    # someone to "fix" a run that has already finished.
+    editor = dialog.parameters._editor_named("envs")  # noqa: SLF001
+    assert _read(editor) == TINY_RUN["--envs"]
+    assert not editor.isEnabled()
     dialog.close()
 
 

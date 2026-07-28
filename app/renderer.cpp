@@ -1117,20 +1117,49 @@ void Renderer::startNextFrame() {
         // heading's colour, what this build *is* sits in ordinary copy, and the
         // trademark notice drops to the byline's recede blue — still legible,
         // visibly the small print, and grouped by colour rather than by a gap.
-        const std::array<std::pair<std::string_view, const std::array<float, 3>&>, 9> lines{{
-            {"MISSILE DEFENSE", ink::heading},
-            {version_line, ink::body},
-            {"COPYRIGHT 2026 JENS KOEHLER", ink::body},
-            {"MIT LICENSE", ink::muted},
-            {"DEVELOPED WITH CLAUDE CODE", ink::muted},
-            {"USES QT MINIAUDIO VULKAN", ink::muted},
-            {"MISSILE COMMAND IS AN", ink::recede},
-            {"ATARI TRADEMARK", ink::recede},
-            {"INDEPENDENT NON COMMERCIAL HOMAGE", ink::recede},
+        // nlohmann/json is named because it is *redistributed*: it is header-only
+        // and compiled into this binary, and its MIT licence asks for the notice
+        // to travel with it (THIRD_PARTY_LICENSES.md, and licenses/nlohmann_json/
+        // ships beside the exe). Qt is dynamically linked and miniaudio is public
+        // domain, so neither carries that obligation — they are here as credit.
+        // It was missing from this list while every other dependency was on it.
+        // Three sizes, not one, and the smallest is deliberate. What this build
+        // *is* — the name, the version, the copyright — is what somebody opens
+        // this screen to read. The credits underneath are an obligation being
+        // met, and at the same size as the version they competed with it: ten
+        // equally loud lines read as a legal notice with a game's name on top.
+        //
+        // The step also buys the vertical room the credits needed: nlohmann/json
+        // was missing from them while every other dependency was listed, and
+        // adding it at the old size would have pushed the block onto "PRESS
+        // ENTER" below.
+        struct AboutLine {
+            std::string_view text;
+            const std::array<float, 3>& ink;
+            float scale; // multiplied by world_h
+        };
+        constexpr float lead = 0.0115f;  // the name and what this build is
+        constexpr float body = 0.0100f;  // the trademark notice
+        constexpr float fine = 0.0082f;  // third-party credits: obligation, not headline
+        const std::array<AboutLine, 10> lines{{
+            {"MISSILE DEFENSE", ink::heading, lead},
+            {version_line, ink::body, lead},
+            {"COPYRIGHT 2026 JENS KOEHLER", ink::body, body},
+            {"MIT LICENSE", ink::muted, body},
+            {"DEVELOPED WITH CLAUDE CODE", ink::muted, fine},
+            {"USES QT VULKAN MINIAUDIO", ink::muted, fine},
+            {"AND NLOHMANN JSON", ink::muted, fine},
+            {"MISSILE COMMAND IS AN", ink::recede, fine},
+            {"ATARI TRADEMARK", ink::recede, fine},
+            {"INDEPENDENT NON COMMERCIAL HOMAGE", ink::recede, fine},
         }};
-        for (std::size_t i = 0; i < lines.size(); ++i) {
-            const float y = world_h * (0.80f - (static_cast<float>(i) * 0.075f));
-            draw_text(inst, lines[i].first, cx, y, world_h * 0.011f, lines[i].second, true);
+        // Advance by what was just drawn rather than by a fixed step, or the
+        // small lines would sit in gaps sized for the large ones and the block
+        // would look like it had holes in it.
+        float y = world_h * 0.82f;
+        for (const AboutLine& line : lines) {
+            draw_text(inst, line.text, cx, y, world_h * line.scale, line.ink, true);
+            y -= world_h * (line.scale + 0.052f);
         }
         // Tightened by half a percent a line so this one can come up off the
         // floor: at 0.05 its bottom row of pixels fell *below* y = 0 and was
