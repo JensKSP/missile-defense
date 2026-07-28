@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -51,19 +52,14 @@ constexpr std::array<std::string_view, 2> interpreter_names{"python3", "python"}
 /// the checkout fallback would go on to run.
 constexpr std::string_view trainer_module = "python/missile_defense/ui/__main__.py";
 
-/// The same marker in an *installed* layout, where the payload sits directly
-/// beside the game instead of under a `python/` source directory.
-constexpr std::string_view payload_module = "missile_defense/ui/__main__.py";
-
 /// Which of the four answers the search gave, so the caller does not have to
 /// re-derive it from the path. An installed `missile-defense-trainer` can perfectly well sit
 /// in the same directory as a `python3`, so the path alone does not say — and
 /// the two interpreter answers are told apart by nothing else at all.
 enum class Origin : std::uint8_t {
     Named,     ///< MD_TRAINER
+    Recorded,  ///< the interpreter this game installed the trainer into
     Installed, ///< a launcher on PATH or in a system directory
-    Payload,   ///< the `missile_defense` package beside the game, to be handed `-m
-               ///< missile_defense.ui`
     Checkout,  ///< an interpreter, to be handed `-m missile_defense.ui`
 };
 
@@ -116,8 +112,19 @@ std::optional<std::pair<std::filesystem::path, Origin>> resolve(const Lookup& lo
         }
         return std::nullopt;
     }
-    // 2. An installed launcher: PATH first, then where an installer puts it —
+    // 2. What this game did itself. Checked before `PATH` on purpose: if the
+    //    trainer was installed from here, that interpreter is the one it was
+    //    installed *into*, and a `missile-defense-trainer` that happens to be on
+    //    PATH belongs to some other Python and may not import the package at
+    //    all. A record pointing at an interpreter that has since been removed is
+    //    skipped rather than fatal — unlike MD_TRAINER, nobody asked for this
+    //    one by name, so falling through to the rest is the helpful answer.
+    if (!lookup.recorded_interpreter.empty() && lookup.executable(lookup.recorded_interpreter)) {
+        return std::pair{lookup.recorded_interpreter, Origin::Recorded};
+    }
+    // 3. An installed launcher: PATH first, then where a distribution puts it —
     //    a desktop session's PATH is not a login shell's, so both are needed.
+    //    This is the Debian case, where apt owns both halves.
     for (const std::string_view name : trainer_names) {
         if (auto found = on_search_path(lookup, name)) {
             return std::pair{*found, Origin::Installed};
@@ -130,18 +137,6 @@ std::optional<std::pair<std::filesystem::path, Origin>> resolve(const Lookup& lo
                 return std::pair{candidate, Origin::Installed};
             }
         }
-    }
-    // 3. The payload an installer left beside the game. This is the Windows
-    //    answer, and there is deliberately no launcher to look for: what the
-    //    installer writes there is `missile-defense-trainer.cmd`, a *script*, which Smart
-    //    App Control blocks outright on a stock Windows 11. Running the
-    //    interpreter directly is exactly what that script does, minus the one
-    //    part of it the platform refuses to execute.
-    if (!lookup.payload_root.empty() && lookup.executable(lookup.payload_root / payload_module)) {
-        if (auto found = interpreter(lookup)) {
-            return std::pair{*found, Origin::Payload};
-        }
-        return std::nullopt; // a payload with nothing to run it is not an offer
     }
     // 4. A checkout, run through an interpreter. Without one there is nothing to
     //    run `-m missile_defense.ui` with, and offering the entry anyway would put an item on
@@ -157,7 +152,33 @@ std::optional<std::pair<std::filesystem::path, Origin>> resolve(const Lookup& lo
 
 } // namespace
 
-Lookup machine_lookup(const std::filesystem::path& own_executable) {
+std::filesystem::path recorded_interpreter(const std::filesystem::path& data_dir) {
+    if (data_dir.empty()) {
+        return {};
+    }
+    std::ifstream record{data_dir / record_file};
+    if (!record) {
+        return {}; // never installed from here, which is the ordinary case
+    }
+    // Hand-parsed because the file has two keys and the game links no parser it
+    // would otherwise want. Unknown keys and blank lines are skipped rather than
+    // rejected: a newer trainer writing a third key must not stop an older game
+    // from reading the interpreter out of it.
+    std::string line;
+    while (std::getline(record, line)) {
+        const std::size_t split = line.find('=');
+        if (split == std::string::npos) {
+            continue;
+        }
+        if (std::string_view{line}.substr(0, split) == record_interpreter_key) {
+            return std::filesystem::path{line.substr(split + 1)};
+        }
+    }
+    return {};
+}
+
+Lookup machine_lookup(const std::filesystem::path& own_executable,
+                      const std::filesystem::path& data_dir) {
     Lookup lookup;
     lookup.variable = [](std::string_view name) {
         const char* value = std::getenv(std::string{name}.c_str());
@@ -179,15 +200,7 @@ Lookup machine_lookup(const std::filesystem::path& own_executable) {
     const std::filesystem::path own_directory =
         std::filesystem::absolute(own_executable, ec).parent_path();
 
-    // The installed layout, and one probe rather than a walk: an installer puts
-    // the payload in the same directory as the binary — `missile_defense\ui\` beside
-    // `md_app.exe`, under `C:\Program Files\Missile Defense` or wherever the
-    // portable ZIP was unpacked — or it does not put it anywhere. Looking any
-    // further up would start finding other people's `missile_defense` directories.
-    std::error_code payload_probe;
-    if (std::filesystem::is_regular_file(own_directory / payload_module, payload_probe)) {
-        lookup.payload_root = own_directory;
-    }
+    lookup.recorded_interpreter = recorded_interpreter(data_dir);
 
     std::filesystem::path directory = own_directory;
     while (!directory.empty()) {
@@ -221,10 +234,12 @@ std::optional<Command> command(const Lookup& lookup) {
         return Command{{found->first.string(), "-m", "missile_defense.ui"},
                        lookup.checkout_root / "python"};
     }
-    if (found->second == Origin::Payload) {
-        // The payload's own directory is the import path, which is what
-        // `packaging/launcher.cmd.in` sets `PYTHONPATH` to from `%~dp0`.
-        return Command{{found->first.string(), "-m", "missile_defense.ui"}, lookup.payload_root};
+    if (found->second == Origin::Recorded) {
+        // No import path: pip installed the package *into* this interpreter, so
+        // it is already on that interpreter's own `sys.path`. Setting PYTHONPATH
+        // here would be guessing at a directory we deliberately stopped
+        // guessing at.
+        return Command{{found->first.string(), "-m", "missile_defense.ui"}, {}};
     }
     return Command{{found->first.string()}, {}};
 }

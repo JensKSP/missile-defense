@@ -38,9 +38,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Protocol
 
-from . import runtime
+from . import paths, runtime
 
-#: <root>/python/missile_defense/ui/runner.py — the checkout, when the trainer runs from one.
+#: <root>/python/missile_defense/runs/runner.py — the checkout, when the trainer runs from one.
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 #: The directory ``md`` itself sits in, so a spawned run can import it without
@@ -82,6 +82,49 @@ TRAINER_NAMES = ("missile-defense-trainer",)
 #: Where an installer leaves it. `/usr/games` is not searched: the trainer is
 #: not a game and its Debian package puts it in `/usr/bin`.
 TRAINER_SYSTEM_PATHS = ("/usr/bin", "/usr/local/bin")
+
+
+#: Where the game records the interpreter it installed the trainer into, inside
+#: the data directory. The C++ side writes and reads the same file — see
+#: `record_file` in app/trainer.hpp — so the format is fixed by both: `key=value`
+#: lines, unknown keys ignored so a newer writer cannot break an older reader.
+RECORD_FILE = "trainer.conf"
+RECORD_INTERPRETER_KEY = "interpreter"
+
+
+def recorded_interpreter(data_dir: Path | None = None) -> Path | None:
+    """The interpreter recorded in ``data_dir``, or ``None`` if there is no record.
+
+    ``data_dir`` defaults to the same directory Qt's ``AppLocalDataLocation``
+    resolves to, which is what the game passes its own lookup — the two must
+    agree or the game and the trainer disagree about whether a trainer exists.
+    """
+    directory = paths.data_home() if data_dir is None else data_dir
+    try:
+        text = (directory / RECORD_FILE).read_text(encoding="utf-8")
+    except OSError:
+        return None  # never installed from the game, which is the ordinary case
+    for line in text.splitlines():
+        key, sep, value = line.partition("=")
+        if sep and key.strip() == RECORD_INTERPRETER_KEY:
+            return Path(value.strip())
+    return None
+
+
+def record_interpreter(interpreter: Path, version: str, data_dir: Path | None = None) -> Path:
+    """Write the record the lookup reads, and return where it was written.
+
+    Called after a successful install. The version goes in beside the
+    interpreter so the game can tell a trainer that is merely *older* than the
+    wheel beside it from one that is missing, and offer the right thing.
+    """
+    directory = paths.data_home() if data_dir is None else data_dir
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / RECORD_FILE
+    path.write_text(
+        f"{RECORD_INTERPRETER_KEY}={interpreter}\nversion={version}\n", encoding="utf-8"
+    )
+    return path
 
 
 class AppNotFound(RuntimeError):
@@ -156,9 +199,9 @@ def trainer_executable(
     *,
     root: Path | None = None,
     platform: str = sys.platform,
-    install_root: Path | None = None,
+    data_dir: Path | None = None,
 ) -> Path | None:
-    """Locate the training trainer, or ``None`` if this install does not have one.
+    """Locate the trainer, or ``None`` if this install does not have one.
 
     **This lookup is the boundary between the two products.** The game adds its
     TRAIN AI entry only when this resolves, so on a game-only install — where
@@ -173,25 +216,27 @@ def trainer_executable(
     1. ``MD_TRAINER`` — someone said which one. A path that does not exist is
        ``None`` rather than a fallback, because falling back would start a
        *different* trainer than the one that was named.
-    2. ``missile-defense-trainer`` on ``PATH``, then the directories an installer uses — the
-       answer for anyone who installed the package.
-    3. the payload an installer left beside the game — ``missile_defense/ui`` in
-       ``install_root``, run as ``-m missile_defense.ui``. This is the Windows answer, where
-       what the installer writes is ``missile-defense-trainer.cmd``: a *script*, which Smart
-       App Control blocks on a stock Windows 11, and which no amount of
-       searching for an executable would have found anyway.
+    2. the interpreter the game recorded when it installed the trainer itself,
+       from ``trainer.conf`` in the data directory, run as
+       ``-m missile_defense.ui``.
+    3. ``missile-defense-trainer`` on ``PATH``, then the directories a
+       distribution uses — the Debian answer, where apt owns both halves.
     4. this checkout's own ``python/missile_defense/ui``, run as
        ``-m missile_defense.ui`` — a developer has no installed launcher but does
-       have the trainer, and the game should
-       still offer it there.
+       have the trainer, and the game should still offer it there.
 
-    ``install_root`` is the directory the game was installed into. It has no
-    default worth having: the C++ side derives it from the directory its own
-    binary is in, and the only thing this side could reach for — ``PACKAGE_PATH``
-    — is the directory ``md`` is being imported from right now, so it would
-    always match and turn step 3 into an unconditional yes. Unset means "this
-    caller does not know of one", which is the honest answer from inside a
-    trainer that was started some other way.
+    Step 2 replaced a search for a payload directory beside the game. Guessing
+    where pip put things cannot be made to work — its scripts land in
+    ``~/Library/Python/3.x/bin`` or ``%APPDATA%\\Python\\...\\Scripts``, neither is
+    on ``PATH``, and a macOS app launched from the Finder inherits almost none of
+    ``PATH`` anyway. So the game writes down the *interpreter* it installed into,
+    which needs no scripts directory and no ``PATH`` at all.
+
+    **Nothing in this package calls this.** It exists so the contract has two
+    independent statements of itself, and `test_ui_runner.py` holds it to
+    `app/trainer.cpp`. That is the point: one implementation cannot disagree with
+    itself, and the failure this guards against — a menu entry that launches
+    nothing — is invisible from either side alone.
     """
     env = os.environ if environ is None else environ
     root = PROJECT_ROOT if root is None else root
@@ -201,6 +246,12 @@ def trainer_executable(
     if override:
         candidate = Path(override)
         return candidate if candidate.exists() else None
+    recorded = recorded_interpreter(data_dir)
+    # Skipped rather than fatal when it no longer exists: unlike MD_TRAINER
+    # nobody asked for this one by name, so an interpreter that has since been
+    # uninstalled must not hide an apt-installed trainer on PATH.
+    if recorded is not None and recorded.exists():
+        return recorded
     for name in TRAINER_NAMES:
         found = shutil.which(f"{name}{exe}", path=env.get("PATH"))
         if found:
@@ -210,11 +261,6 @@ def trainer_executable(
             candidate = Path(directory) / f"{name}{exe}"
             if candidate.exists():
                 return candidate
-    if (
-        install_root is not None
-        and (install_root / "missile_defense" / "ui" / "__main__.py").exists()
-    ):
-        return Path(sys.executable)
     if (root / "python" / "missile_defense" / "ui" / "__main__.py").exists():
         return Path(sys.executable)
     return None
@@ -225,7 +271,7 @@ def trainer_command(
     *,
     root: Path | None = None,
     platform: str = sys.platform,
-    install_root: Path | None = None,
+    data_dir: Path | None = None,
 ) -> list[str] | None:
     """The trainer as an argv, or ``None``.
 
@@ -235,12 +281,15 @@ def trainer_command(
     *whether* there is one to decide its menu, while starting it needs the whole
     command — and two of the four answers above are not self-contained.
     """
-    found = trainer_executable(environ, root=root, platform=platform, install_root=install_root)
+    found = trainer_executable(environ, root=root, platform=platform, data_dir=data_dir)
     if found is None:
         return None
-    if found == Path(sys.executable):
-        return [str(found), "-m", "missile_defense.ui"]
-    return [str(found)]
+    # An interpreter is handed the module; a launcher is run as it is. The
+    # recorded answer is an interpreter that is *not* this process's, so the test
+    # cannot be `== sys.executable` any more.
+    if found.name.startswith("missile-defense-"):
+        return [str(found)]
+    return [str(found), "-m", "missile_defense.ui"]
 
 
 def launch_environ(

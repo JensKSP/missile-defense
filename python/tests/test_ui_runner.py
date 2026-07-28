@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -32,6 +33,9 @@ from missile_defense.runs.runner import (
     training_environ,
     training_python,
 )
+
+#: The checkout, for the C++ header this module has to agree with.
+ROOT = Path(__file__).resolve().parents[2]
 
 EXE = ".exe" if os.name == "nt" else ""
 
@@ -499,41 +503,89 @@ def test_a_checkout_can_run_the_trainer_it_contains(tmp_path: Path) -> None:
     assert found.name.startswith("python")
 
 
-def _install_payload(root: Path) -> Path:
-    """The trainer's payload as a Windows installer leaves it, beside the game."""
-    package = root / "missile_defense" / "ui"
-    package.mkdir(parents=True)
-    (package / "__main__.py").write_text("", encoding="utf-8")
-    return root
+def _record(data_dir: Path, interpreter: Path) -> Path:
+    """A `trainer.conf` as the game writes it after installing the trainer."""
+    return runner.record_interpreter(interpreter, "0.1.0", data_dir)
 
 
-def test_a_payload_beside_the_game_is_run_by_the_interpreter(tmp_path: Path) -> None:
-    # The Windows case. The installer writes `missile_defense\ui\` next to `md_app.exe` and
-    # nothing onto PATH, and what it calls a launcher is a `.cmd` that Smart App
-    # Control refuses to run — so the interpreter is the only way in, and this
-    # is the stage that finds it. The C++ side has the same case in
+def test_the_recorded_interpreter_is_used_and_needs_no_path(tmp_path: Path) -> None:
+    # The stage that replaced guessing at pip's scripts directory. Note what is
+    # absent: nothing on PATH, no launcher anywhere. This is the macOS machine
+    # where a Finder-launched game sees `/usr/bin:/bin:/usr/sbin:/sbin` and pip
+    # installed into ~/Library. The C++ side has the same case in
     # test_trainer.cpp; the two must not disagree about it.
-    install = _install_payload(tmp_path / "Missile Defense")
-    found = trainer_executable({"PATH": ""}, root=tmp_path / "no-checkout", install_root=install)
-    assert found is not None
-    assert found.name.startswith("python")
+    interpreter = tmp_path / "python3"
+    interpreter.write_text("", encoding="utf-8")
+    _record(tmp_path / "data", interpreter)
 
-
-def test_an_installed_launcher_still_wins_over_the_payload(tmp_path: Path) -> None:
-    # Someone who pip-installed the package has an missile-defense-trainer of their own, and
-    # it is the more explicit answer. Adding a stage underneath PATH must not
-    # reorder the ones above it.
-    trainer = _install_trainer(tmp_path)
-    install = _install_payload(tmp_path / "Missile Defense")
     found = trainer_executable(
-        {"PATH": str(tmp_path)}, root=tmp_path / "no-checkout", install_root=install
+        {"PATH": ""}, root=tmp_path / "no-checkout", data_dir=tmp_path / "data"
+    )
+    assert found == interpreter
+
+
+def test_the_record_wins_over_a_launcher_on_path(tmp_path: Path) -> None:
+    # Two Pythons, one of which has the package. The launcher on PATH belongs to
+    # whichever interpreter pip put it there for; the record names the one the
+    # game installed *into*. Preferring PATH would start a trainer that cannot
+    # import itself.
+    _install_trainer(tmp_path)
+    interpreter = tmp_path / "python3"
+    interpreter.write_text("", encoding="utf-8")
+    _record(tmp_path / "data", interpreter)
+
+    found = trainer_executable(
+        {"PATH": str(tmp_path)}, root=tmp_path / "no-checkout", data_dir=tmp_path / "data"
+    )
+    assert found == interpreter
+
+
+def test_a_record_naming_a_removed_interpreter_falls_through(tmp_path: Path) -> None:
+    # Unlike MD_TRAINER, nobody asked for this one by name — it is the game's own
+    # note to itself, and a note about an uninstalled Python must not hide an
+    # apt-installed trainer sitting on PATH.
+    trainer = _install_trainer(tmp_path)
+    _record(tmp_path / "data", tmp_path / "gone" / "python3")
+
+    found = trainer_executable(
+        {"PATH": str(tmp_path)}, root=tmp_path / "no-checkout", data_dir=tmp_path / "data"
     )
     assert found == trainer
 
 
-def test_an_unknown_install_root_offers_no_payload(tmp_path: Path) -> None:
-    # The default. `install_root` unset means the caller knows of no install, not
-    # "look wherever `md` happens to be imported from" — which is always true and
-    # would turn a game-only install into one that offers training.
-    _install_payload(tmp_path / "Missile Defense")
-    assert trainer_executable({"PATH": str(tmp_path)}, root=tmp_path / "nowhere") is None
+def test_the_record_round_trips_through_the_format_the_game_reads(tmp_path: Path) -> None:
+    # `key=value`, one per line, because app/trainer.cpp parses it by hand rather
+    # than link a parser for two keys. A change of shape here is a game that
+    # stops finding a trainer it installed itself, with nothing to say why.
+    written = _record(tmp_path, Path("/opt/py/bin/python3"))
+    lines = written.read_text(encoding="utf-8").splitlines()
+    assert "interpreter=/opt/py/bin/python3" in lines
+    assert "version=0.1.0" in lines
+    assert runner.recorded_interpreter(tmp_path) == Path("/opt/py/bin/python3")
+
+
+def test_an_unknown_data_directory_offers_nothing(tmp_path: Path) -> None:
+    # A game that has never installed a trainer has no record, and reading a
+    # directory that does not exist is the ordinary case rather than an error.
+    assert runner.recorded_interpreter(tmp_path / "nowhere") is None
+
+
+def test_both_sides_spell_the_record_the_same_way() -> None:
+    """The game writes this file and the game reads it — in two languages.
+
+    `app/trainer.cpp` parses `trainer.conf` by hand, and this module writes it.
+    Nothing links the two but the strings, so a rename on either side produces a
+    game that cannot find a trainer it installed itself and says nothing about
+    why. Read out of the header rather than restated, because a copy here would
+    drift with the same silence.
+    """
+    header = (ROOT / "app" / "trainer.hpp").read_text(encoding="utf-8")
+    for constant, value in (
+        ("record_file", runner.RECORD_FILE),
+        ("record_interpreter_key", runner.RECORD_INTERPRETER_KEY),
+    ):
+        match = re.search(rf'{constant}\s*=\s*"([^"]+)"', header)
+        assert match is not None, f"app/trainer.hpp no longer declares {constant}"
+        assert match.group(1) == value, (
+            f"{constant} is {match.group(1)!r} in C++ and {value!r} in Python"
+        )

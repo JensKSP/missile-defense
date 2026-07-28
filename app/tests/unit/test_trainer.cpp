@@ -70,10 +70,11 @@ struct Machine {
     /// The PATH variable's directories, joined by `join()` with the separator
     /// the search actually splits on — `;` on Windows, `:` elsewhere.
     std::string path;
-    /// The install directory an installer dropped the trainer's payload into,
-    /// beside the game. A member rather than a `lookup()` argument because the
-    /// checkout already has that seat and the two are never both the answer.
-    std::filesystem::path payload;
+    /// The interpreter this game recorded after installing the trainer into it,
+    /// as `machine_lookup` would have read it out of `trainer.conf`. A member
+    /// rather than a `lookup()` argument because the checkout already has that
+    /// seat and the two are never both the answer.
+    std::filesystem::path recorded;
 
     [[nodiscard]] md::trainer::Lookup lookup(std::filesystem::path root = {}) const {
         md::trainer::Lookup probe;
@@ -95,18 +96,16 @@ struct Machine {
         };
         probe.search_path = path;
         probe.checkout_root = std::move(root);
-        probe.payload_root = payload;
+        probe.recorded_interpreter = recorded;
         return probe;
     }
 };
 
 constexpr std::string_view checkout = "/home/dev/missile-defense";
 
-/// Where a Windows installer leaves the game and the trainer's payload together.
-/// Spelled with forward slashes so the fixtures compare through
-/// `generic_string()` like every other path here; the separator is not what
-/// these cases are about.
-constexpr std::string_view install_dir = "/c/Program Files/Missile Defense";
+/// A user-owned interpreter, in the sort of place pip actually installs into and
+/// PATH does not reach — which is the whole reason the record exists.
+constexpr std::string_view user_python = "/home/dev/Library/Python/3.12/bin/python3";
 
 } // namespace
 
@@ -176,57 +175,53 @@ TEST_CASE("A checkout offers its own trainer through the interpreter", "[unit][a
     CHECK(command->python_path.generic_string() == std::string{checkout} + "/python");
 }
 
-TEST_CASE("An installed payload beside the game is run through the interpreter",
-          "[unit][app][trainer]") {
-    // The Windows case, and the one that was missing: the installer writes
-    // `missile_defense\ui\` next to `md_app.exe` and nothing onto PATH, so before this stage
-    // existed every Windows install — installer and portable ZIP alike —
-    // resolved to nothing and the menu never offered training at all.
+TEST_CASE("The interpreter this game installed into is run with -m", "[unit][app][trainer]") {
+    // The record is what replaced guessing at pip's scripts directory. Note what
+    // is *not* here: no PATH entry, no launcher, and an interpreter under
+    // ~/Library — exactly the machine where every other stage finds nothing.
     Machine machine;
-    machine.payload = install_dir;
-    machine.executables = {std::string{install_dir} + "/missile_defense/ui/__main__.py",
-                           "/usr/bin/python3"};
-    machine.path = "/usr/bin";
+    machine.recorded = user_python;
+    machine.executables = {std::string{user_python}};
 
     const auto command = md::trainer::command(machine.lookup());
     REQUIRE(command.has_value());
     CHECK(command->argv ==
-          std::vector<std::string>{launcher("/usr/bin", "python3"), "-m", "missile_defense.ui"});
-    // The payload's own directory, not a `python/` below it: that is what the
-    // installed layout looks like, and what launcher.cmd.in sets from `%~dp0`.
-    CHECK(command->python_path.generic_string() == std::string{install_dir});
-}
-
-TEST_CASE("An installed launcher still wins over the payload beside the game",
-          "[unit][app][trainer]") {
-    // Someone who pip-installed the package has an `missile-defense-trainer` of their own on
-    // PATH. It is the more explicit answer of the two, so the order that put
-    // PATH first has to survive the new stage being added underneath it.
-    Machine machine;
-    machine.payload = install_dir;
-    machine.executables = {std::string{install_dir} + "/missile_defense/ui/__main__.py",
-                           "/home/dev/.local/bin/missile-defense-trainer", "/usr/bin/python3"};
-    machine.path = join({"/home/dev/.local/bin", "/usr/bin"});
-
-    const auto command = md::trainer::command(machine.lookup());
-    REQUIRE(command.has_value());
-    CHECK(command->argv ==
-          std::vector<std::string>{launcher("/home/dev/.local/bin", "missile-defense-trainer")});
+          std::vector<std::string>{std::string{user_python}, "-m", "missile_defense.ui"});
+    // No import path: pip put the package inside that interpreter, so its own
+    // sys.path already has it. Setting PYTHONPATH would be a guess.
     CHECK(command->python_path.empty());
 }
 
-TEST_CASE("A payload with no interpreter offers nothing", "[unit][app][trainer]") {
-    // The same rule the checkout case keeps, and it matters more here: a
-    // Windows install carries the payload whether or not the machine has any
-    // Python, so without this the menu would offer training on every game-only
-    // install that happened to tick the trainer component.
+TEST_CASE("The recorded interpreter wins over one that merely sits on PATH",
+          "[unit][app][trainer]") {
+    // Two Pythons, and only one of them has the package. `missile-defense-trainer`
+    // on PATH belongs to whichever interpreter pip put it there for; the record
+    // names the one this game installed *into*. Preferring PATH would start a
+    // trainer that cannot import itself.
     Machine machine;
-    machine.payload = install_dir;
-    machine.executables = {std::string{install_dir} + "/missile_defense/ui/__main__.py"};
+    machine.recorded = user_python;
+    machine.executables = {std::string{user_python}, "/usr/bin/missile-defense-trainer"};
     machine.path = "/usr/bin";
 
-    CHECK_FALSE(md::trainer::find(machine.lookup()).has_value());
-    CHECK_FALSE(md::trainer::command(machine.lookup()).has_value());
+    const auto command = md::trainer::command(machine.lookup());
+    REQUIRE(command.has_value());
+    CHECK(command->argv ==
+          std::vector<std::string>{std::string{user_python}, "-m", "missile_defense.ui"});
+}
+
+TEST_CASE("A record pointing at a removed interpreter falls through", "[unit][app][trainer]") {
+    // Unlike MD_TRAINER, nobody asked for this one by name — it is this game's
+    // own note to itself, and a note about a Python that has since been
+    // uninstalled should not hide an apt-installed trainer sitting on PATH.
+    Machine machine;
+    machine.recorded = user_python; // recorded, but no longer on disk
+    machine.executables = {"/usr/bin/missile-defense-trainer"};
+    machine.path = "/usr/bin";
+
+    const auto command = md::trainer::command(machine.lookup());
+    REQUIRE(command.has_value());
+    CHECK(command->argv ==
+          std::vector<std::string>{launcher("/usr/bin", "missile-defense-trainer")});
 }
 
 TEST_CASE("A game-only install offers no trainer at all", "[unit][app][trainer]") {

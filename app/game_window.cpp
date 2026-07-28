@@ -39,8 +39,12 @@ GameWindow::GameWindow() {
     load_settings(); // restore audio/music/fullscreen from the previous session
     // Once, here, rather than whenever the menu is drawn: the answer cannot
     // change while the game is running, and it costs a handful of stat() calls.
-    trainer_ = trainer::command(
-        trainer::machine_lookup(QCoreApplication::applicationFilePath().toStdString()));
+    // `AppLocalDataLocation` is where the install flow records which interpreter
+    // it put the trainer into (app/trainer.hpp). Read here and handed in, because
+    // trainer.cpp is deliberately Qt-free and QStandardPaths is not.
+    trainer_ = trainer::command(trainer::machine_lookup(
+        QCoreApplication::applicationFilePath().toStdString(),
+        QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation).toStdString()));
     // The bundled agent, if this build ships one. A missing file is the normal
     // state today and not an error; a *present but unreadable* one is worth
     // saying out loud, because it means the package is broken rather than lean.
