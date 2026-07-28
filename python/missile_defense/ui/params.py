@@ -116,7 +116,11 @@ BOUNDS: dict[str, tuple[float, float]] = {
     "epochs": (1, 64),
     "minibatches": (1, 512),
     "learning_rate": (1e-8, 1.0),
-    "learning_rate_final": (0.0, 1.0),
+    # The same floor as its starting value, and for the same reason: the two are
+    # one decision (anneal *from* here *to* there) and the form offers them as
+    # one control, so a pair that could not represent the same numbers would be a
+    # control whose two ends disagree. 1e-8 is zero for any optimizer's purposes.
+    "learning_rate_final": (1e-8, 1.0),
     "entropy_coef": (0.0, 1.0),
     "entropy_coef_final": (0.0, 1.0),
     "value_coef": (0.0, 10.0),
@@ -133,6 +137,209 @@ BOUNDS: dict[str, tuple[float, float]] = {
     "base_weight": (0.0, 10_000.0),
     "waste_penalty": (0.0, 1_000.0),
     "multikill_bonus": (0.0, 1_000.0),
+    # Added when the form gained sliders. A slider cannot exist without a range,
+    # and these seven had none — so they were the fields that stayed plain boxes
+    # for no reason other than that nobody had written a bound down.
+    "aim_trail": (0.0, 1.0),  # a fraction of the way to the aim point
+    "reaction_delay": (0, 60),  # ticks; a second of lag is already absurd
+    "eval_ramp_until": (0, 100_000),
+    "record_ramp_until": (0, 100_000),
+    "auxiliary_coef": (0.0, 10.0),
+    "seed": (0, 2_147_483_647),
+    # `int | None`: blank means "the run's own --updates". The low bound stays 0
+    # rather than 1 so an untouched spin box still reads as unset — `values()`
+    # compares against what the editor was built showing, and a minimum of 1
+    # would make every dialog emit a schedule nobody asked for.
+    "schedule_updates": (0, 1_000_000),
+}
+
+#: How a slider should travel across a field's range.
+#:
+#: `linear` is the default and is not listed. The other two exist because a
+#: linear slider is useless over a range that spans decades: `learning_rate` runs
+#: 1e-8 to 1, so at 1000 steps every value below 0.001 sits in the first single
+#: pixel. `decade` maps position to the exponent; `log` is for ranges that start
+#: at a real zero, which cannot have a logarithm — the reward weights run 0 to
+#: 10,000 and `ammo_weight` defaults to 5.0, so linear would put the default in
+#: the first thousandth of the travel and make it unpickable.
+SCALE: dict[str, str] = {
+    "learning_rate": "decade",
+    "learning_rate_final": "decade",
+    "city_weight": "log",
+    "ammo_weight": "log",
+    "base_weight": "log",
+    "waste_penalty": "log",
+    "multikill_bonus": "log",
+    "max_ticks": "log",
+    "updates": "log",
+    "envs": "log",
+}
+
+
+# ---- how the dialog is laid out ----------------------------------------------
+
+#: The three questions a run is configured by, in tab order. Named for the
+#: *decision* rather than for the dataclass each came from: someone starting a
+#: run picks between "what is it paid for", "how does it learn" and "how big and
+#: how long", and only afterwards cares that those happen to be `Shaping`,
+#: `PPOConfig` and `TrainConfig`.
+#:
+#: The split is not quite by owner, and deliberately: the annealing schedule is
+#: `learning_rate` from `PPOConfig` paired with `learning_rate_final` from
+#: `TrainConfig`, one decision spread over two classes. It belongs where the
+#: decision is made, which is Learning.
+DOMAINS: tuple[tuple[str, str, str], ...] = (
+    ("reward", "Objective", "what the agent is paid for"),
+    ("learn", "Learning", "how it learns"),
+    ("run", "Run", "how big, how long, what it costs"),
+)
+
+
+@dataclass(frozen=True)
+class Group:
+    """A row of the dialog: some fields, under a name, in one domain.
+
+    ``essential`` groups sit open on the panel; the rest fold, showing their
+    values on the closed summary line so folding compresses rather than hides.
+    Nothing here holds more than five fields — the point of the grouping is that
+    opening one costs a glance, which a single "13 more" drawer did not.
+    """
+
+    name: str
+    domain: str
+    fields: tuple[str, ...]
+    essential: bool = False
+
+
+#: Every settable field, in exactly one group. `test_ui_params.py` holds that
+#: claim in both directions — a field the trainer gained but nobody placed would
+#: otherwise simply not appear in the dialog, which is the failure this list is
+#: most likely to produce and the hardest to notice.
+GROUPS: tuple[Group, ...] = (
+    # --- Objective: all seven, no folds. `enabled` is the master switch drawn
+    # above the terms it governs rather than a row among them.
+    Group("Shaping", "reward", ("enabled",), essential=True),
+    Group(
+        "Potential terms", "reward", ("base_weight", "city_weight", "ammo_weight"), essential=True
+    ),
+    Group("Priced events", "reward", ("waste_penalty", "multikill_bonus"), essential=True),
+    # `Shaping.gamma` is not here: it is derived from `PPOConfig.gamma`, which
+    # the two dataclasses require to be equal (see SHARED_FLAGS). One control,
+    # in Learning, writes both.
+    # --- Learning
+    Group(
+        "Learning",
+        "learn",
+        ("learning_rate", "gamma", "clip", "entropy_coef", "architecture", "minibatches"),
+        essential=True,
+    ),
+    Group("Network size", "learn", ("hidden", "auxiliary_coef")),
+    Group("Credit & value", "learn", ("gae_lambda", "value_coef", "value_clip")),
+    Group("Update stability", "learn", ("epochs", "max_grad_norm")),
+    Group(
+        "Annealing",
+        "learn",
+        ("learning_rate_final", "entropy_coef_final", "schedule_updates"),
+    ),
+    # --- Run
+    Group("Scale", "run", ("envs", "steps", "updates"), essential=True),
+    Group("Episode & pacing", "run", ("frame_skip", "max_ticks")),
+    Group(
+        "What gets written",
+        "run",
+        ("eval_every", "record_every", "checkpoint_every", "eval_ramp_until", "record_ramp_until"),
+    ),
+    Group("Human handicap", "run", ("aim_trail", "reaction_delay")),
+    Group("Machine", "run", ("device", "seed")),
+)
+
+#: Fields the dialog derives rather than offers, mapped to the field they follow.
+#: `Shaping.gamma` must equal `PPOConfig.gamma` — both dataclasses say so, and
+#: the shaping-invariance proof assumes it — so offering two controls would be
+#: offering a way to break it. `flags_for` already writes both flags from the one
+#: value; this is what keeps the second out of the form.
+DERIVED = {"Shaping": ("gamma",)}
+
+
+def group_of(name: str, owner: str = "") -> Group | None:
+    """The group a field belongs to, or ``None`` when it is derived or unknown."""
+    if name in DERIVED.get(owner, ()):
+        return None
+    for group in GROUPS:
+        if name in group.fields:
+            return group
+    return None
+
+
+def domain_title(domain: str) -> str:
+    return next((title for key, title, _ in DOMAINS if key == domain), domain)
+
+
+#: The jargon the dialog uses, defined in the game's terms rather than the
+#: literature's. The parameter form shows these where a word is marked, so an
+#: abbreviation is never a dead end — and the same text is the whole glossary.
+#: Every one of these has to be *used* somewhere, which a test checks: a
+#: definition nobody can reach is a definition nobody maintains.
+GLOSSARY: dict[str, str] = {
+    "PPO": (
+        "Proximal Policy Optimization — the training algorithm. It improves the "
+        "policy in small, clipped steps, so one bad batch cannot wreck a network "
+        "that was working."
+    ),
+    "GAE": (
+        "Generalized Advantage Estimation — how credit for a score is spread back "
+        "over the decisions that led to it. Lambda trades bias against variance."
+    ),
+    "gamma": (
+        "Discount. How much a future point is worth against one now. 1/(1-gamma) "
+        "is roughly how many steps ahead the agent cares about: 0.999 is about "
+        "1000 steps, or 65 seconds of play."
+    ),
+    "potential": (
+        "One number summarising how good the board looks, built from surviving "
+        "batteries, cities and ammo. Shaping pays the agent the *change* in it, "
+        "so progress is rewarded as it happens instead of at the end of a wave."
+    ),
+    "shaping": (
+        "Extra reward paid on top of the game score, so progress is visible "
+        "sooner. Switch it off and the agent is paid the game score and nothing "
+        "else. Built as the difference of a potential, which Ng, Harada & Russell "
+        "(1999) proved cannot change which policy is best — only how fast it is "
+        "found — so runs differing only in these weights stay comparable."
+    ),
+    "entropy": (
+        "How undecided the policy is. A bonus on it keeps the agent exploring; "
+        "with none it commits early and stops improving. Missile Command punishes "
+        "early commitment, so some is kept alive well into training."
+    ),
+    "clip": (
+        "PPO's trust region. Caps how far one update may move the policy from the "
+        "previous one; 0.2 is the standard starting point."
+    ),
+    "mlp": (
+        "Multi-layer perceptron — a plain flat network. Cheap, and "
+        "checkpoint-compatible with existing models."
+    ),
+    "entity": (
+        "The relational network. It encodes each threat separately and attends "
+        "across them, which reads the board far better and costs about twenty "
+        "times the GPU memory per sample."
+    ),
+    "rollout": (
+        "One batch of experience: every parallel environment stepped forward N "
+        "times before the network is updated from what happened."
+    ),
+    "minibatches": (
+        "A rollout is split into this many pieces, each updating the network in "
+        "turn. More pieces means less memory at once — same data, smaller bites."
+    ),
+    "checkpoint": (
+        "A saved snapshot — weights, optimizer state and iteration — that a run "
+        "can be continued from."
+    ),
+    "policy": (
+        "The trained network itself: the thing that looks at the board and decides where to shoot."
+    ),
 }
 
 
@@ -169,6 +376,36 @@ class Param:
     @property
     def headline(self) -> bool:
         return self.name in HEADLINE
+
+    @property
+    def scale(self) -> str:
+        """How a slider should travel this field's range: linear, log or decade."""
+        return SCALE.get(self.name, "linear")
+
+    @property
+    def group(self) -> Group | None:
+        """Where the dialog puts this field, or ``None`` when it is derived."""
+        return group_of(self.name, self.owner)
+
+    @property
+    def derived(self) -> bool:
+        """Whether the dialog computes this field instead of offering it.
+
+        True for `Shaping.gamma`, which follows `PPOConfig.gamma` because the two
+        must be equal. A derived field still reaches the command line — see
+        `flags_for` — it simply has no editor of its own to disagree with.
+        """
+        return self.name in DERIVED.get(self.owner, ())
+
+    @property
+    def key(self) -> tuple[str, str]:
+        """What identifies this field to the dialog.
+
+        The owner *and* the name, because `gamma` is a field of two config
+        classes and the form used to key its editors by name alone — so the two
+        shared one box by accident, and only the second was ever written.
+        """
+        return (self.owner, self.name)
 
 
 def read_params(package_dir: Path) -> list[Param]:

@@ -389,3 +389,125 @@ def test_settings_keep_the_order_and_grouping_the_trainer_wrote(tmp_path: Path) 
 
 def test_nothing_stored_is_nothing_to_show() -> None:
     assert settings_of(None, read_params(TRAINER)) == []
+
+
+# ---- the dialog's layout, held to the trainer's actual fields -----------------
+
+
+def test_every_settable_field_is_placed_in_exactly_one_group() -> None:
+    """The failure this catches is silent: a field nobody placed is a field the
+    dialog never shows, and the trainer's default stands with no way to change it.
+
+    Checked in both directions, because both drift. A field added to the trainer
+    and not to `GROUPS` disappears from the form; a name left in `GROUPS` after a
+    rename points at nothing and quietly shrinks a panel.
+    """
+    from missile_defense.ui.params import GROUPS  # noqa: PLC0415
+    from missile_defense.ui.params import read_params as read  # noqa: PLC0415
+
+    fields = [f for f in read(Path("python/missile_defense")) if not f.derived]
+    placed: list[str] = [name for group in GROUPS for name in group.fields]
+
+    assert len(placed) == len(set(placed)), "a field is in two groups"
+    assert set(placed) == {f.name for f in fields}, (
+        f"unplaced: {sorted({f.name for f in fields} - set(placed))}  "
+        f"stale: {sorted(set(placed) - {f.name for f in fields})}"
+    )
+
+
+def test_every_group_belongs_to_a_real_domain() -> None:
+    from missile_defense.ui.params import DOMAINS, GROUPS  # noqa: PLC0415
+
+    known = {key for key, _, _ in DOMAINS}
+    for group in GROUPS:
+        assert group.domain in known, f"{group.name} is in domain {group.domain!r}"
+
+
+def test_no_folded_group_is_large_enough_to_be_a_wall_of_boxes() -> None:
+    """The whole point of the folds: opening one costs a glance.
+
+    The bound is on *folded* groups only. An essential group is the panel's own
+    surface — it is not hiding anything, and holding it to the same size would
+    only push a field people need into a drawer to satisfy a number.
+    """
+    from missile_defense.ui.params import GROUPS  # noqa: PLC0415
+
+    for group in GROUPS:
+        if group.essential:
+            continue
+        assert len(group.fields) <= 5, f"{group.name} has {len(group.fields)} fields"
+
+
+def test_the_shaping_discount_is_derived_rather_than_offered() -> None:
+    """Two editors for one number is how they end up disagreeing.
+
+    `Shaping.gamma` must equal `PPOConfig.gamma` — both dataclasses say so and
+    the invariance proof assumes it — so the form offers the PPO one and derives
+    the other. It still reaches the command line under its own flag.
+    """
+    from missile_defense.ui.params import flags_for  # noqa: PLC0415
+    from missile_defense.ui.params import read_params as read  # noqa: PLC0415
+
+    gammas = {f.owner: f for f in read(Path("python/missile_defense")) if f.name == "gamma"}
+    assert gammas["Shaping"].derived
+    assert not gammas["PPOConfig"].derived
+    assert gammas["Shaping"].group is None  # no panel row of its own
+    assert gammas["PPOConfig"].group is not None
+    assert flags_for("gamma") == ("--gamma", "--reward-gamma")
+
+
+def test_a_field_is_identified_by_its_owner_as_well_as_its_name() -> None:
+    """`gamma` names a field of two config classes. Keying editors by name alone
+    gave them one box between them, and only the last one read."""
+    from missile_defense.ui.params import read_params as read  # noqa: PLC0415
+
+    fields = read(Path("python/missile_defense"))
+    assert len({f.key for f in fields}) == len(fields)
+    assert len({f.name for f in fields}) < len(fields)  # the collision is real
+
+
+def test_every_bounded_field_can_be_reached_by_its_slider() -> None:
+    """A log slider cannot represent a negative number and a decade slider cannot
+    represent zero. A field whose scale disagrees with its bounds would open on a
+    control that cannot show its own default."""
+    from missile_defense.ui.params import SCALE  # noqa: PLC0415
+    from missile_defense.ui.params import read_params as read  # noqa: PLC0415
+
+    for field in read(Path("python/missile_defense")):
+        scale = SCALE.get(field.name, "linear")
+        if scale == "linear" or field.bounds is None:
+            continue
+        low, high = field.bounds
+        assert high > 0, f"{field.name}: {scale} needs a positive maximum"
+        if scale == "decade":
+            assert low > 0, f"{field.name}: a decade slider cannot start at {low}"
+        else:
+            assert low >= 0, f"{field.name}: a log slider cannot start at {low}"
+
+
+def test_every_scale_names_a_field_that_exists() -> None:
+    from missile_defense.ui.params import SCALE  # noqa: PLC0415
+    from missile_defense.ui.params import read_params as read  # noqa: PLC0415
+
+    names = {f.name for f in read(Path("python/missile_defense"))}
+    assert set(SCALE) <= names, sorted(set(SCALE) - names)
+
+
+def test_the_glossary_defines_what_it_is_asked_about() -> None:
+    """A glossary entry nobody can reach is one nobody maintains. Every term has
+    to be referenced by a field's label, its choices, or a group name."""
+    from missile_defense.ui.params import CHOICES, GLOSSARY, GROUPS  # noqa: PLC0415
+    from missile_defense.ui.params import read_params as read  # noqa: PLC0415
+
+    vocabulary = {f.name for f in read(Path("python/missile_defense"))}
+    vocabulary |= {c for values in CHOICES.values() for c in values}
+    vocabulary |= {word.lower() for group in GROUPS for word in group.name.split()}
+    # The terms that are explanations of the domain rather than of a field.
+    conceptual = {"PPO", "GAE", "potential", "shaping", "checkpoint", "policy", "rollout"}
+
+    for term in GLOSSARY:
+        assert (
+            term in conceptual
+            or term in vocabulary
+            or term in {n.rsplit("_", 1)[0] for n in vocabulary}
+        ), f"{term!r} is defined but nothing in the dialog refers to it"

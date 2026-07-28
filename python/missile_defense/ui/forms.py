@@ -4,13 +4,34 @@
 # pyright: reportMissingImports=false
 """The parameter dialog — the one surface that is not the main screen.
 
-Twenty-odd hyperparameters with good, reasoned defaults do not belong on the
+Thirty-odd hyperparameters with good, reasoned defaults do not belong on the
 screen you leave open all day, and they do not belong in a wall of boxes either.
-Four fields change a run's character (envs, steps, updates, learning rate); the
-rest sit behind *Advanced*, and every one of them carries as its tooltip the
-sentence already written beside it in the code (:mod:`missile_defense.ui.params`).
+This is laid out as a control station rather than a form:
 
-Three things here are deliberate:
+* **Three tabs, named for the decision** — what the agent is paid for, how it
+  learns, how big and how long. Not one per config class: someone starting a run
+  chooses between those three questions, and only afterwards cares that they
+  happen to be `Shaping`, `PPOConfig` and `TrainConfig`. The split lives in
+  :data:`missile_defense.ui.params.GROUPS`, and a test holds it to the real
+  dataclasses in both directions, so a field nobody placed fails rather than
+  silently vanishing from the dialog.
+* **Essentials open, the rest folded — and a closed fold still shows its
+  values.** A fold that hides what it holds is the same wall of boxes with a
+  button in front of it. None holds more than five, so opening one costs a
+  glance; the single "everything else" drawer this replaced held thirty-three.
+* **A bounded number gets a slider and a readout.** Position says where in the
+  range you are, which identical spin boxes never did, and the box beside it
+  keeps `3e-4` typeable. Three scales, because one does not fit — see
+  :class:`ValueSlider`.
+* **One status strip carries every explanation.** The `#:` sentence beside each
+  field in the trainer's source, shown for whatever is pointed at *or focused*.
+  Under each row instead, thirty-odd paragraphs were most of the dialog's height,
+  and the reasoning is only ever wanted one at a time.
+* **A filter, which is what makes folding safe.** Grouping only helps if you
+  never have to remember which group something is in — so a search reveals a
+  match wherever it lives, opening its fold and switching to its tab.
+
+Four more things are deliberate:
 
 * **Only changed values are passed.** A field left alone is left to the
   dataclass, so the command line reads as the difference from the defaults.
@@ -26,15 +47,19 @@ Three things here are deliberate:
   cost a run: the trainer rejects a resume whose architecture, hidden size or
   annealing schedule disagrees with the checkpoint, and quietly accepts a
   different rollout length as a different experiment under the same run's name.
+  Those four are now *disabled* while a checkpoint is selected
+  (:data:`LOCKED_ON_RESUME`), so a rejection that used to arrive after Start is
+  a control that visibly is not yours to move.
 """
 
 from __future__ import annotations
 
+import math
 import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
-from PySide6.QtCore import QLocale, Qt
+from PySide6.QtCore import QEvent, QLocale, Qt, Signal
 from PySide6.QtGui import QDoubleValidator
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -51,7 +76,9 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QSlider,
     QSpinBox,
+    QTabWidget,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -60,10 +87,36 @@ from PySide6.QtWidgets import (
 from ..runs import footprint, presets
 from ..runs.sources import Checkpoint, human_age, human_size
 from . import params as params_module
-from .params import Param
+from .params import GLOSSARY, GROUPS, Group, Param
 
-#: Wide enough for the four headline fields and their explanations.
-DIALOG_WIDTH = 620
+#: Wide enough for a label, a slider with room to aim, and its readout.
+DIALOG_WIDTH = 680
+#: The numeric box beside every slider. Fixed, so the sliders in a panel all
+#: start and end at the same x and can be compared by eye.
+READOUT_WIDTH = 92
+#: What the status strip says when nothing is under the pointer or the caret.
+HELP_IDLE = "Point at a parameter, or tab to it, for what it does."
+
+#: What a resume cannot change, because the checkpoint already decided it.
+#:
+#: The first three the trainer *rejects* outright — a state dict of a different
+#: shape will not load, and the error names two tensors rather than the setting.
+#: `steps` it accepts, silently, as a different experiment written into the same
+#: run's directory, which is the worse of the two failures. Both used to happen
+#: after Start.
+LOCKED_ON_RESUME = ("architecture", "hidden", "schedule_updates", "steps")
+
+RESUME_LOCK_HELP = (
+    "Fixed by the checkpoint you are continuing from. The trainer would reject a "
+    "resume that disagreed — or, for the rollout length, quietly treat it as a "
+    "different experiment under this run's name."
+)
+
+#: The two events the status strip listens for. Spelled once, because
+#: `QEvent.Type.Enter` is a mouthful at every use and misspelling one silently
+#: means a strip that never updates.
+_ENTER = QEvent.Type.Enter
+_FOCUS_IN = QEvent.Type.FocusIn
 #: `--updates 2000000000` is nonsense, but a spin box needs *some* ceiling.
 SPIN_MAX = 2_000_000_000
 
@@ -121,6 +174,157 @@ def free_vram() -> int | None:
     return max(sample.memory_total - sample.memory_used, 0)
 
 
+#: Positions on every slider. Fine enough that dragging feels continuous, coarse
+#: enough that the readout beside it does not flicker through digits nobody asked
+#: for.
+SLIDER_STEPS = 1000
+
+
+class ValueSlider(QWidget):
+    """A slider and a typeable readout for one bounded number.
+
+    The slider is for *reaching* a value — position carries meaning across a
+    known range, which twenty identical spin boxes never did. The readout is for
+    *stating* one, because a training parameter is often a number you were told
+    rather than one you feel for, and `3e-4` has to remain typeable.
+
+    Three scales, because one does not fit (`missile_defense.ui.params.SCALE`):
+
+    * **linear** for a ratio in [0, 1] — gamma, clip, the entropy bonus.
+    * **decade** for a range spanning orders of magnitude. `learning_rate` runs
+      1e-8 to 1; linear, everything below 0.001 shares the first pixel.
+    * **log** for a range that starts at a real zero, which has no logarithm.
+      The reward weights run 0 to 10,000 and `ammo_weight` defaults to 5.0.
+
+    Qt's slider is integer-only, so all three are a mapping over
+    :data:`SLIDER_STEPS` positions rather than a widget property.
+    """
+
+    changed = Signal()
+
+    def __init__(self, field: Param, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._field = field
+        bounds = field.bounds
+        # Guarded rather than assumed: `read_params` reads whatever the trainer
+        # has, and a field that gained no bound yet must still get an editor.
+        self._low, self._high = bounds if bounds is not None else (0.0, 1.0)
+        self._scale = field.scale
+        self._int = field.kind == "int"
+
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(8)
+
+        self._slider = QSlider(Qt.Orientation.Horizontal)
+        self._slider.setRange(0, SLIDER_STEPS)
+        self._slider.setAccessibleName(field.name.replace("_", " "))
+        row.addWidget(self._slider, stretch=1)
+
+        self._readout = QLineEdit()
+        self._readout.setFixedWidth(READOUT_WIDTH)
+        self._readout.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self._readout.setProperty("role", "readout")
+        validator = QDoubleValidator(self._low, self._high, 12)
+        # Scientific notation on purpose: 3e-4 is how a learning rate is written
+        # and read, where 0.000300 is neither.
+        validator.setNotation(QDoubleValidator.Notation.ScientificNotation)
+        self._readout.setValidator(validator)
+        row.addWidget(self._readout)
+
+        self.set_value(field.default)
+        self._slider.valueChanged.connect(self._from_slider)
+        self._readout.editingFinished.connect(self._from_readout)
+
+    # ---- the three mappings -------------------------------------------------
+    def _to_position(self, value: float) -> int:
+        low, high = self._low, self._high
+        if self._scale == "decade":
+            lo, hi = math.log10(max(low, 1e-12)), math.log10(max(high, 1e-12))
+            if value <= 0.0:
+                return 0
+            fraction = (math.log10(value) - lo) / (hi - lo) if hi > lo else 0.0
+        elif self._scale == "log":
+            span = math.log10(1.0 + high - low)
+            fraction = math.log10(1.0 + max(value - low, 0.0)) / span if span > 0 else 0.0
+        else:
+            fraction = (value - low) / (high - low) if high > low else 0.0
+        return int(round(min(max(fraction, 0.0), 1.0) * SLIDER_STEPS))
+
+    def _from_position(self, position: int) -> float:
+        fraction = position / SLIDER_STEPS
+        low, high = self._low, self._high
+        if self._scale == "decade":
+            lo, hi = math.log10(max(low, 1e-12)), math.log10(max(high, 1e-12))
+            value = 10.0 ** (lo + fraction * (hi - lo))
+            return float(f"{value:.2g}")  # a learning rate is two digits, not sixteen
+        if self._scale == "log":
+            value = low + (10.0 ** (fraction * math.log10(1.0 + high - low)) - 1.0)
+        else:
+            value = low + fraction * (high - low)
+        if self._int:
+            return float(round(value))
+        return float(f"{value:.4g}")
+
+    # ---- the editor protocol ------------------------------------------------
+    def value(self) -> str:
+        return self._readout.text().strip()
+
+    def set_value(self, text: str) -> None:
+        """Show ``text``, or leave the control alone when it is not a number.
+
+        Dropped rather than forced, exactly as the other editors do: a preset is
+        a file somebody may have hand-edited, and turning a typo into a number is
+        worse than ignoring it. The command-line preview always shows what will
+        actually be used.
+        """
+        try:
+            number = float(text)
+        except (TypeError, ValueError):
+            return
+        number = min(max(number, self._low), self._high)
+        self._show(number)
+        # Announced like any other change. Pouring a preset in is not a person
+        # editing, but that distinction is the dialog's to make and it already
+        # makes it: `_touched` returns early while `_applying` is set. Staying
+        # silent here instead would mean a value written from outside those
+        # guards never reached the preview — which is a form showing one thing
+        # and a command line saying another.
+        self.changed.emit()
+
+    def _show(self, number: float) -> None:
+        blocked = self._slider.blockSignals(True)
+        self._slider.setValue(self._to_position(number))
+        self._slider.blockSignals(blocked)
+        self._readout.setText(_number_text(number, self._int))
+
+    def _from_slider(self, position: int) -> None:
+        self._readout.setText(_number_text(self._from_position(position), self._int))
+        self.changed.emit()
+
+    def _from_readout(self) -> None:
+        try:
+            number = float(self._readout.text())
+        except ValueError:
+            return
+        self._show(min(max(number, self._low), self._high))
+        self.changed.emit()
+
+    def setEnabled(self, enabled: bool) -> None:  # noqa: N802 — Qt's spelling
+        super().setEnabled(enabled)
+        self._slider.setEnabled(enabled)
+        self._readout.setEnabled(enabled)
+
+
+def _number_text(number: float, is_int: bool) -> str:
+    """A number as a person writes it: no trailing zeros, exponent when tiny."""
+    if is_int:
+        return str(int(round(number)))
+    if number != 0.0 and (abs(number) < 1e-3 or abs(number) >= 1e6):
+        return f"{number:.2g}"
+    return f"{number:g}"
+
+
 def _read(editor: QWidget) -> str:
     """One string out of whichever editor a field was given.
 
@@ -128,6 +332,8 @@ def _read(editor: QWidget) -> str:
     returning "" for it — which would look like "unchanged" and quietly drop the
     setting.
     """
+    if isinstance(editor, ValueSlider):
+        return editor.value()
     if isinstance(editor, QSpinBox):
         return str(editor.value())
     if isinstance(editor, QCheckBox):
@@ -150,6 +356,9 @@ def _write(editor: QWidget, value: str) -> None:
     anyway. The command-line preview underneath always shows what will actually
     be used.
     """
+    if isinstance(editor, ValueSlider):
+        editor.set_value(value)
+        return
     if isinstance(editor, QSpinBox):
         try:
             editor.setValue(int(value))
@@ -212,11 +421,25 @@ class ParameterDialog(QDialog):
         #: Read once. A dialog is open for a minute, and a number that moved
         #: while you were choosing would only ever move for the worse.
         self._free_vram = free_vram() if free_vram_bytes is None else free_vram_bytes
-        self._editors: dict[str, QWidget] = {}
+        #: Keyed by `Param.key` — owner *and* name. `gamma` is a field of two
+        #: config classes, and keying by name alone gave them one editor between
+        #: them, so only the last one read. `Shaping.gamma` is derived now and has
+        #: no editor at all, but the key stays honest about what identifies a field.
+        self._editors: dict[tuple[str, str], QWidget] = {}
         #: What each editor showed when it was built. `values()` compares
         #: against this rather than the dataclass's source text, because the two
         #: differ for optional fields — see the note there.
-        self._initial: dict[str, str] = {}
+        self._initial: dict[tuple[str, str], str] = {}
+        #: Every row, so the filter can hide one and the folds can be told which
+        #: of their children matched.
+        self._rows: dict[tuple[str, str], QWidget] = {}
+        #: Each fold, with the fields it holds, so a closed one can show its
+        #: values and say how many of them you have changed.
+        self._folds: list[tuple[Group, QToolButton, QWidget, QLabel]] = []
+        #: Which widget explains which field, for the status strip. Keyed by the
+        #: widget because that is what an event arrives on.
+        self._explains: dict[QWidget, tuple[Param, str]] = {}
+        self._labels: dict[tuple[str, str], QLabel] = {}
         self._resume: QComboBox | None = None
         #: True while a preset is being poured into the editors, so their change
         #: signals do not read that as the person typing and flip the picker to
@@ -253,12 +476,14 @@ class ParameterDialog(QDialog):
         if checkpoints:
             layout.addWidget(self._resume_row(checkpoints, resume))
 
-        headline = [field for field in fields if field.headline]
-        advanced = [field for field in fields if not field.headline]
-        if headline:
-            layout.addWidget(self._group(headline))
-        if advanced:
-            layout.addWidget(self._advanced(advanced))
+        if fields:
+            layout.addWidget(self._find_row())
+            layout.addWidget(self._tabs(fields), stretch=1)
+            # One place the dialog explains itself, for parameters and for
+            # jargon alike. A strip rather than a line under every row: thirty-odd
+            # parameters carrying thirty-odd paragraphs is most of the height of
+            # the dialog, and the reasoning is only ever wanted one at a time.
+            layout.addWidget(self._help_strip())
 
         self._preview = QLabel()
         self._preview.setProperty("role", "preview")
@@ -270,7 +495,11 @@ class ParameterDialog(QDialog):
         # Only where there are fields to read it from — with no trainer source
         # there is nothing to estimate from and nothing to change if it is wrong.
         self._memory: QLabel | None = None
+        self._schedule: QLabel | None = None
         if fields:
+            self._schedule = QLabel()
+            self._schedule.setProperty("role", "note")
+            layout.addWidget(self._schedule)
             self._memory = QLabel()
             self._memory.setProperty("role", "note")
             self._memory.setWordWrap(True)
@@ -387,13 +616,13 @@ class ParameterDialog(QDialog):
         self._applying = True
         try:
             for field in self._fields:
-                editor = self._editors.get(field.name)
+                editor = self._editors.get(field.key)
                 if editor is None:
                     continue
                 # Fields the preset does not mention go back to the trainer's
                 # own default, so what is on screen is the preset and not the
                 # preset over the residue of whatever was picked before it.
-                _write(editor, str(preset.options.get(field.name, self._initial[field.name])))
+                _write(editor, str(preset.options.get(field.name, self._initial[field.key])))
         finally:
             self._applying = False
         self._refresh_preview()
@@ -494,50 +723,254 @@ class ParameterDialog(QDialog):
         form.addRow(label, self._resume)
         return frame
 
-    def _group(self, fields: list[Param]) -> QWidget:
-        frame = QFrame()
-        frame.setProperty("role", "panel")
-        form = QFormLayout(frame)
-        form.setContentsMargins(14, 12, 14, 12)
-        form.setSpacing(8)
-        for field in fields:
-            label = QLabel(field.name.replace("_", " "))
-            editor = self._editor(field)
-            for widget in (label, editor):
-                widget.setToolTip(field.help or f"{field.owner}.{field.name}")
-            self._editors[field.name] = editor
-            self._initial[field.name] = _read(editor)
-            form.addRow(label, editor)
-        return frame
+    # ---- the three panels ---------------------------------------------------
+    def _find_row(self) -> QWidget:
+        """Reveal a parameter wherever it lives — across folds and across tabs.
 
-    def _advanced(self, fields: list[Param]) -> QWidget:
-        container = QWidget()
-        box = QVBoxLayout(container)
+        This is what makes folding safe. Grouping thirty-odd parameters into
+        named sections is only an improvement if you never have to *remember*
+        which section something is in, and a search box answers that better than
+        any arrangement can.
+        """
+        row = QWidget()
+        box = QHBoxLayout(row)
         box.setContentsMargins(0, 0, 0, 0)
-        box.setSpacing(6)
+        box.setSpacing(8)
 
-        toggle = QToolButton()
-        toggle.setText(f"Advanced  ({len(fields)} more)")
-        toggle.setCheckable(True)
-        toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        toggle.setArrowType(Qt.ArrowType.RightArrow)
-        box.addWidget(toggle, alignment=Qt.AlignmentFlag.AlignLeft)
+        self._filter = QLineEdit()
+        self._filter.setPlaceholderText("Find a parameter…")
+        self._filter.setClearButtonEnabled(True)
+        self._filter.textChanged.connect(self._apply_filter)
+        box.addWidget(self._filter, stretch=1)
+
+        glossary = QPushButton("Glossary")
+        glossary.setToolTip("What the abbreviations on this dialog mean")
+        glossary.clicked.connect(self._show_glossary)
+        box.addWidget(glossary)
+        return row
+
+    def _tabs(self, fields: list[Param]) -> QWidget:
+        """One tab per decision, not per config class.
+
+        Somebody starting a run chooses between *what it is paid for*, *how it
+        learns* and *how big and how long* — and only afterwards cares that those
+        happen to be `Shaping`, `PPOConfig` and `TrainConfig`.
+        """
+        by_name = {field.name: field for field in fields if not field.derived}
+        tabs = QTabWidget()
+        #: Which domain each tab shows, so the filter can bring you to a match
+        #: that is on a tab you are not looking at.
+        self._tab_domains: list[str] = []
+        for domain, title, subtitle in params_module.DOMAINS:
+            groups = [g for g in GROUPS if g.domain == domain]
+            page = self._panel(groups, by_name)
+            if page is not None:
+                tabs.addTab(page, title)
+                tabs.setTabToolTip(tabs.count() - 1, subtitle)
+                self._tab_domains.append(domain)
+        self._tabs_widget = tabs
+        return tabs
+
+    def _panel(self, groups: list[Group], by_name: dict[str, Param]) -> QWidget | None:
+        """One tab: its essential groups open, the rest folded."""
+        present = [g for g in groups if any(name in by_name for name in g.fields)]
+        if not present:
+            return None
+
+        page = QWidget()
+        box = QVBoxLayout(page)
+        box.setContentsMargins(2, 8, 2, 2)
+        box.setSpacing(8)
+        for group in present:
+            members = [by_name[name] for name in group.fields if name in by_name]
+            if group.essential:
+                box.addWidget(self._rows_frame(members))
+            else:
+                box.addWidget(self._fold(group, members))
+        box.addStretch(1)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setWidget(self._group(fields))
-        scroll.setMaximumHeight(320)
-        scroll.setVisible(False)
-        box.addWidget(scroll)
+        scroll.setWidget(page)
+        return scroll
+
+    def _rows_frame(self, fields: list[Param]) -> QWidget:
+        frame = QFrame()
+        frame.setProperty("role", "panel")
+        form = QFormLayout(frame)
+        form.setContentsMargins(14, 10, 14, 10)
+        form.setSpacing(6)
+        for field in fields:
+            label, editor = self._row(field)
+            form.addRow(label, editor)
+        return frame
+
+    def _fold(self, group: Group, fields: list[Param]) -> QWidget:
+        """A named section that folds, and still shows its values when closed.
+
+        The digest on the summary line is the point. A fold that hides what it
+        holds is the same wall of boxes as before, only quieter — so a closed
+        group reads `trail 0.84 · delay 3` and gains a count when you change one
+        of its values.
+        """
+        container = QWidget()
+        box = QVBoxLayout(container)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.setSpacing(4)
+
+        head = QWidget()
+        head_box = QHBoxLayout(head)
+        head_box.setContentsMargins(0, 0, 0, 0)
+        head_box.setSpacing(8)
+
+        toggle = QToolButton()
+        toggle.setText(group.name)
+        toggle.setCheckable(True)
+        toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        toggle.setArrowType(Qt.ArrowType.RightArrow)
+        toggle.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+        head_box.addWidget(toggle)
+
+        digest = QLabel()
+        digest.setProperty("role", "stat")
+        digest.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        head_box.addWidget(digest, stretch=1)
+        box.addWidget(head)
+
+        body = self._rows_frame(fields)
+        body.setVisible(False)
+        box.addWidget(body)
 
         def reveal(shown: bool) -> None:
-            scroll.setVisible(shown)
+            body.setVisible(shown)
             toggle.setArrowType(Qt.ArrowType.DownArrow if shown else Qt.ArrowType.RightArrow)
-            self.adjustSize()
 
         toggle.toggled.connect(reveal)
+        self._folds.append((group, toggle, body, digest))
         return container
+
+    def _row(self, field: Param) -> tuple[QLabel, QWidget]:
+        """One parameter: its name, its editor, and its reasoning on demand."""
+        label = QLabel(field.name.replace("_", " "))
+        editor = self._editor(field)
+        reason = field.help or f"{field.owner}.{field.name}"
+        for widget in (label, editor):
+            widget.setToolTip(reason)
+        self._editors[field.key] = editor
+        self._initial[field.key] = _read(editor)
+        self._rows[field.key] = editor
+        self._explains[editor] = (field, reason)
+        label.installEventFilter(self)
+        editor.installEventFilter(self)
+        self._labels[field.key] = label
+        return label, editor
+
+    def _reveal_tab_holding(self, matched: set[tuple[str, str]]) -> None:
+        """Switch to the first tab that holds a match, unless one already does."""
+        domains = {
+            group.domain
+            for key in matched
+            if (group := params_module.group_of(key[1], key[0])) is not None
+        }
+        if not domains:
+            return
+        current = self._tabs_widget.currentIndex()
+        if 0 <= current < len(self._tab_domains) and self._tab_domains[current] in domains:
+            return  # what you are looking at already answers the query
+        for index, domain in enumerate(self._tab_domains):
+            if domain in domains:
+                self._tabs_widget.setCurrentIndex(index)
+                return
+
+    def _help_strip(self) -> QWidget:
+        frame = QFrame()
+        frame.setProperty("role", "panel")
+        box = QHBoxLayout(frame)
+        box.setContentsMargins(12, 8, 12, 8)
+        box.setSpacing(10)
+        self._help_key = QLabel("—")
+        self._help_key.setProperty("role", "stat")
+        self._help_key.setAlignment(Qt.AlignmentFlag.AlignTop)
+        box.addWidget(self._help_key)
+        self._help_text = QLabel(HELP_IDLE)
+        self._help_text.setProperty("role", "note")
+        self._help_text.setWordWrap(True)
+        self._help_text.setMinimumHeight(34)
+        box.addWidget(self._help_text, stretch=1)
+        return frame
+
+    def eventFilter(self, watched: object, event: object) -> bool:  # noqa: N802 — Qt's spelling
+        """Feed the status strip from whatever is pointed at or focused.
+
+        Focus as well as the pointer, deliberately: a strip only the mouse can
+        reach is a tooltip with extra steps, and the whole reason the reasoning
+        moved here was to be readable without hovering thirty-odd rows.
+        """
+        kind = getattr(event, "type", lambda: None)()
+        if kind in (_ENTER, _FOCUS_IN):
+            found = self._explains.get(watched)  # type: ignore[arg-type]
+            if found is None:
+                # A label shares its row's explanation; find it by position.
+                for key, label in self._labels.items():
+                    if label is watched:
+                        found = self._explains.get(self._rows[key])
+                        break
+            if found is not None:
+                self._explain(*found)
+        return super().eventFilter(watched, event)  # type: ignore[arg-type]
+
+    def _explain(self, field: Param, reason: str) -> None:
+        default = field.default or "auto"
+        self._help_key.setText(f"{field.flag} · default {default}")
+        self._help_text.setText(reason)
+
+    def _show_glossary(self) -> None:
+        """Every abbreviation the dialog uses, in the game's terms.
+
+        A dialog rather than a hover: the terms are worth reading through once,
+        and a definition only reachable by pointing at the right word is one most
+        people never find.
+        """
+        body = "\n\n".join(f"{term}\n    {text}" for term, text in GLOSSARY.items())
+        box = QMessageBox(self)
+        box.setWindowTitle("Glossary")
+        box.setText("What the words on this dialog mean.")
+        box.setDetailedText(body)
+        box.exec()
+
+    def _apply_filter(self, query: str) -> None:
+        """Show only what matches, opening any fold that holds a match."""
+        text = query.strip().lower()
+        matched: set[tuple[str, str]] = set()
+        for key, editor in self._rows.items():
+            name = key[1]
+            hit = (
+                not text
+                or text in name.lower()
+                or any(text in flag.lower() for flag in params_module.flags_for(name))
+            )
+            if hit:
+                matched.add(key)
+            editor.setVisible(hit)
+            label = self._labels.get(key)
+            if label is not None:
+                label.setVisible(hit)
+        for group, toggle, _, _ in self._folds:
+            # From the set, not from `isVisible()`: a row inside a closed fold
+            # reports invisible however it was just set, because Qt answers for
+            # the whole ancestor chain. Asking the widget produced a filter that
+            # could never open the fold holding the match.
+            holds = any(key in matched for key in self._rows if key[1] in group.fields)
+            toggle.setVisible(holds or not text)
+            # `reveal` follows the toggle, so the body needs no separate handling
+            # — and doing it here as well is how the two disagreed.
+            toggle.setChecked(bool(text) and holds)
+        # And come to the match rather than waiting to be found. Searching for a
+        # parameter and being shown nothing, because it lives on a tab you are
+        # not looking at, is the hunt this box exists to end.
+        if text and matched:
+            self._reveal_tab_holding(matched)
 
     def _editor(self, field: Param) -> QWidget:
         """The narrowest control the field's type allows.
@@ -562,6 +995,19 @@ class ParameterDialog(QDialog):
             check.setChecked(field.default.strip() == "True")
             check.toggled.connect(self._edited)
             return check
+        # A bounded number gets a slider and a readout: position says where in
+        # the range you are, which twenty identical boxes never did, and the box
+        # beside it keeps `3e-4` typeable. Only where a bound exists — a slider
+        # over an unknown range is a control with no meaning.
+        if field.bounds is not None and field.kind in ("int", "float"):
+            try:
+                float(field.default)
+            except ValueError:
+                pass  # a default this trainer could not resolve; fall through
+            else:
+                slider = ValueSlider(field)
+                slider.changed.connect(self._edited)
+                return slider
         if field.kind == "int":
             spin = QSpinBox()
             low, high = field.bounds or (0, SPIN_MAX)
@@ -613,27 +1059,43 @@ class ParameterDialog(QDialog):
         self._applying = True
         try:
             for name, value in initial.items():
-                editor = self._editors.get(name)
+                editor = self._editor_named(name)
                 if editor is not None:
                     _write(editor, value)
         finally:
             self._applying = False
+
+    def _editor_named(self, name: str) -> QWidget | None:
+        """The editor for a field, found by name alone.
+
+        Presets and a run's stored `config.json` speak names, not owners. Since
+        the one name shared by two classes is derived and has a single editor,
+        the first match is unambiguous.
+        """
+        for (_, field_name), editor in self._editors.items():
+            if field_name == name:
+                return editor
+        return None
 
     # ---- what came out of it ------------------------------------------------
     def values(self) -> dict[str, str]:
         """Only the fields whose value differs from the trainer's default."""
         changed: dict[str, str] = {}
         for field in self._fields:
-            editor = self._editors.get(field.name)
+            editor = self._editors.get(field.key)
             if editor is None:
-                continue
+                continue  # derived, like `Shaping.gamma`, or not offered here
             value = _read(editor)
             # Against what the editor was *built* showing, not against the
             # dataclass's source text. They differ for an optional field: a
             # `int | None = None` gets a spin box sitting on 0, and comparing
             # "0" with "" made the dialog emit `--schedule-updates 0` for a
             # field nobody had touched.
-            if value and value != self._initial.get(field.name, ""):
+            if value and value != self._initial.get(field.key, ""):
+                # Keyed by *name*, because that is what `command_line` and the
+                # preset file speak, and because the one name owned by two
+                # classes — `gamma` — now has exactly one editor between them.
+                # `flags_for` writes it to both flags.
                 changed[field.name] = value
         return changed
 
@@ -655,8 +1117,49 @@ class ParameterDialog(QDialog):
         self._touched()
         self._refresh_preview()
 
+    def _refresh_folds(self) -> None:
+        """Each closed fold shows its values, and says how many you changed.
+
+        Without this a fold hides what it holds, which is the wall of boxes again
+        with a button in front of it.
+        """
+        changed = self.values()
+        for group, toggle, _, digest in self._folds:
+            present = [name for name in group.fields if self._editor_named(name) is not None]
+            touched = sum(1 for name in present if name in changed)
+            digest.setText(
+                " · ".join(
+                    f"{name.replace('_', ' ')} {self._text_named(name, '')}" or name
+                    for name in present[:3]
+                )
+            )
+            toggle.setText(f"{group.name}  ({touched} changed)" if touched else group.name)
+
+    def _refresh_resume_locks(self) -> None:
+        """Fields a resume cannot change are locked to the checkpoint's values.
+
+        The trainer *rejects* a resume whose architecture, hidden size or
+        annealing horizon disagrees with the checkpoint, and quietly accepts a
+        different rollout length as a different experiment under the same run's
+        name. Both of those land after Start has been pressed. Disabling them
+        while a checkpoint is selected turns a late rejection into a control that
+        visibly is not yours to move.
+        """
+        continuing = self.resume() is not None
+        for name in LOCKED_ON_RESUME:
+            editor = self._editor_named(name)
+            if editor is None:
+                continue
+            editor.setEnabled(not continuing)
+            editor.setToolTip(
+                RESUME_LOCK_HELP if continuing else self._explains.get(editor, (None, ""))[1]
+            )
+
     def _refresh_preview(self) -> None:
         self._preview.setText(" ".join(self.command()))
+        self._refresh_folds()
+        self._refresh_resume_locks()
+        self._refresh_schedule()
         self._refresh_memory()
         # Two different acts behind one button, so it says which it is about to
         # do. Re-read from the picker rather than set once, because continuing
@@ -668,13 +1171,44 @@ class ParameterDialog(QDialog):
     # ---- what it will cost --------------------------------------------------
     def _number(self, name: str, fallback: int) -> int:
         """One field's effective value — what it shows, not what it overrides."""
-        editor = self._editors.get(name)
+        editor = self._editor_named(name)
         if editor is None:
             return fallback
         try:
-            return int(_read(editor))
+            return int(float(_read(editor)))
         except ValueError:
             return fallback
+
+    def _text_named(self, name: str, fallback: str) -> str:
+        editor = self._editor_named(name)
+        return _read(editor) if editor is not None else fallback
+
+    def _refresh_schedule(self) -> None:
+        """What the cadence settings actually produce, over this many updates.
+
+        `updates` interacts with three separate intervals and nothing showed the
+        result, so "evaluate every 10" was a number with no consequence attached.
+        Stated as a count rather than as a warning: the arithmetic is the point,
+        and the reader can see for themselves that 2,000 updates at
+        `checkpoint_every 100` is twenty checkpoints.
+        """
+        if self._schedule is None:
+            return
+        updates = self._number("updates", 0)
+        if updates <= 0:
+            self._schedule.setText("")
+            return
+
+        def count(name: str) -> int:
+            every = self._number(name, 0)
+            return 0 if every <= 0 else updates // every
+
+        parts = [
+            f"{count('eval_every')} evals",
+            f"{count('record_every')} recordings",
+            f"{count('checkpoint_every')} checkpoints",
+        ]
+        self._schedule.setText(f"{updates:,} updates → " + " · ".join(parts))
 
     def _refresh_memory(self) -> None:
         """Say what this run will ask of the GPU, before it asks for it.
@@ -691,9 +1225,7 @@ class ParameterDialog(QDialog):
             "envs": self._number("envs", 1024),
             "steps": self._number("steps", 256),
             "minibatches": self._number("minibatches", 8),
-            "architecture": _read(self._editors["architecture"])
-            if "architecture" in self._editors
-            else "mlp",
+            "architecture": self._text_named("architecture", "mlp"),
         }
         estimate = footprint.estimate_gib(**shape)
         free = self._free_vram

@@ -537,7 +537,7 @@ def test_a_preset_fills_the_form_and_editing_it_stops_claiming_to_be_one(
     # edited by hand the form is no longer that preset and must stop saying so.
     from missile_defense.runs import presets  # noqa: PLC0415
     from missile_defense.runs.runner import PACKAGE_PATH  # noqa: PLC0415
-    from missile_defense.ui.forms import ParameterDialog, _read  # noqa: PLC0415
+    from missile_defense.ui.forms import ParameterDialog, _read, _write  # noqa: PLC0415
     from missile_defense.ui.params import read_params  # noqa: PLC0415
 
     file = tmp_path / "presets.json"
@@ -547,7 +547,10 @@ def test_a_preset_fills_the_form_and_editing_it_stops_claiming_to_be_one(
         out_dir=tmp_path,
         presets_file=file,
     )
-    shown = lambda name: _read(dialog._editors[name])  # noqa: E731 — one expression, used often
+    # By name, through the dialog's own lookup: editors are keyed by owner *and*
+    # name now, because `gamma` is a field of two config classes and keying by
+    # name alone gave them one editor between them.
+    shown = lambda name: _read(dialog._editor_named(name))  # noqa: E731 — used often
     try:
         assert dialog._presets.itemText(0) == presets.CUSTOM
         assert [dialog._presets.itemText(i) for i in range(1, 4)] == ["fast", "good", "best"]
@@ -573,7 +576,10 @@ def test_a_preset_fills_the_form_and_editing_it_stops_claiming_to_be_one(
         assert "--architecture" not in " ".join(dialog.command())  # mlp is the default
 
         # A value typed by hand: still fast's numbers, no longer called "fast".
-        dialog._editors["updates"].setValue(37)  # type: ignore[attr-defined]
+        # Through `_write` rather than a widget-specific setter, because a
+        # bounded number is a slider-and-readout now and the point of the test is
+        # the preset bookkeeping, not which control the field happens to get.
+        _write(dialog._editor_named("updates"), "37")
         assert dialog._presets.currentIndex() == 0
         assert dialog.values()["updates"] == "37"
         assert dialog.values()["envs"] == "4096"
@@ -755,7 +761,7 @@ def test_the_dialog_saves_a_preset_and_refuses_to_overwrite_a_built_in(
     from missile_defense.runs import presets  # noqa: PLC0415
     from missile_defense.runs.runner import PACKAGE_PATH  # noqa: PLC0415
     from missile_defense.ui import forms as forms_module  # noqa: PLC0415
-    from missile_defense.ui.forms import ParameterDialog  # noqa: PLC0415
+    from missile_defense.ui.forms import ParameterDialog, _write  # noqa: PLC0415
     from missile_defense.ui.params import read_params  # noqa: PLC0415
 
     warned: list[str] = []
@@ -773,7 +779,7 @@ def test_the_dialog_saves_a_preset_and_refuses_to_overwrite_a_built_in(
         presets_file=file,
     )
     try:
-        dialog._editors["envs"].setValue(8192)  # type: ignore[attr-defined]
+        _write(dialog._editor_named("envs"), "8192")
         dialog._store("overnight", "the long one")
         # Saved, listed, and selected — the name you just gave it is what the
         # picker should be showing, not "custom".
@@ -1420,3 +1426,136 @@ def test_an_unexpected_error_is_shown_rather_than_left_on_a_terminal(
         assert window._log_toggle.isChecked(), "the log holding the reason stayed shut"  # noqa: SLF001
     finally:
         window.close()
+
+
+# ---- the control station: sliders, folds, locks and the schedule -------------
+
+
+def _station(tmp_path: Path):  # type: ignore[no-untyped-def]
+    from missile_defense.runs.runner import PACKAGE_PATH  # noqa: PLC0415
+    from missile_defense.ui.forms import ParameterDialog  # noqa: PLC0415
+    from missile_defense.ui.params import read_params  # noqa: PLC0415
+
+    return ParameterDialog(
+        read_params(PACKAGE_PATH / "missile_defense"),
+        python="/usr/bin/python3",
+        out_dir=tmp_path,
+    )
+
+
+def test_a_bounded_number_gets_a_slider_that_still_shows_its_own_default(tmp_path: Path) -> None:
+    """A slider is only an improvement if it can reach the value the trainer
+    would have used anyway.
+
+    `ammo_weight` is the one that catches a bad mapping: it defaults to 5.0 in a
+    range that runs to 10,000, so a linear slider puts it in the first thousandth
+    of the travel — visible as 0, unpickable, and wrong the moment anyone drags.
+    """
+    from missile_defense.ui.forms import ValueSlider  # noqa: PLC0415
+
+    dialog = _station(tmp_path)
+    try:
+        ammo = dialog._editor_named("ammo_weight")  # noqa: SLF001
+        assert isinstance(ammo, ValueSlider)
+        assert float(ammo.value()) == 5.0
+        # And a learning rate keeps its notation rather than becoming 0.000300.
+        rate = dialog._editor_named("learning_rate")  # noqa: SLF001
+        assert float(rate.value()) == pytest.approx(3e-4)
+        # Untouched, the dialog still passes nothing: a slider that quietly
+        # rounded its own default would put every field on the command line.
+        assert dialog.values() == {}
+    finally:
+        dialog.close()
+
+
+def test_the_discount_written_once_reaches_both_config_classes(tmp_path: Path) -> None:
+    """The form offers one discount because the two must agree.
+
+    `PPOConfig.gamma` and `Shaping.gamma` are separate fields that the invariance
+    proof requires to be equal, so there is one control and it writes both flags.
+    Before this the dialog could emit `--reward-gamma` alone, moving the shaping
+    discount while the return's stayed at its default.
+    """
+    dialog = _station(tmp_path)
+    try:
+        assert dialog._editors.get(("Shaping", "gamma")) is None  # noqa: SLF001
+        dialog._editors[("PPOConfig", "gamma")].set_value("0.997")  # noqa: SLF001
+        command = dialog.command()
+        assert "--gamma" in command
+        assert "--reward-gamma" in command
+        assert command[command.index("--gamma") + 1] == "0.997"
+        assert command[command.index("--reward-gamma") + 1] == "0.997"
+    finally:
+        dialog.close()
+
+
+def test_continuing_a_run_locks_what_the_checkpoint_already_decided(tmp_path: Path) -> None:
+    """The trainer rejects a resume whose architecture or width disagrees, and
+    silently accepts a different rollout length as a different experiment under
+    the same run's name. Both used to happen after Start was pressed."""
+    from missile_defense.runs.runner import PACKAGE_PATH  # noqa: PLC0415
+    from missile_defense.runs.sources import Checkpoint  # noqa: PLC0415
+    from missile_defense.ui.forms import LOCKED_ON_RESUME, ParameterDialog  # noqa: PLC0415
+    from missile_defense.ui.params import read_params  # noqa: PLC0415
+
+    saved = tmp_path / "policy-00400.pt"
+    saved.write_bytes(b"not really a checkpoint")
+    checkpoint = Checkpoint(
+        path=saved, iteration=400, size=saved.stat().st_size, modified=saved.stat().st_mtime
+    )
+    dialog = ParameterDialog(
+        read_params(PACKAGE_PATH / "missile_defense"),
+        python="/usr/bin/python3",
+        out_dir=tmp_path,
+        checkpoints=[checkpoint],
+    )
+    try:
+        # Starting over: everything is yours to set.
+        assert dialog.resume() is None
+        for name in LOCKED_ON_RESUME:
+            editor = dialog._editor_named(name)  # noqa: SLF001
+            assert editor is None or editor.isEnabled(), name
+
+        dialog._resume.setCurrentIndex(1)  # noqa: SLF001
+        assert dialog.resume() == saved
+        for name in LOCKED_ON_RESUME:
+            editor = dialog._editor_named(name)  # noqa: SLF001
+            assert editor is None or not editor.isEnabled(), f"{name} is still editable"
+        # And the ones a resume genuinely may change stay open.
+        assert dialog._editor_named("learning_rate").isEnabled()  # noqa: SLF001
+    finally:
+        dialog.close()
+
+
+def test_the_schedule_says_what_the_cadence_actually_produces(tmp_path: Path) -> None:
+    """`updates` interacts with three intervals and nothing showed the result, so
+    "evaluate every 10" was a number with no consequence attached."""
+    dialog = _station(tmp_path)
+    try:
+        dialog._editor_named("updates").set_value("2000")  # noqa: SLF001
+        dialog._editor_named("checkpoint_every").set_value("100")  # noqa: SLF001
+        dialog._refresh_schedule()  # noqa: SLF001
+        text = dialog._schedule.text()  # noqa: SLF001
+        assert "2,000 updates" in text
+        assert "20 checkpoints" in text
+    finally:
+        dialog.close()
+
+
+def test_the_filter_reveals_a_parameter_wherever_it_is_folded(tmp_path: Path) -> None:
+    """What makes folding safe: you never have to remember which group something
+    is in. `gae_lambda` lives in a fold that opens closed."""
+    dialog = _station(tmp_path)
+    try:
+        editor = dialog._editor_named("gae_lambda")  # noqa: SLF001
+        assert editor is not None
+        dialog._apply_filter("gae")  # noqa: SLF001
+        # `isVisibleTo`, not `isVisible`: the dialog itself was never shown, and
+        # the question is whether the fold holding this row was opened.
+        assert editor.isVisibleTo(dialog)
+        # A query matching nothing hides the rows rather than showing all of them.
+        dialog._apply_filter("zzzznothing")  # noqa: SLF001
+        assert not editor.isVisibleTo(dialog)
+        dialog._apply_filter("")  # noqa: SLF001
+    finally:
+        dialog.close()
