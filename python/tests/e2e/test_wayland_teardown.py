@@ -26,22 +26,28 @@ can be wrong on its own.
   crashes as reliably as no workaround at all.
 * `test_the_game_exits_cleanly_on_wayland` — the three meet in the real binary.
 
-None of this can be observed without a compositor, so all three skip elsewhere;
+None of this can be observed without a compositor, so all four skip elsewhere;
 CI is in that state and Jens's desktop is not.
+
+**And they are opt-in even where they can run.** There is no Xvfb for Wayland —
+see `MD_E2E_WAYLAND` in the harness — so each of these puts a real window on the
+screen of whoever is at the machine and takes the focus with it, twenty times
+over a full run. A suite that does that to somebody mid-sentence is a suite they
+stop running, so `poe test-app` skips them with the reason, and `poe
+test-wayland` is the deliberate act of asking for them.
 """
 
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 from pathlib import Path
 
 import pytest
 
-from .harness import PROJECT_ROOT, app_binary, app_environ, needs_app
+from .harness import PROJECT_ROOT, app_binary, app_environ, needs_app, needs_wayland
 
-pytestmark = [pytest.mark.e2e, needs_app]
+pytestmark = [pytest.mark.e2e, pytest.mark.wayland, needs_app, needs_wayland]
 
 #: How many runs stand behind a claim of "does not crash". The failure being
 #: guarded against is intermittent by nature, and one clean run is thin evidence
@@ -72,19 +78,10 @@ def _wayland_env(tmp_path: Path) -> dict[str, str]:
     return env
 
 
-def _require_wayland() -> None:
-    if not os.environ.get("WAYLAND_DISPLAY"):
-        # Not a failure, and not something a virtual X server can stand in for:
-        # the defect is in Qt's Wayland platform plugin, so without a compositor
-        # there is nothing to observe either way.
-        pytest.skip("no Wayland session — this can only be observed under a compositor")
-
-
 def _run_witness(args: list[str], tmp_path: Path) -> subprocess.CompletedProcess[str]:
     witness = _witness()
     if witness is None:
         pytest.skip("md_wayland_teardown not built")
-    _require_wayland()
     result = subprocess.run(
         [str(witness), *args],
         capture_output=True,
@@ -161,14 +158,20 @@ def test_the_game_exits_cleanly_on_wayland(tmp_path: Path) -> None:
 
     Deliberately the real binary and the real platform: the witness can only
     show that the technique works, not that the game still applies it.
+
+    **`--silent` is not optional here.** This is the one place in the suite that
+    builds its own game command line rather than going through `run_app`, and it
+    is therefore the one place that can lose the harness's promise that a test
+    run does not come out of the speakers of whoever is at the machine
+    (test_silence.py). It had lost it: five runs of real gameplay, audible, on
+    the desktop the tests are running on.
     """
-    _require_wayland()
     binary = app_binary()
     assert binary is not None, "needs_app should have skipped this"
 
     for attempt in range(RUNS):
         result = subprocess.run(
-            [str(binary), "--play", "--frames", "90", "--report"],
+            [str(binary), "--play", "--frames", "90", "--report", "--silent"],
             capture_output=True,
             text=True,
             timeout=120.0,
@@ -178,4 +181,16 @@ def test_the_game_exits_cleanly_on_wayland(tmp_path: Path) -> None:
         assert result.returncode == 0, (
             f"the game did not exit cleanly on native Wayland on run "
             f"{attempt + 1} (exit {result.returncode}).\n{result.stdout}\n{result.stderr}"
+        )
+        # The flag above, held to a claim that can fail rather than to a comment.
+        # `audible` asks the engine, not the stored preference — see
+        # test_silence.py, where the same check guards every other run.
+        reported = next(
+            (json.loads(line) for line in result.stdout.splitlines() if line.startswith("{")),
+            None,
+        )
+        assert reported is not None, f"no --report line from the game:\n{result.stdout}"
+        assert reported["audible"] is False, (
+            "the game played sound on the developer's own desktop — --silent went "
+            "missing from this run's command line again"
         )

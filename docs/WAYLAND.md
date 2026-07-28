@@ -166,7 +166,11 @@ nobody can say what it does. `app/tests/wayland_teardown.cpp` is a bare
   every other run in the suite rather than an allow-listed exception.
 
 All four skip where there is no compositor, which includes CI. They are meant to
-run on a developer's desktop, and `poe check` runs them there.
+run on a developer's desktop — literally on it: there is no Xvfb for Wayland, so
+each opens a real window in front of whoever is sitting there and takes the
+focus with it. That is why no other task runs them; `poe test-wayland` (or
+`MD_E2E_WAYLAND=1`) is how you ask, and it is worth asking after any change to
+the renderer's start-up or teardown, or a new Qt.
 
 The tests decline to conclude anything from an AddressSanitizer build: its
 quarantine keeps the freed block mapped, so the stale read succeeds and the crash

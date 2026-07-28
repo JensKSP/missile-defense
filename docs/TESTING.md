@@ -83,11 +83,27 @@ poe test-app              # the whole application e2e suite
 poe check-all             # the full gate plus this suite
 
 MD_E2E_VISIBLE=1 poe test-app   # watch them on your own screen instead
+poe test-wayland          # the five that can only run on your own screen
 ```
 
 Without Xvfb the game tests **skip** with that instruction as the reason; the
 trainer and training tests still run. That is the right behaviour on a build box
 with no graphics stack.
+
+### The Wayland exception
+
+Five tests cannot be made invisible: they exercise Qt's *Wayland* plugin (see
+[WAYLAND.md](WAYLAND.md)), and an X server — virtual or not — cannot stand in for
+a compositor. A nested `kwin_wayland --virtual` was tried and cannot composite on
+this NVIDIA box either. So they run on the real desktop, with real windows taking
+the focus of whoever is at the keyboard, which is why **nothing runs them
+automatically**: not `poe test-app`, not `poe check-all`. They skip everywhere
+with `poe test-wayland` named as the way to run them, and that task is the
+deliberate act of asking.
+
+Run them after touching the renderer's start-up or teardown, or Qt/driver
+packages — that is what they are evidence about. They also cost about thirty
+seconds, so there is no reason to avoid them beyond the interruption.
 
 ### The flags this needed
 

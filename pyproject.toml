@@ -239,6 +239,11 @@ pytest       = { cmd = "pytest -m 'not e2e'", help = "Run Python tests (fast; ex
 # server nobody sees, a real short training run, the trainer offscreen. Minutes,
 # not seconds, which is why it is its own task and not part of `poe pytest`.
 test-app     = { cmd = "pytest -m e2e", deps = ["build"], help = "Run the application end-to-end tests (slow; needs xvfb for the game)" }
+# The exception to "nobody sees it": Qt's Wayland plugin cannot be exercised
+# through an X server, so these run on your own desktop — real windows, taking
+# the focus, one after another. Everything else skips them (MD_E2E_WAYLAND), and
+# asking for them is this task.
+test-wayland = { cmd = "pytest -m wayland", deps = ["build"], env = { MD_E2E_WAYLAND = "1" }, help = "Run the Wayland tests on your own screen (needs a Wayland session)" }
 test-all     = { sequence = ["test", "test-release", "pytest"], help = "Run every test in Debug and Release" }
 
 # --- Quality gates (C++) ---
@@ -466,4 +471,10 @@ addopts = "-q"
 # e2e tests start real processes — the game, a training run, the trainer — so they
 # are minutes rather than seconds and are not part of the inner loop.
 # `poe pytest` stays fast; `poe test-e2e-app` runs these; the gate runs both.
-markers = ["e2e: drives a shipped binary in its own process (slow)"]
+# The `wayland` ones are e2e as well, and additionally skipped unless
+# MD_E2E_WAYLAND is set: there is no Xvfb for Wayland, so they can only run on a
+# real desktop, in front of a real person. `poe test-wayland` sets it.
+markers = [
+    "e2e: drives a shipped binary in its own process (slow)",
+    "wayland: needs a real compositor, so it runs on your own screen (opt-in)",
+]

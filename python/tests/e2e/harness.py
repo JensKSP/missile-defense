@@ -164,6 +164,40 @@ def _display_wrapper() -> list[str] | None:
     return [found, *XVFB[1:]] if found else None
 
 
+#: Set this to run the handful of tests that can only be observed on a real
+#: compositor. Off by default for the same reason `MD_E2E_VISIBLE` is: they put
+#: real windows on the screen of whoever is at the keyboard, one after another,
+#: each stealing the focus of whatever they were typing into.
+#:
+#: There is no invisible substitute for these on this machine, and that is not
+#: for want of looking: Xvfb is an X server, so it cannot exercise Qt's Wayland
+#: plugin at all — which is where the defect they guard lives — and a nested
+#: `kwin_wayland --virtual` cannot composite on the NVIDIA driver here
+#: (`GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT`, every frame). So the choice is
+#: between running them on a real desktop and not running them, and the honest
+#: version of that choice is one a person makes deliberately.
+WAYLAND_ENV = "MD_E2E_WAYLAND"
+
+
+def wants_wayland() -> bool:
+    return os.environ.get(WAYLAND_ENV, "") not in ("", "0")
+
+
+def _wayland_reason() -> str:
+    """Why the Wayland tests are not running, or ``""`` if they are."""
+    if not wants_wayland():
+        return (
+            f"opt-in: these open real windows on your own screen — `poe test-wayland`, "
+            f"or {WAYLAND_ENV}=1"
+        )
+    if not os.environ.get("WAYLAND_DISPLAY"):
+        # Not a failure, and not something a virtual X server can stand in for:
+        # the defect is in Qt's Wayland platform plugin, so without a compositor
+        # there is nothing to observe either way.
+        return "no Wayland session — this can only be observed under a compositor"
+    return ""
+
+
 #: Applied to whole modules or single tests. Written as constants rather than
 #: fixtures so the reason is visible in the test file that skips.
 needs_app = pytest.mark.skipif(
@@ -177,6 +211,9 @@ needs_display = pytest.mark.skipif(
         f"or set {VISIBLE_ENV}=1 to run them on your own screen"
     ),
 )
+#: Pair this with `pytest.mark.wayland`, which is what selects them back in: the
+#: marker says *which* tests these are, this says whether they may run.
+needs_wayland = pytest.mark.skipif(bool(_wayland_reason()), reason=_wayland_reason())
 needs_torch = pytest.mark.skipif(not _have("torch"), reason="torch is not installed")
 needs_native = pytest.mark.skipif(
     not _have("missile_defense._md_native"), reason="the native binding is not built"
