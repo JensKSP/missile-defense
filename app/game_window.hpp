@@ -6,6 +6,7 @@
 #include "audio.hpp"
 #include "highscores.hpp"
 #include "human_input.hpp"
+#include "install.hpp"
 #include "md/agent/eval.hpp"
 #include "md/agent/handicap.hpp"
 #include "md/agent/heuristic.hpp"
@@ -53,6 +54,11 @@ class GameWindow : public QVulkanWindow {
         /// than a cycling toggle, because which agent you are about to watch is
         /// the whole question and a toggle answers it only after the fact.
         Watch,
+        /// Why TRAIN AI could not just start something, and what would fix it.
+        /// A screen rather than a silence: the entry is now always in the menu,
+        /// because on Windows and macOS *not installed* is the ordinary state
+        /// and hiding it meant most people never learned the trainer exists.
+        TrainNotice,
         /// Two recordings of the same seed, side by side on one clock. Its own
         /// state and not a flavour of Replays: there is no single `sim()` to
         /// hand the renderer, and every transport key moves both sides at once.
@@ -229,6 +235,13 @@ class GameWindow : public QVulkanWindow {
     /// claim than "not part of this product".
     [[nodiscard]] bool can_train() const noexcept { return trainer_.has_value(); }
 
+    /// What TRAIN AI will do, decided once at startup like the lookup itself.
+    ///
+    /// Read by the renderer to pick the notice's wording, which is why it is
+    /// public: the strings live with the rest of the UI text, and this is the
+    /// one fact they vary on.
+    [[nodiscard]] install::Offer train_offer() const noexcept { return offer_; }
+
     // Options screen (a second centered list): AUDIO / MUSIC / FULLSCREEN + BACK.
     [[nodiscard]] static int options_count() noexcept;
     [[nodiscard]] std::string_view options_label(int index) const;
@@ -331,14 +344,16 @@ class GameWindow : public QVulkanWindow {
     void save_settings() const; // persist audio/music/fullscreen after a toggle
     void open_menu();
     void open_options();
-    void open_replays();           // scan the runs directory and show what is there
-    void open_models();            // scan for installed models and show what is there
-    void open_watch();             // the WATCH AI submenu: which agent is playing
-    void open_trainer();           // start the trainer, if this install has one
-    void scrub(int seconds);       // seek the active replay, relative
-    void advance_match();          // drive both sides of a match on one clock
-    void scrub_match(int seconds); // seek the match's shared clock, relative
-    void activate(int index);      // activate the item at index in the active list
+    void open_replays();             // scan the runs directory and show what is there
+    void open_models();              // scan for installed models and show what is there
+    void open_watch();               // the WATCH AI submenu: which agent is playing
+    void open_trainer();             // start the trainer, or say why it cannot
+    static void open_instructions(); // hand HOW-TO-TRAIN.html to the desktop
+    void start_trainer_install();    // spawn the terminal that pip installs it
+    void scrub(int seconds);         // seek the active replay, relative
+    void advance_match();            // drive both sides of a match on one clock
+    void scrub_match(int seconds);   // seek the match's shared clock, relative
+    void activate(int index);        // activate the item at index in the active list
     [[nodiscard]] MenuAction action_at(int index) const;
     [[nodiscard]] int active_count() const noexcept; // active list length (menu/options)
     [[nodiscard]] std::string_view active_label(int index) const; // active list label
@@ -349,6 +364,12 @@ class GameWindow : public QVulkanWindow {
     /// is a filesystem search and the menu asks on every frame. Empty on a
     /// game-only install, which is what removes the TRAIN AI entry.
     std::optional<trainer::Command> trainer_;
+    /// The machine as `install::decide` saw it, and its answer. Both resolved
+    /// once at startup for the same reason the lookup is: neither can change
+    /// while the game is running, and probing interpreters costs process
+    /// launches that must not happen while a menu is being drawn.
+    install::Machine machine_;
+    install::Offer offer_ = install::Offer::NeedsPackage;
     /// The bundled learned policy, loaded once at startup. Empty until one is
     /// shipped — see `pretrained_path`.
     std::optional<agent::Policy> pretrained_;

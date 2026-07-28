@@ -155,28 +155,26 @@ jobs:
           # output at all, which is a miserable thing to debug.
           staged=$(find build/release/_CPack_Packages -maxdepth 4 -name "*.app" -type d | sort)
           echo "$staged"
-          test -n "$staged" || { echo "::error::no .app bundles were staged" >&2; exit 1; }
-          test "$(echo "$staged" | wc -l)" -eq 2
-          trainer=$(echo "$staged" | grep "Trainer")
-          test -x "$trainer/Contents/MacOS/missile-defense-trainer"
-          test -f "$trainer/Contents/Info.plist"
-          test -f "$trainer/Contents/Resources/missile_defense/ui/app.py"
-          # `.abi3.so` exactly, not a glob. This bundle is launched with
-          # whatever `python3` the person has — never the Homebrew one that
-          # built it — so a version-tagged module is a trainer that installs,
-          # opens, and cannot train on any Mac but this runner. The glob that
-          # used to be here passed happily for months while that was true.
-          test -f "$trainer/Contents/Resources/md/_md_native.abi3.so" || {
-            echo "::error::the trainer bundle carries no stable-ABI extension:" >&2
-            ls "$trainer/Contents/Resources/md/"_md_native* >&2
-            exit 1
-          }
-          # And the game's bundle stays free of it, which is the same promise
-          # the Debian split keeps: one product must not contain the other.
-          game=$(echo "$staged" | grep -v "Trainer")
+          test -n "$staged" || { echo "::error::no .app bundle was staged" >&2; exit 1; }
+          # One bundle, not two. There used to be a second, `Missile Defense
+          # Trainer.app`, carrying the Python package and a shell wrapper. It is
+          # gone: on macOS the trainer is a wheel the game installs with pip, and
+          # what starts it afterwards is the interpreter it was installed into.
+          test "$(echo "$staged" | wc -l)" -eq 1
+          game=$staged
+          test -f "$game/Contents/Resources/HOW-TO-TRAIN.html"
+          # And no Python inside it at all — the promise the second bundle used
+          # to make by being separate is now made by there being nothing to
+          # separate.
           if find "$game" -name "*.py" | grep .; then
             echo "::error::the game bundle ships Python sources" >&2
             exit 1
+          fi
+          if [ -n "${MD_TRAINER_WHEEL:-}" ]; then
+            ls "$game/Contents/MacOS/"missile_defense-*.whl || {
+              echo "::error::MD_TRAINER_WHEEL was set but no wheel was staged" >&2
+              exit 1
+            }
           fi
 
       - name: The game bundle carries the whole Vulkan stack
@@ -190,8 +188,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          app=$(find build/release/_CPack_Packages -maxdepth 4 -name "*.app" -type d \
-            | grep -v Trainer | head -1)
+          app=$(find build/release/_CPack_Packages -maxdepth 4 -name "*.app" -type d | head -1)
           test -n "$app" || { echo "::error::no game bundle was staged" >&2; exit 1; }
           echo "$app"
           ls "$app/Contents/Frameworks"
@@ -383,36 +380,35 @@ jobs:
         # machine that built it and fatal on any other.
         run: cpack --config build/release/CPackConfig.cmake -B build/release -G "NSIS;ZIP"
 
-      - name: The game-only selection is a real selection
-        # NSIS component installs are declared in CMake and only *exist* once
-        # CPack has staged them, so this is the first point where the claim can
-        # be checked at all: stage each component on its own and look at what
-        # landed. If the game component ever grew a `.py` file, someone who
-        # unticked "Missile Defense Trainer" would still be getting one.
+      - name: What the installer ships is the game, a wheel and a page
+        # The installer has one component now: no Python payload, no `.cmd`
+        # launcher, no second application. What TRAIN AI needs is the wheel and
+        # the instructions page beside the binary, and the interpreter it uses is
+        # the user's — which is why there is nothing here to tick.
+        #
+        # The negative half is still the one that matters, and it got stricter:
+        # not one `.py` in the tree, where before the game component merely had
+        # to avoid the trainer's own files.
         shell: msys2 {0}
         run: |
           set -euo pipefail
-          rm -rf stage-game stage-full
+          rm -rf stage-game
           cmake --install build/release --prefix stage-game --component game
-          cmake --install build/release --prefix stage-full --component game
-          cmake --install build/release --prefix stage-full --component python
           test -f stage-game/missile-defense.exe
-          if find stage-game -name "*.py" -o -name "missile-defense-trainer.cmd" | grep .; then
-            echo "::error::the game component ships part of the training half" >&2
+          test -f stage-game/HOW-TO-TRAIN.html
+          if find stage-game \( -name "*.py" -o -name "*.cmd" \) | grep .; then
+            echo "::error::the installer ships Python sources or a script launcher" >&2
             exit 1
           fi
-          test -f stage-full/missile-defense-trainer.cmd
-          test -f stage-full/missile_defense/ui/app.py
-          # `_md_native.pyd` exactly: the limited-API name, and the one built
-          # against a python.org CPython two steps up. A `.cp313-mingw_x86_64`
-          # or `.cp313-win_amd64` name here means the installer went back to
-          # shipping a module the user's interpreter cannot load — which is what
-          # it did until this assertion replaced a glob that accepted anything.
-          test -f stage-full/md/_md_native.pyd || {
-            echo "::error::the trainer component carries no stable-ABI extension:" >&2
-            ls stage-full/md/_md_native* >&2
-            exit 1
-          }
+          # The wheel, by the name app/install.cpp looks for. Only when one was
+          # handed to the build — a run without the `wheels` artifact still
+          # produces a working installer, it just cannot install the trainer.
+          if [ -n "${MD_TRAINER_WHEEL:-}" ]; then
+            ls stage-game/missile_defense-*.whl || {
+              echo "::error::MD_TRAINER_WHEEL was set but no wheel was staged" >&2
+              exit 1
+            }
+          fi
 
       - name: Upload the installer and ZIP
         uses: actions/upload-artifact@v7

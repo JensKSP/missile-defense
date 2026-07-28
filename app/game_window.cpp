@@ -9,6 +9,7 @@
 
 #include <QCoreApplication>
 #include <QCursor>
+#include <QDesktopServices>
 #include <QDir>
 #include <QFileInfo>
 #include <QGuiApplication>
@@ -19,6 +20,7 @@
 #include <QStandardPaths>
 #include <QStringList>
 #include <QTimer>
+#include <QUrl>
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -42,9 +44,24 @@ GameWindow::GameWindow() {
     // `AppLocalDataLocation` is where the install flow records which interpreter
     // it put the trainer into (app/trainer.hpp). Read here and handed in, because
     // trainer.cpp is deliberately Qt-free and QStandardPaths is not.
+    // The wheel this build shipped beside itself, and every interpreter that
+    // could take it — both resolved once, here, for the same reason the lookup
+    // is: neither changes while the game runs, and probing an interpreter costs
+    // a process launch that must not happen while a menu is being drawn.
+    machine_.executable = [](const std::filesystem::path& candidate) {
+        std::error_code probe;
+        return std::filesystem::is_regular_file(candidate, probe);
+    };
+    machine_.wheel = install::shipped_wheel(
+        std::filesystem::path{QCoreApplication::applicationDirPath().toStdString()});
+    if (!machine_.wheel.empty()) {
+        machine_.interpreters = install::probe_interpreters(
+            QProcessEnvironment::systemEnvironment().value("PATH").toStdString());
+    }
     trainer_ = trainer::command(trainer::machine_lookup(
         QCoreApplication::applicationFilePath().toStdString(),
         QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation).toStdString()));
+    offer_ = install::decide(machine_, trainer_.has_value());
     // The bundled agent, if this build ships one. A missing file is the normal
     // state today and not an error; a *present but unreadable* one is worth
     // saying out loud, because it means the package is broken rather than lean.
@@ -187,10 +204,15 @@ QVulkanWindowRenderer* GameWindow::createRenderer() {
 }
 
 int GameWindow::menu_count() const noexcept {
-    // Eight on a full install, seven on a game-only one. TRAIN AI is *absent*
-    // rather than disabled: on the game-only package there is no trainer to
-    // enable, so an item explaining that would be advertising a product the
-    // person did not install. The layout follows — menu_item_top_y() derives
+    // Eight, always. TRAIN AI used to be *absent* on a game-only install, on the
+    // reasoning that an entry explaining a product you did not install is an
+    // advertisement. That reasoning held while the trainer shipped inside the
+    // installer; it stopped holding when the trainer became something you
+    // install on request, because "not installed yet" turned into the ordinary
+    // state on Windows and macOS — and hiding the entry meant the ordinary user
+    // never found out there was a trainer at all. It leads to a screen that says
+    // what would fix it, which is the opposite of an advertisement. The layout
+    // follows — menu_item_top_y() derives
     // its row step from active_count(), so one more item shrinks the list
     // instead of pushing START into the byline.
     //
@@ -203,7 +225,7 @@ int GameWindow::menu_count() const noexcept {
     // REPLAYS is withdrawn for now — see `action_at`. Everything behind it is
     // still here and still reachable, so this is one number and one line in the
     // table below rather than a feature to put back.
-    return (in_progress_ ? 1 : 0) + (can_train() ? 8 : 7);
+    return (in_progress_ ? 1 : 0) + 8;
 }
 
 GameWindow::MenuAction GameWindow::action_at(int index) const {
@@ -231,7 +253,7 @@ GameWindow::MenuAction GameWindow::action_at(int index) const {
                                          MenuAction::Highscores,
                                          MenuAction::About,
                                          MenuAction::Exit};
-    return acts[can_train() || slot < 2 ? slot : slot + 1];
+    return acts[slot];
 }
 
 std::string_view GameWindow::menu_label(int index) const {
@@ -1009,7 +1031,45 @@ void GameWindow::open_replays() {
     state_ = State::Replays;
 }
 
-/// Start the trainer and stay where we are.
+/// Open HOW-TO-TRAIN.html in whatever the desktop uses for it.
+///
+/// The game's font has no lower case, so a URL or a shell command cannot be
+/// shown on screen without being wrong to type. The notice therefore says the
+/// short version in the arcade font and hands the exact commands to a program
+/// that has real typography and a clipboard. `QDesktopServices` is in Qt6::Gui,
+/// which is already linked; this needs no QtWidgets and no new dependency.
+void GameWindow::open_instructions() {
+    const std::filesystem::path page =
+        std::filesystem::path{QCoreApplication::applicationDirPath().toStdString()} /
+        "HOW-TO-TRAIN.html";
+    std::error_code probe;
+    const QUrl url = std::filesystem::is_regular_file(page, probe)
+                         ? QUrl::fromLocalFile(QString::fromStdString(page.string()))
+                         : QUrl{"https://github.com/JensKSP/missile-defense#ai-training"};
+    QDesktopServices::openUrl(url);
+}
+
+/// Spawn the terminal that installs the trainer, and come back to the menu.
+///
+/// Detached and visible: this downloads about 150 MB of PySide6, and a terminal
+/// window gives progress, scrollback and a copyable error for free — none of
+/// which this game can draw, because it deliberately does not link QtWidgets.
+void GameWindow::start_trainer_install() {
+    const auto chosen = install::best(machine_);
+    if (!chosen.has_value() || machine_.wheel.empty()) {
+        return; // the notice would not have offered this
+    }
+    const std::vector<std::string> argv =
+        install::terminal_command(install::pip_command(*chosen, machine_.wheel));
+    QStringList arguments;
+    for (std::size_t i = 1; i < argv.size(); ++i) {
+        arguments << QString::fromStdString(argv[i]);
+    }
+    QProcess::startDetached(QString::fromStdString(argv.front()), arguments);
+    open_menu();
+}
+
+/// Start the trainer, or explain why there is none to start.
 ///
 /// Detached, and that is the architecture rather than a shortcut: the trainer
 /// outlives the game, a run outlives the trainer, and neither should be able to
@@ -1023,7 +1083,8 @@ void GameWindow::open_replays() {
 /// trainer, the same as double-clicking its desktop entry twice.
 void GameWindow::open_trainer() {
     if (!trainer_.has_value()) {
-        return; // no entry is drawn in this case, so this is belt and braces
+        state_ = State::TrainNotice;
+        return;
     }
     QStringList arguments;
     for (std::size_t i = 1; i < trainer_->argv.size(); ++i) {
@@ -1388,6 +1449,7 @@ void GameWindow::mousePressEvent(QMouseEvent* event) {
     case State::Highscores:
     case State::Help:
     case State::About:
+    case State::TrainNotice:
         open_menu(); // a click dismisses these screens back to the menu
         break;
     case State::EnterScore:
@@ -1583,6 +1645,20 @@ void GameWindow::keyPressEvent(QKeyEvent* event) {
     case State::Help:
     case State::About:
         if (key == Qt::Key_Return || key == Qt::Key_Enter || key == Qt::Key_Escape) {
+            open_menu();
+        }
+        break;
+    case State::TrainNotice:
+        // ENTER does the thing the screen offered; ESC always goes back. Only
+        // one of the four answers spawns anything, and it is the one that said
+        // it would.
+        if (key == Qt::Key_Return || key == Qt::Key_Enter) {
+            if (offer_ == install::Offer::Install) {
+                start_trainer_install();
+            } else {
+                open_instructions();
+            }
+        } else if (key == Qt::Key_Escape) {
             open_menu();
         }
         break;

@@ -4,6 +4,7 @@
 #include "renderer.hpp"
 
 #include "game_window.hpp"
+#include "install.hpp"
 #include "md/replay/match.hpp"
 #include "md/rng.hpp"
 #include "md/version.hpp"
@@ -942,7 +943,7 @@ void Renderer::startNextFrame() {
         state == GameWindow::State::Help || state == GameWindow::State::About ||
         state == GameWindow::State::Options || state == GameWindow::State::Highscores ||
         state == GameWindow::State::Replays || state == GameWindow::State::Watch ||
-        state == GameWindow::State::EnterScore;
+        state == GameWindow::State::TrainNotice || state == GameWindow::State::EnterScore;
     if (game_over || paused_menu || text_screen) {
         // A text screen ghosts the field almost out: ABOUT and HIGHSCORES both
         // run their copy right down into the ground and neither has a spare line
@@ -1048,6 +1049,56 @@ void Renderer::startNextFrame() {
             {{"MOUSE", "AIM"}, {"CLICK", "FIRE"}, {"ESC", "PAUSE MENU"}, {"ENTER", "SELECT"}}};
         draw_bindings(inst, keys, cx, world_h * 0.55f, world_h * 0.10f, world_h * 0.014f);
         draw_text(inst, "PRESS ENTER", cx, world_h * 0.13f, world_h * 0.011f, ink::footer, true);
+    } else if (state == GameWindow::State::TrainNotice) {
+        // Four wordings, one per answer from `install::decide`. Short, and
+        // deliberately naming no command and no URL: this font has no lower
+        // case, and `SUDO APT INSTALL MISSILE-DEFENSE-TRAINER` is not something
+        // anyone can type. The exact text lives in HOW-TO-TRAIN.html, which
+        // ENTER opens in a program that has real typography and a clipboard.
+        draw_text(inst, "TRAIN AI", cx, world_h * 0.88f, world_h * 0.026f, ink::heading, true);
+        std::string_view headline;
+        std::string_view detail;
+        std::string_view action;
+        switch (window_->train_offer()) {
+        case install::Offer::Install:
+            headline = "THE TRAINER IS NOT INSTALLED";
+            detail = "IT SHIPS WITH THIS GAME";
+            action = "PRESS ENTER TO INSTALL IT";
+            break;
+        case install::Offer::NeedsPython:
+            headline = "TRAINING NEEDS PYTHON 3.12";
+            detail = "THIS MACHINE HAS NONE IT CAN USE";
+            action = "PRESS ENTER FOR INSTRUCTIONS";
+            break;
+        case install::Offer::NeedsPackage:
+            // Two machines reach this, and the wording has to be true on both:
+            // a distribution build, where the trainer is an apt package, and a
+            // Windows or macOS build that shipped without a wheel, where it is a
+            // pip install. Naming either one would be wrong on the other, so the
+            // screen names neither and the page — which knows the platform it is
+            // being read on — says which.
+            headline = "THE TRAINER IS INSTALLED SEPARATELY";
+            detail = "THE INSTRUCTIONS SAY HOW ON THIS SYSTEM";
+            action = "PRESS ENTER FOR INSTRUCTIONS";
+            break;
+        case install::Offer::Start:
+            // Unreachable: TRAIN AI starts the trainer in this case and never
+            // opens this screen. Spelled out anyway, because -Wswitch is what
+            // makes a fifth answer a compile error rather than a blank screen.
+            headline = "THE TRAINER IS READY";
+            detail = "CHOOSE TRAIN AI AGAIN";
+            action = "PRESS ENTER FOR INSTRUCTIONS";
+            break;
+        }
+        // Sized against ABOUT, whose longest line is 33 characters at 0.011 and
+        // just fits: the glyph step is `px * 4`, so width is linear in both the
+        // size and the character count, and 0.015 with 32 characters overflowed
+        // the screen on both sides. The detail line is longer, so it drops a
+        // step; the action is short, so it can carry the emphasis instead.
+        draw_text(inst, headline, cx, world_h * 0.66f, world_h * 0.011f, ink::city, true);
+        draw_text(inst, detail, cx, world_h * 0.56f, world_h * 0.009f, ink::body, true);
+        draw_text(inst, action, cx, world_h * 0.38f, world_h * 0.012f, ink::heading, true);
+        draw_text(inst, "ESC BACK", cx, world_h * 0.13f, world_h * 0.011f, ink::footer, true);
     } else if (state == GameWindow::State::About) {
         draw_text(inst, "ABOUT", cx, world_h * 0.94f, world_h * 0.024f, ink::heading, true);
         const std::string version_line = "VERSION " + std::string(version());

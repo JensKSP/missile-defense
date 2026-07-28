@@ -120,10 +120,11 @@ python.org CPython, and it is that module the installer ships. It is a stable-AB
 (`abi3`) `.pyd`, so it works on 3.12 and later rather than on one exact minor
 version.
 
-What that means if you install it: have a **python.org CPython 3.12+** on PATH
-and `pip install PySide6` into it. `missile-defense-trainer.cmd` checks before it execs and
-says so if either is missing, rather than opening the Microsoft Store — which is
-what a bare `python` does on a machine that has none.
+What that means if you install it: have a **python.org CPython 3.12+** on PATH.
+You do not need to `pip install` anything yourself — TRAIN AI does it, from the
+wheel that came with the game, into the interpreter it found. It reports which
+one it picked before it starts, because a silent choice on a machine with several
+Pythons is impossible to correct afterwards.
 
 ## Training on Windows
 
@@ -166,23 +167,28 @@ Set `MSYS2_ROOT` if MSYS2 is not at `C:\msys64`.
 
 ### Reaching the trainer from an installed game
 
-**TRAIN AI in the game's menu is the way in.** The installer and the portable
-ZIP both put the trainer's payload — `missile_defense\ui\` — beside `missile-defense.exe`, and the
-game looks there: with a usable `python` on `PATH` the entry appears, and
-choosing it runs `python -m missile_defense.ui` with that directory on the import path.
+**TRAIN AI in the game's menu is the way in, and it is also how the trainer gets
+installed.** The installer and the portable ZIP carry the trainer as a *wheel*
+beside `missile-defense.exe` — not as a Python payload the game has to find.
+Choosing TRAIN AI on a machine that has no trainer yet:
 
-What the game deliberately does *not* use is the `missile-defense-trainer.cmd` sitting in
-the same folder. **Smart App Control blocks unsigned scripts** on a stock
-Windows 11, so where that policy is on, the `.cmd` cannot be run at all —
-neither by the game nor by anyone double-clicking it. It stays for machines
-without the policy; nothing depends on it.
+1. finds every interpreter on `PATH` and asks each its version;
+2. offers to install into the newest one that is 3.12 or later;
+3. on ENTER, opens a terminal running
+   `pip install --user "<wheel>[trainer]"` so you can watch it;
+4. writes the interpreter it used into `trainer.conf` in the game's data
+   directory, so the next TRAIN AI starts the trainer instead.
 
-Until 2026-07-27 there was no way in at all. The lookup asked for
-`missile-defense-trainer.exe` — the wrong extension for a file called `missile-defense-trainer.cmd` — and
-searched `PATH` plus two Unix directories, never the one the installer actually
-writes to. Every Windows install resolved to nothing and the menu offered no
-training, with the trainer unreachable in the same folder as the binary that
-could not find it.
+**Nothing here is a script file**, and that is deliberate: Smart App Control
+blocks unsigned scripts outright on a stock Windows 11. The installer used to
+write a `missile-defense-trainer.cmd` that the policy simply refused to run — and
+that the game had to route around by exec'ing the interpreter directly. There is
+no `.cmd` any more; the game spawns `cmd.exe` with the pip command as arguments,
+and `cmd.exe` is a system binary.
+
+Python 3.12 and not 3.11: the wheel is `cp312-abi3`, and pip refuses it below
+that. `HOW-TO-TRAIN.html`, which the game opens from the same screen, says so
+with a link.
 
 **Nothing is written into the install directory.** The managed PyTorch runtime,
 the runs and the models all live under `%LOCALAPPDATA%\MissileDefense`, so an

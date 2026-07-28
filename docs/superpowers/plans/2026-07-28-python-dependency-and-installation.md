@@ -1,8 +1,9 @@
 # Python as a Dependency: Naming, Layering and Installation
 
-> **Status (2026-07-28):** Decisions are settled and recorded below. Commits 1–3
-> have landed; commit 4 and all four plan steps are open. Checkboxes are the
-> authoritative record of what is left.
+> **Status (2026-07-28):** Built. Two checkboxes are open and both are named
+> below rather than quietly skipped: the version-drift check, and the CI step
+> that would put a real wheel beside the game. Everything else has landed and is
+> covered by tests.
 
 **Goal:** Make the two products — the game and the trainer — installable and
 findable on every supported platform without shipping a Python interpreter, and
@@ -79,7 +80,7 @@ does.
 
 ### Step 4 of the rename series (prerequisite)
 
-- [ ] Debian: two binary packages. `python3-md` disappears; its contents move
+- [x] Debian: two binary packages. `python3-md` disappears; its contents move
       into `missile-defense-trainer`, which becomes `Architecture: any`.
       Accepted cost: no headless `apt install` of the library alone, and
       `dist-packages` shipped from a package not named `python3-*` (lintian
@@ -87,37 +88,45 @@ does.
 
 ### 1 — Rework the lookup
 
-- [ ] Delete `Origin::Payload`, `Lookup::payload_root`, `payload_module` and the
+- [x] Delete `Origin::Payload`, `Lookup::payload_root`, `payload_module` and the
       probe that fills it (`app/trainer.cpp`, `app/trainer.hpp`).
-- [ ] Add the recorded-interpreter source, read from `AppLocalDataLocation`.
-- [ ] Mirror the order in `missile_defense.runs.runner.trainer_executable` — the
+- [x] Add the recorded-interpreter source, read from `AppLocalDataLocation`.
+- [x] Mirror the order in `missile_defense.runs.runner.trainer_executable` — the
       two must not disagree, which is what `app/trainer.hpp` calls the boundary
       between the two products.
-- [ ] Tests in `app/tests/unit/test_trainer.cpp` and `test_ui_runner.py`.
+- [x] Tests in `app/tests/unit/test_trainer.cpp` and `test_ui_runner.py`.
 
 ### 2 — The install flow
 
-- [ ] `app/install.{cpp,hpp}`: find interpreters, pick the newest ≥ 3.12, spawn
+- [x] `app/install.{cpp,hpp}`: find interpreters, pick the newest ≥ 3.12, spawn
       the terminal, record the interpreter on success.
-- [ ] Notice screens for the three outcomes (no trainer / no Python / update
+- [x] Notice screens for the three outcomes (no trainer / no Python / update
       available), in the game's own font. **The font has no lowercase** — so a
       command or URL must never be rendered there.
-- [ ] `packaging/HOW-TO-TRAIN.html`, installed on all platforms.
-- [ ] Version comparison against the bundled wheel.
+- [x] `packaging/HOW-TO-TRAIN.html`, installed on all platforms.
+- [ ] Version comparison against the bundled wheel. **Not built.** The record
+      holds a `version=` key already; nothing reads it yet, so an older trainer
+      beside a newer game is still only caught when a `.mdp` is opened.
 
 ### 3 — Packaging
 
-- [ ] Ship the wheel: install dir (Windows), `Contents/Resources` (macOS).
-- [ ] Delete `packaging/launcher.cmd.in`, `packaging/trainer-bundle-launcher.in`,
+- [x] Ship the wheel: install dir (Windows), `Contents/Resources` (macOS).
+- [x] Delete `packaging/launcher.cmd.in`, `packaging/trainer-bundle-launcher.in`,
       `packaging/trainer.Info.plist.in`, the second `.app`, the `md\` payload
       install rules and the `python` CPack component.
-- [ ] CI: the packaging job consumes the `wheels` job's artifact.
+- [ ] CI: the packaging job consumes the `wheels` job's artifact. **Not wired.**
+      The Windows and macOS jobs assert the wheel only when `MD_TRAINER_WHEEL`
+      is set, and nothing sets it: that needs `needs: wheels` plus a
+      `download-artifact` step, which serialises the pipeline behind the full
+      cibuildwheel matrix and should be a decision rather than a side effect.
 
 ### 4 — Documentation and Debian polish
 
-- [ ] `Suggests: missile-defense-trainer` in the game's Debian stanza — today
+- [x] `Suggests: missile-defense-trainer` in the game's Debian stanza — today
       nothing points a game-only user at the trainer.
-- [ ] `docs/PACKAGING.md`, `docs/WINDOWS.md`, `docs/MACOS.md`, `README.md`.
+- [x] `docs/PACKAGING.md` and `docs/WINDOWS.md` rewritten for the new
+      mechanism. `docs/MACOS.md` needed nothing — it never described the trainer.
+      `README.md` gained the developer-dependency section instead.
 
 ## Unverifiable here
 

@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<!--
+  SPDX-License-Identifier: MIT
+  Copyright (c) 2026 Jens Köhler
+  Assisted-by: Claude Code (Anthropic)
+
+  Opened by the game's TRAIN AI screen, which cannot show this itself: the arcade
+  font has no lower case, so a command or a URL rendered in it is not something
+  anyone can type. This page exists so the exact text is somewhere with real
+  typography and a clipboard.
+
+  One page with three sections rather than one per platform: it ships everywhere,
+  there is one file to keep true, and somebody reading it on the wrong machine
+  still finds the right answer.
+
+  No stylesheet link, no font, no script — it is opened from a local file by
+  whatever the desktop uses for HTML, sometimes with no network at all.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Missile Defense — how to train an agent</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+    max-width: 46rem; margin: 3rem auto; padding: 0 1.25rem;
+  }
+  h1 { font-size: 1.6rem; margin-bottom: .25rem; }
+  h2 { font-size: 1.15rem; margin-top: 2.5rem; }
+  .lede { opacity: .8; margin-top: 0; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  pre {
+    background: rgba(127,127,127,.14); padding: .8rem 1rem; border-radius: 6px;
+    overflow-x: auto; font-size: .9rem;
+  }
+  .note { border-left: 3px solid rgba(127,127,127,.5); padding-left: 1rem; opacity: .85; }
+  footer { margin-top: 3rem; font-size: .85rem; opacity: .7; }
+</style>
+</head>
+<body>
+
+<h1>Training an agent</h1>
+<p class="lede">
+  The game plays on its own. Teaching it to is a second program — the
+  <strong>Missile Defense Trainer</strong> — which needs Python. The game does not
+  ship one, because a bundled interpreter with the trainer's Qt bindings is about
+  200 MB on a download that is otherwise a game.
+</p>
+<p>
+  Once the trainer is installed, you never need this page again: choose
+  <strong>TRAIN AI</strong> in the game and it starts.
+</p>
+
+<h2>Windows</h2>
+<ol>
+  <li>
+    Install <strong>Python 3.12 or newer</strong> from
+    <a href="https://www.python.org/downloads/">python.org/downloads</a>.
+    Tick <em>Add python.exe to PATH</em> during setup.
+  </li>
+  <li>Start the game and choose <strong>TRAIN AI</strong> again.</li>
+</ol>
+<p>
+  The game installs the trainer for you from the copy that came with it, in a
+  terminal window you can watch. Nothing else is needed.
+</p>
+<p class="note">
+  3.12 and not 3.11: the trainer ships as a wheel built against CPython's stable
+  ABI, which starts at 3.12. pip will refuse it on 3.11.
+</p>
+
+<h2>macOS</h2>
+<ol>
+  <li>
+    Install <strong>Python 3.12 or newer</strong> — from
+    <a href="https://www.python.org/downloads/">python.org/downloads</a>, or with
+    Homebrew:
+    <pre>brew install python</pre>
+    The <code>python3</code> that comes with macOS is 3.9 and too old.
+  </li>
+  <li>Start the game and choose <strong>TRAIN AI</strong> again.</li>
+</ol>
+
+<h2>Linux</h2>
+<p>
+  The trainer is a package, and your distribution's Python is managed by your
+  distribution — so it is installed the same way the game was:
+</p>
+<pre>sudo apt install missile-defense-trainer</pre>
+<p>
+  Then choose <strong>TRAIN AI</strong> in the game.
+</p>
+<p class="note">
+  Not pip: Debian and Ubuntu mark the system interpreter <em>externally managed</em>
+  (PEP 668), so <code>pip install</code> there is refused by design — correctly.
+  The package brings everything, including the Qt bindings.
+</p>
+
+<h2>From a source checkout</h2>
+<pre>python3 -m tools.bootstrap
+poe ui</pre>
+<p>
+  The game finds a checkout on its own, so <strong>TRAIN AI</strong> works there
+  without installing anything.
+</p>
+
+<h2>PyTorch</h2>
+<p>
+  You do not need it to install the trainer, to watch a run, to compare models or
+  to replay episodes. You need it to <em>start</em> a training run — and the
+  trainer will offer to set up a runtime for you, matched to the hardware it
+  finds, from its <strong>Set up training…</strong> button. That is a several-gigabyte
+  download, which is exactly why it is a button and not a dependency.
+</p>
+
+<footer>
+  Missile Defense — MIT licence.
+  <a href="https://github.com/JensKSP/missile-defense">github.com/JensKSP/missile-defense</a>
+</footer>
+
+</body>
+</html>

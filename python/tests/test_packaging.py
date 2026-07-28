@@ -277,73 +277,71 @@ def test_every_platform_has_a_way_to_launch_the_installed_trainer() -> None:
     A launcher that forgets is a trainer that starts and cannot import itself,
     and that is invisible until someone installs it.
     """
-    templates = {
-        "launcher.in": "@MD_LAUNCHER_PYTHON@ -m @MD_LAUNCHER_MODULE@",
-        "launcher.cmd.in": "%~dp0",
-        "trainer-bundle-launcher.in": "$here/../Resources",
-    }
-    for name, marker in templates.items():
-        text = (ROOT / "packaging" / name).read_text(encoding="utf-8")
-        assert marker in text, f"{name} lost the part that makes it work"
-        assert "@MD_LAUNCHER_MODULE@" in text, f"{name} does not name a module to run"
-    # The two that ship outside a distribution's control must not assume the
-    # interpreter can already find `md`.
-    for name in ("launcher.cmd.in", "trainer-bundle-launcher.in"):
-        assert "PYTHONPATH" in (ROOT / "packaging" / name).read_text(encoding="utf-8")
-
-
-def test_the_launchers_that_follow_a_users_python_check_it_first() -> None:
-    """On Windows and macOS the interpreter is not ours, and may not be there.
-
-    Both launchers exec a `python` they do not control. Windows answers a
-    missing one with a Microsoft Store alias that returns 9009; macOS answers it
-    from the Finder with no terminal at all, so the bundle bounces once and
-    quits. Neither is a message, and both are somebody's first impression of a
-    trainer they just installed. The Linux launcher is deliberately exempt: its
-    package depends on the interpreter, so absence is not a state it can be in.
-    """
-    for name in ("launcher.cmd.in", "trainer-bundle-launcher.in"):
-        text = (ROOT / "packaging" / name).read_text(encoding="utf-8")
-        assert "version_info >= (3, 11)" in text, f"{name} execs a Python it never checked"
-        assert "pip install PySide6" in text, f"{name} does not say what would fix it"
-    # And it has to *say* it where the failure happens: a trainer window that
-    # closes on exit, or a Finder launch that has no console at all.
-    assert "pause" in (ROOT / "packaging" / "launcher.cmd.in").read_text(encoding="utf-8")
-    assert "osascript" in (ROOT / "packaging" / "trainer-bundle-launcher.in").read_text(
-        encoding="utf-8"
+    text = (ROOT / "packaging" / "launcher.in").read_text(encoding="utf-8")
+    assert "@MD_LAUNCHER_PYTHON@ -m @MD_LAUNCHER_MODULE@" in text, (
+        "launcher.in lost the part that makes it work"
     )
 
 
-def test_the_macos_trainer_is_a_separate_application() -> None:
-    """A second `.app` in the disk image, and distinguishable from the game.
+def test_no_launcher_ships_outside_a_distribution() -> None:
+    """One launcher template, and it is the distribution's.
 
-    The DMG has no checkboxes — the choice is which icon you drag — so "the
-    trainer is optional on macOS" is only true if it is genuinely a second
-    application. Sharing the game's bundle identifier would make macOS treat
-    them as one, which is the failure this guards against.
+    There were three. The Windows `.cmd` and the macOS bundle wrapper existed
+    because the installer wrote the Python package beside the game and something
+    had to set the import path — and both had to check for an interpreter they
+    did not control, and explain its absence, from inside a window with no
+    console. That is a lot of machinery for a payload that is no longer shipped:
+    on those two platforms the trainer is a wheel the game installs with pip, so
+    what starts it is the interpreter it was installed into (app/trainer.hpp).
+
+    The `.cmd` had a second problem that could not be fixed at all: Smart App
+    Control blocks scripts outright on a stock Windows 11, so the launcher the
+    installer wrote was one the platform refused to run.
     """
-    trainer = (ROOT / "packaging" / "trainer.Info.plist.in").read_text(encoding="utf-8")
-    game = (ROOT / "app" / "Info.plist.in").read_text(encoding="utf-8")
-    assert "de.koehler-speyer.missile-defense-trainer" in trainer
-    assert "@MACOSX_BUNDLE_GUI_IDENTIFIER@" in game  # the game's is set from CMake
-    assert "developer-tools" in trainer, "the trainer is filed as a game"
-    assert "arcade-games" in game
-    # Without these two the bundle is a folder with a script in it: the Finder
-    # will not launch it, and it never becomes a foreground GUI process.
-    assert "CFBundleExecutable" in trainer
-    assert "NSPrincipalClass" in trainer
+    packaging = ROOT / "packaging"
+    assert (packaging / "launcher.in").is_file(), "the distribution launcher is gone"
+    for gone in ("launcher.cmd.in", "trainer-bundle-launcher.in", "trainer.Info.plist.in"):
+        assert not (packaging / gone).exists(), (
+            f"{gone} is back; the game installs the trainer with pip now"
+        )
 
 
-def test_the_installer_offers_the_trainer_without_preselecting_it() -> None:
+def test_the_game_ships_what_the_train_ai_screen_needs() -> None:
+    """The notice screen opens a page, and the game has to carry one.
+
+    The arcade font has no lower case, so the screen cannot show a command or a
+    URL — it shows a sentence and hands the exact text to the desktop. A missing
+    page is a menu entry that opens nothing, which is the failure this whole
+    lookup exists to avoid, one level up.
+    """
+    page = (ROOT / "packaging" / "HOW-TO-TRAIN.html").read_text(encoding="utf-8")
+    for platform in ("Windows", "macOS", "Linux"):
+        assert f">{platform}</h2>" in page, f"the instructions do not cover {platform}"
+    # The three commands a reader actually has to type, spelled exactly.
+    assert "sudo apt install missile-defense-trainer" in page
+    assert "brew install python" in page
+    assert "python3 -m tools.bootstrap" in page
+    # And no stylesheet or script from the network: this is opened from a local
+    # file, sometimes by someone who has no network at all.
+    assert "<link" not in page and "<script" not in page
+
+
+def test_the_installer_ships_the_game_and_only_the_game() -> None:
     """The Windows half of the same promise, read off the CPack declaration.
 
-    `game` is required and `python` is offered unticked, so someone who came for
-    a game can decline an interpreter without reading a manual — the same split
-    `debian/control` keeps by producing separate binaries.
+    There is one component now. The installer used to offer a `python` one
+    unticked so someone who came for a game could decline an interpreter; the
+    decline moved into the game, where TRAIN AI asks before downloading anything
+    — and where it is asked of someone who has decided they want to train an
+    agent, rather than of someone reading a component list on the way to playing.
+
+    A second component reappearing here would mean the installer is shipping a
+    Python payload again, which is the thing this replaced.
     """
     cmake = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
     assert "set(CPACK_COMPONENT_GAME_REQUIRED ON)" in cmake
-    assert "set(CPACK_COMPONENT_PYTHON_DISABLED ON)" in cmake
+    assert "set(CPACK_COMPONENTS_ALL game)" in cmake
+    assert "CPACK_COMPONENT_PYTHON" not in cmake
     # And the game's own install rules are tagged, or `--component game` would
     # stage nothing and every claim made about that tree would be vacuous.
     app_cmake = (ROOT / "app" / "CMakeLists.txt").read_text(encoding="utf-8")

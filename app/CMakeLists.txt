@@ -77,6 +77,7 @@ endif()
 add_executable(md_app MACOSX_BUNDLE
   main.cpp
   trainer.cpp
+  install.cpp
   game_window.cpp
   renderer.cpp
   audio.cpp
@@ -171,6 +172,60 @@ if(MD_VULKAN_VALIDATION)
   add_executable(md_vulkan_baseline tests/vulkan_baseline.cpp)
   set_target_properties(md_vulkan_baseline PROPERTIES AUTOMOC ON)
   target_link_libraries(md_vulkan_baseline PRIVATE Qt6::Gui md::warnings)
+endif()
+
+# ---- What TRAIN AI needs beside the game -------------------------------------
+# Both are `game` component: they are what the *game* shows and hands to pip when
+# someone chooses TRAIN AI, not part of a trainer that is no longer installed
+# here at all.
+#
+# The page is everywhere, including Debian, because the notice screen opens it on
+# every platform — the arcade font has no lower case, so a command or a URL
+# cannot be shown on screen without being wrong to type.
+if(WIN32)
+  set(md_doc_dir ".")
+elseif(APPLE)
+  set(md_doc_dir "md_app.app/Contents/Resources")
+else()
+  include(GNUInstallDirs)
+  set(md_doc_dir "${CMAKE_INSTALL_DATAROOTDIR}/missile-defense")
+endif()
+install(FILES "${CMAKE_SOURCE_DIR}/packaging/HOW-TO-TRAIN.html"
+  DESTINATION "${md_doc_dir}" COMPONENT game)
+
+# The wheel, on the two platforms where the game installs the trainer itself.
+#
+# Named rather than built: it is the artifact the `wheels` CI job already
+# produces with cibuildwheel and publishes to PyPI, so what ships beside the game
+# is the same file that was import-tested there. Building a second one here would
+# produce something nobody has run.
+#
+# Empty is the ordinary state — a developer build ships no wheel, and `decide()`
+# answers NeedsPackage, which is also the right answer on Debian.
+set(MD_TRAINER_WHEEL "" CACHE FILEPATH
+    "The missile_defense wheel to ship beside the game for TRAIN AI to install")
+if(MD_TRAINER_WHEEL)
+  if(NOT EXISTS "${MD_TRAINER_WHEEL}")
+    message(FATAL_ERROR "MD_TRAINER_WHEEL names a file that does not exist: ${MD_TRAINER_WHEEL}")
+  endif()
+  # `app/install.cpp` looks for `missile_defense-*.whl` beside the binary, so the
+  # name is the contract and a renamed copy would simply not be found.
+  get_filename_component(md_wheel_name "${MD_TRAINER_WHEEL}" NAME)
+  if(NOT md_wheel_name MATCHES "^missile_defense-.*\\.whl$")
+    message(FATAL_ERROR
+      "MD_TRAINER_WHEEL must be a file called missile_defense-<version>-<tags>.whl; "
+      "app/install.cpp finds it by that name. Got: ${md_wheel_name}")
+  endif()
+  if(WIN32)
+    install(FILES "${MD_TRAINER_WHEEL}" DESTINATION . COMPONENT game)
+  elseif(APPLE)
+    install(FILES "${MD_TRAINER_WHEEL}"
+      DESTINATION "md_app.app/Contents/MacOS" COMPONENT game)
+  else()
+    message(WARNING
+      "MD_TRAINER_WHEEL is set on a platform where the trainer is a package. "
+      "Ignoring it: pip into a distribution's interpreter is what PEP 668 refuses.")
+  endif()
 endif()
 
 # ---- The bundled learned agent -----------------------------------------------

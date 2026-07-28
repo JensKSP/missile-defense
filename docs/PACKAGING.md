@@ -168,19 +168,37 @@ Debian expresses "two products" as two packages. The other two platforms have no
 package manager to express it with, so each says it in its own idiom — and every
 difference below comes from one fact: **only Debian owns the interpreter.**
 
-| | How the choice is offered | Where the payload goes | How `md` is found |
+| | Who installs the trainer | What ships beside the game | How it is found afterwards |
 |---|---|---|---|
-| Debian | separate binary packages | `/usr/lib/python3/dist-packages/missile_defense` | the distribution's interpreter already looks there |
-| Windows | an unticked **Missile Defense Trainer** component in the NSIS installer | `md\` beside `missile-defense.exe` | `missile-defense-trainer.cmd` puts `%~dp0` on `PYTHONPATH` |
-| macOS | a second `.app` in the disk image, dragged or not | `Missile Defense Trainer.app/Contents/Resources/md` | `Contents/MacOS/missile-defense-trainer` puts `../Resources` on `PYTHONPATH` |
+| Debian | `apt`, as `missile-defense-trainer` | — | `/usr/bin/missile-defense-trainer` on `PATH` |
+| Windows | the game, on request, with pip | `missile_defense-*.whl`, `HOW-TO-TRAIN.html` | the interpreter it installed into, recorded in `trainer.conf` |
+| macOS | the game, on request, with pip | the same two, inside `Contents/` | the same record |
 
-The components are `game` and `python`, declared in the top-level `CMakeLists.txt`
-and tagged on every `install()` rule. `game` is `CPACK_COMPONENT_GAME_REQUIRED`;
-`python` is `CPACK_COMPONENT_PYTHON_DISABLED`, i.e. offered but not preselected.
-That tagging is load-bearing beyond the installer: `cmake --install --component
-game` is how the packaging tests stage the exact game-only product out of a build
-tree that also built the bindings. Before the tags existed, every such rule went
-into `Unspecified` and a "game-only" staging quietly carried `_md_native` with it.
+**This used to be three different mechanisms and is now two.** Windows shipped
+the Python package beside the exe with a `.cmd` launcher; macOS shipped a second
+`.app` with a shell wrapper. Both existed to answer the same question — where did
+the payload go — and both were guesses, because the interpreter that has to
+import it belongs to the user. The `.cmd` had a second problem no amount of care
+would fix: Smart App Control blocks scripts outright on a stock Windows 11.
+
+So neither ships a payload. The game carries the wheel, TRAIN AI runs
+`pip install --user "<wheel>[trainer]"` in a terminal window the user can watch,
+and it writes down the interpreter it used. Nothing has to be found by searching
+afterwards — see `app/trainer.hpp` for why searching could not be made to work,
+and `app/install.hpp` for the four answers TRAIN AI can give.
+
+There is **one** CPack component now, `game`, declared in the top-level
+`CMakeLists.txt` and tagged on every `install()` rule. The tagging is load-bearing
+beyond the installer: `cmake --install --component game` is how the packaging
+tests stage the exact game-only product out of a build tree that also built the
+bindings. Before the tags existed, every such rule went into `Unspecified` and a
+"game-only" staging quietly carried `_md_native` with it.
+
+The wheel itself is not built here. `MD_TRAINER_WHEEL` names the artifact the
+`wheels` CI job already produced with cibuildwheel and published to PyPI, so what
+ships beside the game is the file that was import-tested there rather than a
+second one nobody has run. Unset — which is every developer build — the game
+simply has nothing to install and says so.
 
 macOS gets `CPACK_MONOLITHIC_INSTALL` even so. A disk image is a window with
 icons in it, not an installer with checkboxes, so splitting it into two images

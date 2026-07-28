@@ -372,13 +372,12 @@ endif()
 #
 # A cache entry, so `-DMD_PYTHON_INSTALL_DIR=...` still wins — debian/rules
 # passes the distribution's own dist-packages path and must keep doing so.
-if(APPLE)
-  # Inside the bundle: nothing beside an .app is ever on sys.path.
-  set(md_trainer_bundle "Missile Defense Trainer.app")
-  set(md_python_install_default "${md_trainer_bundle}/Contents/Resources/md")
-elseif(WIN32)
-  # Flat beside missile-defense.exe — see app/CMakeLists.txt.
-  set(md_python_install_default "missile_defense")
+if(APPLE OR WIN32)
+  # Nothing: the trainer is not installed by this build on either platform. It
+  # ships as a wheel beside the game and the game pip-installs it on request
+  # (app/install.hpp), because only whoever owns the interpreter can put a Python
+  # package into it — and on these two that is the user, not us.
+  set(md_python_install_default "")
 elseif(DEFINED SKBUILD)
   # scikit-build-core's install tree *is* the wheel root, so a relative `missile_defense` is
   # the package directory the wheel unpacks into site-packages.
@@ -507,14 +506,25 @@ if(MD_INSTALL_PYTHON_PACKAGE)
       "The interpreter the installed missile-defense-* launchers exec")
 
   # `MD_PYTHON_INSTALL_DIR` is already decided, above the components — see the
-  # note there. Only the launcher directory is left to choose.
-  if(APPLE)
-    set(md_trainer_bindir "${md_trainer_bundle}/Contents/MacOS")
-  elseif(WIN32)
-    set(md_trainer_bindir ".") # flat, beside the game — see app/CMakeLists.txt
-  else()
-    set(md_trainer_bindir "${CMAKE_INSTALL_BINDIR}")
+  # note there. Only the launcher directory is left to choose, and there is now
+  # only one platform to choose it for.
+  #
+  # **This whole block is the distribution's path and nobody else's.** Windows and
+  # macOS used to come through here too: the installer wrote the `md` package
+  # beside the game, a `.cmd` or an `.app` wrapper next to it, and the game
+  # searched for the payload. All of that is gone. There, the trainer is a wheel
+  # the game installs with pip on request (app/install.hpp), because the thing
+  # that made the payload work — an interpreter — was never ours to ship. Only a
+  # distribution owns the interpreter, so only a distribution can install a
+  # Python package into it.
+  if(WIN32 OR APPLE)
+    message(FATAL_ERROR
+      "MD_INSTALL_PYTHON_PACKAGE is for distribution packaging, and this is not "
+      "a distribution. On Windows and macOS the trainer ships as a wheel beside "
+      "the game (MD_TRAINER_WHEEL) and is installed by the game on request.")
   endif()
+  include(GNUInstallDirs)
+  set(md_trainer_bindir "${CMAKE_INSTALL_BINDIR}")
 
   # The sources. _md_native and its stub are excluded because bindings/ installs
   # those — it is the one that knows whether the extension was built at all.
@@ -533,61 +543,17 @@ if(MD_INSTALL_PYTHON_PACKAGE)
     else()
       set(MD_LAUNCHER_MODULE "missile_defense.training.cli")
     endif()
-    if(WIN32)
-      configure_file(packaging/launcher.cmd.in
-                     "${CMAKE_CURRENT_BINARY_DIR}/${md_launcher}.cmd" @ONLY)
-      install(PROGRAMS "${CMAKE_CURRENT_BINARY_DIR}/${md_launcher}.cmd"
-        DESTINATION "${md_trainer_bindir}"
-        COMPONENT python)
-    elseif(APPLE)
-      configure_file(packaging/trainer-bundle-launcher.in
-                     "${CMAKE_CURRENT_BINARY_DIR}/${md_launcher}" @ONLY)
-      install(PROGRAMS "${CMAKE_CURRENT_BINARY_DIR}/${md_launcher}"
-        DESTINATION "${md_trainer_bindir}"
-        COMPONENT python)
-    else()
-      configure_file(packaging/launcher.in "${CMAKE_CURRENT_BINARY_DIR}/${md_launcher}" @ONLY)
-      install(PROGRAMS "${CMAKE_CURRENT_BINARY_DIR}/${md_launcher}"
-        DESTINATION "${md_trainer_bindir}"
-        COMPONENT python)
-    endif()
+    configure_file(packaging/launcher.in "${CMAKE_CURRENT_BINARY_DIR}/${md_launcher}" @ONLY)
+    install(PROGRAMS "${CMAKE_CURRENT_BINARY_DIR}/${md_launcher}"
+      DESTINATION "${md_trainer_bindir}"
+      COMPONENT python)
   endforeach()
 
-  if(APPLE)
-    # The manifest is what makes the directory an application rather than a
-    # folder with a script in it: without CFBundleExecutable the Finder will not
-    # launch it, and without NSPrincipalClass it never becomes a GUI process.
-    configure_file(packaging/trainer.Info.plist.in
-                   "${CMAKE_CURRENT_BINARY_DIR}/trainer.Info.plist" @ONLY)
-    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/trainer.Info.plist"
-      DESTINATION "${md_trainer_bundle}/Contents"
-      RENAME "Info.plist"
-      COMPONENT python)
-    install(FILES "${CMAKE_SOURCE_DIR}/LICENSE"
-                  "${CMAKE_SOURCE_DIR}/THIRD_PARTY_LICENSES.md"
-      DESTINATION "${md_trainer_bundle}/Contents/Resources"
-      COMPONENT python)
-    # And the texts those notices point at. The trainer is its own .app, so it
-    # cannot borrow the game's copy the way the Windows installer can — and it
-    # carries `_md_native`, whose nanobind runtime is BSD-3-Clause: clause 2
-    # requires the notice to travel with the *binary*, which on macOS means
-    # inside this bundle or nowhere.
-    install(DIRECTORY "${CMAKE_SOURCE_DIR}/licenses"
-      DESTINATION "${md_trainer_bundle}/Contents/Resources"
-      COMPONENT python)
-  elseif(WIN32)
-    # No .desktop equivalent; the Start-menu shortcut comes from CPack (below).
-    install(FILES "${CMAKE_SOURCE_DIR}/LICENSE"
-                  "${CMAKE_SOURCE_DIR}/THIRD_PARTY_LICENSES.md"
-      DESTINATION "${MD_PYTHON_INSTALL_DIR}"
-      COMPONENT python)
-  else()
-    # Its own menu entry, in Development/Science rather than Games — someone
-    # looking for the arcade cabinet must not find two of them.
-    install(FILES "${CMAKE_SOURCE_DIR}/packaging/missile-defense-trainer.desktop"
-      DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/applications"
-      COMPONENT python)
-  endif()
+  # Its own menu entry, in Development/Science rather than Games — someone
+  # looking for the arcade cabinet must not find two of them.
+  install(FILES "${CMAKE_SOURCE_DIR}/packaging/missile-defense-trainer.desktop"
+    DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/applications"
+    COMPONENT python)
 endif()
 
 # ---- Packaging (CPack) -------------------------------------------------------
@@ -653,26 +619,23 @@ if(MD_BUILD_APP AND PROJECT_IS_TOP_LEVEL)
     set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
   endif()
 
-  # ---- Installer components: the two products, as a choice ---------------
-  # `game` is everything app/CMakeLists.txt installs; `python` is the trainer,
-  # its package and the native binding. Declaring them is what lets the Windows
-  # installer offer the trainer as an *unticked* option — someone who came for a
-  # game must be able to decline an interpreter without reading a manual, which
-  # is the same promise `debian/control` keeps by splitting the binaries.
+  # ---- One component, because there is one thing to install ---------------
+  # There used to be two: `game`, and a `python` one the NSIS installer offered
+  # unticked so someone who came for a game could decline an interpreter. That
+  # choice is gone, and so is the checkbox — what the installer ships is the
+  # game, plus the trainer's wheel beside it. The choice moved into the game,
+  # where TRAIN AI asks before it downloads anything, and where it can be made by
+  # someone who has already decided they want to train an agent rather than by
+  # someone reading a component list on their way to playing.
+  #
+  # Two things that cost us went with it: an unticked component that (still) had
+  # no Start-menu entry, so anyone who did tick it had nothing to click; and a
+  # `.cmd` launcher Smart App Control blocks outright on a stock Windows 11.
   set(CPACK_COMPONENT_GAME_DISPLAY_NAME "Missile Defense")
   set(CPACK_COMPONENT_GAME_DESCRIPTION
       "The game. Self-contained: no Python, no training tools.")
   set(CPACK_COMPONENT_GAME_REQUIRED ON)
-  set(CPACK_COMPONENT_PYTHON_DISPLAY_NAME "Missile Defense Trainer")
-  set(CPACK_COMPONENT_PYTHON_DESCRIPTION
-      "Train your own agent and watch it play. Needs Python 3.11+ with PySide6.")
-  set(CPACK_COMPONENT_PYTHON_DISABLED ON) # offered, not preselected
-
-  if(MD_INSTALL_PYTHON_PACKAGE)
-    set(CPACK_COMPONENTS_ALL game python)
-  else()
-    set(CPACK_COMPONENTS_ALL game)
-  endif()
+  set(CPACK_COMPONENTS_ALL game)
 
   if(APPLE)
     # A disk image is not an installer with checkboxes — it is a window with

@@ -217,6 +217,8 @@ std::string_view state_name(md::GameWindow::State state) {
         return "highscores";
     case State::Help:
         return "help";
+    case State::TrainNotice:
+        return "train-notice";
     case State::About:
         return "about";
     case State::Options:
