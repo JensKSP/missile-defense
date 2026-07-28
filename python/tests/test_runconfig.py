@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from md import runconfig
+from missile_defense import runconfig
 
 PAYLOAD = {
     "train": {
@@ -89,8 +89,8 @@ def test_options_are_the_shape_the_start_dialog_and_presets_use(tmp_path: Path) 
 
     options = runconfig.options(config)
 
-    # Field name to string, exactly as `md.presets` stores them and as
-    # `md.ui.params.command_line` consumes them.
+    # Field name to string, exactly as `missile_defense.presets` stores them and as
+    # `missile_defense.ui.params.command_line` consumes them.
     assert options["envs"] == "2048"
     assert options["architecture"] == "entity"
     assert options["learning_rate"] == "0.0003"
@@ -122,7 +122,7 @@ def test_the_reward_weights_win_the_name_they_share_with_ppo(tmp_path: Path) -> 
 
     # `Shaping.gamma` and `PPOConfig.gamma` are two different discounts, and the
     # trainer's flat flag namespace resolves the collision to `--reward-gamma`
-    # (md.ui.params.REWARD_FIELDS). A flat option map has to agree with it.
+    # (missile_defense.ui.params.REWARD_FIELDS). A flat option map has to agree with it.
     assert options["gamma"] == "0.99"
 
 

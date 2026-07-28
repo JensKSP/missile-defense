@@ -40,7 +40,7 @@ def episode(tmp_path_factory: pytest.TempPathFactory) -> Path:
     places is the cleanest way to make the count the only variable.
     """
     import numpy as np
-    from md.env import VecEnv
+    from missile_defense.env import VecEnv
 
     out = tmp_path_factory.mktemp("episode") / "update-00025.mdr"
     # A recording is only written when an episode *ends*, so this steps until one

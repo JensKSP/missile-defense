@@ -14,13 +14,13 @@ import pytest
 
 pytest.importorskip("torch", reason="torch is not installed")
 pytest.importorskip(
-    "md._md_native",
+    "missile_defense._md_native",
     reason="the _md_native extension is not built (cmake -DMD_BUILD_BINDINGS=ON)",
 )
 
 import torch  # noqa: E402
-from md import train as trainer  # noqa: E402
-from md.benchmark import (  # noqa: E402
+from missile_defense import train as trainer  # noqa: E402
+from missile_defense.benchmark import (  # noqa: E402
     CANONICAL_BASELINE_MEAN_SCORE,
     CANONICAL_FRAME_SKIP,
     CANONICAL_INFERENCE_DEVICE,
@@ -31,9 +31,9 @@ from md.benchmark import (  # noqa: E402
     VALIDATION_SEED_OFFSET,
     VALIDATION_SPLIT,
 )
-from md.eval import default_seeds, validation_seeds  # noqa: E402
-from md.ppo import PPOConfig  # noqa: E402
-from md.train import TrainConfig  # noqa: E402
+from missile_defense.eval import default_seeds, validation_seeds  # noqa: E402
+from missile_defense.ppo import PPOConfig  # noqa: E402
+from missile_defense.train import TrainConfig  # noqa: E402
 from torch import nn  # noqa: E402
 
 

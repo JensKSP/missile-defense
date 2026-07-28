@@ -3,7 +3,7 @@
 
 # The extension is compiled by the same CMake tree the game is, so the build
 # backend is scikit-build-core rather than setuptools: `pip install .` has to
-# produce an `md` that can actually `import _md_native`, and a pure-Python
+# produce a `missile_defense` that can actually `import _md_native`, and a pure-Python
 # backend would install a package that raises on its first line.
 #
 # Only the headless half is built — no Qt, no Vulkan, no tests. Someone doing
@@ -17,13 +17,14 @@ build-backend = "scikit_build_core.build"
 [tool.scikit-build]
 minimum-version = "0.10"
 cmake.version = ">=3.25"
-# The wheel's `md` is the checkout's `python/md`; CMake adds `_md_native` to it
+# The wheel's `missile_defense` is the checkout's `python/missile_defense`; CMake
+# adds `_md_native` to it
 # through the install rule in bindings/CMakeLists.txt.
-wheel.packages = ["python/md"]
+wheel.packages = ["python/missile_defense"]
 build-dir = "build/wheel"
 # `wheel.exclude` is applied *after* the CMake install, so a `*.pyd` pattern
 # here deletes the module this build just produced and the wheel installs an
-# `md` whose first import fails. It is not needed for its intended purpose
+# `missile_defense` whose first import fails. It is not needed for its intended purpose
 # either: the in-place copies beside the sources (docs/WINDOWS.md keeps two ABIs
 # there at once) are gitignored, and the packages copy skips them.
 wheel.exclude = ["**/__pycache__"]
@@ -90,9 +91,9 @@ skip = "*-musllinux_*"
 manylinux-x86_64-image = "manylinux_2_28"
 manylinux-aarch64-image = "manylinux_2_28"
 # The one claim a wheel has to earn: that it imports on a machine that never had
-# the toolchain. `md.env` is the module the extension exists for, so importing
+# the toolchain. `missile_defense.env` is the module the extension exists for, so importing
 # the package alone would not prove the .so loads.
-test-command = "python -c \"import md, md.env; print(md.__version__)\""
+test-command = "python -c \"import missile_defense, missile_defense.env; print(missile_defense.__version__)\""
 
 [project]
 name = "missile-defense"
@@ -102,7 +103,7 @@ readme = "README.md"
 license = { file = "LICENSE" }
 authors = [{ name = "Jens Köhler", email = "jens@koehler-speyer.de" }]
 requires-python = ">=3.11"
-# md.env types its buffer contract with numpy.typing, so this is not optional
+# missile_defense.env types its buffer contract with numpy.typing, so this is not optional
 # for anything that imports the environment at all.
 dependencies = ["numpy>=1.24"]
 classifiers = [
@@ -135,7 +136,7 @@ trainer = [
 
 # Both go through a shim that checks for the optional half first: an entry point
 # that dies inside `import torch` reads as a broken install rather than as a
-# package someone has not added yet (md.cli, md.ui.__main__).
+# package someone has not added yet (missile_defense.cli, missile_defense.ui.__main__).
 #
 # The names are the product's, not the import package's. `md-` meant nothing to
 # anyone who had not read the source: the game installs as `missile-defense`, so
@@ -144,10 +145,10 @@ trainer = [
 #
 # There is no separate multi-seed command. It was `md-multiseed`, and it is now
 # `missile-defense-train --multiseed`, because it is the trainer run several
-# times rather than a different program — see md.cli.train.
+# times rather than a different program — see missile_defense.cli.train.
 [project.scripts]
-missile-defense-train = "md.cli:train"
-missile-defense-trainer = "md.ui.__main__:main"
+missile-defense-train = "missile_defense.cli:train"
+missile-defense-trainer = "missile_defense.ui.__main__:main"
 
 # ---- Task runner (poe) -------------------------------------------------------
 # Run with: poe <task>   (after `python3 -m tools.bootstrap`)
@@ -169,7 +170,7 @@ profile   = { cmd = "python -m tools.run_bench --profile", help = "Benchmark wit
 #
 # `train` builds the extension first, for the same reason `app` builds the game:
 # a task that runs something builds what it runs. It cannot start without
-# `md._md_native` at all, so the alternative is a failure several seconds later
+# `missile_defense._md_native` at all, so the alternative is a failure several seconds later
 # naming a target the reader then has to know to build.
 #
 # `ui` deliberately does not, and the difference is not an oversight. The
@@ -179,8 +180,8 @@ profile   = { cmd = "python -m tools.run_bench --profile", help = "Benchmark wit
 # C++ toolchain — a Windows box without MSVC, say — `poe ui` stopped opening a
 # trainer that would have worked, in order to build something the person may not
 # have come for.
-train     = { cmd = "python -m tools.launch md.train", deps = ["bindings"], help = "Train a policy with PPO (needs torch; see docs/TRAINING.md)" }
-ui        = { cmd = "python -m tools.launch md.ui", help = "Trainer: watch a run's curves and replays (needs PySide6)" }
+train     = { cmd = "python -m tools.launch missile_defense.train", deps = ["bindings"], help = "Train a policy with PPO (needs torch; see docs/TRAINING.md)" }
+ui        = { cmd = "python -m tools.launch missile_defense.ui", help = "Trainer: watch a run's curves and replays (needs PySide6)" }
 bindings  = { cmd = "python -m tools.build_bindings", help = "Build the Python extension (_md_native) and put it beside the package" }
 shot      = { cmd = "python -m tools.capture screenshot", help = "Screenshot the running app -> shot.png (append --launch to spawn one)" }
 rec       = { cmd = "python -m tools.capture record", help = "Record the running app -> clip.mp4 (append --launch to spawn one)" }
@@ -249,7 +250,7 @@ select = ["E", "F", "I", "UP", "B"]
 # ---- mypy (strict static typing) --------------------------------------------
 [tool.mypy]
 python_version = "3.11"
-files = ["python/md", "tools"]
+files = ["python/missile_defense", "tools"]
 strict = true
 
 # torch is optional and has no MSYS2/MinGW wheel, so the training modules cannot
@@ -265,7 +266,7 @@ ignore_missing_imports = true
 module = ["PIL", "PIL.*"]
 ignore_missing_imports = true
 
-# numpy is deliberately *not* overridden here. `md.env` types its buffer
+# numpy is deliberately *not* overridden here. `missile_defense.env` types its buffer
 # contract with `numpy.typing`, and waving that through would silently drop the
 # checking this project most depends on.
 #
@@ -277,7 +278,7 @@ ignore_missing_imports = true
 # `tools/bootstrap.py` and CI both install it.
 
 [[tool.mypy.overrides]]
-module = ["md.auxiliary", "md.ppo", "md.train"]
+module = ["missile_defense.auxiliary", "missile_defense.ppo", "missile_defense.train"]
 ignore_errors = true
 
 # The trainer is optional (LGPLv3, never a dependency of the game), so PySide6 is
@@ -289,7 +290,7 @@ module = ["PySide6", "PySide6.*"]
 ignore_missing_imports = true
 
 #
-# **Every module under `md.ui` that imports PySide6 belongs in this list**, and
+# **Every module under `missile_defense.ui` that imports PySide6 belongs in this list**, and
 # `python/tests/test_typing_policy.py` fails if one is missing. It was a hand-kept
 # enumeration for a while and drifted: `analysis`, `library`, `league` and
 # `storage` arrived without being added, and because the failure only appears
@@ -297,26 +298,26 @@ ignore_missing_imports = true
 # red for days. The test is the fix; the list is just data now.
 [[tool.mypy.overrides]]
 module = [
-  "md.ui.__main__",
-  "md.ui.about",
-  "md.ui.analysis",
-  "md.ui.app",
-  "md.ui.charts",
-  "md.ui.config",
-  "md.ui.forms",
-  "md.ui.league",
-  "md.ui.library",
-  "md.ui.meters",
-  "md.ui.model",
-  "md.ui.runtime_dialog",
-  "md.ui.storage",
+  "missile_defense.ui.__main__",
+  "missile_defense.ui.about",
+  "missile_defense.ui.analysis",
+  "missile_defense.ui.app",
+  "missile_defense.ui.charts",
+  "missile_defense.ui.config",
+  "missile_defense.ui.forms",
+  "missile_defense.ui.league",
+  "missile_defense.ui.library",
+  "missile_defense.ui.meters",
+  "missile_defense.ui.model",
+  "missile_defense.ui.runtime_dialog",
+  "missile_defense.ui.storage",
 ]
 ignore_errors = true
 
 # ---- pyright (strict static typing) -----------------------------------------
 [tool.pyright]
-include = ["python/md", "tools"]
-# `md` lives under python/, which is a source root for the package itself but
+include = ["python/missile_defense", "tools"]
+# `missile_defense` lives under python/, which is a source root for the package itself but
 # not something pyright infers when checking a script in tools/ that imports it.
 extraPaths = ["python"]
 # See the mypy note above: without torch installed these degrade to Unknown, so
@@ -328,26 +329,26 @@ extraPaths = ["python"]
 # missing for weeks and nobody saw it: the errors only appear where torch is
 # absent, and the one environment like that is CI.
 ignore = [
-  "python/md/auxiliary.py",
-  "python/md/export_policy.py",
-  "python/md/ppo.py",
-  "python/md/train.py",
+  "python/missile_defense/auxiliary.py",
+  "python/missile_defense/export_policy.py",
+  "python/missile_defense/ppo.py",
+  "python/missile_defense/train.py",
   # Same reason, one layer out: PySide6 is optional, so the widgets are checked
   # on a machine that has it (`pyright --pythonpath ...`), not pretended clean.
   # Kept in step with the mypy list above by `tests/test_typing_policy.py`.
-  "python/md/ui/__main__.py",
-  "python/md/ui/about.py",
-  "python/md/ui/analysis.py",
-  "python/md/ui/app.py",
-  "python/md/ui/charts.py",
-  "python/md/ui/config.py",
-  "python/md/ui/forms.py",
-  "python/md/ui/league.py",
-  "python/md/ui/library.py",
-  "python/md/ui/meters.py",
-  "python/md/ui/model.py",
-  "python/md/ui/runtime_dialog.py",
-  "python/md/ui/storage.py",
+  "python/missile_defense/ui/__main__.py",
+  "python/missile_defense/ui/about.py",
+  "python/missile_defense/ui/analysis.py",
+  "python/missile_defense/ui/app.py",
+  "python/missile_defense/ui/charts.py",
+  "python/missile_defense/ui/config.py",
+  "python/missile_defense/ui/forms.py",
+  "python/missile_defense/ui/league.py",
+  "python/missile_defense/ui/library.py",
+  "python/missile_defense/ui/meters.py",
+  "python/missile_defense/ui/model.py",
+  "python/missile_defense/ui/runtime_dialog.py",
+  "python/missile_defense/ui/storage.py",
 ]
 pythonVersion = "3.11"
 typeCheckingMode = "strict"

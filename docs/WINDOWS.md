@@ -167,9 +167,9 @@ Set `MSYS2_ROOT` if MSYS2 is not at `C:\msys64`.
 ### Reaching the trainer from an installed game
 
 **TRAIN AI in the game's menu is the way in.** The installer and the portable
-ZIP both put the trainer's payload — `md\ui\` — beside `missile-defense.exe`, and the
+ZIP both put the trainer's payload — `missile_defense\ui\` — beside `missile-defense.exe`, and the
 game looks there: with a usable `python` on `PATH` the entry appears, and
-choosing it runs `python -m md.ui` with that directory on the import path.
+choosing it runs `python -m missile_defense.ui` with that directory on the import path.
 
 What the game deliberately does *not* use is the `missile-defense-trainer.cmd` sitting in
 the same folder. **Smart App Control blocks unsigned scripts** on a stock

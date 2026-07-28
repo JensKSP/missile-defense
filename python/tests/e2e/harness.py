@@ -41,10 +41,10 @@ import pytest
 #: <root>/python/tests/e2e/harness.py
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
-#: `md` itself, for the PYTHONPATH a spawned trainer needs.
+#: `missile_defense` itself, for the PYTHONPATH a spawned trainer needs.
 PACKAGE_PATH = PROJECT_ROOT / "python"
 
-#: Best build first, mirroring `md.ui.runner`. The debug build is preferred for
+#: Best build first, mirroring `missile_defense.ui.runner`. The debug build is preferred for
 #: e2e when it exists: it is the one with `VK_LAYER_KHRONOS_validation` enabled,
 #: which is what turns "did it render correctly?" into a checkable question
 #: without capturing a single pixel.
@@ -141,7 +141,7 @@ needs_display = pytest.mark.skipif(
 )
 needs_torch = pytest.mark.skipif(not _have("torch"), reason="torch is not installed")
 needs_native = pytest.mark.skipif(
-    not _have("md._md_native"), reason="the native binding is not built"
+    not _have("missile_defense._md_native"), reason="the native binding is not built"
 )
 needs_qt = pytest.mark.skipif(not _have("PySide6"), reason="PySide6 is not installed")
 
@@ -443,7 +443,13 @@ def train_command(
     """The command line a tiny run is started with."""
     settings = dict(TINY_RUN)
     settings.update(overrides or {})
-    command: list[str] = [python or sys.executable, "-m", "md.train", "--out-dir", str(out_dir)]
+    command: list[str] = [
+        python or sys.executable,
+        "-m",
+        "missile_defense.train",
+        "--out-dir",
+        str(out_dir),
+    ]
     for flag, value in settings.items():
         command += [flag, value]
     return command
@@ -458,7 +464,7 @@ def start_training(
     """The same run, handed back while it is still going.
 
     For the tests that have something to say to a *live* trainer — the control
-    files (:mod:`md.control`) are answers to questions asked mid-run, and a
+    files (:mod:`missile_defense.control`) are answers to questions asked mid-run, and a
     finished run cannot be asked.
     """
     return subprocess.Popen(  # noqa: S603 — our own command line, built above

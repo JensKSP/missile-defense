@@ -4,7 +4,7 @@
 """The human handicap, and the rule that there is only one of it.
 
 The handicap is defined twice — `md::protocol::aim_trail` in C++ and
-`md.benchmark.CANONICAL_AIM_TRAIL` in Python — because the trainer and the
+`missile_defense.benchmark.CANONICAL_AIM_TRAIL` in Python — because the trainer and the
 trainer never read the header, and the game never reads the Python. Two copies
 are fine; two copies that disagree are a ladder whose rungs mean different things
 depending on which program you asked, which is the failure this file exists to
@@ -17,7 +17,7 @@ import re
 from pathlib import Path
 
 import pytest
-from md.benchmark import (
+from missile_defense.benchmark import (
     CANONICAL_AIM_TRAIL,
     CANONICAL_FRAME_SKIP,
     CANONICAL_INFERENCE_DEVICE,
@@ -101,10 +101,10 @@ def test_the_league_plays_under_the_handicap_it_records() -> None:
     not what the model scores.
     """
     pytest.importorskip(
-        "md._md_native",
+        "missile_defense._md_native",
         reason="the _md_native extension is not built (cmake -DMD_BUILD_BINDINGS=ON)",
     )
-    from md._md_native import LoadedPolicy  # noqa: PLC0415 — the native binding
+    from missile_defense._md_native import LoadedPolicy  # noqa: PLC0415 — the native binding
 
     model = ROOT / "models" / "learned-high.mdp"
     if not model.exists():

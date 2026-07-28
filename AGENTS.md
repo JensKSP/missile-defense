@@ -26,7 +26,7 @@ has all three. That asymmetry produces a whole class of bug that is *invisible
 locally and fatal in CI*:
 
 * subclassing a Qt class resolves to `Any` only when PySide6 is missing, so
-  mypy's `md.ui` override list must be complete or the gate fails with errors
+  mypy's `missile_defense.ui` override list must be complete or the gate fails with errors
   nobody can reproduce;
 * pyright has no per-module `ignore_missing_imports`, so any module importing
   torch has to be in its `ignore` list;
@@ -111,7 +111,7 @@ silently not produced* — and that is what the check now says.
 
 ## Optional halves must degrade, not crash
 
-The game never depends on Python. `md.ui` must never import torch. Both entry
+The game never depends on Python. `missile_defense.ui` must never import torch. Both entry
 points land on machines without their optional half, and what they do there is
 the first impression: name what is missing and the command that fixes it, never
 a traceback. `tests/e2e/test_wheel_install.py` holds that line against a real

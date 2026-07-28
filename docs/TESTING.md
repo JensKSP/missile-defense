@@ -35,7 +35,7 @@ They cover four subjects:
 |---|---|---|
 | The game | `md_app` with a frame budget | boots, renders, plays, watches, replays, exits 0 |
 | A training run | `missile-defense-train` into a temp `--out-dir` | writes every artifact it owes |
-| The trainer | `md.ui` offscreen on that directory | attaches, reads, controls, sets up a runtime |
+| The trainer | `missile_defense.ui` offscreen on that directory | attaches, reads, controls, sets up a runtime |
 | The contest | promotion, pairing, `--match` split screen | a promoted model is playable, a pairing plays as one screen, a broken one is refused |
 
 The contest row was marked *not built yet* long after it was; `test_promotion.py`

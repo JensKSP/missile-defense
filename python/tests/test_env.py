@@ -14,16 +14,17 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-# Guard on the extension, not on md.env. Importing md.env without the extension
-# raises ImportError ("cannot import name _md_native"), and importorskip only
-# turns ModuleNotFoundError into a skip — so asking it for md.env made this file a
+# Guard on the extension, not on missile_defense.env. Importing that module
+# without the extension raises ImportError ("cannot import name _md_native"), and importorskip only
+# turns ModuleNotFoundError into a skip — so asking it for missile_defense.env made this file a
 # collection *error* on every machine that has no bindings build, which is every
 # CI runner. It passed locally only because a dev checkout has one.
 pytest.importorskip(
-    "md._md_native", reason="the _md_native extension is not built (cmake -DMD_BUILD_BINDINGS=ON)"
+    "missile_defense._md_native",
+    reason="the _md_native extension is not built (cmake -DMD_BUILD_BINDINGS=ON)",
 )
 
-from md.env import ObsSpec, Shaping, VecEnv  # noqa: E402
+from missile_defense.env import ObsSpec, Shaping, VecEnv  # noqa: E402
 
 
 @pytest.fixture
@@ -307,8 +308,8 @@ def test_a_batch_is_reproducible_from_its_seed() -> None:
 
 
 def test_validation_and_canonical_seeds_are_fixed_disjoint_splits() -> None:
-    from md import _md_native
-    from md.eval import default_seeds, validation_seeds
+    from missile_defense import _md_native
+    from missile_defense.eval import default_seeds, validation_seeds
 
     validation = validation_seeds()
     canonical = default_seeds()
@@ -326,7 +327,7 @@ def test_validation_and_canonical_seeds_are_fixed_disjoint_splits() -> None:
 def test_evaluate_scores_a_policy_on_the_shared_protocol() -> None:
     # The comparison M6 rests on: every canonical seed played exactly once, and
     # aggregated by the same C++ summarize() the scripted baseline goes through.
-    from md.eval import evaluate
+    from missile_defense.eval import evaluate
 
     rng = np.random.default_rng(0)
 
@@ -340,7 +341,7 @@ def test_evaluate_scores_a_policy_on_the_shared_protocol() -> None:
 
 
 def test_evaluate_rejects_a_truncated_observation_spec() -> None:
-    from md.eval import evaluate
+    from missile_defense.eval import evaluate
 
     spec = ObsSpec()
     spec.threats -= 1
@@ -356,7 +357,7 @@ def test_evaluate_reports_the_full_statistics() -> None:
     # The complete per-run stat set the trainer will draw on: survival, damage,
     # ammunition spend and the kills-per-shot distribution — all aggregated by the
     # same C++ summarize() the scripted baseline goes through.
-    from md.eval import evaluate, format_summary
+    from missile_defense.eval import evaluate, format_summary
 
     rng = np.random.default_rng(1)
 

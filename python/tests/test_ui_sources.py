@@ -4,7 +4,7 @@
 """Tests for reading a run's artifacts while the trainer is still writing them.
 
 These are the cases the trainer gets wrong if the tail is naive (docs/ROADMAP.md,
-M8, risk 2), and they are testable at all only because ``md.ui.sources`` holds no
+M8, risk 2), and they are testable at all only because ``missile_defense.ui.sources`` holds no
 Qt: pytest writes a CSV a fragment at a time and asserts what comes back.
 """
 
@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 
 import pytest
-from md.benchmark import (
+from missile_defense.benchmark import (
     CANONICAL_AIM_TRAIL,
     CANONICAL_FRAME_SKIP,
     CANONICAL_INFERENCE_DEVICE,
@@ -30,7 +30,7 @@ from md.benchmark import (
     VALIDATION_SEED_OFFSET,
     VALIDATION_SPLIT,
 )
-from md.ui.sources import (
+from missile_defense.ui.sources import (
     BASELINE_MEAN_SCORE,
     MAX_RUN_CHOICES,
     NO_CHECKPOINTS,
@@ -659,7 +659,7 @@ def test_an_unscored_checkpoint_simply_says_nothing_about_a_score(tmp_path: Path
 
 def test_the_log_tail_yields_the_lines_appended_since_the_last_poll(tmp_path: Path) -> None:
     # The trainer reads this for a run it did not start; the run writes it
-    # itself (md.runlog), which is what makes an attached run's log pane work.
+    # itself (missile_defense.runlog), which is what makes an attached run's log pane work.
     path = tmp_path / "train.log"
     _append(path, "update 1 | return 4.87\n")
     tail = log_tail(tmp_path)

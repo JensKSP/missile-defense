@@ -54,7 +54,7 @@ def test_a_table_the_keyboard_can_reach_is_one_it_can_act_in(
     focus lands on the table, the arrows move the selection, and then nothing
     happens, because the only path to the action was the button beside it.
     """
-    from md.ui.library import LibraryView
+    from missile_defense.ui.library import LibraryView
     from PySide6.QtCore import Qt
     from PySide6.QtGui import QKeyEvent
     from PySide6.QtWidgets import QApplication
@@ -92,7 +92,7 @@ def test_focus_is_visible_on_every_styled_control(qt_app: object) -> None:  # no
     impossible to navigate, because nothing on screen says where you are. Every
     control the theme styles has to state its own focus.
     """
-    from md.ui import theme
+    from missile_defense.ui import theme
 
     sheet = theme.stylesheet()
     for control in ("QPushButton:focus", "QComboBox:focus", "QLineEdit:focus"):
@@ -112,7 +112,7 @@ def test_escape_leaves_a_run_without_touching_the_back_button(
     # The trainer's one navigation, previously reachable only by clicking a
     # button in the corner. Escape is what every other back control in both
     # binaries answers to, including all eleven of the game's screens.
-    from md.ui.app import Trainer
+    from missile_defense.ui.app import Trainer
     from PySide6.QtCore import Qt
     from PySide6.QtGui import QKeyEvent
 

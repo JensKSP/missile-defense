@@ -20,7 +20,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from md.control import Control
+from missile_defense.control import Control
 
 
 def test_a_run_nobody_claimed_is_not_running(tmp_path: Path) -> None:

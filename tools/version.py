@@ -9,7 +9,7 @@ Four files declare it, independently, and nothing makes them agree:
                                                       .dmg / .exe / .zip names
     pyproject.toml      version = "x.y.z"             the Python package
     debian/changelog    missile-defense (x.y.z-r)     the .deb
-    python/md/__init__  __version__ = "x.y.z"         what `md` reports at run
+    python/missile_defense/__init__  __version__ = "x.y.z"         what `md` reports at run
                                                       time, and what the training
                                                       trainer's About box shows
 
@@ -42,7 +42,7 @@ SOURCES: tuple[tuple[str, str], ...] = (
     ("CMakeLists.txt", r"^\s*VERSION\s+(\d+\.\d+\.\d+)\s*$"),
     ("pyproject.toml", r'^version\s*=\s*"(\d+\.\d+\.\d+)"'),
     ("debian/changelog", r"^missile-defense\s+\((\d+\.\d+\.\d+)-\d+\)"),
-    ("python/md/__init__.py", r'^__version__\s*=\s*"(\d+\.\d+\.\d+)"'),
+    ("python/missile_defense/__init__.py", r'^__version__\s*=\s*"(\d+\.\d+\.\d+)"'),
 )
 
 

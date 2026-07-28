@@ -3,7 +3,7 @@
 # Assisted-by: Claude Code (Anthropic)
 """Named training-option sets: the three that ship, and the ones you save.
 
-No Qt in :mod:`md.presets`, so the whole create/read/update/delete cycle is
+No Qt in :mod:`missile_defense.presets`, so the whole create/read/update/delete cycle is
 testable against a real file — including the states a hand-edited one can be in,
 which is the case a store like this actually fails on.
 """
@@ -14,8 +14,8 @@ import json
 from pathlib import Path
 
 import pytest
-from md import presets
-from md.presets import PresetError
+from missile_defense import presets
+from missile_defense.presets import PresetError
 
 
 def test_the_three_built_ins_are_the_ones_the_documentation_names() -> None:
@@ -63,7 +63,7 @@ def test_best_splits_its_bigger_batch_into_smaller_pieces_not_larger_ones() -> N
     # The regression this preset was born with: it quadrupled the batch and left
     # `minibatches` alone, which quadruples the *minibatch* — and on the
     # relational architecture that is what peak memory follows. It ran out of
-    # memory on a 32 GiB card before the first update finished. See md.footprint.
+    # memory on a 32 GiB card before the first update finished. See missile_defense.footprint.
     good = presets.find("good")
     best = presets.find("best")
     assert good is not None and best is not None

@@ -5,8 +5,8 @@
 
 `test_ui_stats.py` covers the arithmetic against hand-written rows and is where
 the edge cases live. What it cannot cover is the join: that the columns
-`md.train` writes are the columns `md.ui.stats` reads, spelled the same way. A
-rename on either side leaves both halves passing their own tests and puts a
+`missile_defense.train` writes are the columns `missile_defense.ui.stats` reads,
+spelled the same way. A rename on either side leaves both halves passing their own tests and puts a
 screen full of em dashes in front of a user, and the only thing that catches
 that is a real `evals.csv` written by a real run in another process.
 
@@ -31,7 +31,7 @@ pytestmark = [pytest.mark.e2e, needs_qt]
 @pytest.fixture
 def analysis(qt_app: object, trained_run: Path):  # noqa: ANN201 — PySide6 is optional
     """A real trainer window, opened on a real run, showing the statistics."""
-    from md.ui.app import Trainer  # noqa: PLC0415 — optional dependency
+    from missile_defense.ui.app import Trainer  # noqa: PLC0415 — optional dependency
 
     window = Trainer(trained_run)
     window.resize(1400, 900)
@@ -54,7 +54,7 @@ def test_the_statistics_screen_fills_from_a_real_run(analysis) -> None:  # noqa:
     # `isVisible()` would be False here whatever the screen decided, and every
     # assertion below it would pass by accident.
     assert not analysis._body.isHidden(), "the statistics screen fell back to its empty state"
-    from md.ui import stats  # noqa: PLC0415 — optional dependency
+    from missile_defense.ui import stats  # noqa: PLC0415 — optional dependency
 
     shown = {key: tile for key, tile in analysis._tiles.items()}
     # The ones the human asked for by name, and the ones that make a plateau
@@ -85,7 +85,7 @@ def test_the_kills_per_shot_distribution_is_populated(analysis) -> None:  # noqa
 @needs_torch
 @needs_native
 def test_the_cause_curves_are_populated(analysis) -> None:  # noqa: ANN001
-    from md.ui import stats  # noqa: PLC0415 — optional dependency
+    from missile_defense.ui import stats  # noqa: PLC0415 — optional dependency
 
     for curve in stats.CURVES:
         view = analysis._curves[curve.key]
@@ -107,8 +107,8 @@ def test_a_second_run_overlays_the_distribution_and_the_curves(
     identical makes a failure unambiguous — every delta must be "no change", and
     anything else means the two sides are not reading the same file.
     """
-    from md.ui import stats  # noqa: PLC0415 — optional dependency
-    from md.ui.app import Trainer  # noqa: PLC0415 — optional dependency
+    from missile_defense.ui import stats  # noqa: PLC0415 — optional dependency
+    from missile_defense.ui.app import Trainer  # noqa: PLC0415 — optional dependency
 
     other = tmp_path / "other-run"
     shutil.copytree(trained_run, other)
@@ -144,8 +144,8 @@ def test_a_comparison_that_shows_nothing_says_why(
     that silently stays blank leaves a person deciding between "broken" and "I
     am holding it wrong", and both answers are wrong.
     """
-    from md.ui import sources  # noqa: PLC0415 — optional dependency
-    from md.ui.app import Trainer  # noqa: PLC0415 — optional dependency
+    from missile_defense.ui import sources  # noqa: PLC0415 — optional dependency
+    from missile_defense.ui.app import Trainer  # noqa: PLC0415 — optional dependency
 
     other = tmp_path / "other-protocol"
     shutil.copytree(trained_run, other)
@@ -190,7 +190,7 @@ def test_a_comparable_run_says_that_too(
 ) -> None:
     # The other half of the rule: the note is a statement of what the panel is
     # doing, not an error channel that only appears when something is wrong.
-    from md.ui.app import Trainer  # noqa: PLC0415 — optional dependency
+    from missile_defense.ui.app import Trainer  # noqa: PLC0415 — optional dependency
 
     other = tmp_path / "same-protocol"
     shutil.copytree(trained_run, other)

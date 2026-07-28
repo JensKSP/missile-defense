@@ -49,11 +49,11 @@ STAGED_GAME = Path("games") / "missile-defense"
 #: And the trainer launcher, by the top-level `MD_INSTALL_PYTHON_PACKAGE` block.
 STAGED_TRAINER = Path("bin") / "missile-defense-trainer"
 
-#: Where the `md` package goes, spelled the way `debian/rules` spells it.
+#: Where the `missile_defense` package goes, spelled the way `debian/rules` spells it.
 #: `MD_PYTHON_INSTALL_DIR` has no default of its own outside `bindings/`, and a
 #: staging test that let it fall back would install the package's *contents*
 #: into the prefix root and then assert against a layout nothing ships.
-PACKAGE_DESTINATION = Path("lib") / "python3" / "dist-packages" / "md"
+PACKAGE_DESTINATION = Path("lib") / "python3" / "dist-packages" / "missile_defense"
 
 
 def _build_directory() -> Path | None:
@@ -156,8 +156,12 @@ def exported_policy(tmp_path_factory: pytest.TempPathFactory) -> Path:
     The sizes have to be the simulation's own, though, or the driver refuses —
     which is the point of the refusal.
     """
-    torch_free = pytest.importorskip("md.policy_format", reason="numpy is not installed")
-    native = pytest.importorskip("md._md_native", reason="the native binding is not built")
+    torch_free = pytest.importorskip(
+        "missile_defense.policy_format", reason="numpy is not installed"
+    )
+    native = pytest.importorskip(
+        "missile_defense._md_native", reason="the native binding is not built"
+    )
     import numpy as np  # noqa: PLC0415 — optional dependency
 
     # From the binding rather than from constants here: the sizes are the
@@ -276,7 +280,7 @@ def test_a_game_only_install_does_not_offer_to_train(game_only_tree: Path, tmp_p
     """The promise, from the outside: no trainer on the machine, no TRAIN AI.
 
     Run out of the staged tree rather than the build tree, because the build
-    tree *is* a checkout — the game's third lookup would find `python/md/ui`
+    tree *is* a checkout — the game's third lookup would find `python/missile_defense/ui`
     right there and correctly offer training. An installed game has no checkout
     above it, and that is the case this asserts.
     """
@@ -427,7 +431,7 @@ def test_a_model_the_game_cannot_run_is_refused_rather_than_swapped_out(
 def test_the_staged_trainer_starts_and_exits_cleanly(full_tree: Path, tmp_path: Path) -> None:
     """The staged launcher, offscreen, all the way to a built window.
 
-    Run as the *shell wrapper* rather than as `python -m md.ui`, because the
+    Run as the *shell wrapper* rather than as `python -m missile_defense.ui`, because the
     wrapper is what the package ships and the ways it breaks are all invisible
     to a file-existence check: the wrong interpreter, an import path that does
     not reach the staged package, a module that is not executable as `-m`.

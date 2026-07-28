@@ -3,10 +3,10 @@
 # Assisted-by: Claude Code (Anthropic)
 """Tests for reading the trainer's knobs out of the trainer's source.
 
-The trainer cannot import `md.train` — that would pull in torch, which a test
+The trainer cannot import `missile_defense.train` — that would pull in torch, which a test
 forbids — so the parameter form parses it instead. These tests pin both halves:
 the parsing, against a fixture that looks like the real dataclasses, and the
-result against the actual `md/train.py`, so a rename over there is caught here
+result against the actual `missile_defense/train.py`, so a rename over there is caught here
 rather than by an empty form.
 """
 
@@ -14,11 +14,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import md
-from md import runconfig
-from md.ui.params import HEADLINE, Param, command_line, read_params, settings_of
+import missile_defense
+from missile_defense import runconfig
+from missile_defense.ui.params import HEADLINE, Param, command_line, read_params, settings_of
 
-TRAINER = Path(md.__file__).parent
+TRAINER = Path(missile_defense.__file__).parent
 
 FIXTURE = '''
 """A stand-in for the real thing."""
@@ -117,9 +117,12 @@ def test_a_default_that_names_a_constant_shows_the_number_it_stands_for(tmp_path
 
 
 def test_the_handicap_the_real_trainer_defaults_to_reads_as_its_value() -> None:
-    # The chain that actually matters: `md.train` → `md.benchmark` → the
-    # generated `md._protocol`, followed without importing any of them.
-    from md.benchmark import CANONICAL_AIM_TRAIL, CANONICAL_REACTION_DELAY  # noqa: PLC0415
+    # The chain that actually matters: `missile_defense.train` → `missile_defense.benchmark` → the
+    # generated `missile_defense._protocol`, followed without importing any of them.
+    from missile_defense.benchmark import (  # noqa: PLC0415
+        CANONICAL_AIM_TRAIL,
+        CANONICAL_REACTION_DELAY,
+    )
 
     fields = {field.name: field for field in read_params(TRAINER)}
     assert float(fields["aim_trail"].default) == CANONICAL_AIM_TRAIL
@@ -139,7 +142,7 @@ def test_the_real_trainer_still_has_the_headline_four() -> None:
 
 
 def test_every_field_is_reachable_from_the_command_line() -> None:
-    # A field the form offers but `md.train` has no flag for would silently do
+    # A field the form offers but `missile_defense.train` has no flag for would silently do
     # nothing. The two config classes reach the CLI by different routes, so both
     # are checked: TrainConfig by explicit flags, PPOConfig by the loop that
     # generates one per dataclass field.
@@ -152,7 +155,16 @@ def test_every_field_is_reachable_from_the_command_line() -> None:
 
 def test_the_command_line_carries_only_what_changed() -> None:
     command = command_line("python", {"envs": "2048"}, out_dir=Path("runs"))
-    assert command == ["python", "-u", "-m", "md.train", "--envs", "2048", "--out-dir", "runs"]
+    assert command == [
+        "python",
+        "-u",
+        "-m",
+        "missile_defense.train",
+        "--envs",
+        "2048",
+        "--out-dir",
+        "runs",
+    ]
 
 
 def test_a_flag_is_the_field_name_with_dashes() -> None:
@@ -174,7 +186,7 @@ def test_a_fresh_run_carries_no_resume_flag() -> None:
 
 def test_resume_is_not_offered_as_a_text_field() -> None:
     # It is a file that exists, so the form gives it a picker; a box you can
-    # mistype a path into is the thing being avoided (md.ui.forms).
+    # mistype a path into is the thing being avoided (missile_defense.ui.forms).
     assert "resume" not in {field.name for field in read_params(TRAINER)}
 
 
@@ -188,9 +200,9 @@ def test_the_reward_weights_are_offered_too() -> None:
     rebuilding, which put the most consequential knobs in the project out of
     reach of anyone not editing it.
     """
-    from md.ui.params import read_params as read  # noqa: PLC0415
+    from missile_defense.ui.params import read_params as read  # noqa: PLC0415
 
-    fields = {field.name: field for field in read(Path("python/md"))}
+    fields = {field.name: field for field in read(Path("python/missile_defense"))}
     for name in ("city_weight", "base_weight", "waste_penalty", "multikill_bonus"):
         assert name in fields, name
         assert fields[name].owner == "Shaping"
@@ -198,34 +210,34 @@ def test_the_reward_weights_are_offered_too() -> None:
 
 def test_the_reward_flags_are_prefixed_so_the_two_gammas_do_not_collide() -> None:
     """`Shaping.gamma` and `PPOConfig.gamma` are different discounts."""
-    from md.ui.params import read_params as read  # noqa: PLC0415
+    from missile_defense.ui.params import read_params as read  # noqa: PLC0415
 
-    fields = [field for field in read(Path("python/md")) if field.name == "gamma"]
+    fields = [field for field in read(Path("python/missile_defense")) if field.name == "gamma"]
     assert {field.flag for field in fields} == {"--gamma", "--reward-gamma"}
 
 
 def test_every_offered_choice_is_one_the_trainer_accepts() -> None:
     """A dropdown cannot be misspelled — but it can be *wrong*.
 
-    The values here and the ones `md.ppo.build_policy` implements are two lists
+    The values here and the ones `missile_defense.ppo.build_policy` implements are two lists
     that would drift silently, and the symptom would be a run that dies on its
     first update after the parameter dialog offered the option.
     """
-    from md.policy_format import ARCHITECTURES  # noqa: PLC0415
-    from md.ui.params import CHOICES  # noqa: PLC0415
+    from missile_defense.policy_format import ARCHITECTURES  # noqa: PLC0415
+    from missile_defense.ui.params import CHOICES  # noqa: PLC0415
 
     # Every architecture the trainer offers must be one the trainer can build.
-    # `md.ppo` is not importable without torch, so the format's own table — which
+    # `missile_defense.ppo` is not importable without torch, so the format's own table — which
     # is generated from the same set and *is* importable — stands in for it.
     assert set(CHOICES["architecture"]) == set(ARCHITECTURES)
 
 
 def test_every_bound_belongs_to_a_field_that_exists() -> None:
     """A bound on a renamed field is a bound that silently stops applying."""
-    from md.ui.params import BOUNDS  # noqa: PLC0415
-    from md.ui.params import read_params as read  # noqa: PLC0415
+    from missile_defense.ui.params import BOUNDS  # noqa: PLC0415
+    from missile_defense.ui.params import read_params as read  # noqa: PLC0415
 
-    names = {field.name for field in read(Path("python/md"))}
+    names = {field.name for field in read(Path("python/missile_defense"))}
     assert set(BOUNDS) <= names, sorted(set(BOUNDS) - names)
 
 
@@ -235,9 +247,9 @@ def test_no_bound_excludes_its_own_default() -> None:
     Otherwise the dialog opens on a field it immediately considers invalid,
     which is the most confusing possible first impression.
     """
-    from md.ui.params import read_params as read  # noqa: PLC0415
+    from missile_defense.ui.params import read_params as read  # noqa: PLC0415
 
-    for field in read(Path("python/md")):
+    for field in read(Path("python/missile_defense")):
         if field.bounds is None or not field.default:
             continue
         try:
@@ -251,17 +263,17 @@ def test_no_bound_excludes_its_own_default() -> None:
 def test_the_prefixed_field_list_matches_the_real_dataclass() -> None:
     """`REWARD_FIELDS` is stated, so it can drift — and a drifted name means a
     Start button that emits a flag the trainer rejects."""
-    from md.ui.params import REWARD_FIELDS  # noqa: PLC0415
-    from md.ui.params import read_params as read  # noqa: PLC0415
+    from missile_defense.ui.params import REWARD_FIELDS  # noqa: PLC0415
+    from missile_defense.ui.params import read_params as read  # noqa: PLC0415
 
-    shaping = {f.name for f in read(Path("python/md")) if f.owner == "Shaping"}
+    shaping = {f.name for f in read(Path("python/missile_defense")) if f.owner == "Shaping"}
     assert shaping == set(REWARD_FIELDS)
 
 
 def test_a_reward_weight_reaches_the_command_line_under_its_real_flag() -> None:
     """The bug this guards: `command_line` rebuilt flags from the field name and
-    so emitted `--city-weight`, which `md.train` does not accept."""
-    from md.ui.params import command_line  # noqa: PLC0415
+    so emitted `--city-weight`, which `missile_defense.train` does not accept."""
+    from missile_defense.ui.params import command_line  # noqa: PLC0415
 
     command = command_line("python3", {"city_weight": "250", "envs": "512"}, out_dir=Path("/tmp/x"))
     assert "--reward-city-weight" in command

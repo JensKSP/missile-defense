@@ -26,7 +26,7 @@ import tomllib
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-UI = PROJECT_ROOT / "python" / "md" / "ui"
+UI = PROJECT_ROOT / "python" / "missile_defense" / "ui"
 
 
 def _config() -> dict[str, object]:
@@ -35,7 +35,7 @@ def _config() -> dict[str, object]:
 
 
 def _qt_modules() -> set[str]:
-    """Every `md.ui` module whose source mentions PySide6.
+    """Every `missile_defense.ui` module whose source mentions PySide6.
 
     Textual on purpose: importing them to find out needs the very dependency
     whose absence this is about.
@@ -65,8 +65,8 @@ def _mypy_skipped() -> set[str]:
         names = [modules] if isinstance(modules, str) else modules
         assert isinstance(names, list)
         for name in names:
-            if isinstance(name, str) and name.startswith("md.ui."):
-                skipped.add(name.removeprefix("md.ui."))
+            if isinstance(name, str) and name.startswith("missile_defense.ui."):
+                skipped.add(name.removeprefix("missile_defense.ui."))
     return skipped
 
 
@@ -81,32 +81,32 @@ def _pyright_ignored() -> set[str]:
     return {
         Path(str(entry)).stem
         for entry in ignored
-        if str(entry).startswith("python/md/ui/") and str(entry).endswith(".py")
+        if str(entry).startswith("python/missile_defense/ui/") and str(entry).endswith(".py")
     }
 
 
 def test_every_qt_module_is_skipped_by_mypy() -> None:
     missing = sorted(_qt_modules() - _mypy_skipped())
     assert not missing, (
-        "these md.ui modules import PySide6 and are not in the mypy override, so "
+        "these missile_defense.ui modules import PySide6 and are not in the mypy override, so "
         "the gate fails wherever PySide6 is absent (which is CI, and only CI):\n"
-        + "\n".join(f'  "md.ui.{name}",' for name in missing)
+        + "\n".join(f'  "missile_defense.ui.{name}",' for name in missing)
     )
 
 
 def test_every_qt_module_is_ignored_by_pyright() -> None:
     missing = sorted(_qt_modules() - _pyright_ignored())
     assert not missing, (
-        "these md.ui modules import PySide6 and are not in pyright's ignore list:\n"
-        + "\n".join(f'  "python/md/ui/{name}.py",' for name in missing)
+        "these missile_defense.ui modules import PySide6 and are not in pyright's ignore list:\n"
+        + "\n".join(f'  "python/missile_defense/ui/{name}.py",' for name in missing)
     )
 
 
 def _imports_torch(source: str) -> bool:
     """Whether this file really imports torch — parsed, not grepped.
 
-    A substring search calls `md.runtime` a torch module because it *runs*
-    `python -c "import torch"` as a health check, and `md.modelcard` because it
+    A substring search calls `missile_defense.runtime` a torch module because it *runs*
+    `python -c "import torch"` as a health check, and `missile_defense.modelcard` because it
     records a torch version. Neither makes pyright resolve anything. The import
     statement is the thing that does, wherever in the file it sits: a lazy
     import inside a function counts exactly as much as one at the top.
@@ -126,7 +126,7 @@ def _imports_torch(source: str) -> bool:
 
 def _torch_modules() -> set[str]:
     """Every checked file that imports torch, as a pyright ignore path."""
-    roots = (PROJECT_ROOT / "python" / "md", PROJECT_ROOT / "tools")
+    roots = (PROJECT_ROOT / "python" / "missile_defense", PROJECT_ROOT / "tools")
     return {
         path.relative_to(PROJECT_ROOT).as_posix()
         for root in roots

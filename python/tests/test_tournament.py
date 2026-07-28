@@ -22,7 +22,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from md import benchmark, league, policy_format, tournament
+from missile_defense import benchmark, league, policy_format, tournament
 
 OBS = 6
 ACTIONS = 4
@@ -84,7 +84,7 @@ def test_a_quick_match_is_short_enough_to_be_worth_having() -> None:
 
 
 def test_changing_any_part_of_the_protocol_stops_it_ranking() -> None:
-    """`md.benchmark` owns what canonical means; this asks rather than guesses."""
+    """`missile_defense.benchmark` owns what canonical means; this asks rather than guesses."""
     base = tournament.canonical_protocol()
     for field, value in (
         ("seed_offset", 0),
@@ -324,7 +324,7 @@ def test_a_manifest_names_both_sides_and_the_scores_it_claims(tmp_path: Path) ->
 
 @pytest.fixture
 def _native() -> None:
-    pytest.importorskip("md._md_native", reason="the native binding is not built")
+    pytest.importorskip("missile_defense._md_native", reason="the native binding is not built")
 
 
 # ---- paired recordings -------------------------------------------------------

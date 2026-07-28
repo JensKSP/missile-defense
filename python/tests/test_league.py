@@ -24,7 +24,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from md import league, policy_format
+from missile_defense import league, policy_format
 
 OBS = 8
 ACTIONS = 5
@@ -58,9 +58,9 @@ def fixture_policy(name: str = "Fixture") -> policy_format.NativePolicy:
 
 @pytest.fixture
 def checkpoint(tmp_path: Path) -> Path:
-    """A real `.pt` in the shape `md.train.save_checkpoint` writes one."""
+    """A real `.pt` in the shape `missile_defense.train.save_checkpoint` writes one."""
     torch = pytest.importorskip("torch", reason="torch is not installed")
-    from md.ppo import Policy  # noqa: PLC0415 — optional dependency
+    from missile_defense.ppo import Policy  # noqa: PLC0415 — optional dependency
 
     torch.manual_seed(1)
     net = Policy(OBS, ACTIONS, HIDDEN)
@@ -158,7 +158,7 @@ def test_promoting_with_no_torch_here_says_where_torch_is(
     `ModuleNotFoundError` out of a Qt slot, which is a button that does nothing.
     A sentence naming the way out is the least it can do.
     """
-    from md import export_policy  # noqa: PLC0415
+    from missile_defense import export_policy  # noqa: PLC0415
 
     def no_torch(*_args: object, **_kwargs: object) -> Path:
         raise ImportError("No module named 'torch'")
@@ -178,7 +178,7 @@ def test_promoting_borrows_the_interpreter_it_is_given(tmp_path: Path) -> None:
 
     The same one a run is started with. What is asserted is the command and the
     environment, because that is what has to be right for a *bare venv* to run
-    this: the runtime has torch and nothing else, `md` lives in this checkout or
+    this: the runtime has torch and nothing else, `missile_defense` lives in this checkout or
     this installation, so without `PYTHONPATH` the spawned process cannot import
     the module it was told to run. Stood in for by a shell shim, so this needs
     neither torch nor a real checkpoint.
@@ -206,7 +206,7 @@ def test_promoting_borrows_the_interpreter_it_is_given(tmp_path: Path) -> None:
     assert "the runtime said no" in str(raised.value)
 
     argv, pythonpath = record.read_text(encoding="utf-8").splitlines()
-    assert argv.startswith(f"-m md.export_policy {checkpoint} ")
+    assert argv.startswith(f"-m missile_defense.export_policy {checkpoint} ")
     assert '"display_name": "Borrowed"' in argv
     package_root = str(Path(league.__file__).resolve().parents[1])
     assert package_root in pythonpath.removeprefix("PYTHONPATH=").split(os.pathsep)
@@ -241,7 +241,7 @@ def test_an_architecture_the_game_cannot_run_is_refused(tmp_path: Path) -> None:
     takes somebody to work out why their agent is bad.
     """
     torch = pytest.importorskip("torch", reason="torch is not installed")
-    from md.ppo import Policy  # noqa: PLC0415 — optional dependency
+    from missile_defense.ppo import Policy  # noqa: PLC0415 — optional dependency
 
     path = tmp_path / "entity.pt"
     torch.save(

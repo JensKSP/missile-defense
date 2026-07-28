@@ -3,10 +3,10 @@
 # Assisted-by: Claude Code (Anthropic)
 """The trainer is not a trainer, and this is what keeps it that way.
 
-Scope creep into ``md.ui`` would be the easy mistake — a "quick" model summary
+Scope creep into ``missile_defense.ui`` would be the easy mistake — a "quick" model summary
 that loads a checkpoint, and suddenly the window owns GPU memory and a crash
 takes the run with it. So the rule is structural rather than remembered
-(docs/ROADMAP.md, M8, risk 3): **``md.ui`` must never import torch.**
+(docs/ROADMAP.md, M8, risk 3): **``missile_defense.ui`` must never import torch.**
 
 It is checked twice, because either check alone has a hole. The import check is
 the real one but passes trivially in an interpreter that has no torch installed —
@@ -22,28 +22,28 @@ import subprocess
 import sys
 from pathlib import Path
 
-import md
-import md.ui
+import missile_defense
+import missile_defense.ui
 
-PACKAGE = Path(md.ui.__file__).parent
-IMPORT_PATH = str(Path(md.__file__).parents[1])
+PACKAGE = Path(missile_defense.ui.__file__).parent
+IMPORT_PATH = str(Path(missile_defense.__file__).parents[1])
 
-#: Importing torch anywhere under md.ui would make the trainer a trainer;
-#: md.train and md.ppo are just torch by another name.
-FORBIDDEN = ("torch", "md.train", "md.ppo")
+#: Importing torch anywhere under missile_defense.ui would make the trainer a trainer;
+#: missile_defense.train and missile_defense.ppo are just torch by another name.
+FORBIDDEN = ("torch", "missile_defense.train", "missile_defense.ppo")
 
 CHECK = """
 import sys
 
-import md.ui
-import md.ui.runner
-import md.ui.sources
-import md.ui.theme
+import missile_defense.ui
+import missile_defense.ui.runner
+import missile_defense.ui.sources
+import missile_defense.ui.theme
 
 try:  # the widgets, where PySide6 is installed — the trainer is optional
-    import md.ui.app
-    import md.ui.charts
-    import md.ui.runtime_dialog
+    import missile_defense.ui.app
+    import missile_defense.ui.charts
+    import missile_defense.ui.runtime_dialog
 except ModuleNotFoundError as error:
     if error.name is None or not error.name.startswith("PySide6"):
         raise

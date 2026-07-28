@@ -1,0 +1,1847 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Jens Köhler
+# Assisted-by: Claude Code (Anthropic)
+# pyright: reportMissingImports=false
+"""The trainer window: the curve, the yardstick, and the episodes to watch.
+
+    poe ui                 # attach to ./runs
+    poe ui -- path/to/run  # attach to somewhere else
+
+This phase is **read-only** (docs/ROADMAP.md, M8, phase 1). It attaches to a run
+started from a terminal and cannot start one, which is the whole point: training
+happens in its own process, so a UI crash costs you nothing and the trainer can
+be opened on a directory synced from another machine.
+
+The run is the subject, so the score curve gets the space and the diagnostics and
+the episode list are strips around it.
+
+**Two tabs, and only two** (docs/ROADMAP.md, M8, amended 2026-07-26 at the
+human's request; the original rule was one screen and no tab bar). **TRAINING**
+is the screen above — what you watch while a run goes. **STATISTICS**
+(:mod:`missile_defense.ui.analysis`) is what you read when it stops improving: the full
+per-episode stat block, the kills-per-shot distribution, and the curves that say
+*why*. They are two activities rather than two views, and everything *around* the
+plots is shared, so switching a tab never changes which run is on screen — which
+is the hunting the original rule was written against.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+import time
+import traceback
+from pathlib import Path
+from types import TracebackType
+
+from PySide6.QtCore import Qt, QThread, QTimer, Signal
+from PySide6.QtGui import QCloseEvent, QKeyEvent
+from PySide6.QtWidgets import (
+    QApplication,
+    QComboBox,
+    QDialog,
+    QFrame,
+    QHBoxLayout,
+    QInputDialog,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QMainWindow,
+    QMessageBox,
+    QPlainTextEdit,
+    QPushButton,
+    QSlider,
+    QSplitter,
+    QStackedWidget,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
+)
+
+from .. import library as run_library
+from .. import modelcard, paths, runconfig, runtime
+from ..benchmark import CANONICAL_LADDER, Ladder, ladder_standing
+from ..control import Control
+from . import about, sources, theme
+from .analysis import AnalysisView
+from .charts import CurveView
+from .config import ConfigDialog, settings_for
+from .forms import ParameterDialog
+from .league import LeagueView, PromoteDialog
+from .library import LibraryView
+from .meters import SystemPanel
+from .model import ModelPanel
+from .params import TRAINER_SOURCES, read_params
+from .runner import (
+    PROJECT_ROOT,
+    AppNotFound,
+    ReplayLauncher,
+    TrainingRun,
+    can_train,
+    training_python,
+)
+from .runtime_dialog import RuntimeDialog
+from .sources import EvalRow, MetricRow, Recording
+
+#: An update takes seconds, so a second is a smooth refresh and not a busy loop.
+POLL_MS = 1000
+#: Recordings arrive every `--record-every` updates; scanning a directory every
+#: poll would be wasted work.
+RESCAN_EVERY = 3
+
+#: How long closing the window waits for a runtime check still in flight. Qt
+#: aborts the process when a running QThread is destroyed, so this cannot be
+#: zero; it is bounded because a trainer that will not close is worse than one
+#: that closes a second late. The check normally takes about a second, and the
+#: slow case — the first CUDA start after an install — is exactly the one where
+#: waiting it out would be unreasonable.
+VERIFY_WAIT_MS = 2000
+#: If metrics.csv has not moved in this long, the run is not running.
+LIVE_AFTER_S = 90.0
+
+#: Empty states. Each says what is missing and what would fill it.
+WAITING = "Waiting for metrics.csv.\nStart a run with `poe train` and it appears here."
+NO_EPISODES = "No finished episodes yet.\nAn episode is thousands of ticks long."
+NO_RECORDINGS = (
+    "No recordings yet. The trainer writes a watchable episode every --record-every updates."
+)
+NO_EVALS = (
+    "No evaluation scored yet.\n"
+    "The trainer scores the policy on the 32 validation seeds every\n"
+    "--eval-every updates and appends it to evals.csv."
+)
+#: The compare picker's first entry, and its default. Comparing is something you
+#: ask for; the window's subject is one run.
+NO_COMPARISON = "no comparison"
+
+#: The stops the eval slider offers, in updates between scores. Discrete and
+#: roughly logarithmic, because "every 37 updates" is not a thought anyone has —
+#: a continuous slider would invite one and make the useful end, 1 to 25,
+#: unhittable. The first stop is the trainer's own "never score", spelled out.
+EVAL_EVERY_STOPS = (0, 1, 2, 5, 10, 25, 50, 100, 250, 500)
+#: What the slider falls back to when nothing has published a value, if the
+#: training loop's own default cannot be read beside this trainer.
+EVAL_EVERY_FALLBACK = 10
+EVAL_EVERY_HELP = (
+    "How often the run scores itself on the 32 validation seeds.\n\n"
+    "Drag it while the run goes: the trainer re-reads TUNING.json every update, so a "
+    "new interval takes effect from the next one — no restart, no lost checkpoint.\n\n"
+    "Often early, when the policy changes shape every few updates; less often later, "
+    "when an eval plays 32 full-length episodes to repeat what the last one said."
+)
+#: Why the slider is greyed out. A run started before this existed — or no run at
+#: all — publishes nothing, and a control that wrote into the void is worse than
+#: one that says it has nothing to drive.
+EVAL_EVERY_UNPUBLISHED = (
+    "No run here is publishing an eval interval.\n\n"
+    "A run writes TUNING.json when it starts, so this slider drives any run started "
+    "since — including one started from a terminal."
+)
+
+#: The pill in the corner, by what the run is doing. Read from across the room,
+#: so it is one word and a colour.
+STATUS = {
+    "none": ("NO RUN", theme.MUTED),
+    # The two shared with the run library, by name rather than by spelling: the
+    # same run must not be "stopped" in one view and "IDLE" in the other.
+    run_library.STATE_IDLE: ("IDLE", theme.MUTED),
+    run_library.STATE_LIVE: ("LIVE", theme.AHEAD),
+    "paused": ("PAUSED", theme.AMBER),
+    "stopping": ("STOPPING", theme.AMBER),
+}
+
+
+class StatTile(QFrame):
+    """One number, large enough to read from across the room."""
+
+    def __init__(self, caption: str, note: str = "") -> None:
+        super().__init__()
+        self.setProperty("role", "tile")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(14, 10, 14, 10)
+        layout.setSpacing(2)
+        self._caption = QLabel(caption)
+        self._caption.setProperty("role", "caption")
+        self._value = QLabel("—")
+        self._value.setProperty("role", "value")
+        # The best this number has been, under what it is now. A run regresses as
+        # well as improves — PPO peaks and then falls back — so "is this the best
+        # it has managed?" is a real question, and the only other thing that can
+        # answer it is remembering where the curve's high point was.
+        self._peak = QLabel()
+        self._peak.setProperty("role", "note")
+        self._peak.setVisible(False)
+        #: What the note says before any run has filled it in, kept so a reset
+        #: can put it back. A tile's note is the only line that describes a
+        #: *particular* measurement, so it is the one that goes stale.
+        self._initial_note = note
+        self._note = QLabel(note)
+        self._note.setProperty("role", "note")
+        # The same number from the run being compared against. A line of its own
+        # and only when comparing, so the tile stays one number the rest of the
+        # time — which is what makes it readable from across the room.
+        self._compare = QLabel()
+        self._compare.setProperty("role", "note")
+        self._compare.setVisible(False)
+        for widget in (self._caption, self._value, self._peak, self._note, self._compare):
+            layout.addWidget(widget)
+        # Packed to the top, so a tile with no peak line still has its caption and
+        # its number on the same baselines as the ones beside it.
+        layout.addStretch(1)
+        self._colour = ""
+
+    def set_value(self, text: str, colour: str = theme.TEXT) -> None:
+        self._value.setText(text)
+        if colour != self._colour:  # restyling every tick would repaint the world
+            self._value.setStyleSheet(f"color: {colour};")
+            self._colour = colour
+
+    def set_note(self, text: str) -> None:
+        self._note.setText(text)
+
+    def set_peak(self, text: str) -> None:
+        if text != self._peak.text():
+            self._peak.setText(text)
+        self._peak.setVisible(bool(text))
+
+    def set_compare(self, text: str) -> None:
+        if text != self._compare.text():
+            self._compare.setText(text)
+        self._compare.setVisible(bool(text))
+
+    def reset(self) -> None:
+        """Forget the run that was here: value, peak **and** note together.
+
+        The note is the one that is easy to leave behind and the only one that
+        can lie — "—" over "262,144,000 samples" is a tile describing the
+        previous run, and a new run starts at nothing.
+        """
+        self.set_value("—")
+        self.set_peak("")
+        self.set_note(self._initial_note)
+
+
+class _VerifyRuntime(QThread):
+    """Ask the installed runtime to prove it works, off the event loop.
+
+    Off the event loop for one measured reason. The check itself costs about a
+    second — but the first `torch.cuda.is_available()` after a *fresh* CUDA
+    install takes minutes while the driver builds its caches, and that is
+    precisely when this runs: right after somebody pressed Install. On the UI
+    thread that is a frozen window at the worst possible moment.
+
+    Reports the reason as well as the verdict, because "your runtime does not
+    work" without a next sentence is a dead end.
+    """
+
+    done = Signal(bool, str)
+
+    def __init__(self, store: runtime.Runtime, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._store = store
+
+    def run(self) -> None:
+        status = self._store.verify()
+        self.done.emit(status.ready, status.detail)
+
+
+class Trainer(QMainWindow):
+    """Everything the trainer is, in one window."""
+
+    def __init__(self, run_dir: Path) -> None:
+        super().__init__()
+        self._launcher = ReplayLauncher()
+        self._ticks = 0
+        #: What the runtime last proved: `None` until the first check finishes.
+        #: `False` turns Start into Set up — `missile_defense.runtime.Runtime.status` only
+        #: reads a manifest and looks for a file, both of which stay true of a
+        #: runtime whose torch was deleted or whose driver moved under it.
+        self._runtime_ok: bool | None = None
+        self._runtime_detail = ""
+        self._verifier: _VerifyRuntime | None = None
+        #: One store for the window's life, shared with the dialog that repairs
+        #: it. Not a fresh `Runtime()` per check: it remembers what it verified,
+        #: against the manifest it verified — a new one every time throws that
+        #: away and pays for a cold CUDA start again, and worse, lets the dialog
+        #: reach a different verdict than the button beside it.
+        self._store = runtime.Runtime()
+
+        self.setCentralWidget(self._build())
+        self._attach(run_dir)
+        #: The directory the library lists, decided **once** from what the
+        #: trainer was opened on and never re-derived. Derived, because the two
+        #: differ exactly when it matters — `poe ui -- runs/amber-anvil` opens
+        #: one run and its library is `runs/`, while `poe ui -- runs` opens a
+        #: directory of them and is its own library. Once, because the answer
+        #: has to survive the run directory ceasing to be a run: a new run
+        #: nobody has started yet and a run somebody has just deleted both look
+        #: exactly like "a directory that is not a run", and re-deriving would
+        #: quietly move the library to the wrong level of the tree.
+        self._library_dir = run_dir.parent if run_library.load_run(run_dir) is not None else run_dir
+        # Land on the library when the directory holds *several* runs, and on
+        # the run itself when it holds one. Both are what the person meant:
+        # `poe ui` on an experiment directory wants the list, and
+        # `poe ui -- runs/amber-anvil` wants that run.
+        self._library.attach(self._library_root())
+        self._league.refresh()
+        self._pages.setCurrentIndex(0 if run_library.load_run(run_dir) is None else 1)
+
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._tick)
+        self._timer.start(POLL_MS)
+        self._tick()
+        self._verify_runtime()
+
+    def _verify_runtime(self) -> None:
+        """Start a background check of the installed runtime, if one is idle.
+
+        Called at start-up and again whenever the runtime dialog closes, which
+        are the two moments the answer can have changed. Never more than one at
+        a time: this spawns a subprocess, and the poll loop must not be able to
+        queue a fresh one every second.
+        """
+        if self._verifier is not None and self._verifier.isRunning():
+            return
+        self._verifier = _VerifyRuntime(self._store, self)
+        self._verifier.done.connect(self._runtime_verified)
+        self._verifier.start()
+
+    def _runtime_verified(self, ok: bool, detail: str) -> None:
+        self._runtime_ok = ok
+        self._runtime_detail = detail
+        self._refresh_status()  # the button's meaning may have just changed
+
+    def _needs_setup(self) -> bool:
+        """Whether the button offers setup rather than a run.
+
+        **One answer, asked by both the label and the press.** They were two
+        conditions once, and they disagreed exactly where it mattered: the label
+        asked whether the runtime could *prove* itself and said *Set up
+        training…*, while the press asked only whether an interpreter existed —
+        which it did, since a runtime missing numpy still has one. So the button
+        that offered to fix the installation opened the parameter dialog
+        instead, and the run it started died on its first import.
+
+        `can_train` is the cheap half and stays pollable: a manifest and a file
+        that exists. `_runtime_ok` is the same question actually put to the
+        runtime, answered in the background, and it is the one that catches a
+        runtime that has stopped working since it was installed.
+        """
+        return not can_train(store=self._store) or self._runtime_ok is False
+
+    def _idle_label(self) -> str:
+        """What the button says when a run could be started here."""
+        return "Continue" if self._checkpoints else "Start"
+
+    def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 — Qt's spelling
+        """Wait for the runtime check before letting the window go.
+
+        Qt aborts the process outright when a running `QThread` is destroyed,
+        and this one outlives a quick open-and-close: the check is a subprocess,
+        and the first one after a fresh CUDA install takes minutes. Closing the
+        trainer during it used to take the process down with it.
+
+        Waited on rather than killed, because there is nothing to kill safely —
+        the subprocess is a health check that ends on its own, and the bounded
+        wait is the honest way to say so. The bound matters more than its exact
+        value: a trainer that will not close is worse than one that closes a
+        second late.
+        """
+        verifier = self._verifier
+        if verifier is not None and verifier.isRunning():
+            verifier.wait(VERIFY_WAIT_MS)
+        super().closeEvent(event)
+
+    def report_unexpected(
+        self,
+        kind: type[BaseException],
+        value: BaseException,
+        tb: TracebackType | None,
+    ) -> None:
+        """Say that something failed, instead of appearing to do nothing.
+
+        Installed as ``sys.excepthook`` by :func:`main`, which is what PySide6
+        consults for an exception raised inside a slot. It prints one and returns
+        to the event loop — so the trainer already survives its own bugs, but
+        *silently*: the button that raised looks exactly like a button that does
+        nothing, and the traceback goes to a terminal an installed copy was never
+        started from. That is the difference between a trainer that is stuck and
+        one that is merely wrong about something.
+
+        The log pane rather than a dialog, and deliberately. `_tick` runs every
+        second, so a fault in it would be an unclosable stack of message boxes —
+        the one outcome worse than the silence this replaces.
+        """
+        traceback.print_exception(kind, value, tb)
+        try:
+            self._append_log(f"— {kind.__name__}: {value} —")
+            self._append_log("".join(traceback.format_exception(kind, value, tb)).rstrip())
+            self._log_toggle.setChecked(True)
+            self.statusBar().showMessage(f"something went wrong — {kind.__name__}: {value}")
+        except RuntimeError:
+            # The window is already gone — Qt deletes the C++ side first, and an
+            # exception during teardown must not become a second one here. It has
+            # been printed; that is all this could have done anyway.
+            pass
+
+    def _attach(self, run_dir: Path) -> None:
+        """Point the whole window at a run directory — including a fresh one.
+
+        Everything the trainer knows comes from that directory, so re-attaching
+        is the same act as starting up. Reset is exactly this, aimed somewhere
+        new; nothing is deleted.
+        """
+        self._run_dir = run_dir
+        self._metrics = sources.metrics_tail(run_dir)
+        self._evals = sources.evals_tail(run_dir)
+        #: What the run has printed. A run this trainer started comes down a
+        #: pipe; every other one writes this file itself (missile_defense.runlog), which is
+        #: what gives a terminal-started run a log pane at all.
+        self._log_file = sources.log_tail(run_dir)
+        self._control = Control(run_dir)
+        #: A run *this* trainer started, kept after it exits so the window knows
+        #: the difference between "quiet for now" and "over". Dropped on
+        #: re-attach: that run carries on, it is simply no longer this screen's.
+        self._run: TrainingRun | None = None
+        self._reported_exit = False
+        #: A display name typed into the New Run dialog and not yet on disk.
+        #: Cleared here: attaching somewhere else means it was for a directory
+        #: this window is no longer looking at.
+        self._pending_name = ""
+        #: What the picker is showing, so it is only rebuilt when it changed.
+        self._choices: list[Path] = []
+        self._compare_choices: list[Path] = []
+        #: None until the first scan, so "still empty" is distinguishable from
+        #: "not looked yet" — otherwise the empty state never gets drawn.
+        self._listed: list[Recording] | None = None
+        #: What this run has already saved, from the last rescan. Emptied here
+        #: rather than left over: a different directory has different ones, and
+        #: offering the last run's checkpoints to continue would be offering to
+        #: continue the wrong run.
+        self._checkpoints: list[sources.Checkpoint] = []
+        self._updates = 0
+        self._last_metric: MetricRow | None = None
+        self._last_eval: EvalRow | None = None
+        #: The update this run's metrics start at, and how many it means to do.
+        #: Together they are "how much is left", which the samples counter alone
+        #: cannot say — and a run that continues someone else's numbering must
+        #: not be reported as nearly finished before it starts.
+        self._first_update: int | None = None
+        self._planned_updates = sources.planned_updates(run_dir)
+        #: The high-water mark of each headline number, so a tile says what the
+        #: run has *managed* and not only what it is doing this second. Per run,
+        #: so they are made here with everything else that re-attaching resets.
+        self._peak_score = sources.Peak()
+        self._peak_return = sources.Peak()
+        self._last_return = sources.Latest()
+        self._peak_entropy = sources.Peak()
+        #: Every eval, by the update it scored. A checkpoint is described by the
+        #: evaluation at *its* update, which is not always the newest one.
+        self._eval_rows: dict[int, EvalRow] = {}
+        #: The newest contiguous protocol segment, which is the only set a
+        #: single curve and peak can compare without joining unlike scores.
+        self._display_eval_rows: list[EvalRow] = []
+        #: The comparison run's evaluations, kept rather than only plotted. The
+        #: score curve consumes each row as it arrives; the statistics view needs
+        #: the *series* and the latest row together, and re-reading the file a
+        #: second time would be two tails on one path disagreeing about EOF.
+        self._compare_eval_rows: list[EvalRow] = []
+        for curve in (self._score, self._return, self._entropy, self._value):
+            curve.clear()
+        self._score.set_baselines(())
+        for tile in (self._tile_update, self._tile_score, self._tile_return, self._tile_entropy):
+            tile.reset()
+
+        self.setWindowTitle(f"Missile Defense Trainer · {run_dir}")
+        self._refresh_model()  # not on the next rescan: it would be the old run's
+        self._compare_with(None)  # a comparison is against *this* run, not the last
+        self._read_tuning()  # the box describes the run it is aimed at
+        self._refresh_picker()
+        self.statusBar().showMessage(f"watching {run_dir / sources.METRICS_NAME}")
+
+    # ---- construction -------------------------------------------------------
+    def _build(self) -> QWidget:
+        """Two levels, not two tabs.
+
+        The **library** lists every run and every promoted model; the **run**
+        screen is about one of them. That is a navigation step and not a peer
+        view — the run picker in the header cannot answer "which of these eleven
+        is worth my attention", because a dropdown shows names where the
+        question needs scores, sizes and states side by side.
+
+        The library is the landing view (docs/ROADMAP.md, M8): being dropped
+        into whichever run happened to sort first is how you read the wrong
+        curve for a minute.
+        """
+        self._pages = QStackedWidget()
+        self._pages.addWidget(self._library_page())
+        self._pages.addWidget(self._run_page())
+        return self._pages
+
+    def _library_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setSpacing(10)
+
+        title = QLabel("MISSILE DEFENSE · TRAINING CONSOLE")
+        title.setProperty("role", "title")
+        layout.addWidget(title)
+
+        split = QSplitter(Qt.Orientation.Horizontal)
+        self._library = LibraryView(on_new_run=self._new_run_from_library)
+        self._library.opened.connect(self._open_run)
+        self._league = LeagueView()
+        # Promoting from the run list puts a row in the table next to it. The
+        # two halves of this screen are the same story — a run becomes a model —
+        # so the second half must not need a visit elsewhere to catch up.
+        self._library.promoted.connect(self._league.refresh)
+        self._league.watch.connect(self._watch_model)
+        self._league.show_match.connect(self._watch_match)
+        self._league.peek.connect(self._peek_at_contest)
+        self._league.peek_pair.connect(self._peek_side_by_side)
+        split.addWidget(self._library)
+        split.addWidget(self._league)
+        split.setStretchFactor(0, 3)
+        split.setStretchFactor(1, 2)
+        split.setSizes([760, 520])
+        layout.addWidget(split, stretch=1)
+        return page
+
+    def _run_page(self) -> QWidget:
+        root = QWidget()
+        layout = QVBoxLayout(root)
+        layout.setContentsMargins(14, 12, 14, 8)
+        layout.setSpacing(10)
+        layout.addLayout(self._header())
+        layout.addLayout(self._tiles())
+
+        split = QSplitter(Qt.Orientation.Horizontal)
+        split.addWidget(self._main_tabs())
+        split.addWidget(self._side())
+        split.setStretchFactor(0, 1)
+        split.setSizes([980, 320])
+        layout.addWidget(split, stretch=1)
+        layout.addWidget(self._log_pane())
+        return root
+
+    # ---- moving between the two levels ---------------------------------------
+
+    def _show_library(self) -> None:
+        """Back to the list, and re-read it: a run may have finished meanwhile."""
+        self._library.attach(self._library_root())
+        self._league.refresh()
+        self._pages.setCurrentIndex(0)
+        # Focus lands on the list, not wherever Qt left it. Arriving on a screen
+        # with the keyboard parked on nothing means the first Tab is spent
+        # finding out where you are, every single time.
+        self._library.table.focus_list()
+
+    def _open_run(self, run_dir: Path) -> None:
+        self._attach(run_dir)
+        self._pages.setCurrentIndex(1)
+        self._tick()
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802 — Qt's name
+        """Escape goes back to the library, from anywhere on a run screen.
+
+        The one navigation this window has, and it was reachable only by
+        clicking a button in the corner. Escape is what every other back
+        control in both binaries answers to, including the game's.
+        """
+        if event.key() == Qt.Key.Key_Escape and self._pages.currentIndex() == 1:
+            self._show_library()
+            return
+        super().keyPressEvent(event)
+
+    def _new_run_from_library(self) -> None:
+        """Name a run, then start it, in a directory of its own.
+
+        Fresh rather than "the one that sorted first": a New Run button that
+        silently reset an existing directory would be the most destructive
+        control in the window, and Reset already exists for that with a
+        confirmation in front of it.
+
+        **The name is asked for before anything else**, because it is the one
+        decision the parameter form cannot carry: a run is identified by its
+        directory for the rest of its life, and a generated `amber-anvil` is a
+        handle rather than an answer to "which experiment is this?". Prefilled
+        with a generated one all the same, so Enter is still a whole answer.
+        """
+        root = self._library_root()
+        existing = [run.name for run in run_library.discover(root)]
+        suggested = run_library.default_name(existing)
+        name, accepted = QInputDialog.getText(
+            self, "New run", "A name for this run:", text=suggested
+        )
+        if not accepted:
+            return
+        # An emptied field means "I did not care after all", which is what the
+        # suggestion was for — not a run called nothing.
+        name = name.strip() or suggested
+        target = run_library.new_run_dir(root, name)
+        self._open_run(target)
+        # The typed name only becomes a *display* name when the directory could
+        # not be called that: `entity-3-seed` needs no second copy of itself,
+        # and `Entity policy, 3 seeds` does. Written when the run starts rather
+        # than now, so a parameter dialog somebody cancels leaves nothing on
+        # disk at all — see `_start`.
+        self._pending_name = name if name != target.name else ""
+        self._primary_pressed()
+
+    def _library_root(self) -> Path:
+        """Where the library looks: the directory *containing* runs.
+
+        Settled in `__init__` from what the trainer was opened on rather than
+        from `paths.runs_dir()`, which would show a list of somebody else's runs.
+        """
+        return self._library_dir
+
+    def _watch_model(self, policy: Path) -> None:
+        """Open the game on a promoted model — the league's `Watch it play`.
+
+        `--watch-model` rather than a recording: this is the model as it plays
+        *now*, against a fresh seed, which is the question a league table
+        provokes and a stored episode cannot answer.
+        """
+        try:
+            self._launcher.launch_model(policy)
+        except AppNotFound as error:
+            QMessageBox.warning(self, "The game is not built", str(error))
+
+    def _peek_at_contest(self, policy: Path, seed: int) -> None:
+        """Open the game on the episode a running contest is playing right now.
+
+        A spectator, not a view: the game plays its own copy of the same seed —
+        both sides are deterministic, so it is the same episode — and the
+        contest neither waits for it nor notices it close. `[` and `]` speed the
+        watched game up to 8x, because the evaluator is far faster than sixty
+        frames a second and a peek should not have to be watched in real time.
+        """
+        try:
+            self._launcher.launch_model(policy, seed=seed)
+        except AppNotFound as error:
+            QMessageBox.warning(self, "The game is not built", str(error))
+
+    def _peek_side_by_side(self, left: Path, right: Path) -> None:
+        """Both contestants on the seed a head-to-head is playing, one screen.
+
+        No manifest: the contest has not finished, so there are no mean scores
+        to claim yet — the ad-hoc pairing says that by leaving them out. Wave
+        sync is on by default in there, so the two stay on the same wave.
+        """
+        try:
+            self._launcher.launch_pair(left, right)
+        except AppNotFound as error:
+            QMessageBox.warning(self, "The game is not built", str(error))
+
+    def _watch_match(self, manifest: Path) -> None:
+        """Open a head-to-head split-screen — the league's `Watch the match`."""
+        try:
+            self._launcher.launch_match(manifest)
+        except AppNotFound as error:
+            QMessageBox.warning(self, "The game is not built", str(error))
+
+    def _header(self) -> QHBoxLayout:
+        row = QHBoxLayout()
+        title = QLabel("MISSILE DEFENSE · TRAINING CONSOLE")
+        title.setProperty("role", "title")
+        # The version, always on screen rather than behind a menu: "which build
+        # is this?" is the first question of every bug report, and the trainer is
+        # the half most often installed from a package by someone with no
+        # checkout to read it out of. Pressing it opens the rest — author,
+        # licence, and the LGPL libraries this MIT program runs on, which a user
+        # should be able to learn from the program and not only from a file in a
+        # repository they have never opened.
+        self._about = QPushButton(f"v{about.version()}")
+        self._about.setProperty("role", "version")
+        self._about.setToolTip("About Missile Defense")
+        self._about.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._about.clicked.connect(self._show_about)
+        # Runs pile up one directory per experiment, so which one you are looking
+        # at is a thing you change often — often enough that it belongs in the
+        # window rather than in the command that started it.
+        self._picker = QComboBox()
+        self._picker.setMinimumWidth(220)
+        self._picker.currentIndexChanged.connect(self._picked)
+        # And which run it is being *held against*. Beside the picker rather than
+        # behind a button: "did that change help?" is asked of the same two runs
+        # repeatedly, and the answer is the two curves on one plot.
+        versus = QLabel("vs")
+        versus.setProperty("role", "caption")
+        self._compare_picker = QComboBox()
+        self._compare_picker.setMinimumWidth(180)
+        self._compare_picker.currentIndexChanged.connect(self._compare_picked)
+        self._status = QLabel("NO RUN")
+        self._status.setProperty("role", "caption")
+        # Back to the list. First in the row because it is a *level*, not an
+        # action on this run — the same place a browser puts one.
+        self._back = QPushButton("‹ &Library")
+        self._back.setToolTip("Every run and every promoted model (Escape)")
+        self._back.clicked.connect(self._show_library)
+        row.addWidget(self._back)
+        row.addSpacing(10)
+        row.addWidget(title)
+        row.addWidget(self._about)
+        row.addSpacing(12)
+        row.addWidget(self._picker)
+        row.addSpacing(6)
+        row.addWidget(versus)
+        row.addWidget(self._compare_picker)
+        row.addStretch(1)
+        row.addLayout(self._controls())
+        row.addSpacing(14)
+        row.addWidget(self._status)
+        return row
+
+    def _controls(self) -> QHBoxLayout:
+        """Three affordances, not a dashboard of them.
+
+        One primary button that changes meaning, Stop beside it, and Reset kept
+        at arm's length because it is the one that abandons a run. The eval
+        interval sits with them because it is the same kind of thing: something
+        you do *to* the run that is going, not a parameter you chose before it.
+        """
+        row = QHBoxLayout()
+        row.setSpacing(6)
+        row.addLayout(self._eval_control())
+        row.addSpacing(10)
+        self._primary = QPushButton("Start")
+        self._primary.setProperty("role", "primary")
+        self._primary.clicked.connect(self._primary_pressed)
+        self._stop = QPushButton("Stop")
+        self._stop.clicked.connect(self._stop_pressed)
+        self._reset = QPushButton("Reset…")
+        self._reset.clicked.connect(self._reset_pressed)
+        # Beside Log, and deliberately the same size as it: the two are the pair
+        # of read-only questions about a run — what it *printed*, and what it was
+        # *started with*. Neither is watched, both are asked at odd moments, and
+        # neither is worth a panel that takes space from the curve. So a button
+        # and a window you close again, rather than a third tab.
+        self._parameters = QPushButton("Parameters…")
+        self._parameters.setToolTip(
+            "What this run was started with — every setting, and which of them it "
+            "changed from the trainer's defaults"
+        )
+        self._parameters.clicked.connect(self._show_parameters)
+        self._log_toggle = QPushButton("Log")
+        self._log_toggle.setCheckable(True)
+        self._log_toggle.toggled.connect(self._show_log)
+        for button in (self._primary, self._stop, self._reset, self._parameters, self._log_toggle):
+            row.addWidget(button)
+        return row
+
+    def _eval_control(self) -> QHBoxLayout:
+        """The one hyperparameter that belongs on the screen you leave open.
+
+        Every other knob is chosen before a run and lives in the start dialog.
+        This one has no right answer for a whole run: you want the yardstick
+        constantly while the policy is still finding its shape, and hardly at all
+        once each eval costs more than the update it interrupts. Deciding that
+        from the curve, without stopping, is the point.
+
+        A slider rather than a number box, because it is a *dial*: the question
+        is "more often or less often than now", asked while looking at the curve,
+        and the answer is a direction. Its stops are the intervals worth having
+        (:data:`EVAL_EVERY_STOPS`), so there is nothing to mistype and no way to
+        land on a number nobody meant.
+
+        It writes :mod:`missile_defense.control`'s tuning file and nothing else — so it drives
+        a run this trainer never started, and a terminal can do the same with
+        ``echo``. Nothing here imports the trainer.
+        """
+        row = QHBoxLayout()
+        row.setSpacing(6)
+        caption = QLabel("eval every")
+        caption.setProperty("role", "caption")
+        #: The stops, which a run is allowed to add to: one started with
+        #: ``--eval-every 30`` must be shown where it actually is.
+        self._eval_stops: list[int] = list(EVAL_EVERY_STOPS)
+        self._eval_every = QSlider(Qt.Orientation.Horizontal)
+        self._eval_every.setFixedWidth(116)
+        self._eval_every.setRange(0, len(self._eval_stops) - 1)
+        self._eval_every.setPageStep(1)  # a click beside the handle is one stop
+        self._eval_every.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self._eval_every.setTickInterval(1)
+        self._eval_every.setToolTip(EVAL_EVERY_HELP)
+        # The number, because a slider on its own says "more" and "less" and
+        # never says *what*. Monospace and fixed-width, so the row does not
+        # twitch as the value changes under the handle.
+        self._eval_readout = QLabel()
+        self._eval_readout.setProperty("role", "readout")
+        self._eval_readout.setMinimumWidth(58)
+        self._eval_readout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # Seeded before the signals are connected: a slider that wrote a tuning
+        # file while it was being built would tune a directory nobody looked at.
+        self._show_eval_interval(_default_eval_every())
+        # Dragging is one decision, not the forty values it passes through, so
+        # the write waits for the handle to be let go. Arrow keys and clicks are
+        # already one decision each and take effect at once.
+        self._eval_every.valueChanged.connect(self._eval_every_moved)
+        self._eval_every.sliderReleased.connect(self._eval_every_settled)
+        row.addWidget(caption)
+        row.addWidget(self._eval_every)
+        row.addWidget(self._eval_readout)
+        return row
+
+    def _log_pane(self) -> QWidget:
+        self._log = QPlainTextEdit()
+        self._log.setReadOnly(True)
+        self._log.setMaximumBlockCount(2000)
+        self._log.setFixedHeight(150)
+        self._log.setVisible(False)
+        return self._log
+
+    def _tiles(self) -> QHBoxLayout:
+        row = QHBoxLayout()
+        row.setSpacing(10)
+        self._tile_update = StatTile("update", "no run attached")
+        self._tile_score = StatTile("eval score", "validation or held-out benchmark")
+        self._tile_return = StatTile("mean return", "shaped, scaled — not a score")
+        self._tile_entropy = StatTile("entropy", "how undecided the policy is")
+        for tile in (self._tile_update, self._tile_score, self._tile_return, self._tile_entropy):
+            row.addWidget(tile)
+        return row
+
+    def _main_tabs(self) -> QWidget:
+        """Two views of the same run, sharing everything around them.
+
+        The tiles, the picker, the episode list and the log stay put; only the
+        plot area changes, because the two views answer questions at different
+        moments. **Training** is what you watch while a run goes — is it
+        learning, is it stable. **Statistics** is what you open when it stops
+        improving and you want to know why, and it is the wrong shape for a
+        glance: fourteen numbers and a distribution reward being read, not
+        monitored.
+
+        A tab rather than a second window, so the comparison picked in the
+        header applies to both and there is only ever one answer to "which run
+        am I looking at".
+        """
+        tabs = QTabWidget()
+        tabs.setDocumentMode(True)
+        tabs.addTab(self._plots(), "TRAINING")
+        self._analysis = AnalysisView()
+        tabs.addTab(self._analysis, "STATISTICS")
+        return tabs
+
+    def _plots(self) -> QWidget:
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+
+        # The hero. Its rows carry protocol metadata; a ladder is drawn only
+        # when every plotted score was produced on the block it was measured on.
+        self._score = CurveView(
+            "policy evaluation score",
+            theme.SCORE,
+            value_format="%.0f",
+            markers=True,  # an eval every --eval-every updates is dots, not a line
+            series_name="learned policy",
+            from_zero=True,
+            baselines=len(CANONICAL_LADDER.rungs),
+        )
+        self._score.set_placeholder(NO_EVALS)
+        layout.addWidget(self._score, stretch=3)
+
+        strip = QHBoxLayout()
+        strip.setSpacing(10)
+        self._return = CurveView("mean return", theme.RETURN, value_format="%.1f")
+        self._entropy = CurveView("entropy", theme.ENTROPY, value_format="%.2f")
+        self._value = CurveView("value loss", theme.VALUE, value_format="%.3g")
+        for curve in (self._return, self._entropy, self._value):
+            curve.setMinimumHeight(150)
+            strip.addWidget(curve)
+        layout.addLayout(strip, stretch=2)
+        return panel
+
+    def _side(self) -> QWidget:
+        """The right-hand column: what the run has produced, and what it is.
+
+        Episodes above, the network below, the machine under both — three
+        questions asked a few times a run rather than watched, so none of them
+        is allowed to take space from the curve.
+
+        The machine's row is three meters however long the run has been going,
+        so it is pinned at the foot. The other two share what is left through a
+        splitter: a network has as many layers as it has, but a run accumulates
+        episodes for hours, and how many of them you want to see at once is a
+        judgement only the person watching can make.
+        """
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+        self._model = ModelPanel()
+        split = QSplitter(Qt.Orientation.Vertical)
+        split.addWidget(self._recordings())
+        split.addWidget(self._model)
+        split.setStretchFactor(0, 1)  # a taller window is more episodes, not more layers
+        split.setStretchFactor(1, 0)
+        split.setSizes([380, 180])
+        # The machine's own row goes at the foot of this column rather than in
+        # the tiles: this side had the space, and the curve is not allowed to
+        # lose any.
+        # Promotion sits under the model panel because that panel is already
+        # "what this run has produced" — and because promoting is something you
+        # do *to* the thing described right above it, not a control that belongs
+        # in the bar with Start and Stop.
+        self._promote = QPushButton("Enter Model League…")
+        self._promote.setToolTip(
+            "Copy this run's best checkpoint into the league as a .mdp, where it "
+            "outlives the run — and where the game finds it, under WATCH AI → MODELS"
+        )
+        self._promote.clicked.connect(self._promote_run)
+        layout.addWidget(split, stretch=1)
+        layout.addWidget(self._promote)
+        self._system = SystemPanel()
+        layout.addWidget(self._system)
+        return panel
+
+    def _promote_run(self) -> None:
+        """Open the promotion dialog on the attached run.
+
+        Re-read rather than cached: the run may have written three more
+        checkpoints since the library last listed it, and the dialog's whole job
+        is to offer the right one.
+        """
+        run = run_library.load_run(self._run_dir)
+        if run is None:
+            QMessageBox.information(
+                self,
+                "Nothing to promote",
+                f"No run in {self._run_dir} yet — a run is promoted from its checkpoints, "
+                "and this directory has none.",
+            )
+            return
+        dialog = PromoteDialog(run, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.promoted is not None:
+            self._league.refresh()
+            # Says where it went *and* that the game can now play it. Promotion
+            # is also the install step — the game scans this directory and
+            # offers everything in it under WATCH AI -> MODELS — and a person
+            # who is not told that has no reason to go and look.
+            self.statusBar().showMessage(
+                f"promoted {dialog.promoted.name} — the game can now play it "
+                f"from WATCH AI → MODELS ({dialog.promoted.policy})"
+            )
+
+    def _recordings(self) -> QWidget:
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+
+        # The buttons live in the caption's own row rather than under the list:
+        # this column's height is the scarce thing, and a strip of controls
+        # across the bottom would cost an episode or two of it.
+        head = QHBoxLayout()
+        head.setSpacing(6)
+        caption = QLabel("recordings")
+        caption.setProperty("role", "caption")
+        head.addWidget(caption)
+        head.addStretch(1)
+        # Double-click has always played an episode and still does — it was just
+        # never an affordance you could *see*. These are, and Delete is the one
+        # thing you could previously only do from a file manager.
+        self._play = QPushButton("▶ Play")
+        self._play.setToolTip("Open the selected episode in the game (or double-click it)")
+        self._play.clicked.connect(self._play_selected)
+        self._delete = QPushButton("Delete…")
+        self._delete.setToolTip("Delete the selected recording from this run directory")
+        for button in (self._play, self._delete):
+            button.setProperty("role", "compact")
+            head.addWidget(button)
+        self._delete.clicked.connect(self._delete_selected)
+        layout.addLayout(head)
+
+        self._list = QListWidget()
+        # `itemActivated` alone, and it already covers the double-click. It is
+        # the platform's "the user chose this one": a double-click on Windows and
+        # macOS, a single click on a desktop configured that way, and Enter
+        # everywhere. `itemDoubleClicked` was connected beside it and on Windows
+        # both fire for one gesture — so a double-click on a recording opened the
+        # game twice, two windows playing the same episode.
+        self._list.itemActivated.connect(self._open)
+        self._list.itemSelectionChanged.connect(self._selection_changed)
+        # Four rows, so a network with many layers below cannot squeeze the list
+        # down to a scrollbar with one episode in it.
+        self._list.setMinimumHeight(140)
+        layout.addWidget(self._list, stretch=1)
+        # A greyed-out list row is painted from the disabled palette, which under
+        # this stylesheet is invisible; an empty state has to be a real widget.
+        self._no_recordings = QLabel(NO_RECORDINGS)
+        self._no_recordings.setProperty("role", "placeholder")
+        self._no_recordings.setWordWrap(True)
+        self._no_recordings.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self._no_recordings.setVisible(False)
+        layout.addWidget(self._no_recordings, stretch=1)
+        return panel
+
+    # ---- the poll -----------------------------------------------------------
+    def _tick(self) -> None:
+        self._ticks += 1
+        self._read_metrics()
+        self._read_evals()
+        self._read_comparison()
+        self._read_tuning()
+        self._read_log()
+        self._system.refresh()
+        if self._ticks % RESCAN_EVERY == 1:
+            self._refresh_recordings()
+            self._refresh_model()
+            self._refresh_picker()  # a new run directory can appear at any time
+        self._refresh_status()
+
+    def _read_metrics(self) -> None:
+        batch = self._metrics.poll()
+        if batch.restarted:  # a different run writes into the same file
+            for curve in (self._return, self._entropy, self._value):
+                curve.clear()
+            self._updates = 0
+            self._last_metric = None
+            self._peak_return.clear()
+            self._last_return.clear()
+            self._peak_entropy.clear()
+            # A different run writes into the same file, so where it starts
+            # counting and how far it means to go are both somebody else's now.
+            self._first_update = None
+            self._planned_updates = sources.planned_updates(self._run_dir)
+            for tile in (self._tile_update, self._tile_return, self._tile_entropy):
+                tile.reset()
+        for row in batch.rows:
+            if self._first_update is None:
+                self._first_update = row.update
+            self._return.append(row.update, row.mean_return)
+            self._entropy.append(row.update, row.entropy)
+            self._value.append(row.update, row.value_loss)
+            # Every row, not only the last of the batch: a poll can carry a
+            # hundred updates, and the peak is often not in the newest one.
+            self._peak_return.offer(row.update, row.mean_return)
+            self._last_return.offer(row.update, row.mean_return)
+            self._peak_entropy.offer(row.update, row.entropy)
+            self._updates += 1
+        if not batch.rows:
+            return
+        row = self._last_metric = batch.rows[-1]
+        self._score.set_x_extent(row.update)  # the eval chart spans the run too
+        self._tile_update.set_value(f"{row.update:,}")
+        self._tile_update.set_note(self._progress_note(row))
+        # `mean_return` is `nan` until the first episodes of a run finish, and
+        # they are thousands of ticks long — so after a `--resume` this tile
+        # showed a bare dash for minutes while the chart under it was drawing a
+        # curve. A dash means "no measurement exists"; one does, it is just not
+        # from this update, so show it and say which update it is from.
+        self._tile_return.set_value(_number(self._last_return.value, "{:,.1f}"))
+        self._tile_return.set_note(
+            self._last_return.note("shaped, scaled — not a score", current_update=row.update)
+        )
+        self._tile_entropy.set_value(_number(row.entropy, "{:.3f}"))
+        self._tile_return.set_peak(sources.peak_note(self._peak_return, "{:,.1f}"))
+        self._tile_entropy.set_peak(sources.peak_note(self._peak_entropy, "{:.3f}"))
+
+    def _progress_note(self, row: MetricRow) -> str:
+        """``262,144 samples · 42k steps/s · ~28 h left``.
+
+        The rate is what answers "is the accelerator doing anything?" — the
+        trainer has printed it since M6 and this window used to keep it to
+        itself, which left the samples counter as the only sign of life. The
+        remaining time is what answers the question straight after it, and it is
+        computed from the run's *own* observed rate rather than from a model of
+        the hardware: at 42k steps/s the relational architecture is saturating a
+        5090, and no table here would know that about someone else's card.
+        """
+        parts = [f"{row.samples:,} samples", sources.human_rate(row.steps_per_second)]
+        left = self._updates_left(row.update)
+        if left is not None and row.steps_per_second:
+            samples_left = left * (row.samples // max(row.update, 1))
+            parts.append(f"~{sources.human_duration(samples_left / row.steps_per_second)} left")
+        return " · ".join(part for part in parts if part)
+
+    def _updates_left(self, update: int) -> int | None:
+        """Updates still to come, or ``None`` when the horizon is not knowable.
+
+        The run's first update is read off its own metrics rather than assumed to
+        be 1, so a run that continues someone else's numbering is not reported as
+        nearly finished before it starts.
+        """
+        planned = self._planned_updates
+        if planned is None or self._first_update is None:
+            return None
+        return max(planned - (update - self._first_update + 1), 0)
+
+    def _read_evals(self) -> None:
+        batch = self._evals.poll()
+        if batch.restarted:
+            self._score.clear()
+            self._score.set_baselines(())
+            self._rewind_comparison_evals()
+            self._last_eval = None
+            self._eval_rows.clear()
+            self._display_eval_rows.clear()
+            self._peak_score.clear()
+            self._tile_score.reset()
+            self._refresh_analysis()
+        for row in batch.rows:
+            if self._last_eval is not None and not sources.same_eval_series(self._last_eval, row):
+                # A line between unlike protocols is invented evidence. Show
+                # only the newest contiguous protocol segment and start its peak
+                # again; the CSV still retains every historical row.
+                self._score.clear()
+                self._score.set_baselines(())
+                self._rewind_comparison_evals()
+                self._display_eval_rows.clear()
+                self._peak_score.clear()
+            self._score.append(row.update, row.mean_score)
+            self._eval_rows[row.update] = row
+            self._display_eval_rows.append(row)
+            self._peak_score.offer(row.update, row.mean_score)
+            self._last_eval = row
+        if not batch.rows:
+            return
+        self._tile_score.set_peak(sources.peak_note(self._peak_score, "{:,.0f}"))
+        row = batch.rows[-1]
+
+        # One ladder for the whole plotted segment or none at all: the rows on
+        # screen share a protocol, and a curve cannot carry two sets of rungs.
+        ladder = sources.shared_ladder(self._display_eval_rows)
+        self._score.set_baselines(sources.baseline_lines(ladder))
+
+        if ladder:
+            self._tile_score.set_value(
+                f"{row.mean_score:,.0f}", _ladder_colour(row.mean_score, ladder)
+            )
+            # The block as well as the standing. Two ladders exist and they are
+            # a few hundred points apart, so "beats MEDIUM" alone would be half
+            # a sentence — and on validation rows it is emphatically not the
+            # published claim.
+            self._tile_score.set_note(
+                f"{sources.ladder_note(row.mean_score, ladder)} · "
+                f"{sources.eval_protocol_label(row)} · update {row.update}"
+            )
+        else:
+            self._tile_score.set_value(f"{row.mean_score:,.0f}")
+            self._tile_score.set_note(f"{sources.eval_protocol_note(row)} · update {row.update}")
+        self._refresh_analysis()
+
+    def _refresh_analysis(self) -> None:
+        """Hand the statistics view the rows both curves are already drawn from.
+
+        Only on a change, never on the timer: the view rebuilds fourteen tiles,
+        five bars and four curves, and a run evaluates every few minutes. Doing
+        it on every poll would be a second of work per second for a screen whose
+        numbers moved once an hour.
+        """
+        self._analysis.show_rows(self._display_eval_rows, self._compare_eval_rows)
+
+    def _read_tuning(self) -> None:
+        """Show what the run is on, without arguing with the hand on the slider.
+
+        The file is the shared state, not this widget: a value set from a
+        terminal, or by a run publishing what it was started with, has to land
+        here too, or the slider would describe the last thing *it* said rather
+        than the run.
+        """
+        published = self._control.tuning().get("eval_every")
+        for widget in (self._eval_every, self._eval_readout):
+            widget.setEnabled(published is not None)
+        if published is None:
+            self._eval_every.setToolTip(EVAL_EVERY_UNPUBLISHED)
+            return
+        self._eval_every.setToolTip(EVAL_EVERY_HELP)
+        # Anything below zero is the trainer's "no evaluation" too, and the
+        # slider has one stop for that rather than a negative one nobody asked
+        # for. Mid-drag the hand wins; the next poll is a second away.
+        if max(published, 0) == self._eval_shown() or self._eval_every.isSliderDown():
+            return
+        self._show_eval_interval(max(published, 0))
+
+    def _eval_shown(self) -> int:
+        """The interval the handle is currently sitting on."""
+        return self._eval_stops[self._eval_every.value()]
+
+    def _show_eval_interval(self, updates: int) -> None:
+        """Move the handle to an interval without calling it a decision."""
+        # A run may have been started with an interval between two stops.
+        # Snapping the handle to a neighbour would be describing it wrongly, so
+        # the scale gains a stop instead — and loses it again at the next value.
+        stops = sorted({*EVAL_EVERY_STOPS, updates})
+        if stops != self._eval_stops:
+            self._eval_stops = stops
+            self._eval_every.setMaximum(len(stops) - 1)
+        self._eval_every.blockSignals(True)  # or reading would write it back
+        try:
+            self._eval_every.setValue(self._eval_stops.index(updates))
+        finally:
+            self._eval_every.blockSignals(False)
+        self._eval_readout.setText(_eval_label(updates))
+
+    def _eval_every_moved(self, index: int) -> None:
+        """The handle is somewhere new — say so, and decide if that was a choice."""
+        self._eval_readout.setText(_eval_label(self._eval_stops[index]))
+        if not self._eval_every.isSliderDown():
+            self._eval_every_settled()  # a click or an arrow key: already final
+
+    def _eval_every_settled(self) -> None:
+        updates = self._eval_shown()
+        self._control.tune("eval_every", updates)
+        cadence = "no longer evaluating" if updates == 0 else f"evaluating every {updates} updates"
+        self.statusBar().showMessage(
+            f"{cadence} — from the run's next update ({self._control.tuning_file})"
+        )
+
+    def _rewind_comparison_evals(self) -> None:
+        """Reconsider the other run when this run's score protocol changes."""
+
+        self._score.clear_comparison()
+        self._tile_score.set_compare("")
+        if self._compare_evals is not None:
+            self._compare_evals.rewind()
+
+    def _refresh_recordings(self) -> None:
+        found = sources.list_recordings(self._run_dir)
+        if self._listed is not None and _same(found, self._listed):
+            return  # nothing new; leave the selection and scroll position alone
+        selected = self._selected_path()
+        self._listed = found
+        self._list.clear()
+        self._list.setVisible(bool(found))
+        self._no_recordings.setVisible(not found)
+        if not found:
+            self._selection_changed()
+            return
+        now = time.time()
+        for recording in found:
+            # One line, not two. This column is the scarce space in the window
+            # and a run leaves an episode every few minutes, so how *many* you
+            # can see at once is worth more than the second line's air.
+            item = QListWidgetItem(
+                f"{recording.name}   {sources.human_age(now - recording.modified)} · "
+                f"{sources.human_size(recording.size)}"
+            )
+            item.setData(Qt.ItemDataRole.UserRole, str(recording.path))
+            self._list.addItem(item)
+            if recording.path == selected:
+                self._list.setCurrentItem(item)
+        self._selection_changed()
+
+    def _refresh_model(self) -> None:
+        """Re-read the model card and the checkpoints.
+
+        Both appear *during* a run — the card when the trainer starts, a
+        checkpoint every `--checkpoint-every` updates — so this is a poll rather
+        than something done once on attach. It is a small JSON and one directory
+        listing, and the panel repaints only when the text actually changed.
+        """
+        # Kept, because something else asks: the primary button says *Continue*
+        # rather than *Start* where there is a checkpoint to continue from.
+        self._checkpoints = sources.list_checkpoints(self._run_dir)
+        self._model.show_run(modelcard.read(self._run_dir), self._checkpoints, self._eval_rows)
+
+    def _refresh_picker(self) -> None:
+        """Rebuild the run list, without disturbing anyone reading it.
+
+        Rebuilding fires ``currentIndexChanged``, which would re-attach on every
+        tick, so the signals are blocked while the items are replaced — and an
+        open dropdown is left alone entirely rather than being yanked out from
+        under the pointer.
+        """
+        if self._picker.view().isVisible() or self._compare_picker.view().isVisible():
+            return
+        choices = sources.run_choices(self._run_dir)
+        current = self._run_dir.resolve()
+        if choices != self._choices:
+            self._choices = choices
+            self._picker.blockSignals(True)
+            self._picker.clear()
+            for path in choices:
+                self._picker.addItem(path.name, str(path))
+                self._picker.setItemData(
+                    self._picker.count() - 1, str(path), Qt.ItemDataRole.ToolTipRole
+                )
+                if path == current:
+                    self._picker.setCurrentIndex(self._picker.count() - 1)
+            self._picker.setToolTip(str(current))
+            self._picker.blockSignals(False)
+
+        # Everything except the run it would be compared with — a run held
+        # against itself is two identical curves and no information.
+        others = [path for path in choices if path != current]
+        if others == self._compare_choices:
+            return
+        self._compare_choices = others
+        selected = self._compare_dir
+        self._compare_picker.blockSignals(True)
+        self._compare_picker.clear()
+        self._compare_picker.addItem(NO_COMPARISON, "")
+        for path in others:
+            self._compare_picker.addItem(path.name, str(path))
+            self._compare_picker.setItemData(
+                self._compare_picker.count() - 1, str(path), Qt.ItemDataRole.ToolTipRole
+            )
+            if path == selected:
+                self._compare_picker.setCurrentIndex(self._compare_picker.count() - 1)
+        self._compare_picker.setEnabled(bool(others))
+        self._compare_picker.blockSignals(False)
+        if selected is not None and selected not in others:
+            # The run it was being held against is gone, or has become the
+            # attached one. Say so by drawing nothing rather than by leaving a
+            # curve that no longer has a name in the picker.
+            self._compare_with(None)
+
+    def _picked(self, index: int) -> None:
+        chosen = self._picker.itemData(index)
+        if chosen and Path(str(chosen)) != self._run_dir.resolve():
+            self._attach(Path(str(chosen)))
+
+    # ---- the other run ------------------------------------------------------
+    def _compare_with(self, run_dir: Path | None) -> None:
+        """Hold the attached run against another one, or against nothing.
+
+        Only the two curve files are read: an experiment is worth comparing on
+        what it *scored* and how it got there, and the rest of the window stays
+        about the run you are actually driving.
+        """
+        self._compare_dir = run_dir
+        self._compare_metrics = None if run_dir is None else sources.metrics_tail(run_dir)
+        self._compare_evals = None if run_dir is None else sources.evals_tail(run_dir)
+        for curve in (self._score, self._return, self._entropy, self._value):
+            if run_dir is None:
+                curve.hide_comparison()
+            else:
+                curve.set_comparison(run_dir.name)
+        for tile in (self._tile_update, self._tile_score, self._tile_return, self._tile_entropy):
+            tile.set_compare("")
+        if run_dir is not None:
+            # Said now, not when the first row arrives: picking a run and seeing
+            # every tile stay blank reads as a broken feature, and the wait is
+            # longest exactly when the other run has nothing evaluated yet.
+            self._tile_score.set_compare(f"{self._name()} · reading…")
+        self._compare_eval_rows.clear()
+        self._analysis.set_comparison("" if run_dir is None else run_dir.name)
+        self._refresh_analysis()
+
+    def _compare_picked(self, index: int) -> None:
+        chosen = self._compare_picker.itemData(index)
+        self._compare_with(Path(str(chosen)) if chosen else None)
+
+    def _read_comparison(self) -> None:
+        """Poll the other run — it may be live too, and often is."""
+        if self._compare_metrics is None or self._compare_evals is None:
+            return
+        metrics = self._compare_metrics.poll()
+        if metrics.restarted:
+            for curve in (self._return, self._entropy, self._value):
+                curve.clear_comparison()
+        for row in metrics.rows:
+            self._return.append_comparison(row.update, row.mean_return)
+            self._entropy.append_comparison(row.update, row.entropy)
+            self._value.append_comparison(row.update, row.value_loss)
+        if metrics.rows:
+            last = metrics.rows[-1]
+            self._tile_update.set_compare(f"{self._name()} {last.update:,}")
+            self._tile_return.set_compare(_compare_note(self._name(), last.mean_return, "{:,.1f}"))
+            self._tile_entropy.set_compare(_compare_note(self._name(), last.entropy, "{:.3f}"))
+
+        # Do not consume the comparison scores before there is a primary
+        # protocol to match them against. Otherwise selecting a comparison
+        # while this run is still waiting for its first evaluation advances the
+        # tail to EOF and the matching curve never appears.
+        if self._last_eval is None:
+            return
+        evals = self._compare_evals.poll()
+        if evals.restarted:
+            self._score.clear_comparison()
+            self._compare_eval_rows.clear()
+        for row in evals.rows:
+            self._compare_eval_rows.append(row)
+            if self._last_eval is not None and sources.matching_eval_protocol(self._last_eval, row):
+                self._score.append_comparison(row.update, row.mean_score)
+        if evals.rows:
+            self._refresh_analysis()
+            # Its *latest* score, not its best: the tile above shows this run's
+            # latest, and two tiles reporting different statistics under the same
+            # caption is a comparison you cannot make.
+            last = evals.rows[-1]
+            if self._last_eval is not None and sources.matching_eval_protocol(
+                self._last_eval, last
+            ):
+                self._tile_score.set_compare(f"{self._name()} {last.mean_score:,.0f}")
+            else:
+                # Nothing overlaid, and the reason on the tile. The full
+                # sentence is on the STATISTICS tab, which has room for it; what
+                # matters here is that the blank is explained rather than bare.
+                self._score.clear_comparison()
+                self._tile_score.set_compare(f"{self._name()} · not comparable")
+
+    def _name(self) -> str:
+        return "—" if self._compare_dir is None else self._compare_dir.name
+
+    def _refresh_status(self) -> None:
+        modified = sources.last_modified(self._run_dir / sources.METRICS_NAME)
+        # Two different kinds of empty, and saying which is the whole job of an
+        # empty state: no run at all, versus a run whose episodes have not ended.
+        self._return.set_placeholder(WAITING if modified is None else NO_EPISODES)
+        for curve in (self._entropy, self._value):
+            curve.set_placeholder("" if modified is not None else WAITING)
+
+        state = self._state(modified)
+        self._set_status(*STATUS[state])
+        # Idle has three readings, and the button says which one it is looking
+        # at. A directory with checkpoints in it is not "start": it is a run that
+        # stopped, and carrying it on is what is almost always wanted — saying so
+        # is what makes that one click rather than a dialog you have to know to
+        # change. And idle with nothing that *could* train offers to fix that,
+        # rather than being a dead control with an explanation on it; watching a
+        # run from a machine with no torch stays a supported way to use this, and
+        # only starting one was ever gated.
+        idle_label = "Set up training…" if self._needs_setup() else self._idle_label()
+        self._primary.setText({"paused": "Resume", "live": "Pause"}.get(state, idle_label))
+        self._primary.setEnabled(state != "stopping")
+        self._stop.setEnabled(state in ("live", "paused"))
+
+        # A refused runtime outranks whatever else the bar would have said: the
+        # button just changed under the person's hands, and "Set up training…"
+        # on its own does not say that something they already installed has
+        # stopped working.
+        if self._runtime_ok is False and state not in ("live", "paused"):
+            self.statusBar().showMessage(f"training runtime unusable — {self._runtime_detail}")
+            return
+
+        if modified is None:
+            self.statusBar().showMessage(self._nothing_here())
+            return
+        age = max(time.time() - modified, 0.0)
+        windows = self._launcher.running
+        replays = f" · {windows} replay window(s) open" if windows else ""
+        self.statusBar().showMessage(
+            f"{self._updates:,} updates · last write {sources.human_age(age)}{replays}"
+        )
+
+    def _nothing_here(self) -> str:
+        """Why this directory is empty — and where the runs actually are.
+
+        Runs pile up one directory per experiment, so "no metrics.csv" usually
+        means the trainer is aimed one level too high. Saying which directories
+        do hold a run turns a dead end into the next command to type.
+        """
+        inside = sources.find_runs(self._run_dir)
+        if not inside:
+            # "Press Start" is the wrong next step on a machine that has nothing
+            # to start one *with*; the button says so too, and the two must agree.
+            next_step = (
+                "press Start, or run `poe train` in a terminal"
+                if can_train(store=self._store)
+                else "press Set up training to install PyTorch"
+            )
+            return f"no {sources.METRICS_NAME} in {self._run_dir} yet — {next_step}"
+        names = ", ".join(run.name for run in inside[:4])
+        more = f" (+{len(inside) - 4} more)" if len(inside) > 4 else ""
+        return (
+            f"no run in {self._run_dir} itself · {len(inside)} inside it: {names}{more} "
+            f"— open one with `poe ui -- {inside[0].as_posix()}`"
+        )
+
+    def _state(self, modified: float | None) -> str:
+        """What the run is doing, from the files alone.
+
+        Which is why it works for a run this trainer never started: the control
+        files and the metrics timestamp are all it reads.
+        """
+        own = self._run
+        if own is not None and own.finished:
+            # Our own child, and it is over: no guessing needed, no pretending a
+            # run that just exited is live because its last line is thirty
+            # seconds old, and no marker file outliving the process it was for.
+            return run_library.STATE_IDLE
+        # Our own child first, then the run's own `RUNNING` marker — a PID we can
+        # ask the operating system about — and only then the timestamp, which is
+        # what a run written by an older trainer leaves us with. The timestamp
+        # lags a finished run by up to ninety seconds and, worse, calls a slow
+        # one dead; it is a fallback, not the answer.
+        if own is not None:
+            live = True
+        elif self._control.owner() is not None:
+            live = self._control.running()
+        else:
+            live = modified is not None and time.time() - modified < LIVE_AFTER_S
+        if self._control.stopping():
+            # Qualified by liveness, because a stop is obeyed within one update:
+            # a STOP still sitting in a directory nothing is writing to is a
+            # leftover rather than a state. Pressing Stop in a second window
+            # just after a run ended writes exactly that — and reporting it for
+            # ever would disable the Start button that clears it, which is a
+            # trainer wedged by its own status line.
+            return "stopping" if live else run_library.STATE_IDLE
+        if self._control.paused():
+            # *Not* qualified the same way: a paused run writes nothing at all,
+            # so a metrics.csv that has stopped moving is what being paused
+            # looks like from out here. Only our own exited child (above) is
+            # proof enough to override the file.
+            return "paused"
+        if own is not None:
+            return run_library.STATE_LIVE
+        if modified is None:
+            return "none"
+        return run_library.STATE_LIVE if live else run_library.STATE_IDLE
+
+    def _set_status(self, text: str, colour: str) -> None:
+        if self._status.text() != text:
+            self._status.setText(text)
+            self._status.setStyleSheet(f"color: {colour}; font-weight: 600;")
+
+    # ---- control ------------------------------------------------------------
+    def _primary_pressed(self) -> None:
+        """One button, three meanings — whichever the run's state makes sensible."""
+        if self._control.paused():
+            self._control.resume()
+            self.statusBar().showMessage("resuming — the loop picks it up within an update")
+        elif self._state(sources.last_modified(self._run_dir / sources.METRICS_NAME)) == "live":
+            self._control.request_pause()
+            self.statusBar().showMessage(
+                f"pausing after the current update — {self._control.pause_file}"
+            )
+        elif self._needs_setup():
+            self._set_up_runtime()
+        else:
+            self._start()
+
+    def _set_up_runtime(self) -> None:
+        """Install the runtime, then carry straight on into the new-run dialog.
+
+        Setup is a means, not a destination: someone who pressed the button
+        wanted to train, so a successful install continues to the thing they were
+        actually after rather than returning them to a window with a new button
+        on it.
+        """
+        dialog = RuntimeDialog(self._store, parent=self)
+        accepted = dialog.exec() == QDialog.DialogCode.Accepted
+        # Accepted means the dialog's own check said ready — a fresh install has
+        # proved itself, and that is what the install's health check *is*, so the
+        # old verdict is dropped rather than making the person wait through a
+        # cold CUDA start to hear the same answer twice. A dialog that was closed
+        # instead proved nothing, and its verdict stands: forgetting it here
+        # would put Start back on a button whose press dies in a subprocess.
+        if accepted:
+            self._runtime_ok = None
+        self._verify_runtime()
+        self._refresh_status()  # the button's meaning has probably just changed
+        if accepted and can_train(store=self._store):
+            self._start()
+
+    def _start(self) -> None:
+        out_dir = self._run_dir.resolve()
+        # What is already in this directory, so continuing a run is a choice from
+        # a list rather than a path typed from memory. Re-listed rather than
+        # taken from the last rescan: this one is about to be acted on.
+        checkpoints = sources.list_checkpoints(out_dir)
+        dialog = ParameterDialog(
+            read_params(TRAINER_SOURCES),
+            python=training_python(store=self._store),
+            out_dir=out_dir,
+            checkpoints=checkpoints,
+            # A run in this directory already answered every one of these
+            # questions, and its answers are the ones a continuation has to keep:
+            # the trainer rejects a resume whose architecture, hidden size or
+            # annealing schedule disagrees with the checkpoint. Restating them
+            # from memory is exactly the step that used to cost a run.
+            initial=runconfig.options(runconfig.read(out_dir)),
+            # And the newest checkpoint pre-picked, because that is what pressing
+            # *Continue* on a stopped run means. `start from scratch` is still
+            # the first entry in the picker for when it does not.
+            resume=checkpoints[0].path if checkpoints else None,
+            # Beside the runs, not inside this one: a preset outlives the run it
+            # started, which is the whole reason for naming it.
+            presets_file=paths.presets_file(),
+            parent=self,
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        self._control.clear()  # a STOP left by the last run would end this one at once
+        command = dialog.command()
+        self._log.clear()
+        self._append_log(f"$ {' '.join(command)}")
+        self._log_toggle.setChecked(True)
+        self._run = TrainingRun(command, cwd=PROJECT_ROOT)
+        self._reported_exit = False
+        if self._pending_name:
+            # Now that there is a run to name. `rename` creates the directory if
+            # the trainer has not got there yet, and writes atomically because
+            # the trainer is writing everything else in it from this moment on.
+            run_library.rename(out_dir, self._pending_name)
+            self._pending_name = ""
+
+    def _stop_pressed(self) -> None:
+        self._control.request_stop()
+        self.statusBar().showMessage(
+            "stop requested — the run finishes this update, writes a final checkpoint and exits"
+        )
+
+    def _reset_pressed(self) -> None:
+        """Start over somewhere new. Destructive only in the sense of moving on.
+
+        Named here rather than only in the library, because this is the other
+        way a run directory comes into existence and `high-delta-3` is exactly
+        the name nobody can tell from `high-delta-2` a fortnight later. The
+        suggestion is still that name, so the quick answer is Enter.
+        """
+        suggested = sources.next_run_dir(self._run_dir).name
+        name, accepted = QInputDialog.getText(
+            self,
+            "Start a fresh run directory?",
+            "A name for the new run. The next Start writes there instead.\n\n"
+            f"Nothing in {self._run_dir.name} is deleted — its checkpoints,\n"
+            "recordings and metrics stay where they are. Stop the run there\n"
+            "first if it is still going.",
+            text=suggested,
+        )
+        if not accepted:
+            return
+        name = name.strip() or suggested
+        target = run_library.new_run_dir(self._library_root(), name)
+        self._attach(target)
+        # After attaching, which clears it: this name is for the directory the
+        # window is looking at *now*.
+        self._pending_name = name if name != target.name else ""
+
+    def _parameters_dialog(self) -> ConfigDialog:
+        """The run's settings, read fresh.
+
+        Read at the moment it is asked for rather than polled: nothing in a run
+        directory changes `config.json` after start-up, and a panel kept up to
+        date once a second for a question asked twice a week is work nobody
+        benefits from.
+        """
+        run = run_library.load_run(self._run_dir)
+        name = run.name if run is not None else self._run_dir.name
+        return ConfigDialog(name, *settings_for(self._run_dir, TRAINER_SOURCES), self)
+
+    def _show_parameters(self) -> None:
+        self._parameters_dialog().exec()
+
+    def _show_about(self) -> None:
+        """Who wrote this, which build it is, and what it is standing on.
+
+        A plain box rather than a designed screen: it is opened once, read once,
+        and closed, so the space it deserves is the space its text takes. The
+        component list is the part that has to be here — the trainer runs on
+        PySide6 and Qt Charts under the LGPL, and this is where a user meets that
+        fact (:mod:`missile_defense.ui.about` has the reasoning).
+        """
+        box = QMessageBox(self)
+        box.setWindowTitle("About Missile Defense")
+        box.setTextFormat(Qt.TextFormat.PlainText)
+        box.setText(self._about_text())
+        box.setIcon(QMessageBox.Icon.NoIcon)
+        box.exec()
+
+    def _about_text(self) -> str:
+        """What the box says — separate from showing it, so it can be asserted.
+
+        `QMessageBox.exec()` blocks until someone closes it, which no test can
+        do, so a test that drove `_show_about` would hang rather than fail. This
+        is the seam: the text is checkable, and what is left is Qt's own job.
+        """
+        return about.summary()
+
+    def _show_log(self, shown: bool) -> None:
+        self._log.setVisible(shown)
+
+    def _append_log(self, text: str) -> None:
+        self._log.appendPlainText(text)
+
+    def _read_log(self) -> None:
+        """Drain what the run has printed, and notice when it is over.
+
+        Two sources, never both: our own child's pipe if we have one, otherwise
+        the file the trainer writes. Reading both would double every line of a
+        run this trainer started, since the training loop tees rather than redirects.
+        """
+        if self._run is None:
+            batch = self._log_file.poll()
+            if batch.restarted:
+                self._log.clear()  # a fresh run in this directory, from its first line
+            for line in batch.rows:
+                self._append_log(line)
+            return
+        for line in self._run.drain():
+            self._append_log(line)
+        code = self._run.exit_code()
+        if code is None or self._reported_exit:
+            return
+        self._reported_exit = True
+        self._append_log(f"— the run exited with code {code} —")
+        # Whatever control files are still in the directory were requests to
+        # this process, and it has gone. The trainer clears them itself on the
+        # way out (missile_defense.train), but a Stop pressed while it was already writing
+        # its last checkpoint lands *after* that clear and has nobody left to
+        # obey it — so the run that made the request is also what ends it.
+        self._control.clear()
+        if code != 0:
+            # A run that died on its first line is the case where the log is the
+            # only thing that can tell you why, so it opens itself.
+            self._log_toggle.setChecked(True)
+
+    # ---- opening an episode -------------------------------------------------
+    def _selected_path(self) -> Path | None:
+        # selectedItems() rather than currentItem(), which is only *sometimes*
+        # a widget and whose stubs say it always is.
+        selected = self._list.selectedItems()
+        if not selected:
+            return None
+        data = selected[0].data(Qt.ItemDataRole.UserRole)
+        return Path(str(data)) if data else None
+
+    def _selection_changed(self) -> None:
+        """Play and Delete act on a selection, so they are off without one."""
+        chosen = self._selected_path() is not None
+        self._play.setEnabled(chosen)
+        self._delete.setEnabled(chosen)
+
+    def _open(self, item: QListWidgetItem) -> None:
+        data = item.data(Qt.ItemDataRole.UserRole)
+        if data:
+            self._play_recording(Path(str(data)))
+
+    def _play_selected(self) -> None:
+        path = self._selected_path()
+        if path is not None:
+            self._play_recording(path)
+
+    def _play_recording(self, path: Path) -> None:
+        try:
+            self._launcher.launch(path)
+        except AppNotFound as error:
+            QMessageBox.warning(self, "The game is not built", str(error))
+            return
+        self.statusBar().showMessage(f"playing {path.name}")
+
+    def _delete_selected(self) -> None:
+        """Remove one episode from the run directory.
+
+        It confirms, because this is the trainer's only destructive act on a
+        file — everything else it writes is a control marker. A recording is
+        cheap to regenerate only while the run that wrote it is still going, so
+        the dialog names the file rather than asking "are you sure".
+        """
+        path = self._selected_path()
+        if path is None:
+            return
+        answer = QMessageBox.question(
+            self,
+            "Delete this recording?",
+            f"<b>{path.name}</b> will be removed from {path.parent}."
+            "<br><br>The trainer writes a new episode every --record-every "
+            "updates; one from a finished run does not come back.",
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if answer != QMessageBox.StandardButton.Ok:
+            return
+        try:
+            path.unlink()
+        except OSError as error:
+            # Windows holds a lock on a file the game has open, and the honest
+            # answer is which file and why — not a traceback into the log pane.
+            QMessageBox.warning(self, "The recording could not be deleted", str(error))
+            return
+        self._listed = None  # force the rescan to notice, mtimes unchanged or not
+        self._refresh_recordings()
+        self.statusBar().showMessage(f"deleted {path.name}")
+
+
+def _same(left: list[Recording], right: list[Recording]) -> bool:
+    """Same files, same timestamps — so the list is left exactly as it is."""
+    return [(r.path, r.modified) for r in left] == [(r.path, r.modified) for r in right]
+
+
+def _eval_label(updates: int) -> str:
+    """What the slider is pointing at, in the words the trainer uses."""
+    return "off" if updates <= 0 else f"{updates} upd"
+
+
+def _default_eval_every() -> int:
+    """What the trainer would use, read out of its own source (:mod:`missile_defense.ui.params`).
+
+    For the box before any run has published a value: showing the number the next
+    Start would use beats inventing one here and drifting from the dataclass.
+    """
+    for field in read_params(TRAINER_SOURCES):
+        if field.name == "eval_every" and field.default.isdigit():
+            return int(field.default)
+    return EVAL_EVERY_FALLBACK  # no missile_defense.train beside this trainer
+
+
+def _number(value: float | None, spec: str) -> str:
+    """A measurement the trainer has not produced yet is a dash, never a zero."""
+    return "—" if value is None else spec.format(value)
+
+
+def _compare_note(name: str, value: float | None, spec: str) -> str:
+    """``runs-2 13.4`` — the other run's value under this one's."""
+    return f"{name} {_number(value, spec)}"
+
+
+def _ladder_colour(score: float, ladder: Ladder) -> str:
+    """Red under the first rung, amber climbing, green past the top one.
+
+    Three colours because the ladder has three rungs and a learner watching this
+    tile has one question — *is it getting anywhere* — that a red number gives
+    the wrong answer to for the whole middle of a run. Green stays reserved for
+    beating HIGH, the only rung worth the colour the rest of the trainer uses
+    for "done" (on the canonical block, that is also the published claim).
+    """
+    cleared, remaining = ladder_standing(score, ladder)
+    if cleared is None:
+        return theme.BEHIND
+    return theme.AHEAD if remaining is None else theme.AMBER
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Watch a Missile Defense training run.")
+    parser.add_argument(
+        "run_dir",
+        nargs="?",
+        type=Path,
+        default=None,
+        help="the run's --out-dir (default: ./runs in a checkout, else the user data dir)",
+    )
+    parser.add_argument(
+        "--self-test",
+        action="store_true",
+        help="build the window, read the run once, print one JSON line and exit",
+    )
+    args = parser.parse_args(argv)
+
+    app = QApplication(sys.argv[:1])
+    app.setApplicationName("Missile Defense Trainer")
+    app.setStyleSheet(theme.stylesheet())
+    window = Trainer(paths.runs_dir(args.run_dir))
+    if args.self_test:
+        # The trainer's answer to the game's `--report`, and it exists for the
+        # same reason: an exit code cannot tell "started, read the run, drew it"
+        # from "printed a usage message". A packaging test needs to know that the
+        # *staged* launcher found its interpreter, its import path, PySide6 and
+        # the run directory — and that is four separate ways to fail that all
+        # look alike from outside (python/tests/e2e/test_packages.py).
+        window.resize(1280, 800)
+        window._tick()
+        print(json.dumps({"ok": True, "run_dir": str(window._run_dir), "updates": window._updates}))
+        return 0
+    # From here on the window is the place a failure is reported, because from
+    # here on there is a window to report it in. Not before: `--self-test` is a
+    # packaging check, and it wants an exception to be an exit code rather than a
+    # line in a log pane nobody is looking at (python/tests/e2e/test_packages.py).
+    sys.excepthook = window.report_unexpected
+    # Roomy, but never bigger than the desktop it opens on — a window whose
+    # status line is off-screen is a window with a bug in it.
+    available = app.primaryScreen().availableSize()
+    window.resize(min(1360, available.width() - 60), min(860, available.height() - 60))
+    window.show()
+    return app.exec()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

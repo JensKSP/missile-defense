@@ -3,7 +3,7 @@
 # Assisted-by: Claude Code (Anthropic)
 """Tests for launching the game from the trainer — without launching anything.
 
-``md.ui.runner`` takes the spawn function as an argument for exactly this: what
+``missile_defense.ui.runner`` takes the spawn function as an argument for exactly this: what
 matters is the command line it builds and where it looks for the binary, and
 neither needs a window to check.
 """
@@ -18,9 +18,9 @@ from pathlib import Path
 from unittest import mock
 
 import pytest
-from md import runtime
-from md.ui import runner
-from md.ui.runner import (
+from missile_defense import runtime
+from missile_defense.ui import runner
+from missile_defense.ui.runner import (
     PACKAGE_PATH,
     AppNotFound,
     ReplayLauncher,
@@ -365,7 +365,7 @@ def test_an_explicit_interpreter_is_not_second_guessed(tmp_path: Path) -> None:
 
 
 def test_a_managed_runtime_is_what_a_packaged_user_trains_with(tmp_path: Path) -> None:
-    # The whole point of md.runtime: an installed copy with no torch anywhere
+    # The whole point of missile_defense.runtime: an installed copy with no torch anywhere
     # can still start a run, and Start does not depend on how the trainer itself
     # was installed.
     store = _stub_ready_runtime(tmp_path)
@@ -492,7 +492,7 @@ def test_an_md_trainer_pointing_at_nothing_is_not_silently_ignored(tmp_path: Pat
 def test_a_checkout_can_run_the_trainer_it_contains(tmp_path: Path) -> None:
     # A developer has no missile-defense-trainer on PATH but does have the package, and the
     # game should still offer TRAIN AI there — the checkout is an install too.
-    package = tmp_path / "python" / "md" / "ui"
+    package = tmp_path / "python" / "missile_defense" / "ui"
     package.mkdir(parents=True)
     (package / "__main__.py").write_text("", encoding="utf-8")
     found = trainer_executable({"PATH": ""}, root=tmp_path)
@@ -502,14 +502,14 @@ def test_a_checkout_can_run_the_trainer_it_contains(tmp_path: Path) -> None:
 
 def _install_payload(root: Path) -> Path:
     """The trainer's payload as a Windows installer leaves it, beside the game."""
-    package = root / "md" / "ui"
+    package = root / "missile_defense" / "ui"
     package.mkdir(parents=True)
     (package / "__main__.py").write_text("", encoding="utf-8")
     return root
 
 
 def test_a_payload_beside_the_game_is_run_by_the_interpreter(tmp_path: Path) -> None:
-    # The Windows case. The installer writes `md\ui\` next to `md_app.exe` and
+    # The Windows case. The installer writes `missile_defense\ui\` next to `md_app.exe` and
     # nothing onto PATH, and what it calls a launcher is a `.cmd` that Smart App
     # Control refuses to run — so the interpreter is the only way in, and this
     # is the stage that finds it. The C++ side has the same case in

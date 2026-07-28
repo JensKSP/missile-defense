@@ -143,7 +143,7 @@ std::filesystem::path write_manifest(const std::filesystem::path& path, const st
     return path;
 }
 
-/// A manifest in exactly the shape `md.tournament.write_manifest` produces.
+/// A manifest in exactly the shape `missile_defense.tournament.write_manifest` produces.
 std::string manifest_for(const std::string& left, const std::string& right,
                          std::uint64_t seed = 4242) {
     return R"({"version": 1, "seeds": [)" + std::to_string(seed) +

@@ -100,11 +100,12 @@ def _python(installed: Path, source: str, *, cwd: Path) -> subprocess.CompletedP
 def test_the_installed_package_imports_its_own_native_binding(
     installed: Path, tmp_path: Path
 ) -> None:
-    # From the wheel, not from the tree beside it. If `md` resolved to the
+    # From the wheel, not from the tree beside it. If `missile_defense` resolved to the
     # source checkout the test would pass while shipping nothing.
     result = _python(
         installed,
-        "import md, md._md_native as n; print(md.__file__); print(n.__file__)",
+        "import missile_defense, missile_defense._md_native as n; "
+        "print(missile_defense.__file__); print(n.__file__)",
         cwd=tmp_path,
     )
     assert result.returncode == 0, result.stderr
@@ -125,7 +126,7 @@ def test_the_simulation_actually_runs_from_the_wheel(installed: Path, tmp_path: 
     result = _python(
         installed,
         "import json, numpy as np\n"
-        "from md.env import VecEnv\n"
+        "from missile_defense.env import VecEnv\n"
         "env = VecEnv(2, seed=7, max_ticks=256)\n"
         "for _ in range(20):\n"
         "    env.step(np.zeros(2, dtype=np.int32))\n"
@@ -149,7 +150,9 @@ def test_the_data_half_never_drags_torch_in(installed: Path, tmp_path: Path) -> 
     result = _python(
         installed,
         "import sys\n"
-        "import md.paths, md.env, md.policy_format, md.library, md.archive, md.tournament\n"
+        "import missile_defense.paths, missile_defense.env, "
+        "missile_defense.policy_format, missile_defense.library, "
+        "missile_defense.archive, missile_defense.tournament\n"
         "leaked = [m for m in sys.modules if m == 'torch' or m.startswith('torch.')]\n"
         "print('LEAKED ' + ','.join(leaked) if leaked else 'CLEAN')\n",
         cwd=tmp_path,

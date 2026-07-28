@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from md.paths import APP_NAME, RUNS_ENV, data_home, runs_dir
+from missile_defense.paths import APP_NAME, RUNS_ENV, data_home, runs_dir
 
 
 def test_an_explicit_directory_always_wins(tmp_path: Path) -> None:

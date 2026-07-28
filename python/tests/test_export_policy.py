@@ -5,7 +5,7 @@
 
 Two claims live here and they are different sizes.
 
-The small one is the conversion: a `.pt` written by `md.train` becomes an `.mdp`
+The small one is the conversion: a `.pt` written by `missile_defense.train` becomes an `.mdp`
 with the same weights, and the ways it can go wrong — a missing tensor, an
 architecture nothing implements, a checkpoint that is not one — are refused with
 something a person can act on.
@@ -25,7 +25,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from md import export_policy, policy_format
+from missile_defense import export_policy, policy_format
 
 torch = pytest.importorskip("torch", reason="torch is not installed")
 
@@ -35,8 +35,8 @@ HIDDEN = 16
 
 
 def _checkpoint(tmp_path: Path, **overrides: object) -> Path:
-    """A checkpoint in exactly the shape `md.train.save_checkpoint` writes one."""
-    from md.ppo import Policy  # noqa: PLC0415 — optional dependency
+    """A checkpoint in exactly the shape `missile_defense.train.save_checkpoint` writes one."""
+    from missile_defense.ppo import Policy  # noqa: PLC0415 — optional dependency
 
     torch.manual_seed(20260726)
     policy = Policy(OBS, ACTIONS, HIDDEN)
@@ -107,7 +107,7 @@ def test_export_refuses_an_architecture_nothing_can_run(tmp_path: Path) -> None:
 
 
 def test_export_refuses_a_checkpoint_missing_a_tensor(tmp_path: Path) -> None:
-    from md.ppo import Policy  # noqa: PLC0415 — optional dependency
+    from missile_defense.ppo import Policy  # noqa: PLC0415 — optional dependency
 
     state = Policy(OBS, ACTIONS, HIDDEN).state_dict()
     del state["value_head.bias"]
@@ -138,12 +138,12 @@ def test_export_leaves_no_file_behind_when_it_refuses(tmp_path: Path) -> None:
 def test_the_numpy_forward_pass_matches_torch(tmp_path: Path) -> None:
     """The reference implementation the C++ one is checked against.
 
-    `md.export_policy.evaluate` exists so the parity fixture can be produced
+    `missile_defense.export_policy.evaluate` exists so the parity fixture can be produced
     from an `.mdp` alone, with no torch anywhere — which is what makes it usable
     as the *definition* of what the file computes rather than as a recording of
     what one PyTorch version happened to do. It has to agree with torch first.
     """
-    from md.ppo import MASKED_LOGIT  # noqa: PLC0415 — optional dependency
+    from missile_defense.ppo import MASKED_LOGIT  # noqa: PLC0415 — optional dependency
 
     path = _checkpoint(tmp_path)
     net, _ = _load(path)
@@ -273,7 +273,7 @@ def _flat_policy(best: int | None = None) -> policy_format.NativePolicy:
 
 
 def _load(path: Path):  # noqa: ANN202 — torch is optional
-    from md.ppo import Policy  # noqa: PLC0415 — optional dependency
+    from missile_defense.ppo import Policy  # noqa: PLC0415 — optional dependency
 
     payload = torch.load(path, map_location="cpu", weights_only=True)
     net = Policy(payload["obs_size"], payload["action_count"], payload["hidden"])

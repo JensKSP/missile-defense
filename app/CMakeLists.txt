@@ -73,7 +73,7 @@ endif()
 # executable never becomes a foreground GUI process, so it gets no Dock icon and
 # cannot reliably take keyboard focus — fatal for a game. Building the bundle in
 # the dev tree too (not just at install time) keeps what you play identical to
-# what ships; the locators in tools/_util.py and md/ui/runner.py know the layout.
+# what ships; the locators in tools/_util.py and missile_defense/ui/runner.py know the layout.
 add_executable(md_app MACOSX_BUNDLE
   main.cpp
   trainer.cpp
@@ -227,7 +227,7 @@ if(WIN32)
   #
   # Installed as `missile-defense.exe`, not as the target's own name. The build
   # tree keeps `md_app` — every locator that walks a checkout expects it
-  # (tools/_util.py, md/ui/runner.py) and it is the same name on every platform
+  # (tools/_util.py, missile_defense/ui/runner.py) and it is the same name on every platform
   # there — but what a person sees in Explorer, in the taskbar and in Task
   # Manager is this file, and `md_app` is an abbreviation nothing else in the
   # product ever shows them. install(PROGRAMS ... RENAME) rather than
@@ -267,7 +267,7 @@ elseif(APPLE)
   # was invisible to anyone who only ever launched it.
   #
   # A rename after the fact rather than an OUTPUT_NAME, because the build tree
-  # must keep `md_app.app`: the locators in tools/_util.py and md/ui/runner.py
+  # must keep `md_app.app`: the locators in tools/_util.py and missile_defense/ui/runner.py
   # walk a checkout looking for that name, and a bundle with a space in it would
   # make every documented `./build/release/app/...` command need quoting.
   set(MD_MACOS_BUNDLE "Missile Defense.app")

@@ -19,10 +19,10 @@ import sys
 import tomllib
 from pathlib import Path
 
-import md
+import missile_defense
 import pytest
 
-ROOT = Path(md.__file__).parents[2]
+ROOT = Path(missile_defense.__file__).parents[2]
 PYPROJECT = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
 
@@ -37,12 +37,12 @@ def test_every_console_script_points_at_something_that_exists() -> None:
 
 
 def test_the_trainer_shim_does_not_import_what_it_checks_for() -> None:
-    """`md.cli` exists to *explain* a missing torch, so it must load without one.
+    """`missile_defense.cli` exists to *explain* a missing torch, so it must load without one.
 
     Importing torch at module level would make the explanation unreachable: the
     traceback it is meant to replace would happen first.
     """
-    source = (ROOT / "python" / "md" / "cli.py").read_text(encoding="utf-8")
+    source = (ROOT / "python" / "missile_defense" / "cli.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
     for node in tree.body:  # module level only — the lazy import inside is the point
         if isinstance(node, ast.Import):
@@ -58,7 +58,7 @@ def test_the_advice_for_a_missing_torch_is_advice_that_works_here() -> None:
     makes it the one place a wrong sentence costs the most. Both machines are
     described here rather than whichever one the tests happen to run on.
     """
-    from md.cli import DEBIAN_README, explain_missing
+    from missile_defense.cli import DEBIAN_README, explain_missing
 
     recipe = "python3 -m venv --system-site-packages"
 
@@ -124,7 +124,9 @@ def test_the_extension_is_not_tied_to_the_interpreter_that_built_it() -> None:
     cmake = (ROOT / "bindings" / "CMakeLists.txt").read_text(encoding="utf-8")
     assert "Development.SABIModule" in cmake, "STABLE_ABI cannot be honoured without it"
 
-    native = pytest.importorskip("md._md_native", reason="the native binding is not built")
+    native = pytest.importorskip(
+        "missile_defense._md_native", reason="the native binding is not built"
+    )
     # `.pyd` on Windows, `.abi3.so` elsewhere — CPython's limited-API name is
     # the untagged one there, so "abi3 is in the filename" is not the test.
     expected = ".pyd" if sys.platform == "win32" else ".abi3.so"
@@ -226,7 +228,9 @@ def test_the_trainer_package_can_build_the_runtime_it_offers_to_build() -> None:
     assert "python3-venv" in trainer.get("depends", ""), (
         "the trainer offers to build a virtualenv without depending on venv"
     )
-    assert '"-m", "venv"' in (ROOT / "python" / "md" / "runtime.py").read_text(encoding="utf-8")
+    assert '"-m", "venv"' in (ROOT / "python" / "missile_defense" / "runtime.py").read_text(
+        encoding="utf-8"
+    )
 
 
 def test_each_package_installs_a_disjoint_set_of_paths() -> None:
@@ -247,7 +251,7 @@ def test_every_platform_has_a_way_to_launch_the_installed_trainer() -> None:
     """Three launchers, because three platforms answer "where is `md`?" differently.
 
     Linux hands the package to an interpreter the distribution owns, so a bare
-    `exec python3 -m md.ui` is enough. Windows and macOS do not have that: the
+    `exec python3 -m missile_defense.ui` is enough. Windows and macOS do not have that: the
     interpreter belongs to the user there and cannot be told at packaging time
     where the payload went, so both launchers have to set the import path
     themselves — from their own location, which is the only thing they know.

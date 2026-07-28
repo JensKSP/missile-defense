@@ -56,7 +56,7 @@ and seed choices from `summary.json`, then benchmark the one selected checkpoint
 once:
 
 ```bash
-python -m md.train --load \
+python -m missile_defense.train --load \
   runs/entity-3seed/seed-001001/checkpoints/policy-best.pt
 ```
 

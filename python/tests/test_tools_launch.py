@@ -4,7 +4,7 @@
 """Tests for picking the interpreter that can run a module — without running one.
 
 ``tools.launch`` takes its probe as an argument for the same reason
-``md.ui.runner`` takes its spawn function: what matters is the order it asks in
+``missile_defense.ui.runner`` takes its spawn function: what matters is the order it asks in
 and what it says when the answer is no, and neither needs a second Python
 installed to check. The one thing that *is* machine-shaped — the ``py -0p``
 output on Windows — is parsed by a pure function, so it is checked here against
@@ -95,7 +95,7 @@ def test_the_failure_names_the_package_the_interpreters_and_the_fix() -> None:
         Report("/usr/bin/python3", "3.14.6", ("PySide6",)),
         Report("/opt/native/python", "3.12.1", ("PySide6",)),
     ]
-    message = explain("md.ui", (("PySide6", "PySide6"),), reports)
+    message = explain("missile_defense.ui", (("PySide6", "PySide6"),), reports)
 
     assert "PySide6" in message
     assert "/usr/bin/python3" in message and "/opt/native/python" in message
@@ -105,7 +105,7 @@ def test_the_failure_names_the_package_the_interpreters_and_the_fix() -> None:
 
 
 def test_the_failure_still_helps_when_no_interpreter_answered() -> None:
-    message = explain("md.train", (("torch", "torch"),), [])
+    message = explain("missile_defense.train", (("torch", "torch"),), [])
 
     assert "pip install torch" in message
     assert "poe train" in message

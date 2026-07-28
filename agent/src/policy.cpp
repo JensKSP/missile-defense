@@ -29,7 +29,7 @@ namespace {
 
 using json = nlohmann::json;
 
-/// Mirrors `md.policy_format`. Any disagreement here is a file one side writes
+/// Mirrors `missile_defense.policy_format`. Any disagreement here is a file one side writes
 /// and the other refuses, so the constants are stated rather than derived.
 // Both from protocol.toml: the trainer writes this container and this
 // reads it, in two languages that cannot share a constant.
@@ -571,7 +571,7 @@ Scratch& scratch() {
 /// `out = tanh(W x + b)` when `activate`, else the affine part alone.
 ///
 /// float32 throughout, deliberately. Accumulating in double would put this a few
-/// ULPs from `md.export_policy.evaluate`, which is invisible until it flips an
+/// ULPs from `missile_defense.export_policy.evaluate`, which is invisible until it flips an
 /// argmax between two near-equal logits in one seed out of a hundred — and the
 /// parity test that caught it would look flaky rather than wrong.
 void forward(const std::vector<float>& weight, const std::vector<float>& bias,
@@ -701,7 +701,7 @@ void Policy::entity_logits(std::span<const float> observation, std::span<float> 
     forward(context_to_threat_.weight, context_to_threat_.bias, work.summary, work.episode, false);
 
     /// One attention block for one threat. An empty entity set yields exactly
-    /// zero *including the output bias* — `md.ppo._CrossAttention` multiplies by
+    /// zero *including the output bias* — `missile_defense.ppo._CrossAttention` multiplies by
     /// `has_entity`, which suppresses the bias too, and returning `output.bias`
     /// here would disagree with training on every observation with no live blast.
     const auto attend = [&](const Attention& block, std::span<const float> queried,
@@ -835,7 +835,7 @@ Policy::Decision Policy::act(std::span<const float> observation,
     Decision decision;
     decision.value = value;
     // Masking, then the *first* maximum. Both halves are promises rather than
-    // conveniences: `md.export_policy` does exactly this, and the parity fixture
+    // conveniences: `missile_defense.export_policy` does exactly this, and the parity fixture
     // would be a coin flip on ties if either side chose differently.
     float best = 0.0F;
     bool started = false;

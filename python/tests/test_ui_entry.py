@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Jens Köhler
 # Assisted-by: Claude Code (Anthropic)
-"""Tests for ``python -m md.ui``'s one job when it cannot start.
+"""Tests for ``python -m missile_defense.ui``'s one job when it cannot start.
 
 The entry point exists to turn a missing package into a sentence, and it had no
 test at all until the day it shipped the opposite: everything except PySide6
 went out as a stack trace, and the package that actually went missing was
-``numpy`` — a *base* dependency, reached through ``md.league``. Started from the
+``numpy`` — a *base* dependency, reached through ``missile_defense.league``. Started from the
 game, which on Windows is a GUI-subsystem binary with no console attached, that
 trace had nowhere to appear: the menu entry did nothing at all.
 
@@ -16,7 +16,7 @@ package it can be handed produces a named fix, on both kinds of interpreter.
 
 from __future__ import annotations
 
-from md.ui.__main__ import explain, package_of
+from missile_defense.ui.__main__ import explain, package_of
 
 
 def test_a_missing_pyside6_names_pyside6_and_a_pip_command() -> None:

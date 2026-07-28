@@ -756,7 +756,7 @@ float GameWindow::replay_progress() const noexcept {
     return replay_.has_value() ? replay_->progress() : 0.0f;
 }
 
-/// Where the training loop writes its episodes, by the rule in `md/paths.py`:
+/// Where the training loop writes its episodes, by the rule in `missile_defense/paths.py`:
 /// `$MD_RUNS_DIR`, else `./runs` when it exists, else the per-user data directory
 /// this app already keeps its high scores in.
 ///
@@ -777,7 +777,7 @@ static std::filesystem::path runs_directory() {
     return std::filesystem::path{data.toStdString()} / protocol::runs_dir;
 }
 
-/// Where the trainer installs models, by the rule in `md/paths.py`:
+/// Where the trainer installs models, by the rule in `missile_defense/paths.py`:
 /// `$MD_MODELS_DIR`, else a `models/` sibling of the runs directory.
 ///
 /// Sibling and not a subdirectory of a run: a model is promoted precisely so it
@@ -808,7 +808,7 @@ static std::string menu_label(std::string name) {
 /// offering something that will fail on Enter is worse than not offering it.
 ///
 /// Names on this screen are made unique, because two rows reading `DEADLINE
-/// 1330` are two rows nobody can choose between. `md.league` refuses a
+/// 1330` are two rows nobody can choose between. `missile_defense.league` refuses a
 /// duplicate display name at the moment a model is promoted, which handles
 /// every model this program put there — but not one copied in by hand, not one
 /// promoted before that rule existed, and not the case this screen creates for
@@ -1031,7 +1031,7 @@ void GameWindow::open_trainer() {
 
     QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
     if (!trainer_->python_path.empty()) {
-        // The checkout case: `md` is not installed anywhere this interpreter
+        // The checkout case: `missile_defense` is not installed anywhere this interpreter
         // would find on its own, so the import path has to be handed over.
         environment.insert("PYTHONPATH", QString::fromStdString(trainer_->python_path.string()));
     }

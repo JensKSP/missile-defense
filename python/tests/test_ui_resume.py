@@ -20,10 +20,10 @@ shape of `runs/deadline-1330`, which is where they were found.
 from __future__ import annotations
 
 import pytest
-from md.ui.sources import Latest
+from missile_defense.ui.sources import Latest
 
 try:  # the widgets, where PySide6 is installed — the trainer is optional
-    from md.ui.charts import CurveView
+    from missile_defense.ui.charts import CurveView
     from PySide6.QtWidgets import QApplication
 except ModuleNotFoundError as error:  # pragma: no cover - depends on the machine
     if error.name is None or not error.name.startswith("PySide6"):

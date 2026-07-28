@@ -160,7 +160,7 @@ jobs:
           trainer=$(echo "$staged" | grep "Trainer")
           test -x "$trainer/Contents/MacOS/missile-defense-trainer"
           test -f "$trainer/Contents/Info.plist"
-          test -f "$trainer/Contents/Resources/md/ui/app.py"
+          test -f "$trainer/Contents/Resources/missile_defense/ui/app.py"
           # `.abi3.so` exactly, not a glob. This bundle is launched with
           # whatever `python3` the person has — never the Homebrew one that
           # built it — so a version-tagged module is a trainer that installs,
@@ -402,7 +402,7 @@ jobs:
             exit 1
           fi
           test -f stage-full/missile-defense-trainer.cmd
-          test -f stage-full/md/ui/app.py
+          test -f stage-full/missile_defense/ui/app.py
           # `_md_native.pyd` exactly: the limited-API name, and the one built
           # against a python.org CPython two steps up. A `.cp313-mingw_x86_64`
           # or `.cp313-win_amd64` name here means the installer went back to
@@ -586,14 +586,14 @@ jobs:
           # The positive half: each of the other two carries what it is for.
           grep -q '/usr/bin/missile-defense-trainer$' /tmp/trainer.list
           grep -q 'missile-defense-trainer.desktop$' /tmp/trainer.list
-          grep -q 'dist-packages/md/ui/app.py$' /tmp/bindings.list
+          grep -q 'dist-packages/missile_defense/ui/app.py$' /tmp/bindings.list
           # Stable ABI, by filename. `_md_native.abi3.so` keeps working when the
           # distribution moves its Python a minor version; a `.cpython-313-`
           # name has to be rebuilt in lockstep with it, and until STABLE_ABI was
           # actually wired up that is what shipped. Anchored, not a substring —
           # `_md_native` alone matched the tagged name too, which is how it went
           # unnoticed.
-          grep -q 'dist-packages/md/_md_native\.abi3\.so$' /tmp/bindings.list || {
+          grep -q 'dist-packages/missile_defense/_md_native\.abi3\.so$' /tmp/bindings.list || {
             echo "::error::python3-md ships no stable-ABI extension:" >&2
             grep '_md_native' /tmp/bindings.list >&2
             exit 1
@@ -652,7 +652,7 @@ jobs:
           apt-get install -y --no-install-recommends \
             ../python3-md_*.deb ../missile-defense-trainer_*.deb
           command -v missile-defense-trainer
-          python3 -c "import md, md.ui; print('md', md.__version__, 'from', md.__file__)"
+          python3 -c "import missile_defense, missile_defense.ui; print('md', missile_defense.__version__, 'from', missile_defense.__file__)"
 
       - name: The installed game starts
         # Everything above proves the *dependencies resolve*. None of it proves

@@ -47,7 +47,7 @@ using OutIntArray = nb::ndarray<std::int32_t, nb::numpy, nb::c_contig>;
 /// weights, and six megabytes re-read per episode would be most of the run.
 ///
 /// It exists at all because inference has to happen **in C++**. A reference
-/// forward pass in NumPy (`md.export_policy.evaluate`) is what defines the
+/// forward pass in NumPy (`missile_defense.export_policy.evaluate`) is what defines the
 /// format and what the parity test holds the two implementations to, but it
 /// runs one observation at a time from Python — measured at ~17 ms for the
 /// relational architecture, which is four hours for one contestant's canonical
@@ -188,7 +188,7 @@ NB_MODULE(_md_native, m) {
     nb::class_<LoadedPolicy>(m, "LoadedPolicy", R"doc(
 A promoted `.mdp`, ready to play, with inference in C++.
 
-`md.export_policy.evaluate` is the reference forward pass and stays the
+`missile_defense.export_policy.evaluate` is the reference forward pass and stays the
 definition of the format; this is the implementation the *game* runs, and the
 only one fast enough to score a model over a whole seed block. The parity test
 holds the two to the same action, decision for decision.

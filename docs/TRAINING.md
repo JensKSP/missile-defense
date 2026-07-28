@@ -423,7 +423,7 @@ peak ≈ envs × steps × 8 KiB   +   (envs × steps ÷ minibatches) × 547 KiB
 ```
 
 Measured on an RTX 5090 with `torch.cuda.max_memory_allocated()`, two updates
-each — the model in `python/md/footprint.py` is a straight line through these to
+each — the model in `python/missile_defense/footprint.py` is a straight line through these to
 within 1%, and a test holds it there:
 
 | Architecture | envs × steps | minibatches | minibatch | Peak |
@@ -469,7 +469,7 @@ works — `nvidia-ml-py` (imported as `pynvml`) for CUDA cards, `amdsmi` (or
 `pyrsmi`) for ROCm — and say which one would fill them in when neither is there.
 If a binding imports but its driver does not answer, the row shows that error
 instead of claiming the binding is missing. Adding a vendor is one file in
-`md/ui/probes/`.
+`missile_defense/ui/probes/`.
 
 It needs **PySide6** (`pip install PySide6`, Qt Charts included), and **psutil**
 for the CPU and memory rows. The `trainer` extra also installs NVIDIA's small
@@ -667,7 +667,7 @@ other run's values faintly beside them.
 
 Every number comes from the run's own `evals.csv`, so a run started before those
 columns existed keeps its score curve and this tab says so rather than showing a
-grid of zeroes. The arithmetic is in `md.ui.stats`, which has no Qt in it and is
+grid of zeroes. The arithmetic is in `missile_defense.ui.stats`, which has no Qt in it and is
 tested against hand-written rows; `python/tests/e2e/test_analysis.py` then drives
 the real window against a real run, because the failure worth catching is a
 column renamed on one side of that join.
@@ -771,8 +771,8 @@ then benchmark only its selected checkpoint once on the canonical split.
 ## The knobs
 
 All in `TrainConfig` and `PPOConfig` in
-[`python/md/train.py`](../python/md/train.py) and
-[`python/md/ppo.py`](../python/md/ppo.py), each with its reasoning written next
+[`python/missile_defense/train.py`](../python/missile_defense/train.py) and
+[`python/missile_defense/ppo.py`](../python/missile_defense/ppo.py), each with its reasoning written next
 to it. The ones actually worth touching first:
 
 | Flag | Default | Try changing it when |

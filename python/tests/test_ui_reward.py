@@ -12,8 +12,8 @@ Those are the claims a reader will act on.
 
 from __future__ import annotations
 
-from md.ui.params import Setting
-from md.ui.reward import INVARIANT, OBJECTIVE, UNSHAPED, formula_of
+from missile_defense.ui.params import Setting
+from missile_defense.ui.reward import INVARIANT, OBJECTIVE, UNSHAPED, formula_of
 
 
 def _setting(name: str, value: str, group: str = "shaping") -> Setting:

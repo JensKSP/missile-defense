@@ -3,9 +3,10 @@
 # Assisted-by: Claude Code (Anthropic)
 """Build the `_md_native` extension and put it beside the Python package.
 
-CMake writes the module into the build tree, but `md.env` imports it as
-``md._md_native`` — so it has to sit next to ``python/md/``. Copying it there (it
-is gitignored) keeps ``pytest`` and an interactive session working straight from
+CMake writes the module into the build tree, but `missile_defense.env` imports it
+as ``missile_defense._md_native`` — so it has to sit next to
+``python/missile_defense/``. Copying it there (it is gitignored) keeps ``pytest``
+and an interactive session working straight from
 a source checkout, with no install step and no PYTHONPATH juggling.
 """
 
@@ -177,8 +178,9 @@ def main(argv: list[str] | None = None) -> int:
         ]
     )
     # `md_native_beside_package`, not `_md_native`: building the module is half
-    # the job, and the other half — putting it next to python/md/, where `md.env`
-    # imports it from — is a declared CMake output now rather than something this
+    # the job, and the other half — putting it next to python/missile_defense/,
+    # where `missile_defense.env` imports it from — is a declared CMake output now
+    # rather than something this
     # script does to the build tree afterwards (bindings/CMakeLists.txt says how,
     # including which stale names a build supersedes and which belong to another
     # toolchain and are left alone). One owner, and `cmake --build` on its own
@@ -201,13 +203,13 @@ def main(argv: list[str] | None = None) -> int:
 
     # A build step that produces an unloadable artefact and prints "copied" has
     # not done its job. One import, in the interpreter it was built for — the
-    # same check `md.runtime` makes before an install, and for the same reason:
+    # same check `missile_defense.runtime` makes before an install, and for the same reason:
     # the file being on the path proved nothing about it loading. The failure
     # this catches is not exotic; it is what a MinGW build in a native CPython
     # does, and it surfaced two steps later as a training runtime that would not
     # install.
     check = subprocess.run(
-        [python, "-c", "import md._md_native"],
+        [python, "-c", "import missile_defense._md_native"],
         cwd=_util.PROJECT_ROOT / "python",
         capture_output=True,
         text=True,
@@ -219,7 +221,7 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
-    print(f"verified: {python} imports md._md_native")
+    print(f"verified: {python} imports missile_defense._md_native")
     return 0
 
 

@@ -23,7 +23,7 @@ struct StepResult {
     bool terminated = false; // all cities destroyed — episode over
     // Two facts about how the ammunition was spent. The simulation reports them
     // and prices nothing: what a wasted shot or a double kill is *worth* is a
-    // reward-design question, and it lives in the training layer (md.env.Shaping)
+    // reward-design question, and it lives in the training layer (missile_defense.env.Shaping)
     // so that the score — and therefore the benchmark every agent is measured on
     // — stays exactly what DESIGN §4.3 specifies.
     std::int32_t wasted = 0;      // blasts that expired this tick having killed nothing

@@ -17,7 +17,7 @@ down has landed; `debian/*.install` is the authority for which file goes where.
 | | `/usr/share/icons/hicolor/…` | icons the desktop entry resolves |
 | | `/usr/share/man/man6/missile-defense.6.gz` | man page (section 6: games) |
 | | `/usr/share/doc/missile-defense/…` | licence and third-party notices |
-| `python3-md` | `/usr/lib/python3*/dist-packages/md/` | the environment, its native extension |
+| `python3-md` | `/usr/lib/python3*/dist-packages/missile_defense/` | the environment, its native extension |
 | `missile-defense-trainer` | `/usr/bin/missile-defense-trainer`, `/usr/bin/missile-defense-train` | the trainer window and the training command |
 | | `/usr/share/applications/missile-defense-trainer.desktop` | menu entry for the trainer |
 
@@ -71,7 +71,7 @@ none of a developer's incidental state is the check.
 Everything a run writes — `metrics.csv`, `evals.csv`, `config.json`,
 `model.json`, `train.log`, the `.mdr` recordings, `checkpoints/` — goes in **one
 directory**, chosen by this rule
-(`python/md/paths.py`, mirrored in `app/game_window.cpp`):
+(`python/missile_defense/paths.py`, mirrored in `app/game_window.cpp`):
 
 1. an explicit `--out-dir`, or the trainer's run picker;
 2. `$MD_RUNS_DIR`;
@@ -131,8 +131,8 @@ grows one. The division is by *dependency weight*, not by tidiness:
 | Package | Arch | Contents | Depends |
 |---|---|---|---|
 | `missile-defense` | any | the game, as today | Qt 6, Vulkan loader |
-| `python3-md` | any | `md.env`, `md.eval`, `md.control`, `md.paths`, `_md_native*.so` | `${python3:Depends}`, `python3-numpy` |
-| `missile-defense-trainer` | all | `md.train`, `md.ppo`, `md.ui`, the `missile-defense-train`/`missile-defense-trainer` entry points | `python3-md`; **Suggests** torch, PySide6, psutil, pynvml |
+| `python3-md` | any | `missile_defense.env`, `missile_defense.eval`, `missile_defense.control`, `missile_defense.paths`, `_md_native*.so` | `${python3:Depends}`, `python3-numpy` |
+| `missile-defense-trainer` | all | `missile_defense.train`, `missile_defense.ppo`, `missile_defense.ui`, the `missile-defense-train`/`missile-defense-trainer` entry points | `python3-md`; **Suggests** torch, PySide6, psutil, pynvml |
 
 `python3-md` is the piece with reuse value on its own: a deterministic, vectorised
 RL environment that imports without a game installed. Splitting it also makes two
@@ -145,7 +145,7 @@ are disjoint (PySide6 versus torch), which argues for splitting them, but both a
 `Architecture: all` and neither imports the other, so the cost of being wrong is a
 few unused `.py` files. Split when the trainer grows a real one.
 
-File locations for that split: `/usr/lib/python3/dist-packages/md/**` for the
+File locations for that split: `/usr/lib/python3/dist-packages/missile_defense/**` for the
 package and its extension, `/usr/bin/missile-defense-train` and `/usr/bin/missile-defense-trainer` for the
 tools — `/usr/games` is for the game — and their man pages in section 1 rather
 than the game's section 6.
@@ -162,7 +162,7 @@ difference below comes from one fact: **only Debian owns the interpreter.**
 
 | | How the choice is offered | Where the payload goes | How `md` is found |
 |---|---|---|---|
-| Debian | separate binary packages | `/usr/lib/python3/dist-packages/md` | the distribution's interpreter already looks there |
+| Debian | separate binary packages | `/usr/lib/python3/dist-packages/missile_defense` | the distribution's interpreter already looks there |
 | Windows | an unticked **Missile Defense Trainer** component in the NSIS installer | `md\` beside `missile-defense.exe` | `missile-defense-trainer.cmd` puts `%~dp0` on `PYTHONPATH` |
 | macOS | a second `.app` in the disk image, dragged or not | `Missile Defense Trainer.app/Contents/Resources/md` | `Contents/MacOS/missile-defense-trainer` puts `../Resources` on `PYTHONPATH` |
 
@@ -179,7 +179,7 @@ icons in it, not an installer with checkboxes, so splitting it into two images
 would be the wrong shape for the platform; the components exist there to build
 the *layout*, and the user's choice is which icon they drag.
 
-**The trainer needs the native binding.** The managed runtime (`md.runtime`)
+**The trainer needs the native binding.** The managed runtime (`missile_defense.runtime`)
 installs torch and nothing else — `md` and `_md_native` come from the payload —
 so a Windows or macOS build that packages the trainer without
 `MD_BUILD_BINDINGS=ON` produces a trainer that starts, browses and replays, and
@@ -213,8 +213,8 @@ inside the staged tree.
 
 The price is that a missing torch must be *explained* rather than raised, and
 both commands now do. The trainer checks with `importlib.util.find_spec` and
-disables Start with a reason (`md.ui.runner.can_train`); `missile-defense-train` goes through
-`md.cli`, which checks before importing anything heavy and names the `pip
+disables Start with a reason (`missile_defense.ui.runner.can_train`); `missile-defense-train` goes through
+`missile_defense.cli`, which checks before importing anything heavy and names the `pip
 install` that would fix it. CI installs the wheel into a venv with neither
 package and asserts both messages, because the failure being avoided is one that
 only appears where the optional half is absent — which is never a developer's
@@ -227,9 +227,9 @@ machine.
 | Piece | Where |
 |---|---|
 | build backend | `scikit-build-core` — compiles the extension through this same CMake tree, with `MD_BUILD_APP=OFF`, so a NumPy array does not cost a Vulkan SDK |
-| the package | `wheel.packages = ["python/md"]` |
+| the package | `wheel.packages = ["python/missile_defense"]` |
 | the extension | `install(TARGETS _md_native …)` in `bindings/CMakeLists.txt`, into `${MD_PYTHON_INSTALL_DIR}` — `md` by default, an absolute `dist-packages` path for a distribution build |
-| commands | `missile-defense-train` → `md.cli:train`, `missile-defense-trainer` → `md.ui.__main__:main` |
+| commands | `missile-defense-train` → `missile_defense.cli:train`, `missile-defense-trainer` → `missile_defense.ui.__main__:main` |
 | extras | `[train]` = torch, `[trainer]` = PySide6 + psutil + nvidia-ml-py + amdsmi (Linux); neither is ever required |
 
 `STABLE_ABI` is what makes the installed object worth keeping: it is `abi3`, so
@@ -286,7 +286,7 @@ later rather than on one exact minor version.
 * `debian/control`: the three binary packages above, `dh-python`/`pybuild` for the
   Python one, `${python3:Depends}` and `${shlibs:Depends}` on the extension.
 * `debian/rules`: build with `-DMD_BUILD_BINDINGS=ON` and
-  `-DMD_PYTHON_INSTALL_DIR=/usr/lib/python3/dist-packages/md`, then
+  `-DMD_PYTHON_INSTALL_DIR=/usr/lib/python3/dist-packages/missile_defense`, then
   `dh_auto_install` the `python` component. ✅ the install rule exists; what is
   left is the `debian/` side of it.
 * A `README.Debian` for `missile-defense-trainer` carrying the venv recipe above.

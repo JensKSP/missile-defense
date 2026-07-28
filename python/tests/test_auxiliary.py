@@ -10,8 +10,8 @@ import pytest
 # dependency, and the error named this file rather than the policy behind it.
 torch = pytest.importorskip("torch", reason="torch is optional; see docs/TRAINING.md")
 
-from md.auxiliary import targets  # noqa: E402 — after the skip, by design
-from md.ppo import ObsLayout  # noqa: E402
+from missile_defense.auxiliary import targets  # noqa: E402 — after the skip, by design
+from missile_defense.ppo import ObsLayout  # noqa: E402
 
 
 def _layout() -> ObsLayout:

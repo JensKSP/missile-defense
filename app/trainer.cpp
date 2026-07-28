@@ -25,7 +25,7 @@ constexpr std::array<std::string_view, 1> trainer_names{"missile-defense-trainer
 /// trainer is not a game and its Debian package puts it in `/usr/bin`.
 constexpr std::array<std::string_view, 2> system_directories{"/usr/bin", "/usr/local/bin"};
 
-/// Anything that could run `-m md.ui`, most specific first.
+/// Anything that could run `-m missile_defense.ui`, most specific first.
 ///
 /// Windows takes the two in the other order, to agree with
 /// `packaging/launcher.cmd.in`, which runs plain `python`. That is the same
@@ -49,11 +49,11 @@ constexpr std::array<std::string_view, 2> interpreter_names{"python3", "python"}
 /// The marker that says a directory is this project's checkout rather than any
 /// other. The trainer's own entry module, because that is precisely the thing
 /// the checkout fallback would go on to run.
-constexpr std::string_view trainer_module = "python/md/ui/__main__.py";
+constexpr std::string_view trainer_module = "python/missile_defense/ui/__main__.py";
 
 /// The same marker in an *installed* layout, where the payload sits directly
 /// beside the game instead of under a `python/` source directory.
-constexpr std::string_view payload_module = "md/ui/__main__.py";
+constexpr std::string_view payload_module = "missile_defense/ui/__main__.py";
 
 /// Which of the four answers the search gave, so the caller does not have to
 /// re-derive it from the path. An installed `missile-defense-trainer` can perfectly well sit
@@ -62,8 +62,9 @@ constexpr std::string_view payload_module = "md/ui/__main__.py";
 enum class Origin : std::uint8_t {
     Named,     ///< MD_TRAINER
     Installed, ///< a launcher on PATH or in a system directory
-    Payload,   ///< the `md` package beside the game, to be handed `-m md.ui`
-    Checkout,  ///< an interpreter, to be handed `-m md.ui`
+    Payload,   ///< the `missile_defense` package beside the game, to be handed `-m
+               ///< missile_defense.ui`
+    Checkout,  ///< an interpreter, to be handed `-m missile_defense.ui`
 };
 
 std::string with_suffix(std::string_view name) {
@@ -89,7 +90,7 @@ std::optional<std::filesystem::path> on_search_path(const Lookup& lookup, std::s
     return std::nullopt;
 }
 
-/// The first interpreter on `PATH` that could be handed `-m md.ui`.
+/// The first interpreter on `PATH` that could be handed `-m missile_defense.ui`.
 ///
 /// Shared by the two answers that need one. They differ only in *which*
 /// directory goes on the import path, and having one of them find an
@@ -143,7 +144,7 @@ std::optional<std::pair<std::filesystem::path, Origin>> resolve(const Lookup& lo
         return std::nullopt; // a payload with nothing to run it is not an offer
     }
     // 4. A checkout, run through an interpreter. Without one there is nothing to
-    //    run `-m md.ui` with, and offering the entry anyway would put an item on
+    //    run `-m missile_defense.ui` with, and offering the entry anyway would put an item on
     //    screen that does nothing when it is chosen.
     if (lookup.checkout_root.empty() || !lookup.executable(lookup.checkout_root / trainer_module)) {
         return std::nullopt;
@@ -179,10 +180,10 @@ Lookup machine_lookup(const std::filesystem::path& own_executable) {
         std::filesystem::absolute(own_executable, ec).parent_path();
 
     // The installed layout, and one probe rather than a walk: an installer puts
-    // the payload in the same directory as the binary — `md\ui\` beside
+    // the payload in the same directory as the binary — `missile_defense\ui\` beside
     // `md_app.exe`, under `C:\Program Files\Missile Defense` or wherever the
     // portable ZIP was unpacked — or it does not put it anywhere. Looking any
-    // further up would start finding other people's `md` directories.
+    // further up would start finding other people's `missile_defense` directories.
     std::error_code payload_probe;
     if (std::filesystem::is_regular_file(own_directory / payload_module, payload_probe)) {
         lookup.payload_root = own_directory;
@@ -217,12 +218,13 @@ std::optional<Command> command(const Lookup& lookup) {
         return std::nullopt;
     }
     if (found->second == Origin::Checkout) {
-        return Command{{found->first.string(), "-m", "md.ui"}, lookup.checkout_root / "python"};
+        return Command{{found->first.string(), "-m", "missile_defense.ui"},
+                       lookup.checkout_root / "python"};
     }
     if (found->second == Origin::Payload) {
         // The payload's own directory is the import path, which is what
         // `packaging/launcher.cmd.in` sets `PYTHONPATH` to from `%~dp0`.
-        return Command{{found->first.string(), "-m", "md.ui"}, lookup.payload_root};
+        return Command{{found->first.string(), "-m", "missile_defense.ui"}, lookup.payload_root};
     }
     return Command{{found->first.string()}, {}};
 }

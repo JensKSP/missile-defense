@@ -100,18 +100,18 @@ target_link_libraries(_md_native PRIVATE md::rl)
 # The strict project warnings are deliberately *not* applied here: nanobind's
 # generated glue trips several of them, and they are not our code to fix.
 set_target_properties(_md_native PROPERTIES
-  LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/python/md")
+  LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/python/missile_defense")
 
 # ---- Beside the Python package, so a checkout is importable ------------------
-# `md.env` imports this as `md._md_native`, so the object has to sit next to
-# python/md/. That copy used to be a Python script run after the fact, which made
+# `missile_defense.env` imports this as `missile_defense._md_native`, so the object has to sit next to
+# python/missile_defense/. That copy used to be a Python script run after the fact, which made
 # `cmake --build` produce a module nothing could import until a second, separate
 # tool was run over it. It is a build step, so it belongs to the build. The
 # destination is gitignored: writing into the source tree is the point, because
 # it is what makes pytest and an interactive session work from a plain checkout
 # with no install step and no PYTHONPATH.
 set(md_native_built "_md_native${md_native_suffix}")
-set(md_native_beside "${CMAKE_SOURCE_DIR}/python/md")
+set(md_native_beside "${CMAKE_SOURCE_DIR}/python/missile_defense")
 
 # What this build *supersedes* — never simply "everything called _md_native*".
 # A module carrying a different ABI tag is a second toolchain's, deliberately
@@ -139,7 +139,7 @@ endforeach()
 
 # The placed file is declared as an OUTPUT rather than done in a POST_BUILD step,
 # and the difference is the whole reliability of this: POST_BUILD runs only when
-# the target relinks, so deleting python/md/_md_native.* and building again would
+# the target relinks, so deleting python/missile_defense/_md_native.* and building again would
 # leave it deleted and report success. As an output with the module as its
 # dependency, it is something the build knows it owes you — removed by hand, it
 # comes back on the next build, like any other artefact.
@@ -149,7 +149,7 @@ add_custom_command(
   ${md_native_cleanup}
   COMMAND "${CMAKE_COMMAND}" -E copy_if_different
           "$<TARGET_FILE:_md_native>" "${md_native_beside}/"
-  COMMENT "Placing ${md_native_built} beside python/md/"
+  COMMENT "Placing ${md_native_built} beside python/missile_defense/"
   VERBATIM)
 add_custom_target(md_native_beside_package ALL
   DEPENDS "${md_native_beside}/${md_native_built}")
@@ -172,7 +172,7 @@ add_custom_target(md_native_beside_package ALL
 #
 # Empty means nobody has said where the Python half goes — an ordinary
 # `cmake --install` on Linux, where only the distribution knows. Then there is
-# no rule to register: the extension is built and placed beside python/md/ for
+# no rule to register: the extension is built and placed beside python/missile_defense/ for
 # development, and installing the tree quietly leaves it alone. Guessing instead
 # is what produced `/usr/local/md/_md_native.abi3.so`, a module in a directory
 # no interpreter looks in. Everything below is the install; nothing follows it,
@@ -224,7 +224,7 @@ if(MD_PREBUILT_PYTHON_MODULE)
     message(FATAL_ERROR
       "MD_PREBUILT_PYTHON_MODULE must name a file called _md_native.<suffix> — "
       "CPython finds an extension by its filename, and ${md_prebuilt_name} is "
-      "not one it would import as md._md_native.")
+      "not one it would import as missile_defense._md_native.")
   endif()
   message(STATUS
     "md bindings: installing the prebuilt ${MD_PREBUILT_PYTHON_MODULE}")
@@ -244,6 +244,6 @@ endif()
 # The stub travels with the extension rather than with the .py sources: it
 # describes *this* module, and a package that installs one without the other
 # leaves an editor with no idea what `_md_native` exposes.
-install(FILES "${CMAKE_SOURCE_DIR}/python/md/_md_native.pyi"
+install(FILES "${CMAKE_SOURCE_DIR}/python/missile_defense/_md_native.pyi"
         DESTINATION "${MD_PYTHON_INSTALL_DIR}"
         COMPONENT python)

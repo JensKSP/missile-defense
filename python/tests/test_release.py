@@ -24,14 +24,14 @@ WHEN = datetime(2026, 7, 26, 11, 0, 0, tzinfo=timezone(timedelta(hours=2)))
 @pytest.fixture
 def tree(tmp_path: Path) -> Path:
     (tmp_path / "debian").mkdir()
-    (tmp_path / "python" / "md").mkdir(parents=True)
+    (tmp_path / "python" / "missile_defense").mkdir(parents=True)
     (tmp_path / "CMakeLists.txt").write_text(
         "cmake_minimum_required(VERSION 3.25)\n"
         "project(missile_defense\n  VERSION 0.1.0\n  LANGUAGES CXX)\n",
         encoding="utf-8",
     )
     (tmp_path / "pyproject.toml").write_text('version = "0.1.0"\n', encoding="utf-8")
-    (tmp_path / "python" / "md" / "__init__.py").write_text(
+    (tmp_path / "python" / "missile_defense" / "__init__.py").write_text(
         '"""docstring, so the bump has to find the assignment and not the first quote."""\n'
         '__version__ = "0.1.0"\n',
         encoding="utf-8",

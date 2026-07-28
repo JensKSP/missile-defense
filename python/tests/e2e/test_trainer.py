@@ -23,7 +23,7 @@ import time
 from pathlib import Path
 
 import pytest
-from md.benchmark import (
+from missile_defense.benchmark import (
     CANONICAL_AIM_TRAIL,
     CANONICAL_BASELINE_MEAN_SCORE,
     CANONICAL_FRAME_SKIP,
@@ -47,7 +47,7 @@ pytestmark = [pytest.mark.e2e, needs_qt]
 @pytest.fixture
 def trainer(qt_app: object, trained_run: Path):  # noqa: ANN201 — PySide6 is optional
     """A real trainer window attached to a finished run."""
-    from md.ui.app import Trainer  # noqa: PLC0415 — optional dependency
+    from missile_defense.ui.app import Trainer  # noqa: PLC0415 — optional dependency
 
     window = Trainer(trained_run)
     window.resize(1280, 800)
@@ -94,14 +94,14 @@ def test_a_run_with_no_marker_is_live_while_its_files_are_moving(
     # from a run that is still going.
     #
     # Where there *is* a marker it is not a guess at all: a dead PID says
-    # finished immediately and for ever (`md.control.RUNNING_NAME`), which is
+    # finished immediately and for ever (`missile_defense.control.RUNNING_NAME`), which is
     # the bug the marker replaced. This test asserted that bug — against the
     # session's finished run, marker and all — and so failed on CI for as long
     # as the marker has existed. Hence its own copy, without one, freshly dated:
     # read straight it also asked how fast this suite happens to be, since
     # `LIVE_AFTER_S` is ninety seconds and app-e2e takes five minutes.
-    from md.control import RUNNING_NAME  # noqa: PLC0415
-    from md.ui.app import Trainer  # noqa: PLC0415
+    from missile_defense.control import RUNNING_NAME  # noqa: PLC0415
+    from missile_defense.ui.app import Trainer  # noqa: PLC0415
 
     fresh = tmp_path / "fresh"
     shutil.copytree(trained_run, fresh)
@@ -128,8 +128,8 @@ def test_a_finished_run_reads_as_idle_however_fresh_its_files_are(
     # moment ago by every timestamp in the directory, and it is over. The
     # timestamp alone would call it live for another ninety seconds and offer
     # Pause and Stop for a process that has exited.
-    from md.control import RUNNING_NAME  # noqa: PLC0415
-    from md.ui.app import Trainer  # noqa: PLC0415
+    from missile_defense.control import RUNNING_NAME  # noqa: PLC0415
+    from missile_defense.ui.app import Trainer  # noqa: PLC0415
 
     finished = tmp_path / "finished"
     shutil.copytree(trained_run, finished)
@@ -155,7 +155,7 @@ def test_a_run_that_has_gone_quiet_reads_as_idle(
     # The other side of the same rule, and the reason it is a timeout rather than
     # a flag: nothing writes "this run is over" to the directory, so silence is
     # the only signal there is.
-    from md.ui.app import LIVE_AFTER_S, Trainer  # noqa: PLC0415
+    from missile_defense.ui.app import LIVE_AFTER_S, Trainer  # noqa: PLC0415
 
     quiet = tmp_path / "quiet"
     quiet.mkdir()
@@ -178,7 +178,7 @@ def test_the_trainer_on_an_empty_directory_explains_itself(qt_app: object, tmp_p
     # Empty states are part of the design (docs/ROADMAP.md, M8): a fresh
     # directory must say what is missing and what would fill it, not show a
     # blank panel or a zeroed meter.
-    from md.ui.app import Trainer  # noqa: PLC0415
+    from missile_defense.ui.app import Trainer  # noqa: PLC0415
 
     window = Trainer(tmp_path)
     try:
@@ -198,14 +198,14 @@ def test_the_trainer_says_which_build_it_is_and_what_it_runs_on(
     # usually installed from a package rather than a checkout. And the notice,
     # because this MIT program runs on LGPL-3.0 libraries and the user should
     # not have to find a file in a repository to be told so.
-    import md  # noqa: PLC0415
-    from md.ui.app import Trainer  # noqa: PLC0415
+    import missile_defense  # noqa: PLC0415
+    from missile_defense.ui.app import Trainer  # noqa: PLC0415
 
     window = Trainer(tmp_path)
     try:
-        assert window._about.text() == f"v{md.__version__}"
+        assert window._about.text() == f"v{missile_defense.__version__}"
         shown = window._about_text()
-        assert md.__version__ in shown
+        assert missile_defense.__version__ in shown
         assert "Jens Köhler" in shown
         assert "MIT" in shown
         assert "PySide6" in shown
@@ -222,8 +222,8 @@ def test_the_eval_slider_drives_a_run_this_trainer_never_started(
     # reads what a trainer published and writes back the same file a terminal
     # would `echo` into. Nothing about this widget knows which process is
     # training, which is exactly why it works on a run started elsewhere.
-    from md.control import Control  # noqa: PLC0415
-    from md.ui.app import Trainer  # noqa: PLC0415
+    from missile_defense.control import Control  # noqa: PLC0415
+    from missile_defense.ui.app import Trainer  # noqa: PLC0415
 
     control = Control(tmp_path)
     control.publish_tuning({"eval_every": 50})  # what a starting run does
@@ -251,8 +251,8 @@ def test_the_eval_slider_shows_an_interval_that_is_not_one_of_its_stops(
 ) -> None:
     # A run started with --eval-every 30 is on 30, and a handle snapped to the
     # nearest stop would be describing it wrongly. The scale gains a stop.
-    from md.control import Control  # noqa: PLC0415
-    from md.ui.app import Trainer  # noqa: PLC0415
+    from missile_defense.control import Control  # noqa: PLC0415
+    from missile_defense.ui.app import Trainer  # noqa: PLC0415
 
     Control(tmp_path).publish_tuning({"eval_every": 30})
     window = Trainer(tmp_path)
@@ -270,7 +270,7 @@ def test_the_eval_slider_greys_out_when_no_run_publishes_one(
     # A directory with no run in it, or a run started before this existed. A
     # control that happily wrote a file nothing reads would be worse than a dead
     # one, and worse still if it left that file behind for the next run.
-    from md.ui.app import EVAL_EVERY_UNPUBLISHED, Trainer  # noqa: PLC0415
+    from missile_defense.ui.app import EVAL_EVERY_UNPUBLISHED, Trainer  # noqa: PLC0415
 
     window = Trainer(tmp_path)
     try:
@@ -308,7 +308,7 @@ def test_a_new_run_starts_the_tiles_at_nothing_notes_included(
     # A tile's *note* is the line that describes one particular measurement, so
     # it is the one that goes stale. "—" over "262,144,000 samples" reads as a
     # fresh run that has somehow already seen a quarter of a billion samples.
-    from md.ui.app import Trainer  # noqa: PLC0415
+    from missile_defense.ui.app import Trainer  # noqa: PLC0415
 
     first = tmp_path / "first"
     first.mkdir()
@@ -355,7 +355,7 @@ def test_a_new_run_starts_the_tiles_at_nothing_notes_included(
 def test_a_protocol_change_starts_a_new_score_curve_and_controls_the_ladder(
     qt_app: object, tmp_path: Path
 ) -> None:
-    from md.ui.app import Trainer  # noqa: PLC0415
+    from missile_defense.ui.app import Trainer  # noqa: PLC0415
 
     path = tmp_path / "evals.csv"
     header = (
@@ -407,7 +407,7 @@ def test_a_protocol_nothing_was_measured_under_gets_no_ladder(
     # Frame skip 1 is a different game — the agent reacts four times as often —
     # so no rung on either block applies, and a chart that drew one anyway would
     # be comparing two different measurements.
-    from md.ui.app import Trainer  # noqa: PLC0415
+    from missile_defense.ui.app import Trainer  # noqa: PLC0415
 
     (tmp_path / "evals.csv").write_text(
         "update,mean_score,seed_split,seed_offset,seed_count,frame_skip,"
@@ -429,7 +429,7 @@ def test_a_protocol_nothing_was_measured_under_gets_no_ladder(
 
 
 def test_comparison_scores_wait_for_the_primary_protocol(qt_app: object, tmp_path: Path) -> None:
-    from md.ui.app import Trainer  # noqa: PLC0415
+    from missile_defense.ui.app import Trainer  # noqa: PLC0415
 
     primary = tmp_path / "primary"
     comparison = tmp_path / "comparison"
@@ -466,8 +466,8 @@ def test_the_setup_dialog_offers_only_builds_this_platform_has(qt_app: object) -
     # The trainer's answer to "I have no torch". Built for real; nothing is
     # installed, because the install itself is covered by test_runtime.py against
     # a fake runner and does not need several gigabytes to be exercised again.
-    from md import runtime  # noqa: PLC0415
-    from md.ui.runtime_dialog import RuntimeDialog  # noqa: PLC0415
+    from missile_defense import runtime  # noqa: PLC0415
+    from missile_defense.ui.runtime_dialog import RuntimeDialog  # noqa: PLC0415
 
     dialog = RuntimeDialog(runtime.Runtime(Path("/nonexistent")), probes=[])
     try:
@@ -483,17 +483,17 @@ def test_the_run_a_trainer_would_start_is_a_command_you_could_type(
 ) -> None:
     # The parameter dialog teaches the CLI rather than replacing it, so the
     # command it shows has to be the command it would run.
-    from md.ui.forms import ParameterDialog  # noqa: PLC0415
-    from md.ui.params import read_params  # noqa: PLC0415
-    from md.ui.runner import PACKAGE_PATH  # noqa: PLC0415
+    from missile_defense.ui.forms import ParameterDialog  # noqa: PLC0415
+    from missile_defense.ui.params import read_params  # noqa: PLC0415
+    from missile_defense.ui.runner import PACKAGE_PATH  # noqa: PLC0415
 
     dialog = ParameterDialog(
-        read_params(PACKAGE_PATH / "md"), python="/usr/bin/python3", out_dir=tmp_path
+        read_params(PACKAGE_PATH / "missile_defense"), python="/usr/bin/python3", out_dir=tmp_path
     )
     try:
         command = dialog.command()
         assert command[0] == "/usr/bin/python3"
-        assert "md.train" in command
+        assert "missile_defense.train" in command
         assert str(tmp_path) in command
     finally:
         dialog.close()
@@ -502,7 +502,7 @@ def test_the_run_a_trainer_would_start_is_a_command_you_could_type(
 def test_a_default_the_form_cannot_read_leaves_the_dialog_standing(
     qt_app: object, tmp_path: Path
 ) -> None:
-    """The floor under `md.ui.params`, which follows a named default to its value.
+    """The floor under `missile_defense.ui.params`, which follows a named default to its value.
 
     When it cannot — a default that is an expression, a constant moved to a
     module this cannot see — the form used to call `int()` on the name and raise
@@ -512,8 +512,8 @@ def test_a_default_the_form_cannot_read_leaves_the_dialog_standing(
     A field it could not read is left to the trainer instead: untouched, it is
     not on the command line at all, so the trainer's own default stands.
     """
-    from md.ui.forms import ParameterDialog  # noqa: PLC0415
-    from md.ui.params import Param  # noqa: PLC0415
+    from missile_defense.ui.forms import ParameterDialog  # noqa: PLC0415
+    from missile_defense.ui.params import Param  # noqa: PLC0415
 
     unreadable = [
         Param(name="reaction_delay", kind="int", default="A_NAME", help="", owner="TrainConfig"),
@@ -535,14 +535,14 @@ def test_a_preset_fills_the_form_and_editing_it_stops_claiming_to_be_one(
     # The picker is the whole point of naming a set of options: choosing "good"
     # has to produce the run that recipe describes, and the moment a value is
     # edited by hand the form is no longer that preset and must stop saying so.
-    from md import presets  # noqa: PLC0415
-    from md.ui.forms import ParameterDialog, _read  # noqa: PLC0415
-    from md.ui.params import read_params  # noqa: PLC0415
-    from md.ui.runner import PACKAGE_PATH  # noqa: PLC0415
+    from missile_defense import presets  # noqa: PLC0415
+    from missile_defense.ui.forms import ParameterDialog, _read  # noqa: PLC0415
+    from missile_defense.ui.params import read_params  # noqa: PLC0415
+    from missile_defense.ui.runner import PACKAGE_PATH  # noqa: PLC0415
 
     file = tmp_path / "presets.json"
     dialog = ParameterDialog(
-        read_params(PACKAGE_PATH / "md"),
+        read_params(PACKAGE_PATH / "missile_defense"),
         python="/usr/bin/python3",
         out_dir=tmp_path,
         presets_file=file,
@@ -591,7 +591,7 @@ def test_the_update_tile_says_how_fast_it_is_going_and_how_long_is_left(
     # flat one, and that difference is what looks like an idle card.
     import json  # noqa: PLC0415
 
-    from md.ui.app import Trainer  # noqa: PLC0415
+    from missile_defense.ui.app import Trainer  # noqa: PLC0415
 
     (tmp_path / "config.json").write_text(
         json.dumps({"train": {"updates": 4000, "resume": None}}), encoding="utf-8"
@@ -623,7 +623,7 @@ def test_a_run_that_cannot_know_its_horizon_still_says_how_fast_it_is_going(
     # left" on a run with a day to go is not.
     import json  # noqa: PLC0415
 
-    from md.ui.app import Trainer  # noqa: PLC0415
+    from missile_defense.ui.app import Trainer  # noqa: PLC0415
 
     (tmp_path / "config.json").write_text(
         json.dumps({"train": {"updates": 4000, "resume": "checkpoints/policy-final.pt"}}),
@@ -647,8 +647,8 @@ def test_vram_gets_a_meter_of_its_own_under_the_gpu_load(qt_app: object) -> None
     # GPU utilisation tells you the card is busy, which you knew — you started
     # the run. GPU *memory* is what ends a run eight hours in, and it used to be
     # a fragment of the caption line under the bars.
-    from md.ui.meters import GB, SystemPanel  # noqa: PLC0415
-    from md.ui.system import GpuSample, Sample  # noqa: PLC0415
+    from missile_defense.ui.meters import GB, SystemPanel  # noqa: PLC0415
+    from missile_defense.ui.system import GpuSample, Sample  # noqa: PLC0415
 
     class _Monitor:
         gpu_note = "no GPU"
@@ -705,14 +705,14 @@ def test_the_dialog_says_what_a_run_will_cost_the_card_before_it_starts(
     # designed for, and nothing on this dialog hinted at it. The estimate is
     # shown whether or not it fits, because 17 GiB is the difference between
     # "start it and go to bed" and "start it and stop using the machine".
-    from md import footprint  # noqa: PLC0415
-    from md.ui.forms import ParameterDialog  # noqa: PLC0415
-    from md.ui.params import read_params  # noqa: PLC0415
-    from md.ui.runner import PACKAGE_PATH  # noqa: PLC0415
+    from missile_defense import footprint  # noqa: PLC0415
+    from missile_defense.ui.forms import ParameterDialog  # noqa: PLC0415
+    from missile_defense.ui.params import read_params  # noqa: PLC0415
+    from missile_defense.ui.runner import PACKAGE_PATH  # noqa: PLC0415
 
     def dialog_with(free_gib: float) -> ParameterDialog:
         return ParameterDialog(
-            read_params(PACKAGE_PATH / "md"),
+            read_params(PACKAGE_PATH / "missile_defense"),
             python="/usr/bin/python3",
             out_dir=tmp_path,
             presets_file=tmp_path / "presets.json",
@@ -752,11 +752,11 @@ def test_the_dialog_says_what_a_run_will_cost_the_card_before_it_starts(
 def test_the_dialog_saves_a_preset_and_refuses_to_overwrite_a_built_in(
     qt_app: object, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from md import presets  # noqa: PLC0415
-    from md.ui import forms as forms_module  # noqa: PLC0415
-    from md.ui.forms import ParameterDialog  # noqa: PLC0415
-    from md.ui.params import read_params  # noqa: PLC0415
-    from md.ui.runner import PACKAGE_PATH  # noqa: PLC0415
+    from missile_defense import presets  # noqa: PLC0415
+    from missile_defense.ui import forms as forms_module  # noqa: PLC0415
+    from missile_defense.ui.forms import ParameterDialog  # noqa: PLC0415
+    from missile_defense.ui.params import read_params  # noqa: PLC0415
+    from missile_defense.ui.runner import PACKAGE_PATH  # noqa: PLC0415
 
     warned: list[str] = []
     monkeypatch.setattr(
@@ -767,7 +767,7 @@ def test_the_dialog_saves_a_preset_and_refuses_to_overwrite_a_built_in(
 
     file = tmp_path / "presets.json"
     dialog = ParameterDialog(
-        read_params(PACKAGE_PATH / "md"),
+        read_params(PACKAGE_PATH / "missile_defense"),
         python="/usr/bin/python3",
         out_dir=tmp_path,
         presets_file=file,
@@ -806,8 +806,8 @@ def test_a_leftover_stop_does_not_wedge_the_trainer(qt_app: object, tmp_path: Pa
     no process behind it *and* disabled Start, which is the button whose whole
     job is to clear the file. The status has to expire on its own.
     """
-    from md.control import Control  # noqa: PLC0415
-    from md.ui.app import Trainer  # noqa: PLC0415
+    from missile_defense.control import Control  # noqa: PLC0415
+    from missile_defense.ui.app import Trainer  # noqa: PLC0415
 
     run = tmp_path / "test1"
     run.mkdir()
@@ -835,8 +835,8 @@ def test_a_stop_while_the_run_is_going_still_reads_as_stopping(
     tmp_path: Path,
 ) -> None:
     """The other half: a run that is finishing its update is *not* a leftover."""
-    from md.control import Control  # noqa: PLC0415
-    from md.ui.app import Trainer  # noqa: PLC0415
+    from missile_defense.control import Control  # noqa: PLC0415
+    from missile_defense.ui.app import Trainer  # noqa: PLC0415
 
     run = tmp_path / "test1"
     run.mkdir()
@@ -866,8 +866,8 @@ def test_the_trainer_clears_the_controls_when_its_own_run_exits(
     next Start has to clear it, and every other reader — a second trainer, a
     person running `ls` — is told a run is stopping that is not.
     """
-    from md.control import Control  # noqa: PLC0415
-    from md.ui.app import Trainer  # noqa: PLC0415
+    from missile_defense.control import Control  # noqa: PLC0415
+    from missile_defense.ui.app import Trainer  # noqa: PLC0415
 
     class _Exited:
         """This trainer's child, already over."""
@@ -925,7 +925,7 @@ def test_a_deleted_run_is_gone_from_the_disk_and_the_list(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from md.ui.library import LibraryView  # noqa: PLC0415
+    from missile_defense.ui.library import LibraryView  # noqa: PLC0415
     from PySide6.QtWidgets import QMessageBox  # noqa: PLC0415
 
     monkeypatch.setattr(
@@ -958,7 +958,7 @@ def test_a_declined_delete_removes_nothing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from md.ui.library import LibraryView  # noqa: PLC0415
+    from missile_defense.ui.library import LibraryView  # noqa: PLC0415
     from PySide6.QtWidgets import QMessageBox  # noqa: PLC0415
 
     monkeypatch.setattr(
@@ -988,7 +988,7 @@ def test_a_live_run_is_not_deleted_at_all(
     So the question is not even asked: a confirmation nobody can answer safely
     is worse than a refusal that says which button to press first.
     """
-    from md.ui.library import LibraryView  # noqa: PLC0415
+    from missile_defense.ui.library import LibraryView  # noqa: PLC0415
     from PySide6.QtWidgets import QMessageBox  # noqa: PLC0415
 
     asked: list[str] = []
@@ -1032,7 +1032,7 @@ def test_a_new_run_is_called_what_it_was_named(
     `--resume`, every path, every row in the list — so the name is asked for
     before anything else and is what the directory is called.
     """
-    from md.ui.app import Trainer  # noqa: PLC0415
+    from missile_defense.ui.app import Trainer  # noqa: PLC0415
     from PySide6.QtWidgets import QInputDialog  # noqa: PLC0415
 
     root = tmp_path / "runs"
@@ -1063,7 +1063,7 @@ def test_a_cancelled_name_starts_nothing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from md.ui.app import Trainer  # noqa: PLC0415
+    from missile_defense.ui.app import Trainer  # noqa: PLC0415
     from PySide6.QtWidgets import QInputDialog  # noqa: PLC0415
 
     root = tmp_path / "runs"
@@ -1093,7 +1093,7 @@ def test_reset_names_the_directory_it_moves_to(
     fortnight later, so Reset asks the same question the library does — and
     still suggests the numbered name, so Enter is a whole answer.
     """
-    from md.ui.app import Trainer  # noqa: PLC0415
+    from missile_defense.ui.app import Trainer  # noqa: PLC0415
     from PySide6.QtWidgets import QInputDialog  # noqa: PLC0415
 
     root = tmp_path / "runs"
@@ -1126,9 +1126,9 @@ def test_the_name_lands_in_the_library_when_the_run_starts(
     Both halves matter: written, or naming a run does nothing anybody can see;
     and not before, or every cancelled dialog leaves an orphan directory.
     """
-    from md import library  # noqa: PLC0415
-    from md.ui import app as app_module  # noqa: PLC0415
-    from md.ui.app import Trainer  # noqa: PLC0415
+    from missile_defense import library  # noqa: PLC0415
+    from missile_defense.ui import app as app_module  # noqa: PLC0415
+    from missile_defense.ui.app import Trainer  # noqa: PLC0415
     from PySide6.QtWidgets import QDialog, QInputDialog  # noqa: PLC0415
 
     class _Accepted:
@@ -1228,8 +1228,8 @@ def test_a_stopped_run_with_checkpoints_offers_to_continue(
     qt_app: object, trained_run: Path, tmp_path: Path
 ) -> None:
     """Idle in a directory that already has checkpoints is not "start"."""
-    from md.ui.app import LIVE_AFTER_S, Trainer  # noqa: PLC0415
-    from md.ui.runner import can_train  # noqa: PLC0415
+    from missile_defense.ui.app import LIVE_AFTER_S, Trainer  # noqa: PLC0415
+    from missile_defense.ui.runner import can_train  # noqa: PLC0415
 
     if not can_train():
         pytest.skip("no training runtime on this machine, so the button says so instead")
@@ -1259,10 +1259,10 @@ def test_continuing_restates_the_original_run_rather_than_the_defaults(
     a terminal, and `--resume x` alone is a command whose meaning lives in a
     file.
     """
-    from md import runconfig  # noqa: PLC0415
-    from md.ui import sources as ui_sources  # noqa: PLC0415
-    from md.ui.forms import ParameterDialog  # noqa: PLC0415
-    from md.ui.params import TRAINER_SOURCES, read_params  # noqa: PLC0415
+    from missile_defense import runconfig  # noqa: PLC0415
+    from missile_defense.ui import sources as ui_sources  # noqa: PLC0415
+    from missile_defense.ui.forms import ParameterDialog  # noqa: PLC0415
+    from missile_defense.ui.params import TRAINER_SOURCES, read_params  # noqa: PLC0415
 
     checkpoints = ui_sources.list_checkpoints(trained_run)
     assert checkpoints, "the trained run left no checkpoint to continue from"
@@ -1296,7 +1296,7 @@ def test_a_runtime_that_stopped_working_turns_start_back_into_set_up(
 ) -> None:
     """The button must not offer what the machine can no longer do.
 
-    `md.runtime.Runtime.status` reads a manifest and checks that a file exists,
+    `missile_defense.runtime.Runtime.status` reads a manifest and checks that a file exists,
     and both stay true of a runtime whose torch was deleted to reclaim disk or
     whose driver moved under it. The trainer believed that, showed Start, and
     the press appeared to do nothing — the failure surfacing later and somewhere
@@ -1308,8 +1308,8 @@ def test_a_runtime_that_stopped_working_turns_start_back_into_set_up(
     every machine a first-time reader has. An empty directory is enough to ask
     what a button says.
     """
-    from md.ui.app import Trainer  # noqa: PLC0415 — optional dependency
-    from md.ui.runner import can_train  # noqa: PLC0415
+    from missile_defense.ui.app import Trainer  # noqa: PLC0415 — optional dependency
+    from missile_defense.ui.runner import can_train  # noqa: PLC0415
 
     window = Trainer(tmp_path)
     try:
@@ -1338,8 +1338,8 @@ def test_the_button_that_says_set_up_actually_sets_up(
     training…*, opened the parameter dialog, and started a run that died on its
     first import: the one dead end this whole path exists to remove.
     """
-    from md.ui import app as app_module  # noqa: PLC0415 — optional dependency
-    from md.ui.app import Trainer  # noqa: PLC0415
+    from missile_defense.ui import app as app_module  # noqa: PLC0415 — optional dependency
+    from missile_defense.ui.app import Trainer  # noqa: PLC0415
 
     opened: list[str] = []
     monkeypatch.setattr(app_module, "can_train", lambda **_: True)  # an interpreter exists
@@ -1374,8 +1374,8 @@ def test_the_setup_dialog_offers_a_repair_for_a_runtime_that_fails_its_check(
     """
     from typing import cast  # noqa: PLC0415
 
-    from md import runtime  # noqa: PLC0415
-    from md.ui.runtime_dialog import RuntimeDialog  # noqa: PLC0415
+    from missile_defense import runtime  # noqa: PLC0415
+    from missile_defense.ui.runtime_dialog import RuntimeDialog  # noqa: PLC0415
 
     class _Store(runtime.Runtime):
         """A store that believes its manifest and cannot prove it."""
@@ -1409,7 +1409,7 @@ def test_an_unexpected_error_is_shown_rather_than_left_on_a_terminal(
     installed copy was never started from. It cost a session: *Start* opened
     nothing, twice, for a reason that was on screen nowhere.
     """
-    from md.ui.app import Trainer  # noqa: PLC0415 — optional dependency
+    from missile_defense.ui.app import Trainer  # noqa: PLC0415 — optional dependency
 
     window = Trainer(tmp_path)
     try:

@@ -12,11 +12,12 @@ import pytest
 
 torch = pytest.importorskip("torch", reason="torch is optional; see docs/TRAINING.md")
 pytest.importorskip(
-    "md._md_native", reason="the _md_native extension is not built (cmake -DMD_BUILD_BINDINGS=ON)"
+    "missile_defense._md_native",
+    reason="the _md_native extension is not built (cmake -DMD_BUILD_BINDINGS=ON)",
 )
 
-from md.ppo import ObsLayout, PPOConfig  # noqa: E402
-from md.train import (  # noqa: E402
+from missile_defense.ppo import ObsLayout, PPOConfig  # noqa: E402
+from missile_defense.train import (  # noqa: E402
     CheckpointCompatibilityError,
     LinearSchedule,
     TrainConfig,

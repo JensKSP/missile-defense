@@ -40,7 +40,11 @@ VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 EDITS: tuple[tuple[str, str, str], ...] = (
     ("CMakeLists.txt", r"(?m)^(\s*VERSION\s+)\d+\.\d+\.\d+(\s*)$", r"\g<1>{v}\g<2>"),
     ("pyproject.toml", r'(?m)^(version\s*=\s*")\d+\.\d+\.\d+(")', r"\g<1>{v}\g<2>"),
-    ("python/md/__init__.py", r'(?m)^(__version__\s*=\s*")\d+\.\d+\.\d+(")', r"\g<1>{v}\g<2>"),
+    (
+        "python/missile_defense/__init__.py",
+        r'(?m)^(__version__\s*=\s*")\d+\.\d+\.\d+(")',
+        r"\g<1>{v}\g<2>",
+    ),
 )
 
 

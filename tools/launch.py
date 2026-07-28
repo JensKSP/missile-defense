@@ -45,17 +45,17 @@ from ._util import PROJECT_ROOT
 #: here through `pip install`, which brings numpy along — and wrong for everyone
 #: who got the trainer from the Windows ZIP, where the payload is copied beside
 #: the game and nothing resolves dependencies. On 2026-07-28 such an interpreter
-#: was picked as usable, started the trainer, and died in `md.policy_format` on
+#: was picked as usable, started the trainer, and died in `missile_defense.policy_format` on
 #: `import numpy`. An entry point's requirements are what it *imports*, not what
 #: distinguishes it from the other entry point.
 #:
-#: `md._md_native` is deliberately absent. It is not a package any `pip install`
+#: `missile_defense._md_native` is deliberately absent. It is not a package any `pip install`
 #: produces — `poe bindings` builds it — so naming it here would put a command
 #: in the message that cannot work. The trainer, which truly cannot run without
 #: it, gets it as a build dependency of the poe task instead.
 REQUIREMENTS: dict[str, tuple[tuple[str, str], ...]] = {
-    "md.train": (("torch", "torch"), ("numpy", "numpy")),
-    "md.ui": (("PySide6", "PySide6"), ("numpy", "numpy")),
+    "missile_defense.train": (("torch", "torch"), ("numpy", "numpy")),
+    "missile_defense.ui": (("PySide6", "PySide6"), ("numpy", "numpy")),
 }
 
 #: Asks an interpreter what it has, in one round trip: the version, then any of
@@ -131,7 +131,7 @@ def candidates(
 
     ``MD_PYTHON`` first because an explicit answer ends the question — it is the
     same variable the trainer already uses to pick the interpreter it starts a
-    run with (``md.ui.runner.training_python``), so there is one thing to set
+    run with (``missile_defense.ui.runner.training_python``), so there is one thing to set
     rather than one per tool. Then the interpreter already running, so a machine
     with a single Python never pays for the search or gets surprised by it.
     Everything after that is discovery.
@@ -300,7 +300,7 @@ def explain(module: str, requirements: Sequence[tuple[str, str]], reports: Seque
     would be advice the reader has already tried.
     """
     packages = " ".join(package for _, package in requirements)
-    task = "ui" if module == "md.ui" else "train"
+    task = "ui" if module == "missile_defense.ui" else "train"
     lines = [f"`{module}` needs {packages}, and no interpreter here has it."]
     if reports:
         width = max(len(report.python) for report in reports)

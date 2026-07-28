@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 
 import pytest
-from md import library
+from missile_defense import library
 
 EVALS_HEADER = (
     "update,mean_score,min_score,max_score,mean_wave,"
@@ -35,7 +35,7 @@ def make_run(
     checkpoints: tuple[int, ...] = (),
     recordings: tuple[int, ...] = (),
 ) -> Path:
-    """A run directory in the shape `md.train` leaves one."""
+    """A run directory in the shape `missile_defense.train` leaves one."""
     run = root / name
     (run / "checkpoints").mkdir(parents=True, exist_ok=True)
     (run / "metrics.csv").write_text(
@@ -72,7 +72,7 @@ def test_a_directory_holding_experiments_lists_them_all(tmp_path: Path) -> None:
     """The other shape, and the one a fortnight of work produces.
 
     Both have to work without anyone being asked which they have — that is the
-    same rule `md.ui.sources.run_choices` already follows for the picker.
+    same rule `missile_defense.ui.sources.run_choices` already follows for the picker.
     """
     root = tmp_path / "runs"
     for name in ("alpha", "beta", "gamma"):
@@ -391,7 +391,7 @@ def test_the_library_and_the_dashboard_call_a_stopped_run_the_same_thing() -> No
 
     A finished run was "stopped" in the run list and "IDLE" in the dashboard's
     pill — the same condition under two words, which reads as two facts. The
-    names now live in `md.library` and both views spell them from there; this
+    names now live in `missile_defense.library` and both views spell them from there; this
     fails if a third spelling appears.
 
     Skipped without PySide6 rather than failing: the trainer is an optional
@@ -399,7 +399,7 @@ def test_the_library_and_the_dashboard_call_a_stopped_run_the_same_thing() -> No
     depends on it), and the quality gate runs where it is not installed.
     """
     pytest.importorskip("PySide6", reason="the trainer is optional; see README")
-    from md.ui import app
+    from missile_defense.ui import app
 
     assert library.STATE_IDLE in app.STATUS
     assert library.STATE_LIVE in app.STATUS

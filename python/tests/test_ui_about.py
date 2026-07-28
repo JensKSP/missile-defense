@@ -9,7 +9,7 @@ LGPL notice: the trainer runs on PySide6 and Qt Charts, and a user is entitled t
 be told so *by the program*, not only by a file in a repository they may never
 have seen (THIRD_PARTY_LICENSES.md).
 
-No Qt here. ``md.ui.about`` assembles text and nothing else, which is what lets
+No Qt here. ``missile_defense.ui.about`` assembles text and nothing else, which is what lets
 this run on a machine with no display and no PySide6 at all.
 """
 
@@ -20,12 +20,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-import md
-from md.ui import about
+import missile_defense
+from missile_defense.ui import about
 
 
 def test_it_reports_the_packages_own_version() -> None:
-    assert about.version() == md.__version__
+    assert about.version() == missile_defense.__version__
 
 
 def test_it_names_the_author_and_the_licence() -> None:
@@ -61,13 +61,13 @@ def test_it_points_at_the_full_inventory() -> None:
 
 
 def test_finding_a_version_does_not_import_the_package() -> None:
-    # `md.ui` must never import torch (docs/ROADMAP.md M8, risk 3), and "report
+    # `missile_defense.ui` must never import torch (docs/ROADMAP.md M8, risk 3), and "report
     # which torch the managed runtime installed" is exactly the innocent-looking
     # feature that would break it. importlib.metadata reads the *metadata*, so it
     # answers without loading a multi-gigabyte extension module.
     check = (
         "import sys\n"
-        "from md.ui import about\n"
+        "from missile_defense.ui import about\n"
         "about.components()\n"
         "about.summary()\n"
         "print('torch' in sys.modules)\n"
@@ -77,6 +77,6 @@ def test_finding_a_version_does_not_import_the_package() -> None:
         capture_output=True,
         text=True,
         check=True,
-        env={**os.environ, "PYTHONPATH": str(Path(md.__file__).parents[1])},
+        env={**os.environ, "PYTHONPATH": str(Path(missile_defense.__file__).parents[1])},
     )
     assert result.stdout.strip() == "False", result.stderr

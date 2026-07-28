@@ -3,7 +3,7 @@
 # Assisted-by: Claude Code (Anthropic)
 """Tests for a run's own copy of what it printed.
 
-``md.runlog`` is why the trainer can show a log pane for a run started from a
+``missile_defense.runlog`` is why the trainer can show a log pane for a run started from a
 terminal (docs/ROADMAP.md, M8). It imports neither torch nor Qt, so what it
 promises — the terminal still gets every line, the file gets them too, and
 neither the run nor the process survives losing the other — is checkable here.
@@ -14,7 +14,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from md import runlog
+from missile_defense import runlog
 
 
 def test_the_terminal_still_gets_every_line(capsys, tmp_path: Path) -> None:

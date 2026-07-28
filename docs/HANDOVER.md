@@ -31,9 +31,9 @@ Run them with:
 QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest python/tests/e2e/test_console.py -q
 ```
 
-**One cause is fixed, and it was not the only one.** `md.ui.sources.is_canonical_benchmark`
+**One cause is fixed, and it was not the only one.** `missile_defense.ui.sources.is_canonical_benchmark`
 compares `aim_trail` and `reaction_delay`, which the handicap work made part of
-the protocol — but `EVAL_COLUMNS` in `md/train.py` never gained them. Every row
+the protocol — but `EVAL_COLUMNS` in `missile_defense/train.py` never gained them. Every row
 read as "nonstandard protocol", so no score could be shown against the ladder and
 the trainer could never say a run beat HIGH. The training loop writes both columns now
 and `test_console.py`'s `EVALS_HEADER` was widened to match; the first two tests
@@ -86,7 +86,7 @@ is the one exception and says why in `tools/capture.py`: a Wayland client cannot
 have its window grabbed.
 
 **The reward is shown as an equation** in the config panel, with the run's own
-numbers and one clause per term saying why it is priced. `md/ui/reward.py` has no
+numbers and one clause per term saying why it is priced. `missile_defense/ui/reward.py` has no
 Qt in it and is tested directly.
 
 **Three faults a clean worktree exposed**, none of which CI could see, because

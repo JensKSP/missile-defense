@@ -24,7 +24,7 @@ def test_this_repository_declares_one_version() -> None:
 
 def _tree(root: Path, cmake: str, py: str, changelog: str, package: str | None = None) -> Path:
     (root / "debian").mkdir(parents=True)
-    (root / "python" / "md").mkdir(parents=True)
+    (root / "python" / "missile_defense").mkdir(parents=True)
     (root / "CMakeLists.txt").write_text(
         f"project(missile_defense\n  VERSION {cmake}\n  LANGUAGES CXX)\n", encoding="utf-8"
     )
@@ -34,7 +34,7 @@ def _tree(root: Path, cmake: str, py: str, changelog: str, package: str | None =
     )
     # Defaults to agreeing with pyproject, since they describe the same package;
     # the tests that care about it being left behind pass it explicitly.
-    (root / "python" / "md" / "__init__.py").write_text(
+    (root / "python" / "missile_defense" / "__init__.py").write_text(
         f'__version__ = "{py if package is None else package}"\n', encoding="utf-8"
     )
     return root
@@ -52,7 +52,7 @@ def test_one_file_left_behind_is_caught(tmp_path: Path) -> None:
 
 
 def test_the_packages_own_version_left_behind_is_caught(tmp_path: Path) -> None:
-    # `md.__version__` is the one nothing builds from, so a stale value survives
+    # `missile_defense.__version__` is the one nothing builds from, so a stale value survives
     # every build and every test and is discovered by a user reading the training
     # trainer's About box. It has to be checked here or it is not checked at all.
     _tree(tmp_path, "1.2.3", "1.2.3", "1.2.3", package="1.2.2")

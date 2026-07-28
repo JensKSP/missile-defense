@@ -366,8 +366,8 @@ endif()
 # `install(TARGETS _md_native)` rule is registered and a destination chosen
 # afterwards is chosen too late. It used to be overridden further down, next to
 # the .py sources — so on macOS the sources landed inside the trainer bundle and
-# the extension landed beside the prefix, giving a bundle that imports `md` and
-# then cannot import `md._md_native`. A trainer without the binding is a trainer
+# the extension landed beside the prefix, giving a bundle that imports `missile_defense` and
+# then cannot import `missile_defense._md_native`. A trainer without the binding is a trainer
 # that cannot train, which is the one thing it is for.
 #
 # A cache entry, so `-DMD_PYTHON_INSTALL_DIR=...` still wins — debian/rules
@@ -378,17 +378,17 @@ if(APPLE)
   set(md_python_install_default "${md_trainer_bundle}/Contents/Resources/md")
 elseif(WIN32)
   # Flat beside missile-defense.exe — see app/CMakeLists.txt.
-  set(md_python_install_default "md")
+  set(md_python_install_default "missile_defense")
 elseif(DEFINED SKBUILD)
-  # scikit-build-core's install tree *is* the wheel root, so a relative `md` is
+  # scikit-build-core's install tree *is* the wheel root, so a relative `missile_defense` is
   # the package directory the wheel unpacks into site-packages.
-  set(md_python_install_default "md")
+  set(md_python_install_default "missile_defense")
 else()
   # Nothing can guess this on Linux. A distribution owns the interpreter and
   # knows where its dist-packages are; debian/rules asks it and passes the
   # answer. Empty means nobody has said, and the Python install rules are then
   # not registered at all — because the alternative, which is what used to
-  # happen, is a relative `md` resolved against the prefix: `/usr/local/md/`, an
+  # happen, is a relative `missile_defense` resolved against the prefix: `/usr/local/missile_defense/`, an
   # extension and a stub sitting where no interpreter will ever look. It went
   # unnoticed while the bindings were off by default and there was no target to
   # install; the moment they built by default, `cmake --install` started
@@ -396,7 +396,7 @@ else()
   set(md_python_install_default "")
 endif()
 set(MD_PYTHON_INSTALL_DIR "${md_python_install_default}" CACHE STRING
-    "Where `cmake --install` puts the md package and _md_native")
+    "Where `cmake --install` puts the missile_defense package and _md_native")
 
 # ---- Components ---------------------------------------------------------------
 add_subdirectory(core)
@@ -424,7 +424,7 @@ option(MD_INSTALL_PYTHON_PACKAGE
        "Install the md Python sources, launcher scripts and trainer desktop entry" OFF)
 
 # Where the trainer lands differs on every platform, and the reason is the same
-# each time: **nothing may assume the interpreter knows where `md` is.**
+# each time: **nothing may assume the interpreter knows where `missile_defense` is.**
 #
 #   Linux    a distribution owns the interpreter, so the package goes where that
 #            interpreter already looks (debian/rules asks it, and passes the
@@ -449,7 +449,7 @@ if(MD_INSTALL_PYTHON_PACKAGE)
   if(NOT MD_PYTHON_INSTALL_DIR)
     message(FATAL_ERROR
       "MD_INSTALL_PYTHON_PACKAGE is ON but MD_PYTHON_INSTALL_DIR is empty, so "
-      "there is nowhere to put the md package. Pass the target interpreter's "
+      "there is nowhere to put the missile_defense package. Pass the target interpreter's "
       "site-packages directory, the way debian/rules does.")
   endif()
 
@@ -485,7 +485,7 @@ if(MD_INSTALL_PYTHON_PACKAGE)
   # on Debian, the user's own on Windows and macOS — which is never the one that
   # built the module. A version-tagged extension therefore works only where the
   # minor version happens to match, and fails as `ModuleNotFoundError:
-  # md._md_native` on every other machine: an installed trainer that browses and
+  # missile_defense._md_native` on every other machine: an installed trainer that browses and
   # replays and cannot train, with nothing to say why.
   #
   # A developer build may be version-tagged; a build that is being packaged may
@@ -518,7 +518,7 @@ if(MD_INSTALL_PYTHON_PACKAGE)
 
   # The sources. _md_native and its stub are excluded because bindings/ installs
   # those — it is the one that knows whether the extension was built at all.
-  install(DIRECTORY "${CMAKE_SOURCE_DIR}/python/md/"
+  install(DIRECTORY "${CMAKE_SOURCE_DIR}/python/missile_defense/"
     DESTINATION "${MD_PYTHON_INSTALL_DIR}"
     COMPONENT python
     FILES_MATCHING
@@ -529,9 +529,9 @@ if(MD_INSTALL_PYTHON_PACKAGE)
 
   foreach(md_launcher missile-defense-trainer missile-defense-train)
     if(md_launcher STREQUAL "missile-defense-trainer")
-      set(MD_LAUNCHER_MODULE "md.ui")
+      set(MD_LAUNCHER_MODULE "missile_defense.ui")
     else()
-      set(MD_LAUNCHER_MODULE "md.cli")
+      set(MD_LAUNCHER_MODULE "missile_defense.cli")
     endif()
     if(WIN32)
       configure_file(packaging/launcher.cmd.in

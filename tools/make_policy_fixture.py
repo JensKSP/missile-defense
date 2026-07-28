@@ -16,7 +16,7 @@ They are small (a few kB) and change only when the format or the reference
 forward pass changes, which is exactly when a reviewer should see the diff.
 
 No torch anywhere: the weights come from a seeded generator and go straight
-through `md.policy_format`, so this runs on any machine and produces the same
+through `missile_defense.policy_format`, so this runs on any machine and produces the same
 bytes on all of them.
 """
 
@@ -25,7 +25,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-from md import export_policy, policy_format
+from missile_defense import export_policy, policy_format
 
 #: Small enough to read in a diff, wide enough that a transposed matrix cannot
 #: pass: every dimension is different, so a swapped pair changes the shape.
@@ -98,12 +98,14 @@ def build() -> policy_format.NativePolicy:
 def build_entity() -> policy_format.NativePolicy:
     """A relational policy at the simulation's real slot counts, tiny elsewhere.
 
-    Built tensor by tensor rather than from `md.ppo.EntityPolicy`, so this needs
+    Built tensor by tensor rather than from `missile_defense.ppo.EntityPolicy`, so this needs
     no torch and produces the same bytes anywhere — the same reason `build` does.
-    `md.export_policy` pins the numpy reference against torch separately; this
+    `missile_defense.export_policy` pins the numpy reference against torch separately; this
     file's job is only to make the C++ side agree with that reference.
     """
-    from md._md_native import ObsSpec  # noqa: PLC0415 — the layout, not a policy concern
+    from missile_defense._md_native import (
+        ObsSpec,  # noqa: PLC0415 — the layout, not a policy concern
+    )
 
     spec = ObsSpec()
     threats, interceptors, blasts = int(spec.threats), int(spec.interceptors), int(spec.blasts)

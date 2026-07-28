@@ -85,10 +85,10 @@ def test_a_replayed_episode_is_not_eligible_for_the_high_score_table(
 
 
 def test_the_trainer_finds_everything_the_trainer_left(trained_run: Path) -> None:
-    # No Qt here on purpose: `md.ui.sources` is the half of the trainer that has
+    # No Qt here on purpose: `missile_defense.ui.sources` is the half of the trainer that has
     # none, and it is the half that has to agree with the trainer about what a run
     # directory contains.
-    from md.ui import sources  # noqa: PLC0415 — imported after the run exists
+    from missile_defense.ui import sources  # noqa: PLC0415 — imported after the run exists
 
     metrics = sources.metrics_tail(trained_run).poll()
     evals = sources.evals_tail(trained_run).poll()
@@ -103,7 +103,7 @@ def test_the_trainer_reads_a_growing_file_without_rereading_it(trained_run: Path
     # The tail remembers where it stopped, which is the difference between a
     # trainer that stays cheap over a run of thousands of updates and one that
     # reparses the whole file every second, forever.
-    from md.ui import sources  # noqa: PLC0415
+    from missile_defense.ui import sources  # noqa: PLC0415
 
     tail = sources.metrics_tail(trained_run)
     first = tail.poll()
@@ -116,6 +116,6 @@ def test_the_trainer_finds_the_run_inside_a_container_directory(trained_run: Pat
     # container of them. Pointing the trainer one level too high is the most
     # common way to see an empty window, and it is supposed to say which
     # directories below it do hold one.
-    from md.ui import sources  # noqa: PLC0415
+    from missile_defense.ui import sources  # noqa: PLC0415
 
     assert trained_run in sources.find_runs(trained_run.parent)

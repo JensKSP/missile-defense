@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from md.cadence import gap_at, is_due, schedule
+from missile_defense.cadence import gap_at, is_due, schedule
 
 
 def test_the_gap_reaches_the_configured_interval_at_the_ramp_end() -> None:

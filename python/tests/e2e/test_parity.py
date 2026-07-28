@@ -48,7 +48,7 @@ PARITY_SEED_OFFSET = 0
 @pytest.fixture(scope="module")
 def exported(trained_run: Path, tmp_path_factory: pytest.TempPathFactory) -> Path:
     """A real checkpoint from a real run, converted to the file that ships."""
-    from md import export_policy  # noqa: PLC0415 — optional dependency
+    from missile_defense import export_policy  # noqa: PLC0415 — optional dependency
 
     checkpoint = trained_run / "checkpoints" / "policy-final.pt"
     saved = sorted(trained_run.rglob("*.pt"))
@@ -89,9 +89,11 @@ def _native_actions(policy: Path, log: Path) -> list[int]:
 def _python_actions(policy: Path) -> list[int]:
     """The Python evaluator playing the same seed, through the same `.mdp`."""
     import numpy as np  # noqa: PLC0415 — optional dependency
-    from md import eval as md_eval  # noqa: PLC0415 — optional dependency
-    from md import export_policy, policy_format  # noqa: PLC0415 — optional dependency
-    from md.benchmark import CANONICAL_FRAME_SKIP  # noqa: PLC0415 — optional dependency
+    from missile_defense import eval as md_eval  # noqa: PLC0415 — optional dependency
+    from missile_defense import export_policy, policy_format  # noqa: PLC0415 — optional dependency
+    from missile_defense.benchmark import (
+        CANONICAL_FRAME_SKIP,  # noqa: PLC0415 — optional dependency
+    )
 
     loaded = policy_format.read(policy)
     chosen: list[int] = []

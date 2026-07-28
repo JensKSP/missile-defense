@@ -17,8 +17,14 @@ import types
 from typing import Any
 
 import pytest
-from md.ui.probes import amd, maybe, nvidia
-from md.ui.system import NO_PROBE, GpuSample, SystemMonitor, discover_gpu_probe, find_gpu_probe
+from missile_defense.ui.probes import amd, maybe, nvidia
+from missile_defense.ui.system import (
+    NO_PROBE,
+    GpuSample,
+    SystemMonitor,
+    discover_gpu_probe,
+    find_gpu_probe,
+)
 
 
 class FakeMemory:
@@ -119,7 +125,7 @@ def test_discovery_returns_nothing_when_no_vendor_package_is_installed() -> None
 
 
 def test_an_unimportable_backend_is_skipped_not_fatal() -> None:
-    assert find_gpu_probe(("md.ui.probes.does_not_exist",)) is None
+    assert find_gpu_probe(("missile_defense.ui.probes.does_not_exist",)) is None
 
 
 # ---- the vendor backends ----------------------------------------------------
@@ -165,7 +171,7 @@ def test_nvidia_with_the_package_but_no_driver_says_why(
         raise RuntimeError("NVML Shared Library Not Found")
 
     monkeypatch.setitem(sys.modules, "pynvml", _module("pynvml", nvmlInit=explode))
-    probe, note = discover_gpu_probe(("md.ui.probes.nvidia",))
+    probe, note = discover_gpu_probe(("missile_defense.ui.probes.nvidia",))
 
     assert probe is None
     assert note == "NVIDIA telemetry unavailable (NVML Shared Library Not Found)"
@@ -252,7 +258,7 @@ def test_amd_with_the_package_but_no_driver_says_why(
     monkeypatch.setitem(sys.modules, "amdsmi", _module("amdsmi", amdsmi_init=explode))
     # Prevent a real fallback package on the test machine from hiding the error.
     monkeypatch.setitem(sys.modules, "pyrsmi", _module("pyrsmi"))
-    probe, note = discover_gpu_probe(("md.ui.probes.amd",))
+    probe, note = discover_gpu_probe(("missile_defense.ui.probes.amd",))
 
     assert probe is None
     assert note == "AMD telemetry unavailable (libamd_smi.so not found)"

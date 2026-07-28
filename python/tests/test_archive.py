@@ -21,7 +21,7 @@ import zipfile
 from pathlib import Path
 
 import pytest
-from md import archive, library
+from missile_defense import archive, library
 from test_library import make_run
 
 

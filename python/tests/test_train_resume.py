@@ -23,13 +23,14 @@ import pytest
 
 torch = pytest.importorskip("torch", reason="torch is optional; see docs/TRAINING.md")
 pytest.importorskip(
-    "md._md_native", reason="the _md_native extension is not built (cmake -DMD_BUILD_BINDINGS=ON)"
+    "missile_defense._md_native",
+    reason="the _md_native extension is not built (cmake -DMD_BUILD_BINDINGS=ON)",
 )
 
-from md import runconfig  # noqa: E402
-from md.env import Shaping  # noqa: E402
-from md.ppo import PPOConfig  # noqa: E402
-from md.train import (  # noqa: E402
+from missile_defense import runconfig  # noqa: E402
+from missile_defense.env import Shaping  # noqa: E402
+from missile_defense.ppo import PPOConfig  # noqa: E402
+from missile_defense.train import (  # noqa: E402
     ResumeError,
     TrainConfig,
     continuation,
@@ -279,7 +280,7 @@ class Started:
         self.config: TrainConfig | None = None
         self.ppo: PPOConfig | None = None
         self.shaping: Shaping | None = None
-        monkeypatch.setattr("md.train.train", self._record)
+        monkeypatch.setattr("missile_defense.train.train", self._record)
 
     def _record(self, config: TrainConfig, ppo: PPOConfig, shaping: Shaping) -> None:
         self.config, self.ppo, self.shaping = config, ppo, shaping

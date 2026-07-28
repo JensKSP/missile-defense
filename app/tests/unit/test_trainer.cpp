@@ -4,7 +4,7 @@
 //
 // The lookup that decides whether the menu offers TRAIN AI at all. It is the
 // boundary between the two products, so what is tested here is the *search
-// order* rather than any one answer: `md.ui.runner.trainer_executable()` walks
+// order* rather than any one answer: `missile_defense.ui.runner.trainer_executable()` walks
 // the same four places in the same sequence, and a disagreement between them is
 // either a menu entry that launches nothing or a trainer nobody can reach.
 #include "trainer.hpp"
@@ -160,36 +160,38 @@ TEST_CASE("An installed trainer off PATH is still found in the system directorie
 }
 
 TEST_CASE("A checkout offers its own trainer through the interpreter", "[unit][app][trainer]") {
-    // The developer case: no installed launcher, but `python -m md.ui` is right
+    // The developer case: no installed launcher, but `python -m missile_defense.ui` is right
     // there. Python's lookup answers `sys.executable` here; this side has to go
     // and find an interpreter, which is the one place the two differ in
     // mechanism while agreeing on the answer.
     Machine machine;
-    machine.executables = {std::string{checkout} + "/python/md/ui/__main__.py", "/usr/bin/python3"};
+    machine.executables = {std::string{checkout} + "/python/missile_defense/ui/__main__.py",
+                           "/usr/bin/python3"};
     machine.path = "/usr/bin";
 
     const auto command = md::trainer::command(machine.lookup(checkout));
     REQUIRE(command.has_value());
     CHECK(command->argv ==
-          std::vector<std::string>{launcher("/usr/bin", "python3"), "-m", "md.ui"});
+          std::vector<std::string>{launcher("/usr/bin", "python3"), "-m", "missile_defense.ui"});
     CHECK(command->python_path.generic_string() == std::string{checkout} + "/python");
 }
 
 TEST_CASE("An installed payload beside the game is run through the interpreter",
           "[unit][app][trainer]") {
     // The Windows case, and the one that was missing: the installer writes
-    // `md\ui\` next to `md_app.exe` and nothing onto PATH, so before this stage
+    // `missile_defense\ui\` next to `md_app.exe` and nothing onto PATH, so before this stage
     // existed every Windows install — installer and portable ZIP alike —
     // resolved to nothing and the menu never offered training at all.
     Machine machine;
     machine.payload = install_dir;
-    machine.executables = {std::string{install_dir} + "/md/ui/__main__.py", "/usr/bin/python3"};
+    machine.executables = {std::string{install_dir} + "/missile_defense/ui/__main__.py",
+                           "/usr/bin/python3"};
     machine.path = "/usr/bin";
 
     const auto command = md::trainer::command(machine.lookup());
     REQUIRE(command.has_value());
     CHECK(command->argv ==
-          std::vector<std::string>{launcher("/usr/bin", "python3"), "-m", "md.ui"});
+          std::vector<std::string>{launcher("/usr/bin", "python3"), "-m", "missile_defense.ui"});
     // The payload's own directory, not a `python/` below it: that is what the
     // installed layout looks like, and what launcher.cmd.in sets from `%~dp0`.
     CHECK(command->python_path.generic_string() == std::string{install_dir});
@@ -202,7 +204,7 @@ TEST_CASE("An installed launcher still wins over the payload beside the game",
     // PATH first has to survive the new stage being added underneath it.
     Machine machine;
     machine.payload = install_dir;
-    machine.executables = {std::string{install_dir} + "/md/ui/__main__.py",
+    machine.executables = {std::string{install_dir} + "/missile_defense/ui/__main__.py",
                            "/home/dev/.local/bin/missile-defense-trainer", "/usr/bin/python3"};
     machine.path = join({"/home/dev/.local/bin", "/usr/bin"});
 
@@ -220,7 +222,7 @@ TEST_CASE("A payload with no interpreter offers nothing", "[unit][app][trainer]"
     // install that happened to tick the trainer component.
     Machine machine;
     machine.payload = install_dir;
-    machine.executables = {std::string{install_dir} + "/md/ui/__main__.py"};
+    machine.executables = {std::string{install_dir} + "/missile_defense/ui/__main__.py"};
     machine.path = "/usr/bin";
 
     CHECK_FALSE(md::trainer::find(machine.lookup()).has_value());
@@ -239,10 +241,10 @@ TEST_CASE("A game-only install offers no trainer at all", "[unit][app][trainer]"
 }
 
 TEST_CASE("A checkout without an interpreter offers nothing", "[unit][app][trainer]") {
-    // `-m md.ui` needs something to run it. Offering the entry anyway would put
+    // `-m missile_defense.ui` needs something to run it. Offering the entry anyway would put
     // a menu item on screen that does nothing when chosen.
     Machine machine;
-    machine.executables = {std::string{checkout} + "/python/md/ui/__main__.py"};
+    machine.executables = {std::string{checkout} + "/python/missile_defense/ui/__main__.py"};
     machine.path = "/usr/bin";
 
     CHECK_FALSE(md::trainer::command(machine.lookup(checkout)).has_value());

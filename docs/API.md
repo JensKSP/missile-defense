@@ -51,7 +51,7 @@ only thing that distinguishes an agent catching clusters from one whose mean is
 propped up by luck.
 
 The core counts and prices nothing: `wasted` and `multi_kills` are what the
-Python shaping puts a number on (`md.env.Shaping.waste_penalty` and
+Python shaping puts a number on (`missile_defense.env.Shaping.waste_penalty` and
 `multikill_bonus`), while `kills_per_shot` is reporting only and no reward reads
 it. Keeping the two apart is deliberate — a statistic that fed the objective
 would stop being a measurement of it.
@@ -296,7 +296,7 @@ consequences the API leans on:
 ## 7. `.mdp` — a trained policy as data
 
 The format both the game and the evaluator load a learned policy from. Written by
-`md.policy_format`, read by `md.policy_format` and `agent/src/policy.cpp`.
+`missile_defense.policy_format`, read by `missile_defense.policy_format` and `agent/src/policy.cpp`.
 
 **Why it is not a `.pt`.** A PyTorch checkpoint is a pickle, and loading one runs
 whatever its author put in it. That is fine for a file you trained yourself and
@@ -304,7 +304,7 @@ unacceptable for one the game finds in an install directory or one somebody
 downloaded. The second reason is harder: the game is C++ with no Python in it at
 all — that is the promise `debian/control` keeps — so the only format it *could*
 load is one that needs no torch to read. **`.pt` is never an import format here.**
-It is what training writes; `md.export_policy` converts it.
+It is what training writes; `missile_defense.export_policy` converts it.
 
 ```
 magic            8 bytes, "MDPOLICY"
@@ -344,7 +344,7 @@ still do something about it, and a crash mid-write never replaces a good file
 with half of a bad one.
 
 Adding an architecture means one entry in `ARCHITECTURES` in
-`python/md/policy_format.py` and the matching forward pass in
+`python/missile_defense/policy_format.py` and the matching forward pass in
 `agent/src/policy.cpp`. Both sides then refuse what the other cannot run — which
 is the entire reason the architecture is named in the file.
 
@@ -422,7 +422,7 @@ tournament measured — nothing more, because the recordings already carry
 everything needed to replay them.
 
 ```
-python -m md.tournament         write_manifest(match, path, recordings)
+python -m missile_defense.tournament         write_manifest(match, path, recordings)
                                 record_pair(match, directory)    -> both sides
                                 record_episode(model, seed, path) -> one side
 
