@@ -429,7 +429,8 @@ def _environ() -> dict[str, str]:
     """The environment a managed interpreter is invoked in.
 
     ``md`` is put on the path rather than installed into the runtime: the
-    checkout (or the ``python3-md`` package) is the one copy, and a runtime that
+    checkout (or the ``missile-defense-trainer`` package) is the one copy, and a
+    runtime that
     embedded its own would go stale the moment either changed.
     """
     env = dict(os.environ)

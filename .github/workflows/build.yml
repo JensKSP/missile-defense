@@ -434,7 +434,7 @@ jobs:
     # compiler and every Build-Depends version are that distribution's own.
     #
     # Ubuntu 26.04 is the primary Ubuntu target: it is the current LTS and can
-    # build all three binary packages from archive dependencies. Debian trixie
+    # build both binary packages from archive dependencies. Debian trixie
     # remains the Debian authority, and Ubuntu 24.04 remains a compatibility
     # build for users who have not upgraded yet. Noble's default g++ is 13 and
     # has no <print>, so that leg takes the g++-14 fallback and cannot build the
@@ -525,13 +525,14 @@ jobs:
         # Errors fail the job; warnings and info are printed and do not, because
         # a policy nit should not block a build that installs and runs.
         #
-        # All three, not just the game. Two of the three were going unchecked,
-        # and `python3-md` is the one most likely to trip a policy check the
-        # other two cannot — it is the only package that installs into a
-        # `dist-packages` tree the interpreter shares with the distribution.
+        # Both, not just the game. The trainer is the one most likely to trip a
+        # policy check the game cannot: it is the package that installs into the
+        # `dist-packages` tree the interpreter shares with the distribution, and
+        # it does so without a `python3-*` name, which Debian Python Policy would
+        # rather it had (debian/control says why that trade was made).
         run: lintian --fail-on error --display-info ../*.deb
 
-      - name: The three binaries are three different products
+      - name: The two binaries are two different products
         # `test_packaging.py` reads `debian/control` and the `.install` manifests
         # and would catch this promise broken on paper. It cannot catch one
         # broken in the *build*: a stray install() rule, a glob in an `.install`
@@ -542,26 +543,23 @@ jobs:
         # The negative half is the one that matters. Someone who wants the game
         # must not be made to install an interpreter, and that promise dies
         # quietly: nobody notices a `.py` file inside a 40 MB package.
-        # Skipped where only one product exists: under `nopython` the Python
-        # binaries are not built at all, so "the three are different" has
-        # nothing to compare. The half that still applies there — the game
+        # Skipped where only one product exists: under `nopython` the trainer is
+        # not built at all, so "the two are different" has nothing to compare. The half that still applies there — the game
         # ships no Python — is the step below, which runs everywhere.
         if: ${{ !matrix.profiles }}
         shell: bash
         run: |
           set -euo pipefail
           game=$(echo ../missile-defense_*.deb)
-          bindings=$(echo ../python3-md_*.deb)
           trainer=$(echo ../missile-defense-trainer_*.deb)
-          for deb in "$game" "$bindings" "$trainer"; do
+          for deb in "$game" "$trainer"; do
             test -f "$deb" || { echo "missing: $deb" >&2; exit 1; }
           done
 
           contents() { dpkg-deb -c "$1" | awk '$NF !~ /\/$/ {print $NF}' | sed 's|^\./|/|'; }
-          contents "$game"     | sort > /tmp/game.list
-          contents "$bindings" | sort > /tmp/bindings.list
-          contents "$trainer"  | sort > /tmp/trainer.list
-          for list in game bindings trainer; do
+          contents "$game"    | sort > /tmp/game.list
+          contents "$trainer" | sort > /tmp/trainer.list
+          for list in game trainer; do
             echo "--- $list ---"; cat "/tmp/$list.list"
           done
 
@@ -576,34 +574,33 @@ jobs:
           # interpreter along whatever its file list says.
           relations=$(dpkg-deb -f "$game" Depends Recommends Pre-Depends | tr 'A-Z' 'a-z')
           echo "game relations: $relations"
-          for forbidden in python3-md pyside torch 'python3 ' 'python3:any'; do
+          for forbidden in missile-defense-trainer pyside torch 'python3 ' 'python3:any'; do
             if [[ "$relations" == *"$forbidden"* ]]; then
               echo "::error::the game package relates to $forbidden" >&2
               exit 1
             fi
           done
 
-          # The positive half: each of the other two carries what it is for.
+          # The positive half: the trainer carries what it is for, including the
+          # Python package that used to be a binary of its own.
           grep -q '/usr/bin/missile-defense-trainer$' /tmp/trainer.list
           grep -q 'missile-defense-trainer.desktop$' /tmp/trainer.list
-          grep -q 'dist-packages/missile_defense/ui/app.py$' /tmp/bindings.list
+          grep -q 'dist-packages/missile_defense/ui/app.py$' /tmp/trainer.list
           # Stable ABI, by filename. `_md_native.abi3.so` keeps working when the
           # distribution moves its Python a minor version; a `.cpython-313-`
           # name has to be rebuilt in lockstep with it, and until STABLE_ABI was
           # actually wired up that is what shipped. Anchored, not a substring —
           # `_md_native` alone matched the tagged name too, which is how it went
           # unnoticed.
-          grep -q 'dist-packages/missile_defense/_md_native\.abi3\.so$' /tmp/bindings.list || {
-            echo "::error::python3-md ships no stable-ABI extension:" >&2
-            grep '_md_native' /tmp/bindings.list >&2
+          grep -q 'dist-packages/missile_defense/_md_native\.abi3\.so$' /tmp/trainer.list || {
+            echo "::error::the trainer ships no stable-ABI extension:" >&2
+            grep '_md_native' /tmp/trainer.list >&2
             exit 1
           }
 
           # And no file is owned twice — dpkg refuses to install two packages
           # that both claim a path, so this is a broken install, not a nit.
-          if comm -12 /tmp/game.list /tmp/bindings.list | grep . ||
-             comm -12 /tmp/game.list /tmp/trainer.list | grep . ||
-             comm -12 /tmp/bindings.list /tmp/trainer.list | grep .; then
+          if comm -12 /tmp/game.list /tmp/trainer.list | grep .; then
             echo "::error::two packages own the same path" >&2
             exit 1
           fi
@@ -626,7 +623,7 @@ jobs:
           fi
           relations=$(dpkg-deb -f "$game" Depends Recommends Pre-Depends | tr 'A-Z' 'a-z')
           echo "game relations: $relations"
-          for forbidden in python3-md pyside torch 'python3 ' 'python3:any'; do
+          for forbidden in missile-defense-trainer pyside torch 'python3 ' 'python3:any'; do
             if [[ "$relations" == *"$forbidden"* ]]; then
               echo "::error::the game package relates to $forbidden" >&2
               exit 1
@@ -645,12 +642,12 @@ jobs:
           apt-get install -y --no-install-recommends ../missile-defense_*.deb
           test -x /usr/games/missile-defense
           if command -v missile-defense-trainer >/dev/null; then
-            echo "::error::a game-only install left an missile-defense-trainer on the machine" >&2
+            echo "::error::a game-only install left a missile-defense-trainer on the machine" >&2
             exit 1
           fi
           # The other direction, from the same starting point.
           apt-get install -y --no-install-recommends \
-            ../python3-md_*.deb ../missile-defense-trainer_*.deb
+            ../missile-defense-trainer_*.deb
           command -v missile-defense-trainer
           python3 -c "import missile_defense, missile_defense.ui; print('md', missile_defense.__version__, 'from', missile_defense.__file__)"
 
@@ -710,7 +707,7 @@ jobs:
 
       - name: The game alone installs, where it is the only package
         # `apt install missile-defense` with dependency checks on. The step
-        # above covers this where all three packages exist; under `nopython`
+        # above covers this where both packages exist; under `nopython`
         # the game is the whole install story and nothing else would prove it.
         if: ${{ matrix.profiles }}
         shell: bash

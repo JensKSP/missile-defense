@@ -187,13 +187,15 @@ def _debian_stanzas() -> dict[str, dict[str, str]]:
     return stanzas
 
 
-def test_debian_builds_three_binary_packages_from_one_source() -> None:
-    """The game, the Python half, and the trainer — separately installable."""
-    assert set(_debian_stanzas()) == {
-        "missile-defense",
-        "python3-md",
-        "missile-defense-trainer",
-    }
+def test_debian_builds_two_binary_packages_from_one_source() -> None:
+    """The two products, and nothing between them.
+
+    There used to be a third, `python3-md`, holding the Python half so it could be
+    installed on its own. It is gone: the audience for a headless environment
+    without the trainer is served by `pip install missile-defense`, and a third
+    name was a third thing to explain for a split nobody was using.
+    """
+    assert set(_debian_stanzas()) == {"missile-defense", "missile-defense-trainer"}
 
 
 def test_the_game_package_pulls_in_no_python_at_all() -> None:
@@ -204,19 +206,29 @@ def test_the_game_package_pulls_in_no_python_at_all() -> None:
     become one.
     """
     game = _debian_stanzas()["missile-defense"]
-    relations = " ".join(
-        game.get(field, "") for field in ("depends", "recommends", "suggests", "pre-depends")
+    # `suggests` is deliberately not in this list. apt does not install Suggests,
+    # so naming the trainer there costs a game-only install nothing — and it is
+    # the only thing that tells such an install the other half exists. What it
+    # must not become is a route to Python by another name, so it is pinned to
+    # exactly one package below rather than merely scanned.
+    installing = " ".join(
+        game.get(field, "") for field in ("depends", "recommends", "pre-depends")
     ).lower()
-    for forbidden in ("python3-md", "python3:any", "pyside", "torch"):
-        assert forbidden not in relations, f"the game package relates to {forbidden}"
+    for forbidden in ("missile-defense-trainer", "python3", "pyside", "torch"):
+        assert forbidden not in installing, f"the game package pulls in {forbidden}"
+    assert game.get("suggests", "").strip() == "missile-defense-trainer"
 
 
 def test_the_trainer_package_carries_the_dependencies_the_game_refuses() -> None:
     """And it is the trainer that depends on the game, never the other way round."""
     trainer = _debian_stanzas()["missile-defense-trainer"]
     relations = f"{trainer.get('depends', '')} {trainer.get('recommends', '')}".lower()
-    assert "python3-md" in relations, "the trainer does not depend on the Python half"
+    assert "numpy" in relations, "the trainer does not depend on numpy"
     assert "pyside6" in relations, "the trainer does not depend on PySide6"
+    # It carries a compiled extension now that the binding has no package of its
+    # own, so `all` would be a package that installs on an architecture it cannot
+    # run on.
+    assert trainer.get("architecture", "").strip() == "any"
 
 
 def test_the_trainer_package_can_build_the_runtime_it_offers_to_build() -> None:
@@ -241,13 +253,15 @@ def test_each_package_installs_a_disjoint_set_of_paths() -> None:
     """Two products cannot both own a file, and dpkg refuses if they try."""
     manifests = {
         name: set((ROOT / "debian" / f"{name}.install").read_text(encoding="utf-8").split())
-        for name in ("python3-md", "missile-defense-trainer")
+        for name in ("missile-defense", "missile-defense-trainer")
     }
-    assert not manifests["python3-md"] & manifests["missile-defense-trainer"]
+    assert not manifests["missile-defense"] & manifests["missile-defense-trainer"]
     # The trainer's entry point and its menu entry, which are what make it
-    # reachable from an install rather than only from a checkout.
+    # reachable from an install rather than only from a checkout — and the Python
+    # package, which moved here when `python3-md` was dissolved.
     trainer = " ".join(manifests["missile-defense-trainer"])
     assert "missile-defense-trainer" in trainer
+    assert "dist-packages/missile_defense" in trainer
     assert "missile-defense-trainer.desktop" in trainer
 
 

@@ -79,3 +79,37 @@ def _imported_by(path: Path) -> list[str]:
         elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
             names.append(node.module)
     return names
+
+
+def test_reading_a_run_does_not_need_the_native_binding() -> None:
+    """The layer below the trainer stays importable without the compiled extension.
+
+    A packaged trainer that cannot train must still start, browse and replay —
+    that is the promise CMakeLists.txt refuses to package a build without, and
+    the whole reason `_md_native` is a *training* dependency rather than a base
+    one. It is easy to break by accident and impossible to notice in a checkout,
+    where the binding is always there: a convenience re-export in
+    `missile_defense.sim.__init__` once put `env`, and therefore the `.so`,
+    behind an import of `sim.benchmark` — which is pure Python reading a CSV.
+
+    Checked in a subprocess with the extension hidden, because `sys.modules` in
+    this one already has it.
+    """
+    script = (
+        "import sys\n"
+        "sys.modules['missile_defense._md_native'] = None\n"
+        "import missile_defense.sim.benchmark\n"
+        "import missile_defense.sim.policy_format\n"
+        "import missile_defense.runs.sources\n"
+        "import missile_defense.runs.library\n"
+        "print('ok')\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**os.environ, "PYTHONPATH": IMPORT_PATH},
+    )
+    assert result.returncode == 0, result.stderr
+    assert "ok" in result.stdout

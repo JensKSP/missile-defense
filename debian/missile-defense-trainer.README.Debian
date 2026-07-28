@@ -44,7 +44,7 @@ thing to work around with --break-system-packages. Use a virtualenv:
     ~/.venvs/md/bin/missile-defense-train
 
 `--system-site-packages` is the whole trick: the venv sees the packaged
-`_md_native` extension and the `missile_defense` package from python3-md, while pip owns
+`_md_native` extension and the `missile_defense` package from this one, while pip owns
 torch inside the venv and touches nothing the archive installed.
 
 For a GPU build, take the index URL from https://pytorch.org/get-started/ —

@@ -30,6 +30,13 @@ Depends:
  ${misc:Depends}
 Recommends:
  libasound2t64 | libpulse0
+# Suggests and not Recommends: the game is complete without it, and pulling
+# PySide6 onto every machine that wanted an arcade game would be rude. But
+# nothing pointed at the trainer at all before this, so a game-only install had
+# no way to find out the other half exists — apt and the software centres show
+# Suggests, and the game's own TRAIN AI entry is the other half of the answer.
+Suggests:
+ missile-defense-trainer
 Description: faithful Atari Missile Command clone (Qt 6 + Vulkan)
  A modern, faithful clone of Atari's Missile Command (1980), built on a
  deterministic C++ simulation and rendered with Qt 6 and Vulkan.
@@ -46,25 +53,6 @@ Description: faithful Atari Missile Command clone (Qt 6 + Vulkan)
  This package is the game alone and depends on no Python. Training your own
  agent is the separate missile-defense-trainer package.
 
-Package: python3-md
-Build-Profiles: <!pkg.missile-defense.nopython>
-Section: python
-Architecture: any
-Depends:
- ${python3:Depends},
- ${shlibs:Depends},
- ${misc:Depends},
- python3-numpy
-Description: Python bindings for the Missile Defense simulation
- The deterministic C++ Missile Command simulation from the missile-defense
- game, exposed to Python as a batched, vectorised environment for reinforcement
- learning, together with the evaluation protocol the scripted baseline is
- measured with.
- .
- This is the library half only: it needs neither the game nor a GUI toolkit, so
- it is usable on a headless machine. It does not depend on PyTorch — the
- trainer does, and says so when you run it without one.
-
 Package: missile-defense-trainer
 Build-Profiles: <!pkg.missile-defense.nopython>
 # Not `games`, which it inherits from the source stanza: lintian rejects a
@@ -72,10 +60,21 @@ Build-Profiles: <!pkg.missile-defense.nopython>
 # training workbench with charts in it. `science` is where Debian files the
 # machine-learning tooling it sits beside.
 Section: science
-Architecture: all
+# `any`, not `all`: this package carries `_md_native`, a compiled extension. It
+# was `all` while the binding lived in a `python3-md` of its own, and that split
+# is gone — two packages for two products, and the Python half is not a product
+# anyone was installing on purpose.
+#
+# What that costs, stated rather than discovered later: `apt install python3-md`
+# for the environment alone, on a headless box with no Qt, is no longer possible.
+# Anyone who wants that has `pip install missile-defense`, which is the same code
+# and the audience it was really for. And Debian Python Policy would rather a
+# module in `dist-packages` came from a `python3-*` package than from this one;
+# that is a deliberate trade for having two names instead of three.
+Architecture: any
 # python3-venv is not decoration. The trainer's answer to "this machine has no
 # PyTorch" is to build one itself — `python3 -m venv` into the per-user data
-# directory, then pip from an allow-listed index (missile_defense/runs/runtime.py). Debian ships
+# directory, then pip from an allow-listed index (runs/runtime.py). Debian ships
 # `venv` in a package of its own and `${python3:Depends}` does not pull it, so
 # without this the one-time setup step fails on its first command, on a machine
 # that had done nothing wrong. It is a Depends and not a Recommends because
@@ -83,7 +82,8 @@ Architecture: all
 Depends:
  ${python3:Depends},
  ${misc:Depends},
- python3-md (>= ${source:Version}),
+ ${shlibs:Depends},
+ python3-numpy,
  python3-pyside6.qtcharts,
  python3-pyside6.qtwidgets,
  python3-venv

@@ -455,7 +455,7 @@ if(MD_INSTALL_PYTHON_PACKAGE)
 
   # A trainer without the native binding starts, browses and replays — and
   # cannot train, which is the one thing it is for. On Debian that cannot happen
-  # (python3-md Depends on the binding), but an installer payload is just files
+  # (the trainer package carries the binding), but an installer payload is just files
   # and would ship the hole silently. bindings/ skips itself when Python or
   # nanobind is missing, so this is exactly the case a packaging job hits.
   #

@@ -17,8 +17,8 @@ down has landed; `debian/*.install` is the authority for which file goes where.
 | | `/usr/share/icons/hicolor/…` | icons the desktop entry resolves |
 | | `/usr/share/man/man6/missile-defense.6.gz` | man page (section 6: games) |
 | | `/usr/share/doc/missile-defense/…` | licence and third-party notices |
-| `python3-md` | `/usr/lib/python3*/dist-packages/missile_defense/` | the environment, its native extension |
 | `missile-defense-trainer` | `/usr/bin/missile-defense-trainer`, `/usr/bin/missile-defense-train` | the trainer window and the training command |
+| | `/usr/lib/python3*/dist-packages/missile_defense/` | the Python package and its native extension |
 | | `/usr/share/applications/missile-defense-trainer.desktop` | menu entry for the trainer |
 
 The game package still contains **no Python at all** — that is the boundary the
@@ -122,7 +122,7 @@ recordings ship in the package, where they would break on the next upload.
 
 ## The split, when the Python side is packaged
 
-**Built.** `debian/control` produces the three binaries below from one source,
+**Built.** `debian/control` produces the two binaries below from one source,
 and `python/tests/e2e/test_packages.py` asserts from a staged install tree that
 they really are two products: the game-only tree has no `.py` file in it and its
 menu has no **TRAIN AI** entry, and the full tree resolves the launcher and
@@ -131,14 +131,22 @@ grows one. The division is by *dependency weight*, not by tidiness:
 | Package | Arch | Contents | Depends |
 |---|---|---|---|
 | `missile-defense` | any | the game, as today | Qt 6, Vulkan loader |
-| `python3-md` | any | `missile_defense.sim.env`, `missile_defense.sim.eval`, `missile_defense.runs.control`, `missile_defense.runs.paths`, `_md_native*.so` | `${python3:Depends}`, `python3-numpy` |
-| `missile-defense-trainer` | all | `missile_defense.training.train`, `missile_defense.training.ppo`, `missile_defense.ui`, the `missile-defense-train`/`missile-defense-trainer` entry points | `python3-md`; **Suggests** torch, PySide6, psutil, pynvml |
+| `missile-defense-trainer` | any | the whole `missile_defense` package, `_md_native*.so`, and the two entry points | `${python3:Depends}`, `python3-numpy`, PySide6, `python3-venv`; **Suggests** torch, pynvml |
 
-`python3-md` is the piece with reuse value on its own: a deterministic, vectorised
-RL environment that imports without a game installed. Splitting it also makes two
-boundaries into packaging facts rather than rules people remember — the game's
-dependencies never include Python, and the trainer's LGPLv3 Qt Charts never
-appear in the game's chain.
+Two packages, not three. There was a `python3-md` holding the Python half so it
+could be installed without the trainer; it is gone. The audience for a headless
+environment with no Qt is served by `pip install missile-defense` — the same
+code, and the distribution channel that audience already uses — and a third
+binary package was a third name to explain for a split nobody was choosing.
+
+What survives the merge is the boundary that matters: the game's dependency chain
+still contains no Python and no LGPLv3 Qt binding, and CI asserts it from the
+built `.deb` rather than from `debian/control`.
+
+Two costs, stated rather than discovered later. The trainer is `Architecture:
+any` now, because it carries a compiled extension. And Debian Python Policy would
+rather a module under `dist-packages` came from a package named `python3-*`;
+this one is not, which is the price of having two names instead of three.
 
 The trainer and the training loop stay in one package for now. Their heavy dependencies
 are disjoint (PySide6 versus torch), which argues for splitting them, but both are
@@ -197,7 +205,7 @@ inside the staged tree.
    a multi-gigabyte second copy that never gets used.
 2. Debian 12 and later mark the system interpreter *externally managed* (PEP 668),
    so `pip install torch` there fails by design. The documented path has to be a
-   virtualenv — and the one that works alongside a packaged `python3-md` is:
+   virtualenv — and the one that works alongside a packaged trainer is:
 
    ```bash
    python3 -m venv --system-site-packages ~/.venvs/md
@@ -208,8 +216,8 @@ inside the staged tree.
    `--system-site-packages` is the whole trick: the venv sees the distro-installed
    `_md_native.abi3.so` while pip owns torch. The stable ABI is what keeps that
    working when the distro's Python moves.
-3. It keeps `apt install python3-md` cheap for someone who only wants the
-   environment to run their own agent against.
+3. It keeps the trainer package cheap for someone who only wants to watch and
+   replay runs, which needs no torch at all.
 
 The price is that a missing torch must be *explained* rather than raised, and
 both commands now do. The trainer checks with `importlib.util.find_spec` and
@@ -257,8 +265,8 @@ silent by nature:
 * The top-level file turns that into a **fatal error** when
   `MD_INSTALL_PYTHON_PACKAGE` is on. A developer build may be tied to one
   interpreter; a build that is being packaged may not.
-* Each packaging job asserts the shipped filename — `python3-md`'s contents, the
-  staged NSIS component, the macOS trainer bundle — and `test_packaging.py`
+* Each packaging job asserts the shipped filename — the trainer `.deb`'s
+  contents, the staged NSIS component, the macOS trainer bundle — and `test_packaging.py`
   asserts both the declaration and the built artifact.
 
 ### Windows ships an extension from a second build
@@ -283,8 +291,8 @@ later rather than on one exact minor version.
 
 ## Checklist for the day this is published
 
-* `debian/control`: the three binary packages above, `dh-python`/`pybuild` for the
-  Python one, `${python3:Depends}` and `${shlibs:Depends}` on the extension.
+* `debian/control`: the two binary packages above, `dh-python`/`pybuild` for the
+  trainer, `${python3:Depends}` and `${shlibs:Depends}` on the extension.
 * `debian/rules`: build with `-DMD_BUILD_BINDINGS=ON` and
   `-DMD_PYTHON_INSTALL_DIR=/usr/lib/python3/dist-packages/missile_defense`, then
   `dh_auto_install` the `python` component. ✅ the install rule exists; what is

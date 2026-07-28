@@ -81,9 +81,9 @@ artifact, not a fresh install.
 | # | Package | Build | Who / when | Evidence | Result |
 |---|---|---|---|---|---|
 | 3.1 | Debian 13 (trixie) — `missile-defense` | | | | |
-| 3.2 | Debian 13 (trixie) — `python3-md` + `missile-defense-trainer` | | | | |
+| 3.2 | Debian 13 (trixie) — `missile-defense` + `missile-defense-trainer` | | | | |
 | 3.3 | Ubuntu 26.04 — `missile-defense` | | | | |
-| 3.4 | Ubuntu 26.04 — `python3-md` + `missile-defense-trainer` | | | | |
+| 3.4 | Ubuntu 26.04 — `missile-defense` + `missile-defense-trainer` | | | | |
 | 3.5 | Ubuntu 24.04 — `missile-defense` **(game only; no training packages exist for it)** | | | | |
 | 3.6 | Windows 10/11 x64 — NSIS installer | | | | |
 | 3.7 | Windows 10/11 x64 — portable ZIP | | | | |

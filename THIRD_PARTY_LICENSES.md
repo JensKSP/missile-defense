@@ -7,7 +7,8 @@ attribution/notice; the full license texts it refers to are in [`licenses/`](lic
 and are bundled with every binary distribution (Windows installer, Debian package).
 
 **Three products ship, and they carry different obligations.** The game
-(`missile-defense`) is self-contained C++; the bindings (`python3-md`) add a
+(`missile-defense`) is self-contained C++; the trainer
+(`missile-defense-trainer`) adds a
 compiled Python extension; the trainer (`missile-defense-trainer`) is
 pure Python that *depends on* PySide6 and, optionally, PyTorch. The distinction
 that matters here is **bundling versus depending**: an obligation attaches to
@@ -86,7 +87,7 @@ build time are licensed under Apache-2.0.
 
 ## nanobind — BSD-3-Clause notice (required)
 
-`_md_native`, the Python extension in `python3-md` and in the Windows/macOS
+`_md_native`, the Python extension in `missile-defense-trainer` and in the Windows/macOS
 trainer payload, is built with **nanobind** (© 2022 Wenzel Jakob), whose runtime
 is statically linked into it. BSD-3-Clause clause 2 requires that a *binary*
 redistribution reproduce the copyright notice, so unlike the credits below this

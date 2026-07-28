@@ -14,7 +14,7 @@ License: Expat
 Files: licenses/nanobind/*
 Copyright: 2022 Wenzel Jakob <wenzel.jakob@epfl.ch>
 Comment: nanobind itself is a build dependency and is not in this source tree,
- but its runtime is statically linked into python3-md's _md_native. BSD-3-Clause
+ but its runtime is statically linked into the trainer's _md_native. BSD-3-Clause
  clause 2 binds binary redistribution, so the text is carried here and shipped
  in every package that contains the extension. Everything else this source
  builds against — Qt 6, PySide6, PyTorch, NumPy — is resolved against the

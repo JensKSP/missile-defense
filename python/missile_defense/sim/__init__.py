@@ -23,8 +23,29 @@ costs nothing on a machine that has no torch.
 ``missile_defense.sim.env.VecEnv`` is a mouthful. Nothing else is: reaching for
 the evaluation protocol or the policy format is a deliberate act and should read
 like one.
+
+**Lazily**, and that is not a micro-optimisation. Importing ``env`` imports
+``_md_native``, and a trainer without the binding must still start, browse and
+replay — it just cannot train (CMakeLists.txt says the same thing where it
+refuses to package one). An eager re-export here put the extension behind every
+import in this layer: ``runs.sources`` asks for ``sim.benchmark``, which is pure
+Python and reads a CSV, and got an ``ImportError`` about a missing ``.so``
+instead. The staged-install test caught it; nothing else would have, because a
+development checkout always has the binding.
 """
 
-from .env import VecEnv
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # the type checkers need the real thing; the interpreter does not
+    from .env import VecEnv
 
 __all__ = ["VecEnv"]
+
+
+def __getattr__(name: str) -> object:
+    """PEP 562: resolve ``VecEnv`` on first use rather than on import."""
+    if name == "VecEnv":
+        from .env import VecEnv as _VecEnv  # noqa: PLC0415 — the whole point
+
+        return _VecEnv
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
