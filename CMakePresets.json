@@ -15,17 +15,18 @@
     {
       "name": "debug",
       "inherits": "base",
-      "displayName": "Clang Debug (ASan+UBSan)",
+      "displayName": "Debug (ASan+UBSan)",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "MD_SANITIZE": "ON",
-        "MD_VULKAN_VALIDATION": "ON"
+        "MD_VULKAN_VALIDATION": "ON",
+        "MD_DEV_TOOLCHAIN": "ON"
       }
     },
     {
       "name": "release",
       "inherits": "base",
-      "displayName": "Clang RelWithDebInfo -O3 + ThinLTO",
+      "displayName": "RelWithDebInfo -O3 + ThinLTO (system compiler)",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
         "CMAKE_CXX_FLAGS_RELWITHDEBINFO": "-O3 -g -DNDEBUG",
@@ -35,30 +36,32 @@
     {
       "name": "profile",
       "inherits": "base",
-      "displayName": "Clang -O3 + LTO, built for external sampling profilers",
+      "displayName": "-O3 + LTO, built for external sampling profilers",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
         "CMAKE_CXX_FLAGS_RELWITHDEBINFO": "-O3 -g -DNDEBUG",
         "MD_LTO": "ON",
         "MD_BUILD_APP": "OFF",
-        "CMAKE_CXX_FLAGS": "-fno-omit-frame-pointer -g"
+        "CMAKE_CXX_FLAGS": "-fno-omit-frame-pointer -g",
+        "MD_DEV_TOOLCHAIN": "ON"
       }
     },
     {
       "name": "coverage",
       "inherits": "base",
-      "displayName": "Clang Coverage (core only)",
+      "displayName": "Coverage (core only)",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "MD_COVERAGE": "ON",
-        "MD_BUILD_APP": "OFF"
+        "MD_BUILD_APP": "OFF",
+        "MD_DEV_TOOLCHAIN": "ON"
       }
     },
     {
       "name": "win-native",
       "inherits": "base",
       "displayName": "MSVC/clang-cl headless + Python bindings (for torch on native Windows)",
-      "description": "Headless only: no Qt, no Vulkan. Builds _md_native against a native Windows CPython so PyTorch can be imported alongside it \u2014 the MSYS2 build cannot, because torch ships no MinGW wheel. The Qt app keeps using the clang presets. Warnings are not errors here: the Clang presets are the quality gate, and MSVC's warning set differs enough that gating on it would mean tuning the tree for a second compiler with no extra safety.",
+      "description": "Headless only: no Qt, no Vulkan. Builds _md_native against a native Windows CPython so PyTorch can be imported alongside it — the MSYS2 build cannot, because torch ships no MinGW wheel. The Qt app keeps using the clang presets. Warnings are not errors here: the Clang presets are the quality gate, and MSVC's warning set differs enough that gating on it would mean tuning the tree for a second compiler with no extra safety.",
       "condition": {
         "type": "equals",
         "lhs": "${hostSystemName}",

@@ -102,6 +102,58 @@ target_link_libraries(_md_native PRIVATE md::rl)
 set_target_properties(_md_native PROPERTIES
   LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/python/md")
 
+# ---- Beside the Python package, so a checkout is importable ------------------
+# `md.env` imports this as `md._md_native`, so the object has to sit next to
+# python/md/. That copy used to be a Python script run after the fact, which made
+# `cmake --build` produce a module nothing could import until a second, separate
+# tool was run over it. It is a build step, so it belongs to the build. The
+# destination is gitignored: writing into the source tree is the point, because
+# it is what makes pytest and an interactive session work from a plain checkout
+# with no install step and no PYTHONPATH.
+set(md_native_built "_md_native${md_native_suffix}")
+set(md_native_beside "${CMAKE_SOURCE_DIR}/python/md")
+
+# What this build *supersedes* — never simply "everything called _md_native*".
+# A module carrying a different ABI tag is a second toolchain's, deliberately
+# kept: on Windows an MSYS2 build and an MSVC one coexist (docs/TRAINING.md) and
+# an interpreter imports only its own tag, so deleting the other one breaks that
+# toolchain and buys nothing. Two names do have to go:
+#   * the untagged `_md_native.so`, a stale shadow of this same module;
+#   * the version-tagged name, but only when this build is abi3 — importlib tries
+#     the version-tagged suffix first, so a checkout that once built the tagged
+#     module would keep importing it for ever, including the run meant to prove
+#     the stable ABI works.
+set(md_native_superseded "_md_native${CMAKE_SHARED_MODULE_SUFFIX}")
+if(MD_NATIVE_IS_ABI3)
+  list(APPEND md_native_superseded
+       "_md_native.${Python_SOABI}${CMAKE_SHARED_MODULE_SUFFIX}")
+endif()
+list(REMOVE_ITEM md_native_superseded "${md_native_built}")
+list(REMOVE_DUPLICATES md_native_superseded)
+
+set(md_native_cleanup "")
+foreach(stale IN LISTS md_native_superseded)
+  list(APPEND md_native_cleanup
+       COMMAND "${CMAKE_COMMAND}" -E rm -f "${md_native_beside}/${stale}")
+endforeach()
+
+# The placed file is declared as an OUTPUT rather than done in a POST_BUILD step,
+# and the difference is the whole reliability of this: POST_BUILD runs only when
+# the target relinks, so deleting python/md/_md_native.* and building again would
+# leave it deleted and report success. As an output with the module as its
+# dependency, it is something the build knows it owes you — removed by hand, it
+# comes back on the next build, like any other artefact.
+add_custom_command(
+  OUTPUT "${md_native_beside}/${md_native_built}"
+  DEPENDS _md_native
+  ${md_native_cleanup}
+  COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+          "$<TARGET_FILE:_md_native>" "${md_native_beside}/"
+  COMMENT "Placing ${md_native_built} beside python/md/"
+  VERBATIM)
+add_custom_target(md_native_beside_package ALL
+  DEPENDS "${md_native_beside}/${md_native_built}")
+
 # ---- Installing it -----------------------------------------------------------
 # Until now the module only ever landed in the build tree, which is right for
 # in-place development (`poe bindings` copies it beside the package) and leaves

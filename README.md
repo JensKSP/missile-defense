@@ -91,14 +91,17 @@ sudo apt install -y g++ cmake ninja-build \
 # 2 — build (no Python needed, and no install step afterwards)
 git clone https://github.com/JensKSP/missile-defense.git
 cd missile-defense
-CXX=g++ cmake --preset release && cmake --build --preset release
+cmake --preset release && cmake --build --preset release
 
 # 3 — play
 ./build/release/app/md_app
 ```
 
-Ubuntu 24.04 remains supported, but its default g++-13 lacks C++23 `<print>`.
-There, install `g++-14` instead of `g++` and configure with
+No `CXX=` in front of that, and nothing to choose: a build uses the compiler your
+system already has. If it is older than the minimum, CMake says so by name at
+configure time rather than failing somewhere inside a header. Ubuntu 24.04 is the
+one supported release where that happens — its default `g++-13` has no C++23
+`<print>` — so install `g++-14` there and configure with
 `CXX=g++-14 cmake --preset release`.
 
 **Play it.** The mouse aims, left click fires from the nearest battery with
@@ -177,7 +180,7 @@ Built and tested on Debian (trixie); adjust package names for other distros.
 
 | Purpose | Packages |
 |---|---|
-| C++23 compiler | `clang-21 lld-21` *(or any C++23 compiler — see note below)* |
+| C++23 compiler | `g++` *(your system's own; see note below)* |
 | Build system | `cmake` (≥ 3.25), `ninja-build` |
 | GUI toolkit | `qt6-base-dev qt6-base-dev-tools` |
 | Vulkan (dev + loader) | `libvulkan-dev` |
@@ -199,9 +202,20 @@ The `apt install` line for exactly these is in the
 > is absent — which works, but turns a package install into a source download,
 > so it is listed above rather than left to the fallback.
 
-> **Compiler note:** the CMake preset pins **clang-21** (Debian package). To use
-> a different compiler, edit `CMakePresets.json` (the `CMAKE_CXX_COMPILER` cache
-> variable) or pass `-DCMAKE_CXX_COMPILER=<your-c++23-compiler>`.
+> **Compiler note:** a build uses **the compiler your operating system already
+> has** — GCC on Linux, Apple Clang on macOS, MSVC on Windows — and chooses
+> nothing for you. That is what lets the quick start work on a machine nobody
+> prepared, and it is the same path the `.deb` and the `pip install` wheel take,
+> each wanting the toolchain of the system it is on.
+> [CMakeLists.txt](CMakeLists.txt) states each floor and refuses an older one
+> with a sentence rather than a page of template errors. `CXX=<compiler>` or
+> `-DCMAKE_CXX_COMPILER=<compiler>` overrides all of it.
+>
+> **Development prefers Clang**, and only there: `clang-tidy`, the sanitizer
+> builds and LLVM source-based coverage are what this project is measured with.
+> The `debug`, `profile` and `coverage` presets ask for Clang on Linux (macOS is
+> Clang already), so working on the code means installing `clang` — building and
+> playing it does not.
 
 ### Optional — development, tests, and the task runner
 
@@ -209,17 +223,26 @@ The `apt install` line for exactly these is in the
 |---|---|
 | Task runner + Python tooling | `python3 python3-pip python3-venv` then `python3 -m tools.bootstrap` from the checkout |
 | Vulkan validation (debugging) | `vulkan-validationlayers`, `vulkan-tools` (for `vulkaninfo`) |
-| Editor tooling | `clangd-21 clang-format-21 clang-tidy-21` |
-| Coverage | `llvm-21` (provides `llvm-cov-21`, `llvm-profdata-21`) |
+| Development compiler | `clang` — what the `debug`, `profile` and `coverage` presets ask for |
+| Editor tooling | `clangd clang-format clang-tidy` |
+| Coverage | `llvm` (provides `llvm-cov`, `llvm-profdata`) |
 | Debian package build | `cpack` (ships with `cmake`), `dpkg-dev` |
 | Screenshot / video capture | `imagemagick` (`import`), `ffmpeg`, `xdotool` — on Linux/X11; Windows and macOS use what they ship with |
 
 ```bash
 sudo apt install python3 python3-pip python3-venv \
   vulkan-validationlayers vulkan-tools \
-  clangd-21 clang-format-21 clang-tidy-21 llvm-21 \
+  clang clangd clang-format clang-tidy llvm \
   dpkg-dev imagemagick ffmpeg xdotool
 ```
+
+> **Tooling note:** the `poe` tasks take the first name they find on `PATH`,
+> trying a version-suffixed binary before the plain one
+> ([tools/quality.py](tools/quality.py), [tools/coverage.py](tools/coverage.py)),
+> so your distribution's defaults are enough to work in the tree. The suffixed
+> name is there because the CI gate pins one version deliberately: a check that
+> judges the code has to judge it the same way twice, which is a stricter
+> requirement than merely building.
 
 ## Build & run
 

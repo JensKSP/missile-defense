@@ -7,8 +7,8 @@ The quick start is the first thing a stranger types and the one place they have
 no context to debug from — and it is the hardest page to keep true, because
 everyone who could notice it is broken already has the packages installed.
 Writing it surfaced exactly that class of error once already (a dropped
-``apt update``, which makes ``apt install clang-21`` fail outright on a stale
-index, and is invisible from a machine that has the index).
+``apt update``, which makes the ``apt install`` fail outright on a stale index,
+and is invisible from a machine that has the index).
 
 So: extract the commands *out of the README* and run them on a clean copy of the
 current Ubuntu LTS.

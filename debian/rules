@@ -2,14 +2,14 @@
 # Build with debhelper + the CMake buildsystem.
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 
-# The top-level CMakeLists nudges Linux builds to Clang whenever it finds one.
-# That is right for development and wrong for a package: a .deb must be built
-# with the distribution's own toolchain. A buildd has no clang for the nudge to
-# find, so this changes nothing there — but it decides the build on any machine
-# that does have one, which until now meant the package silently came out of a
-# different compiler than Debian would use. It also failed: clang writes DWARF 5
-# with a .debug_addr section, dh_dwz cannot read it, and the build died at the
-# last step with 104/104 tests already passed. $CXX beats the nudge by design.
+# A .deb must be built with the distribution's own toolchain. The top-level
+# CMakeLists agrees — an ordinary build takes the system compiler and chooses
+# nothing — so this is no longer arguing with it, only being explicit about
+# *which* GCC. It was arguing with it once, and the reason is worth keeping: back
+# when every Linux build reached for Clang if it could find one, the package
+# silently came out of a compiler Debian would not have used, and then failed —
+# clang writes DWARF 5 with a .debug_addr section, dh_dwz cannot read it, and the
+# build died at the last step with 104/104 tests already passed.
 #
 # The side effect is worth having on its own. Everything else — the Linux gate,
 # macOS, Windows — is Clang, so this is the one build that compiles the tree with

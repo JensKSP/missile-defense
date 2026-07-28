@@ -195,8 +195,10 @@ TEST_CASE("An empty field drives the attention's zero path", "[unit][agent][poli
     const std::vector<Sample> samples = parity_samples("tiny-entity-parity.json");
     const md::ObsSpec spec{};
     std::size_t offset = 0;
-    // By reference: GCC's -Wrange-loop-construct flags the copy and the quick
-    // start builds with g++ and -Werror, where clang-21 says nothing at all.
+    // By reference: GCC's -Wrange-loop-construct flags the copy, where Clang
+    // says nothing at all — and an ordinary Linux build is GCC's, since a build
+    // takes the system compiler. Development runs on Clang, so this is one of
+    // the diagnostics only the default build would ever show you.
     for (const auto& [slots, features] : std::array<std::pair<std::size_t, std::size_t>, 3>{
              {{spec.threats, md::ObsSpec::threat_features},
               {spec.interceptors, md::ObsSpec::interceptor_features},

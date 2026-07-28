@@ -83,9 +83,18 @@ jobs:
         # to fail on. `poe vulkan-runtime` now refuses to run without it rather
         # than reporting a clean renderer nobody checked.
         run: |
+          # Clang, because this job builds the `debug` preset and that is a
+          # development build — sanitizers and Vulkan validation, the things
+          # Clang is preferred for. From apt.llvm.org for the same reason the
+          # gate uses it: this runner's Ubuntu is older than the project's
+          # minimum Clang. Distribution toolchains are proven by the packaging
+          # jobs in build.yml, not here.
+          wget -qO llvm.sh https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 21
           sudo apt-get update
           sudo apt-get install -y \
-            cmake ninja-build g++-14 \
+            cmake ninja-build \
             qt6-base-dev qt6-base-dev-tools \
             libvulkan-dev glslang-tools mesa-vulkan-drivers \
             libminiaudio-dev catch2 nlohmann-json3-dev \
@@ -200,6 +209,8 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
+          # g++ on purpose: a wheel is compiled by whoever runs `pip install`,
+          # on whatever they have, which is the system compiler this proves.
           sudo apt-get install -y cmake ninja-build g++ python3 python3-venv python3-pip
 
       - name: Build and install the wheel
@@ -290,6 +301,9 @@ jobs:
       - uses: actions/checkout@v7
       - name: Install build dependencies
         run: |
+          # No compiler installed on purpose: `poe bindings` builds the `release`
+          # preset, which takes the system's own compiler, and proving that works
+          # on a stock runner is part of what this job is for.
           sudo apt-get update
           sudo apt-get install -y \
             cmake ninja-build \

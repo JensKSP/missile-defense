@@ -4,15 +4,33 @@
 cmake_minimum_required(VERSION 3.25)
 
 # ---- Compiler selection ------------------------------------------------------
-# The project targets Clang (LLVM source-based coverage + clang-tidy). Windows
-# (MSYS2 CLANG64) and macOS already default to Clang; only Linux defaults to GCC,
-# so nudge it there. An explicit -DCMAKE_CXX_COMPILER or a $CXX in the environment
-# always wins. Must run before project() so it takes effect at compiler detection.
-if(NOT DEFINED CMAKE_CXX_COMPILER AND NOT DEFINED ENV{CXX}
+# An ordinary build uses the compiler the operating system already has: GCC on
+# Linux, Apple Clang on macOS, MSVC on Windows. Nothing is chosen here for it.
+# That is what makes `cmake --preset release` work on a machine nobody prepared
+# — the quick start, the wheel pip builds on a stranger's computer, and the .deb
+# a distribution builds are all that same path, and each of them wants the
+# toolchain of the system it is on rather than one this file went looking for.
+#
+# Development is the exception, and only on Linux, where the OS default is not
+# Clang: clang-tidy, the sanitizer builds and LLVM source-based coverage are the
+# instruments this project is measured with, so the presets that mean "I am
+# working on this" (debug, profile, coverage) ask for Clang by setting
+# MD_DEV_TOOLCHAIN. macOS is Clang already and Windows is MSVC's, so neither
+# needs the nudge. An explicit -DCMAKE_CXX_COMPILER or a $CXX in the environment
+# beats all of it. Must run before project(), which is when the compiler is
+# detected — and MD_DEV_TOOLCHAIN is readable here because a preset's cache
+# variables arrive on the command line, before this file is first read.
+if(MD_DEV_TOOLCHAIN AND NOT DEFINED CMAKE_CXX_COMPILER AND NOT DEFINED ENV{CXX}
    AND CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
+  # The versioned name first is the quality gate's pin; the bare one is whatever
+  # the distribution calls its default Clang, which is all a dev build needs.
   find_program(MD_CLANGXX NAMES clang++-21 clang++)
   if(MD_CLANGXX)
     set(CMAKE_CXX_COMPILER "${MD_CLANGXX}" CACHE FILEPATH "C++ compiler")
+  else()
+    message(STATUS
+      "md: no clang++ found — this development build uses the system default. "
+      "clang-tidy and `poe coverage` need Clang; install it to run them.")
   endif()
 endif()
 
@@ -32,9 +50,44 @@ project(missile_defense
   LANGUAGES CXX)
 
 # ---- Language standard -------------------------------------------------------
+# C++23 is the newest complete standard the floor compilers below implement, so
+# it is the one the tree is written in. (Both offer a partial C++26 through
+# -std=c++2c; a preview mode is not something a minimum requirement can name.)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+
+# ---- Minimum compiler --------------------------------------------------------
+# Every supported compiler is welcome; each has a floor, and the floor is the
+# same idea in three dialects — the newest complete C++ standard this tree is
+# written in is C++23, and the library half of it (the <print> that agent/ and
+# bench/ use) arrives with the standard library, not the front end.
+#
+#   GCC 14      the default on Debian 13 and Ubuntu 26.04. libstdc++ 13 has no
+#               <print>, which is what makes 14 rather than 13 the number.
+#   Clang 19    the newest in Debian 13's `main`, so a development machine needs
+#               no backport and no third-party apt repository to get one.
+#   AppleClang  numbered on Xcode's own scale, so it is not compared against
+#               either of the above; docs/MACOS.md carries its requirement.
+#   MSVC        docs/WINDOWS.md carries its requirement.
+#
+# Refused here, with a sentence, rather than eight screens into a template error.
+# NOT MSVC excludes the MSVC-frontend clang-cl, which versions itself on LLVM's
+# scale but is Windows' business.
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
+   AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 14)
+  message(FATAL_ERROR
+    "GCC ${CMAKE_CXX_COMPILER_VERSION} is older than this project's minimum, "
+    "GCC 14 — earlier libstdc++ has no C++23 <print>, which the command-line "
+    "tools use. Ubuntu 24.04 ships g++-14 alongside its default g++-13: install "
+    "it and configure with CXX=g++-14.")
+elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND NOT MSVC
+       AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 19)
+  message(FATAL_ERROR
+    "Clang ${CMAKE_CXX_COMPILER_VERSION} is older than this project's minimum, "
+    "Clang 19 — the `clang` package on Debian 13. Install a newer one and point "
+    "CXX / -DCMAKE_CXX_COMPILER at it.")
+endif()
 
 # Always emit compile_commands.json (clangd / clang-tidy consume it).
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -51,11 +104,30 @@ option(MD_WERROR "Treat warnings as errors" ON)
 option(MD_PEDANTIC "Enable -Wpedantic (strict ISO conformance diagnostics)" ON)
 option(MD_BUILD_APP "Build the Qt 6 + Vulkan app (needs Qt6 + Vulkan)" ON)
 option(MD_COVERAGE "Instrument for LLVM source-based coverage (clang)" OFF)
+# The one thing that genuinely cannot be had from another compiler: this is LLVM
+# source-based instrumentation, read back by llvm-profdata/llvm-cov
+# (tools/coverage.py). GCC produces gcov data instead, which those tools cannot
+# read — and the failure without this check is an empty report rather than an
+# error, which is to say a coverage gate that passes by measuring nothing.
+if(MD_COVERAGE AND NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  message(FATAL_ERROR
+    "MD_COVERAGE needs Clang (LLVM source-based coverage); this build uses "
+    "${CMAKE_CXX_COMPILER_ID}. The `coverage` preset asks for Clang on Linux — "
+    "install one, or point CXX / -DCMAKE_CXX_COMPILER at it.")
+endif()
 option(MD_VULKAN_VALIDATION "Request Vulkan validation layers (dev only)" OFF)
 option(MD_FETCH_MINIAUDIO "Fetch miniaudio when no system copy (libminiaudio-dev) is found" ON)
 option(MD_NATIVE "Optimise for this machine's CPU (-march=native); not portable" OFF)
 option(MD_LTO "Link-time optimisation (ThinLTO) — cross-TU inlining" OFF)
-option(MD_BUILD_BINDINGS "Build the nanobind Python extension (needs Python + nanobind)" OFF)
+# ON, so that `cmake --build` alone produces the whole product rather than the
+# C++ two-thirds of it — the extension is part of what this repository builds,
+# and a build system that needs a task runner standing behind it to finish the
+# job is two build systems. Safe as a default because bindings/CMakeLists.txt
+# looks for Python and nanobind before it builds anything and reports a skip
+# rather than failing: a checkout with no Python toolchain configures and builds
+# exactly as it did when this was OFF. Turn it off explicitly to be certain (the
+# `nopython` Debian profile and the install-tree test both do).
+option(MD_BUILD_BINDINGS "Build the nanobind Python extension (needs Python + nanobind)" ON)
 # The two headless command-line tools: the scripted-agent evaluator (poe eval)
 # and the throughput benchmark (poe bench). On for a dev or packaging build; the
 # wheel turns it OFF (pyproject.toml). They are the only translation units in the
@@ -115,6 +187,21 @@ else()
     -Wformat=2
     -Wimplicit-fallthrough
     -Wmisleading-indentation)
+  # GCC only, and not a preference: -Wnull-dereference fires *inside libstdc++*
+  # on an optimised GCC build, reporting `_M_in_cur` / `_M_in_end` in
+  # <streambuf> as potentially null after it inlines
+  # `std::string{istreambuf_iterator, {}}` — the ordinary read-a-file-into-a-
+  # string idiom (agent/src/policy.cpp). There is nothing in our code to fix: the
+  # pointers it doubts are basic_streambuf's own, and the usual "warnings do not
+  # come from system headers" rule does not save us, because the diagnostic is
+  # raised by the optimiser after inlining rather than by the parser.
+  #
+  # It stays on for Clang, which does not have the false positive, so the check
+  # is still enforced somewhere real — and dropping it here is what lets the
+  # default build on Debian 13 (GCC 14) compile at all under -Werror.
+  if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(md_warnings INTERFACE -Wno-null-dereference)
+  endif()
 endif()
 # Separate from the list above so a packaging build can drop it alone. MSVC has
 # no -Wpedantic; /permissive- above is the nearest thing and is conformance mode

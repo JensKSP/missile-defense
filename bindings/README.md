@@ -11,14 +11,22 @@ Two targets live here:
 the same test gate as the core (`bindings/tests`, CTest label `unit`). It needs
 no Python — only `md::core` — so a plain C++ checkout still builds and tests it.
 
-The extension is the optional half:
+The extension is built by an ordinary build — no flag, no task runner:
 
 ```bash
-cmake --preset release -DMD_BUILD_BINDINGS=ON -DPython_EXECUTABLE=$(which python)
-cmake --build --preset release          # -> build/release/python/md/_md_native*.so
+cmake --preset release
+cmake --build --preset release   # -> build/release/python/md/, and python/md/
 ```
 
-CMake skips just that target, with a message, if Python or nanobind is absent.
+It lands twice on purpose: in the build tree, and beside `python/md/`, which is
+where `md.env` imports it from — so a plain checkout is importable with no
+install step and no `PYTHONPATH`. Both are outputs of the build, so deleting the
+placed copy brings it back on the next build rather than silently staying gone.
+
+CMake skips just that target, with a message, if Python or nanobind is absent, so
+a checkout with no Python toolchain builds exactly as before. To build against an
+interpreter other than the one CMake finds, name it:
+`-DPython_EXECUTABLE=$(which python)`. `-DMD_BUILD_BINDINGS=OFF` opts out.
 
 ## What is exposed
 

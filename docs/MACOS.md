@@ -75,9 +75,9 @@ is installed.
   the CLI tools use them, so an older target fails to compile `<print>`. Override
   it on the command line if your libc++ allows lower.
 - **Apple Clang is fine.** The tree needs C++23, which Xcode 16's Clang provides.
-  Homebrew's `llvm` would match the pinned clang-21 more exactly, but it brings
-  its own libc++ — mixing that with a Homebrew Qt built against Apple's is an ABI
-  hazard. Use Apple Clang for anything that links Qt.
+  Homebrew's `llvm` would match the Clang the Linux gate pins more exactly, but
+  it brings its own libc++ — mixing that with a Homebrew Qt built against Apple's
+  is an ABI hazard. Use Apple Clang for anything that links Qt.
 - **Single architecture.** Builds are native-arch, because Homebrew's Qt is not
   universal. A universal binary would mean building Qt twice yourself.
 - **The bundle is built in the dev tree too**, not just at install time, so what

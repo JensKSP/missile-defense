@@ -60,7 +60,7 @@ The set maps onto the Debian dependencies in the
 
 | MSYS2 package | Debian equivalent | Purpose |
 |---|---|---|
-| `clang`, `lld` | `clang-21 lld-21` | C++23 compiler and linker |
+| `clang`, `lld` | `g++` | C++23 compiler and linker — CLANG64 links with lld because that is its toolchain's default; the Linux build passes no `-fuse-ld` and takes the system linker |
 | `cmake`, `ninja` | `cmake ninja-build` | Build system |
 | `qt6-base` | `qt6-base-dev` | GUI toolkit |
 | `vulkan-headers`, `vulkan-loader` | `libvulkan-dev` | Vulkan loader and headers |
@@ -75,8 +75,10 @@ clang-format) and `mingw-w64-clang-x86_64-vulkan-tools` (`vulkaninfo`).
 
 ## Build notes
 
-* The presets **auto-detect Clang** here — the `clang++-21` pin is Linux-only —
-  so `cmake --preset release` and `--preset debug` work unchanged.
+* The presets take **the toolchain of the shell you are in** — the `clang++`
+  preference in [CMakeLists.txt](../CMakeLists.txt) applies to Linux development
+  builds only — so from CLANG64, `cmake --preset release` and `--preset debug`
+  work unchanged.
 * **ASan/UBSan are not enabled on Windows** (there is no MinGW LeakSanitizer
   runtime), so the `debug` preset builds as a plain Debug build. Sanitizer
   coverage is a Linux-only property of this project.

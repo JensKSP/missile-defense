@@ -10,9 +10,10 @@
 
 The heavy lifting is in ``_md_native``, a nanobind extension around ``md::core``:
 observations are written directly into this package's NumPy buffers and the batch
-step releases the GIL, so the C++ worker pool runs in parallel. Build it with::
+step releases the GIL, so the C++ worker pool runs in parallel. An ordinary build
+produces it and places it beside this package::
 
-    cmake --preset release -DMD_BUILD_BINDINGS=ON
+    cmake --preset release && cmake --build --preset release
 
 See ``docs/API.md`` for the observation contract, action space and reward spec.
 """
