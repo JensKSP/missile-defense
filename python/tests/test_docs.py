@@ -139,6 +139,30 @@ def test_every_relative_link_resolves() -> None:
     assert not broken, "documentation links to files that do not exist:\n  " + "\n  ".join(broken)
 
 
+def test_every_screenshot_is_still_referenced() -> None:
+    """The other direction: an image nothing points at is a feature nothing does.
+
+    `docs/images/replays.png` outlived the menu entry it depicted by exactly as
+    long as it took someone to notice. Deleting the last reference to a
+    screenshot is the normal way a withdrawn feature leaves the prose, and the
+    picture of it is what stays behind — so the orphan *is* the signal.
+
+    A screenshot is also the one part of the documentation no text check can
+    read. `menu.png` went on showing a REPLAYS entry through every edit that
+    removed the word, because the word was not in it.
+    """
+    images = sorted((PROJECT_ROOT / "docs" / "images").glob("*.png"))
+    assert images, "no screenshots found — this test is looking in the wrong place"
+    text = "\n".join(doc.read_text(encoding="utf-8") for doc in _maintained_docs())
+    orphans = [_rel(image) for image in images if image.name not in text]
+    assert not orphans, (
+        "screenshots no maintained document references:\n  "
+        + "\n  ".join(orphans)
+        + "\nDelete them, or reference them. An unreferenced screenshot is usually "
+        "a picture of something that no longer exists."
+    )
+
+
 def test_every_poe_task_named_in_the_docs_exists() -> None:
     """The commands are the part a reader will actually paste into a shell.
 

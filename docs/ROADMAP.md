@@ -88,8 +88,12 @@ see it learn, and a scalar reward curve does not show you *why* a run went badly
   to, so seeking forward plays forward; seeking back rewinds to the nearest snapshot
   (every 600 ticks — `Sim` state is a `memcpy`) and plays from there, which bounds a
   backwards seek instead of replaying from tick zero.
-- ✅ **Browser** — a **REPLAYS** menu entry lists what is in `runs/`, newest first,
-  rescanned on each visit so a training run in progress shows its latest episodes.
+- ✅ **Browser** — a screen listing what is in `runs/`, newest first, rescanned on
+  each visit so a training run in progress shows its latest episodes. Built,
+  tested, and reached through **WATCH AI → MODELS**; its own top-level menu entry
+  is withdrawn for now (`GameWindow::action_at`), because on a machine that has
+  never trained anything an empty list is the only thing it can say, and that is
+  the common case. Nothing behind it was removed.
 - ⬜ **Recording human play** — the recorder logs discrete action indices, which is what
   a policy emits; a human's mouse aim is a continuous `Action` and does not fit that
   format. Deferred until the player model is calibrated (see the note in `config.hpp`).

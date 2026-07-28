@@ -225,7 +225,7 @@ nobody discovered there was a trainer at all.
 | | |
 |:---:|:---:|
 | ![The title menu, drawn in the game's own pixel font](docs/images/menu.png) | ![Interceptor blasts expanding over the skyline](docs/images/intercept.png) |
-| **Full arcade shell** — menu, replays, options, help, highscores | **Interceptors** — travel time, then an expanding blast |
+| **Full arcade shell** — menu, options, help, highscores | **Interceptors** — travel time, then an expanding blast |
 
 ## Requirements
 
@@ -673,15 +673,7 @@ directly:
 
 ### Watch replays
 
-The browser that lists the recordings in `runs/` — both the ones sitting
-directly in it and the ones inside each managed run, newest first — is built and
-tested, but its **REPLAYS** menu entry is commented out for now
-(`GameWindow::action_at`): on a machine that has never trained anything, an
-empty list is the only thing it can say, and that is the common case.
-
-![The REPLAYS browser listing recorded episodes from a training run, newest first](docs/images/replays.png)
-
-So name a recording directly:
+Name a recording and the game plays it back:
 
 ```bash
 ./build/release/app/md_app --replay runs/update-01000.mdr

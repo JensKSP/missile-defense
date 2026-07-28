@@ -58,7 +58,7 @@ rather than supplying the answer yourself.
 
 | Step | Do this | Expect to see | Row |
 |---|---|---|---|
-| 1 | Install both packages. Launch **Missile Defense** from the desktop menu — not from a shell | The menu: START, WATCH AI, REPLAYS, TRAIN AI, OPTIONS, HIGHSCORES, ABOUT | 2.1 |
+| 1 | Install both packages. Launch **Missile Defense** from the desktop menu — not from a shell | The menu: START, WATCH AI, TRAIN AI, HELP, OPTIONS, HIGHSCORES, ABOUT, EXIT | 2.1 |
 | 2 | **START**. Play one game to the end | Cities fall, the wave counter climbs, game over — and initials entry if you qualified | 2.2 |
 | 3 | **OPTIONS → AI SKILL LOW**, back, **WATCH AI → SCRIPTED**. Then repeat at **HIGH** | Two visibly different agents. LOW double-fires at warheads already doomed; HIGH does not. The difference must read as *behaviour*, not as a number | 2.3 |
 | 4 | **WATCH AI → MODELS**, choose the bundled model | It plays, and it plays unlike either scripted rung — deeper, looser, more shots | 2.4 |

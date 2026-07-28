@@ -142,8 +142,8 @@ turn over.
   it should fall as the actor learns time pressure, existing blast/interceptor
   coverage, and which threats form useful clusters.
 
-Every 25 updates an episode is written to `runs/`. **Go and watch one.** The
-REPLAYS menu entry is commented out for now, so name the newest one directly:
+Every 25 updates an episode is written to `runs/`. **Go and watch one.** Name the
+newest one directly:
 `md_app --replay runs/update-00100.mdr`. This is the single most useful habit in
 the whole loop: a return curve cannot tell you that your agent has learned to
 ignore MIRVs, or that it is dumping three interceptors into one warhead. Watching
@@ -167,8 +167,8 @@ Everything under `runs/` (`--out-dir` to change it):
 
 `runs/` means the directory beside you in a checkout, and the per-user data
 directory (`~/.local/share/MissileDefense/runs`) once this is installed from a
-package — `--out-dir` and `$MD_RUNS_DIR` override, and the game's REPLAYS browser
-follows the same rule so it finds what the trainer wrote. The order is in
+package — `--out-dir` and `$MD_RUNS_DIR` override, and the game follows the same
+rule so it finds what the trainer wrote. The order is in
 [PACKAGING.md](PACKAGING.md#where-a-runs-files-go).
 
 Those last two are deliberately separate files. `metrics.csv` is the training
