@@ -734,3 +734,78 @@ jobs:
           # each is linked against its distribution's Qt and libstdc++.
           name: missile-defense-deb-${{ matrix.slug }}
           path: dist/*
+
+  wheels:
+    # The Python half, as something a person can install rather than compile.
+    # Everything else in this file ships a game; this ships the environment an
+    # agent trains against, and until now the only route to it was an sdist —
+    # which meant `pip install` handed the user a CMake configure, a C++23
+    # compiler requirement and a nanobind build on a machine that wanted a NumPy
+    # array.
+    #
+    # One wheel per platform, not per interpreter: the extension is built
+    # against CPython's stable ABI, so cp312-abi3 covers every later 3.x. The
+    # selection, the manylinux image and the import test all live in
+    # pyproject.toml's [tool.cibuildwheel], so this job is only the machines.
+    #
+    # Native architectures only. Linux aarch64 through QEMU costs roughly an
+    # hour per build for a platform nothing here is tested on; when it is worth
+    # having, it is one `archs` line plus the QEMU setup step.
+    name: wheel (${{ matrix.slug }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            slug: manylinux-x86_64
+          - os: macos-15
+            slug: macos-arm64
+          - os: windows-2022
+            slug: win-amd64
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build the wheel
+        # No toolchain setup anywhere: the manylinux container ships GCC 14.2
+        # and CMake 4.4, macOS runners ship Xcode's Clang, and the Windows
+        # runner ships MSVC — each the system compiler CMakeLists.txt now
+        # expects to be handed rather than to go looking for.
+        uses: pypa/cibuildwheel@v3.2.0
+
+      - name: Upload the wheel
+        uses: actions/upload-artifact@v7
+        with:
+          # Per platform, like the .deb legs: these are not interchangeable.
+          name: missile-defense-wheel-${{ matrix.slug }}
+          path: wheelhouse/*.whl
+
+  sdist:
+    # The fallback the wheels do not cover — CPython 3.11, which predates the
+    # stable ABI, and any platform without a wheel above. Built once, on Linux,
+    # because an sdist is architecture-independent by definition.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build the sdist
+        run: pipx run build --sdist
+
+      - name: It must contain the sources CMake needs, not only the Python
+        # An sdist that omits the C++ tree installs by failing at configure
+        # time, which is a worse outcome than not publishing one — pip prefers
+        # it over nothing and the error names a missing CMakeLists, not a
+        # packaging mistake.
+        shell: bash
+        run: |
+          set -euo pipefail
+          for needed in CMakeLists.txt bindings/CMakeLists.txt core/CMakeLists.txt; do
+            tar -tzf dist/*.tar.gz | grep -q "/$needed$" \
+              || { echo "::error::sdist is missing $needed"; exit 1; }
+          done
+
+      - name: Upload the sdist
+        uses: actions/upload-artifact@v7
+        with:
+          name: missile-defense-sdist
+          path: dist/*.tar.gz

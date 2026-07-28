@@ -27,7 +27,27 @@ build-dir = "build/wheel"
 # either: the in-place copies beside the sources (docs/WINDOWS.md keeps two ABIs
 # there at once) are gitignored, and the packages copy skips them.
 wheel.exclude = ["**/__pycache__"]
-sdist.exclude = ["**/*.pyd", "**/*.so", "**/__pycache__", "build/", "runs/"]
+# Tag the wheel for the stable ABI. Without this the object inside is
+# `_md_native.abi3.so` — nanobind's STABLE_ABI does its half correctly — while
+# the *filename* says cp312-cp312, so pip installs it on 3.12 and refuses it on
+# 3.13, which is the whole benefit thrown away at the last step. Verified by the
+# filename: cp312-abi3, not cp312-cp312.
+wheel.py-api = "cp312"
+# `.venv` is not housekeeping in this list, it is the load-bearing entry: without
+# it the sdist walks the development virtualenv and tries to pack site-packages —
+# thousands of files, every compiled extension belonging to another project, and
+# a build that reads (and can destroy) the environment it is being run from. It
+# went unnoticed while nothing built an sdist here; the moment cibuildwheel did,
+# it swept up the venv on its first run.
+sdist.exclude = [
+  "**/*.pyd",
+  "**/*.so",
+  "**/__pycache__",
+  ".venv/",
+  ".git/",
+  "build/",
+  "runs/",
+]
 
 [tool.scikit-build.cmake.define]
 MD_BUILD_APP = "OFF"
@@ -42,6 +62,37 @@ BUILD_TESTING = "OFF"
 # `pip install` into a failure.
 MD_WERROR = "OFF"
 MD_PEDANTIC = "OFF"
+
+# ---- Built wheels ------------------------------------------------------------
+# Until now the only way to install this was from an sdist, which made every
+# `pip install` compile the extension — CMake, a C++23 compiler and nanobind, on
+# a machine whose owner wanted a NumPy array. cibuildwheel produces the binaries
+# instead, in the `wheels` job of .github/workflows/build.yml — beside every
+# other shippable artifact rather than in a workflow of its own.
+[tool.cibuildwheel]
+# One wheel per platform rather than one per interpreter. `nanobind_add_module`
+# asks for STABLE_ABI (bindings/CMakeLists.txt), so what comes out is tagged
+# cp312-abi3 and loads on 3.12, 3.13 and every later 3.x — the advantage of the
+# stable ABI, already paid for and until now only spent on the .deb surviving a
+# distribution's Python upgrade.
+#
+# CPython 3.12 is where the stable ABI starts, and nanobind silently falls back
+# to a version-tagged module below it. `requires-python` is 3.11, so 3.11 keeps
+# what it has always had: the sdist. Building a second, version-tagged wheel for
+# it is one line if that stops being good enough.
+build = "cp312-*"
+# musl is left out rather than forgotten: nothing here has been built against it
+# and an untested wheel is worse than no wheel, because pip will prefer it.
+skip = "*-musllinux_*"
+# The default manylinux image is manylinux2014, whose GCC is far too old for
+# C++23. 2_28 ships GCC 14.2 and CMake 4.4 — verified, not assumed — which is
+# exactly the floor CMakeLists.txt asks for.
+manylinux-x86_64-image = "manylinux_2_28"
+manylinux-aarch64-image = "manylinux_2_28"
+# The one claim a wheel has to earn: that it imports on a machine that never had
+# the toolchain. `md.env` is the module the extension exists for, so importing
+# the package alone would not prove the .so loads.
+test-command = "python -c \"import md, md.env; print(md.__version__)\""
 
 [project]
 name = "missile-defense"
