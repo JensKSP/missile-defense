@@ -71,3 +71,33 @@ def test_the_app_name_matches_the_one_the_game_registers() -> None:
     # high scores in the same directory. If one moves, both move.
     source = (Path(__file__).parents[2] / "app" / "main.cpp").read_text(encoding="utf-8")
     assert f'setApplicationName("{APP_NAME}")' in source
+
+
+def test_the_game_does_not_derive_its_data_directory_from_the_organisation_name() -> None:
+    """The bug this test exists for, and the reason the one above did not catch it.
+
+    `main.cpp` sets an organisation name *and* an application name, both
+    "MissileDefense", and Qt builds `AppDataLocation` and `AppLocalDataLocation`
+    out of both — so the game resolved `<data>/MissileDefense/MissileDefense`
+    while `data_home` appends the name once. Two promoted models sat in the
+    trainer's `models/` and WATCH AI listed none of them.
+
+    Asserting the application name is registered was never enough: it was, and
+    the paths still disagreed. What has to hold is that the *data* directory
+    comes from `GenericDataLocation`, which Qt builds from neither name.
+    """
+    app = Path(__file__).parents[2] / "app"
+    header = (app / "data_dir.hpp").read_text(encoding="utf-8")
+    assert "GenericDataLocation" in header
+    assert f'app_data_name = "{APP_NAME}"' in header
+
+    # Every other source has to go through it. Qualified, because that is how the
+    # constants are spelled where they do damage — prose may still name them, and
+    # the migration in the header has to.
+    for source in sorted(app.glob("*.cpp")):
+        text = source.read_text(encoding="utf-8")
+        for location in ("AppDataLocation", "AppLocalDataLocation"):
+            assert f"QStandardPaths::{location}" not in text, (
+                f"{source.name} resolves a path with QStandardPaths::{location}, which Qt "
+                f"builds from the organisation name — use md::app_data_dir() instead"
+            )

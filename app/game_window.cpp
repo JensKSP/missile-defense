@@ -3,6 +3,7 @@
 // Assisted-by: Claude Code (Anthropic)
 #include "game_window.hpp"
 
+#include "data_dir.hpp"
 #include "md/protocol.hpp"
 #include "projection.hpp"
 #include "renderer.hpp"
@@ -17,7 +18,6 @@
 #include <QMouseEvent>
 #include <QProcess>
 #include <QSettings>
-#include <QStandardPaths>
 #include <QStringList>
 #include <QTimer>
 #include <QUrl>
@@ -41,8 +41,8 @@ GameWindow::GameWindow() {
     load_settings(); // restore audio/music/fullscreen from the previous session
     // Once, here, rather than whenever the menu is drawn: the answer cannot
     // change while the game is running, and it costs a handful of stat() calls.
-    // `AppLocalDataLocation` is where the install flow records which interpreter
-    // it put the trainer into (app/trainer.hpp). Read here and handed in, because
+    // `md::app_data_dir` is where the install flow records which interpreter it
+    // put the trainer into (app/trainer.hpp). Read here and handed in, because
     // trainer.cpp is deliberately Qt-free and QStandardPaths is not.
     // The wheel this build shipped beside itself, and every interpreter that
     // could take it — both resolved once, here, for the same reason the lookup
@@ -55,15 +55,13 @@ GameWindow::GameWindow() {
     machine_.wheel = install::shipped_wheel(
         std::filesystem::path{QCoreApplication::applicationDirPath().toStdString()});
     machine_.wheel_version = install::wheel_version(machine_.wheel);
-    machine_.installed_version = trainer::recorded_version(
-        QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation).toStdString());
+    machine_.installed_version = trainer::recorded_version(app_data_dir().toStdString());
     if (!machine_.wheel.empty()) {
         machine_.interpreters = install::probe_interpreters(
             QProcessEnvironment::systemEnvironment().value("PATH").toStdString());
     }
     trainer_ = trainer::command(trainer::machine_lookup(
-        QCoreApplication::applicationFilePath().toStdString(),
-        QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation).toStdString()));
+        QCoreApplication::applicationFilePath().toStdString(), app_data_dir().toStdString()));
     offer_ = install::decide(machine_, trainer_.has_value());
     // The bundled agent, if this build ships one. A missing file is the normal
     // state today and not an error; a *present but unreadable* one is worth
@@ -802,8 +800,11 @@ static std::filesystem::path runs_directory() {
         std::filesystem::is_directory(local, ec)) {
         return local; // a checkout keeps behaving exactly as it did
     }
-    const QString data = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
-    return std::filesystem::path{data.toStdString()} / protocol::runs_dir;
+    // `app_data_dir` and not `AppLocalDataLocation`: the latter is built from the
+    // organisation name too, which is how this resolved one directory below
+    // everything the trainer writes and WATCH AI listed no promoted model at
+    // all. See app/data_dir.hpp.
+    return std::filesystem::path{app_data_dir().toStdString()} / protocol::runs_dir;
 }
 
 /// Where the trainer installs models, by the rule in `missile_defense/runs/paths.py`:

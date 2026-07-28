@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Jens Köhler
 // Assisted-by: Claude Code (Anthropic)
+#include "data_dir.hpp"
 #include "game_window.hpp"
 
 #include <QGuiApplication>
@@ -316,8 +317,16 @@ int run(int argc, char** argv) {
     // note there explains how, and `app/tests/wayland_teardown.cpp` holds both
     // halves of the claim to evidence.
     QGuiApplication app(argc, argv);
+    // The organisation name routes QSettings to its platform store and nothing
+    // else — a Qt application without one files settings under "Unknown
+    // Organization" and an access error. Where *data* lives is `md::app_data_dir`,
+    // deliberately independent of both names; app/data_dir.hpp says why.
     QGuiApplication::setOrganizationName("MissileDefense");
-    QGuiApplication::setApplicationName("MissileDefense"); // stable app-data path for highscores
+    QGuiApplication::setApplicationName("MissileDefense");
+    // Before anything reads a file: the high-score table and the trainer record
+    // used to live one directory deeper, under a path Qt built from the
+    // organisation name as well.
+    md::migrate_legacy_data_dir();
 
 #ifdef Q_OS_MACOS
     use_bundled_vulkan_driver(); // must precede every Vulkan call — see above

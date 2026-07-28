@@ -3,8 +3,8 @@
 // Assisted-by: Claude Code (Anthropic)
 #include "highscores.hpp"
 
-#include <QDir>
-#include <QStandardPaths>
+#include "data_dir.hpp"
+
 #include <algorithm>
 #include <cstddef>
 #include <fstream>
@@ -16,9 +16,10 @@ namespace md {
 namespace {
 
 std::string file_path() {
-    const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    QDir().mkpath(dir);
-    return (dir + "/highscores.txt").toStdString();
+    // `app_data_dir` and not `AppDataLocation`: the latter is built from the
+    // organisation name as well, which put this file one directory below
+    // everything the trainer writes. See app/data_dir.hpp.
+    return (app_data_dir() + "/highscores.txt").toStdString();
 }
 
 void sort_desc(std::vector<HighscoreEntry>& v) {
