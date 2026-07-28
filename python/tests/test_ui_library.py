@@ -11,12 +11,11 @@ button and the launcher grew the one spawn that carries no target.
 
 from __future__ import annotations
 
-import os
-import stat
 from pathlib import Path
 
 import pytest
 from missile_defense.runs.runner import AppNotFound, ReplayLauncher
+from test_ui_runner import _build_app
 
 try:  # the widgets, where PySide6 is installed — the trainer is optional
     from missile_defense.ui.library import LibraryView
@@ -49,14 +48,12 @@ class FakeSpawn:
         return FakeProcess()
 
 
-def _build_app(root: Path) -> Path:
-    """A release build of the game, as far as the launcher can tell."""
-    directory = root / "build" / "release" / "app"
-    directory.mkdir(parents=True)
-    binary = directory / ("md_app.exe" if os.name == "nt" else "md_app")
-    binary.write_text("", encoding="utf-8")
-    binary.chmod(binary.stat().st_mode | stat.S_IXUSR)
-    return binary
+# Imported rather than written again. The copy that used to live here knew about
+# Windows and not about macOS, where the game is a bundle
+# (`md_app.app/Contents/MacOS/md_app`) and not a bare file — so `app_binary`
+# found nothing, and the two tests below failed on that platform alone while
+# passing everywhere else. `runner._launch` carries a docstring about three
+# copies of a thing drifting apart; this was the fourth.
 
 
 def test_playing_launches_the_game_with_nothing_to_open(tmp_path: Path) -> None:

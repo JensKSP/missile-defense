@@ -442,6 +442,15 @@ reportUnknownParameterType = false
 # pytest resolves fixtures by name and by `autouse`; neither is a call a
 # checker can see, so every fixture reads as dead code.
 reportUnusedFunction = false
+# PySide6 is optional and absent from the gate, and pyright — unlike mypy, which
+# has `ignore_missing_imports` above — offers no per-module way to say so. The
+# widget *modules* solve this by sitting in `ignore` above; doing that to the
+# tests would switch every other rule off in them too, for one import.
+#
+# The exposure is a mistyped import going unreported, which is small here and
+# already covered: an import that does not resolve fails the moment pytest
+# collects the file, on every machine, which is a louder failure than this rule.
+reportMissingImports = false
 
 [[tool.pyright.executionEnvironments]]
 root = "."
