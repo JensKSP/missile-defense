@@ -8,12 +8,6 @@ project for learning AI / machine learning. The same deterministic C++
 simulation is played by humans (Qt 6 + Vulkan) and — as a headless, fast,
 reproducible environment — used to train a reinforcement-learning agent.
 
-**CI** is the quality gate and every shipped artifact — the Linux gate (format,
-lint, types, clang-tidy, coverage, both test suites), the application e2e suite,
-and the game built on Linux, Windows and macOS. **Nightly** rebuilds `master`
-and publishes the pre-release. A red badge means the tree is red; neither is
-decorative.
-
 ![Missiles, MIRVs and interceptors crossing the sky through several fireballs](docs/images/gameplay.png)
 
 *By Jens Köhler · [MIT License](LICENSE) · developed with [Claude Code](https://claude.com/claude-code) (Anthropic).*
