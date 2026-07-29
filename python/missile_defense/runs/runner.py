@@ -28,6 +28,7 @@ from __future__ import annotations
 import collections
 import importlib.util
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -35,7 +36,7 @@ import threading
 import time
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import IO, Protocol
 
 from . import paths, runtime, spawn
@@ -326,8 +327,36 @@ def windowless_interpreter(interpreter: Path, *, platform: str = sys.platform) -
     return candidate if candidate.exists() else interpreter
 
 
+def _linked_qt_bin(binary: Path | None) -> Path | None:
+    """The ``bin`` of the Qt kit a *build-tree* game was linked against, or None.
+
+    Read out of the build's own ``CMakeCache.txt`` — the same move as
+    ``tools/_util.py`` — because that is the Qt this binary actually loads,
+    where an environment variable is only the kit somebody exported most
+    recently. An installed game has no cache beside it and needs none: its
+    DLLs were put next to the exe by ``windeployqt``, and the exe's own
+    directory is the first place Windows looks.
+    """
+    if binary is None:
+        return None
+    cache = binary.parent.parent / "CMakeCache.txt"
+    try:
+        text = cache.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None  # not a build tree
+    found = re.search(r"^Qt6Core_DIR:PATH=(.+)$", text, re.MULTILINE)
+    if found is None:
+        return None
+    # <kit>/lib/cmake/Qt6Core -> <kit>/bin
+    kit_bin = Path(found.group(1).strip()).parents[2] / "bin"
+    return kit_bin if kit_bin.is_dir() else None
+
+
 def launch_environ(
-    environ: Mapping[str, str] | None = None, *, platform: str = sys.platform
+    environ: Mapping[str, str] | None = None,
+    *,
+    binary: Path | None = None,
+    platform: str = sys.platform,
 ) -> dict[str, str]:
     """The environment the game is started in — the platform quirks, once.
 
@@ -340,15 +369,36 @@ def launch_environ(
     ``QVulkanWindow`` could not survive Qt's teardown there; ``GameWindow::event``
     handles that now, and ``test_wayland_teardown.py`` says so out loud.
 
-    Windows imposes nothing either, now that it is MSVC. It used to prepend
-    ``<msys2>\\clang64\\bin`` so a MinGW-built game could find the Qt and libc++
-    it was linked against — see :data:`MSYS2_BIN` for what that was working
-    around. There is no second prefix to reach into any more, and the function
-    stays because *"the platform quirks, once"* is the contract: the day one
-    returns, it returns here rather than at a call site.
+    Windows has two quirks, both in service of that same promise:
+
+    * **PySide6's directory comes back out of PATH.** Importing PySide6 — which
+      the trainer exists to do — prepends the package directory, a complete
+      second Qt runtime, to *this process's* PATH. A game inheriting that
+      resolves PySide6's ``Qt6Gui.dll`` instead of its own and dies on the
+      mismatch: a "no Qt platform plugin could be initialized" box on a good
+      day, nothing at all on a bad one (reported 2026-07-29, the trainer's
+      Play button). The desktop never shows the game that entry, so removing
+      it is not a difference — it is the removal of one the trainer's own
+      import created.
+    * **A build-tree game gets the Qt it was linked against**, prepended from
+      its own build cache (:func:`_linked_qt_bin`). Without it the game only
+      starts from shells that happen to have the kit on PATH, and the failure
+      is a child that dies before ``main`` with no window to say so. An
+      installed game finds its DLLs beside the exe and takes neither branch.
     """
-    del platform  # the signature outlives the quirk; see above
-    return dict(os.environ if environ is None else environ)
+    out = dict(os.environ if environ is None else environ)
+    if platform != "win32":
+        return out
+    separator = ";"
+    entries = out.get("PATH", "").split(separator)
+    # By name rather than by site-packages ancestry: the entry PySide6 prepends
+    # is exactly its package directory, wherever the venv put it.
+    entries = [entry for entry in entries if PureWindowsPath(entry).name != "PySide6"]
+    kit_bin = _linked_qt_bin(binary)
+    if kit_bin is not None:
+        entries.insert(0, str(kit_bin))
+    out["PATH"] = separator.join(entries)
+    return out
 
 
 class ReplayLauncher:
@@ -437,7 +487,9 @@ class ReplayLauncher:
             )
         self._children = [child for child in self._children if child.poll() is None]
         self._children.append(
-            self._spawn([str(binary), *args], self._root, launch_environ(self._environ))
+            self._spawn(
+                [str(binary), *args], self._root, launch_environ(self._environ, binary=binary)
+            )
         )
 
     @property

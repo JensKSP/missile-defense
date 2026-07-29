@@ -35,12 +35,19 @@ def _config() -> dict[str, object]:
 
 
 def _qt_modules() -> set[str]:
-    """Every `missile_defense.ui` module whose source mentions PySide6.
+    """Every `missile_defense.ui` module that imports PySide6.
 
-    Textual on purpose: importing them to find out needs the very dependency
-    whose absence this is about.
+    Parsed, not imported — importing them to find out needs the very
+    dependency whose absence this is about. And parsed, not grepped, for the
+    same reason as torch below: `missile_defense.ui.instance` *mentions* PySide6 in a
+    docstring precisely to say why it does not import it, and a substring
+    search read that as a Qt module.
     """
-    return {path.stem for path in sorted(UI.glob("*.py")) if "PySide6" in path.read_text("utf-8")}
+    return {
+        path.stem
+        for path in sorted(UI.glob("*.py"))
+        if _imports(path.read_text("utf-8"), "PySide6")
+    }
 
 
 def _pure_modules() -> set[str]:
@@ -102,8 +109,8 @@ def test_every_qt_module_is_ignored_by_pyright() -> None:
     )
 
 
-def _imports_torch(source: str) -> bool:
-    """Whether this file really imports torch — parsed, not grepped.
+def _imports(source: str, package: str) -> bool:
+    """Whether this file really imports ``package`` — parsed, not grepped.
 
     A substring search calls `missile_defense.runs.runtime` a torch module because it *runs*
     `python -c "import torch"` as a health check, and `missile_defense.runs.modelcard` because it
@@ -111,15 +118,16 @@ def _imports_torch(source: str) -> bool:
     statement is the thing that does, wherever in the file it sits: a lazy
     import inside a function counts exactly as much as one at the top.
     """
+    prefix = package + "."
     for node in ast.walk(ast.parse(source)):
         if isinstance(node, ast.Import):
             if any(
-                alias.name == "torch" or alias.name.startswith("torch.") for alias in node.names
+                alias.name == package or alias.name.startswith(prefix) for alias in node.names
             ):
                 return True
         elif isinstance(node, ast.ImportFrom):
             module = node.module or ""
-            if module == "torch" or module.startswith("torch."):
+            if module == package or module.startswith(prefix):
                 return True
     return False
 
@@ -131,7 +139,7 @@ def _torch_modules() -> set[str]:
         path.relative_to(PROJECT_ROOT).as_posix()
         for root in roots
         for path in sorted(root.rglob("*.py"))
-        if _imports_torch(path.read_text("utf-8"))
+        if _imports(path.read_text("utf-8"), "torch")
     }
 
 

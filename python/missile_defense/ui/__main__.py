@@ -122,8 +122,11 @@ def announce(message: str, *, stream: TextIO | None, platform: str = sys.platfor
             import ctypes  # noqa: PLC0415 — Windows-only, and only on this path
 
             # MB_OK | MB_ICONERROR. No parent window: the toolkit that would
-            # provide one is what could not be imported.
-            ctypes.windll.user32.MessageBoxW(None, message, "Missile Defense Trainer", 0x10)  # type: ignore[attr-defined]
+            # provide one is what could not be imported. The double ignore is
+            # the platform split: `windll` is missing from the stubs off
+            # Windows (attr-defined, which CI needs) and present on it
+            # (where that same ignore would be flagged as unused).
+            ctypes.windll.user32.MessageBoxW(None, message, "Missile Defense Trainer", 0x10)  # type: ignore[attr-defined, unused-ignore]
         except (AttributeError, OSError):
             return "nowhere"
     return where

@@ -1,3 +1,42 @@
+missile-defense (0.9.2-1) UNRELEASED; urgency=medium
+
+  * Starting what is already open now brings its window to the front instead
+    of opening it again. The game's TRAIN AI entry used to add another
+    trainer with every press, the trainer's Play button refused with a
+    message box explaining that it could not raise the game, and a
+    double-clicked game icon made a second game. Each program now notices a
+    twin showing the same thing, hands it the click and leaves; if nothing
+    is running, it starts as before.
+  * The same courtesy per replay, model and match: opening the one you
+    already have on screen raises that window rather than duplicating it.
+    Opening *different* ones still opens windows side by side — comparing
+    two recordings on purpose keeps working.
+  * MD_SINGLE_INSTANCE=0 turns all of this off, for anyone who genuinely
+    wants two of the same window.
+  * Trainer, Windows: the Play button could open nothing at all, or a box
+    about a Qt platform plugin that could not be initialized. The trainer's
+    own toolkit quietly prepends its private copy of Qt to PATH, and the
+    game it launched loaded those DLLs instead of the ones it was built
+    with. The game now starts with the PATH the trainer was started with —
+    and a game run out of a build tree additionally gets the Qt kit its own
+    build cache names, so it starts from any shell.
+  * Trainer: the Start-a-run dialog no longer opens taller than the display.
+    It caps itself to the screen and its tab pages scroll when — and only
+    when — the screen cannot hold them; on a display tall enough nothing
+    changes.
+  * Trainer: the console now fits a 1280-point-wide display. Its minimum
+    width was over 2300 points — a sum of one-row headers, seven-button rows
+    and labels that refused to wrap — so on small screens a third of the
+    window sat past the screen edge. The header and the action rows are two
+    rows now, long labels wrap, and as a last resort the whole view scrolls
+    rather than the window overflowing the desktop.
+  * Trainer: on a machine whose GPU cannot report its memory — a CPU-only
+    torch, an AMD card — the memory estimate now draws its bar against
+    system RAM and says so; with nothing to measure at all the bar steps
+    aside rather than drawing against a made-up total.
+
+ -- Jens Köhler <jens@koehler-speyer.de>  Wed, 29 Jul 2026 13:58:27 +0200
+
 missile-defense (0.9.1-1) unstable; urgency=medium
 
   * Windows installer: the Start-menu shortcut pointed at

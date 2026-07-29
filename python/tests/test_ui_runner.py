@@ -344,14 +344,64 @@ def test_the_game_is_launched_in_an_unmodified_environment(tmp_path: Path) -> No
     # shell and nowhere else — so the trainer prepended `<msys2>\clang64\bin` for
     # the child or it died looking for a DLL with no window to say so.
     #
-    # MSVC removed the second prefix, and with it the last quirk this function
-    # had. What it must not do is *invent* one: a game started from the trainer
-    # has to look exactly like the same game started from the desktop, on every
-    # platform, and an environment silently differing between the two is how a
-    # bug reproduces in one and not the other.
+    # MSVC removed the second prefix. What this function must not do is *invent*
+    # a difference: a game started from the trainer has to look exactly like the
+    # same game started from the desktop, on every platform. The two Windows
+    # quirks it does have (the tests below) both serve that promise rather than
+    # break it — PySide6's PATH entry is one the trainer's own import created
+    # and the desktop never shows the game, and the linked-kit prefix only
+    # exists for a binary the desktop could not have started either.
     for platform in ("win32", "linux", "darwin"):
         given = {"PATH": "C:/Windows", "MSYS2_ROOT": str(tmp_path)}
         assert launch_environ(given, platform=platform) == given
+
+
+def test_the_trainers_own_pyside6_is_kept_out_of_the_games_path() -> None:
+    """Importing PySide6 prepends a complete second Qt to this process's PATH.
+
+    A game inheriting it resolves PySide6's `Qt6Gui.dll` instead of the one it
+    was built against and dies on the mismatch — a "no Qt platform plugin could
+    be initialized" box, or nothing at all (reported 2026-07-29: the Play
+    button did nothing). The child gets the PATH the trainer was *started*
+    with, not the one PySide6 made of it.
+    """
+    polluted = r"C:\repo\.venv\Lib\site-packages\PySide6;C:\Qt\6.9.3\msvc2022_64\bin;C:\Windows"
+    env = launch_environ({"PATH": polluted}, platform="win32")
+    assert env["PATH"] == r"C:\Qt\6.9.3\msvc2022_64\bin;C:\Windows"
+    # Off Windows PySide6 leaves PATH alone (rpath does the job), so there is
+    # nothing to undo and nothing is touched.
+    assert launch_environ({"PATH": polluted}, platform="linux")["PATH"] == polluted
+
+
+def test_a_checkout_game_gets_the_qt_it_was_linked_against(tmp_path: Path) -> None:
+    """The build's own cache names the kit; the child's PATH starts with it.
+
+    Without this the game only starts from shells that happen to carry the kit
+    on PATH, and the failure is a child dead before `main` with no window to
+    say so. The cache is the authority — not `QT_ROOT_DIR`, which is merely
+    the kit somebody exported most recently.
+    """
+    kit = tmp_path / "Qt" / "6.9.3" / "msvc2022_64"
+    (kit / "bin").mkdir(parents=True)
+    build = tmp_path / "build" / "release"
+    (build / "app").mkdir(parents=True)
+    binary = build / "app" / "md_app.exe"
+    binary.write_bytes(b"")
+    (build / "CMakeCache.txt").write_text(
+        "// junk the parser must skip\n"
+        f"Qt6Core_DIR:PATH={(kit / 'lib' / 'cmake' / 'Qt6Core').as_posix()}\n",
+        encoding="utf-8",
+    )
+    env = launch_environ({"PATH": "C:/Windows"}, binary=binary, platform="win32")
+    assert env["PATH"].split(";")[0] == str(kit / "bin")
+
+    # An installed game has no cache beside it — windeployqt put the DLLs next
+    # to the exe, where Windows looks first — so nothing is prepended.
+    installed = tmp_path / "Program Files" / "MissileDefense" / "missile-defense.exe"
+    installed.parent.mkdir(parents=True)
+    installed.write_bytes(b"")
+    untouched = launch_environ({"PATH": "C:/Windows"}, binary=installed, platform="win32")
+    assert untouched["PATH"] == "C:/Windows"
 
 
 def _empty_store(tmp_path: Path) -> runtime.Runtime:

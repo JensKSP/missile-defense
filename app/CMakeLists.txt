@@ -87,6 +87,7 @@ add_executable(md_app MACOSX_BUNDLE
   main.cpp
   trainer.cpp
   install.cpp
+  instance.cpp
   game_window.cpp
   renderer.cpp
   audio.cpp

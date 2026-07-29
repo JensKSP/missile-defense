@@ -123,7 +123,7 @@ MACOSX_DEPLOYMENT_TARGET = "14.0"
 
 [project]
 name = "missile-defense"
-version = "0.9.1"
+version = "0.9.2"
 description = "Faithful Atari Missile Command clone — game + RL environment"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -365,8 +365,6 @@ ignore_missing_imports = true
 # red for days. The test is the fix; the list is just data now.
 [[tool.mypy.overrides]]
 module = [
-  "missile_defense.ui.__main__",
-  "missile_defense.ui.about",
   "missile_defense.ui.analysis",
   "missile_defense.ui.app",
   "missile_defense.ui.charts",
@@ -402,9 +400,9 @@ ignore = [
   "python/missile_defense/training/train.py",
   # Same reason, one layer out: PySide6 is optional, so the widgets are checked
   # on a machine that has it (`pyright --pythonpath ...`), not pretended clean.
-  # Kept in step with the mypy list above by `tests/test_typing_policy.py`.
-  "python/missile_defense/ui/__main__.py",
-  "python/missile_defense/ui/about.py",
+  # Kept in step with the mypy list above by `tests/test_typing_policy.py` —
+  # which reads *imports*, not mentions: `__main__` and `about` only ever
+  # talked about PySide6 in prose, and sat here unchecked for it.
   "python/missile_defense/ui/analysis.py",
   "python/missile_defense/ui/app.py",
   "python/missile_defense/ui/charts.py",

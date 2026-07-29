@@ -1074,9 +1074,12 @@ void GameWindow::start_trainer_install() {
 /// separate application that happens to have been started from this menu.
 ///
 /// Nothing visible happens in the game itself, which is deliberate: the trainer
-/// is a window of its own and will raise itself. Returning to the menu rather
-/// than to a "launching..." screen means a second press simply opens a second
-/// trainer, the same as double-clicking its desktop entry twice.
+/// is a window of its own and will raise itself. A second press still just
+/// spawns — the trainer guards its own instances (missile_defense/ui/instance.py, the
+/// counterpart of app/instance.hpp), so the duplicate hands its activation to
+/// the trainer that is already open and exits, and the press *raises* rather
+/// than multiplies. Which is why this stays a detached spawn with no handle:
+/// deduplication lives with the program being duplicated, not the launcher.
 /// Everything about the trainer that can change while the game runs: whether
 /// one is installed, into which interpreter, at what version, and what TRAIN
 /// AI should therefore offer. The wheel beside the game and how to stat a file

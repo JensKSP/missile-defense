@@ -35,7 +35,7 @@ import traceback
 from pathlib import Path
 from types import TracebackType
 
-from PySide6.QtCore import Qt, QThread, QTimer, Signal
+from PySide6.QtCore import QObject, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QCloseEvent, QIcon, QKeyEvent
 from PySide6.QtWidgets import (
     QApplication,
@@ -72,11 +72,11 @@ from ..runs.runner import (
 )
 from ..runs.sources import EvalRow, MetricRow, Recording
 from ..sim.benchmark import CANONICAL_LADDER, Ladder, ladder_standing
-from . import about, branding, theme
+from . import about, branding, instance, theme
 from .analysis import AnalysisView
 from .charts import CurveView
 from .config import ConfigDialog, settings_for
-from .forms import ParameterDialog
+from .forms import OverflowScroll, ParameterDialog
 from .league import LeagueView, PromoteDialog
 from .library import LibraryView
 from .meters import SystemPanel
@@ -159,7 +159,7 @@ class StatTile(QFrame):
         super().__init__()
         self.setProperty("role", "tile")
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 10, 14, 10)
+        layout.setContentsMargins(12, 6, 12, 6)
         layout.setSpacing(2)
         self._caption = QLabel(caption)
         self._caption.setProperty("role", "caption")
@@ -178,6 +178,10 @@ class StatTile(QFrame):
         self._initial_note = note
         self._note = QLabel(note)
         self._note.setProperty("role", "note")
+        # Wrapped: an unwrapped note holds its tile — and four tiles hold the
+        # window — as wide as its longest line (analysis.py's tiles say the
+        # same; there are two StatTile classes and both need it).
+        self._note.setWordWrap(True)
         # The same number from the run being compared against. A line of its own
         # and only when comparing, so the tile stays one number the rest of the
         # time — which is what makes it readable from across the room.
@@ -267,7 +271,13 @@ class Trainer(QMainWindow):
         #: reach a different verdict than the button beside it.
         self._store = runtime.Runtime()
 
-        self.setCentralWidget(self._build())
+        # Behind an overflow viewport, because the console's minimum size is an
+        # emergent sum — button rows, splitter panes, meter readouts — and any
+        # one contributor growing past a small display again must degrade to a
+        # scrollbar, not to a window whose edges are off the screen. On a
+        # display that holds the content, OverflowScroll reports the content's
+        # own sizeHint and changes nothing.
+        self.setCentralWidget(OverflowScroll(self._build(), horizontal=True))
         self._attach(run_dir)
         #: The directory the library lists, decided **once** from what the
         #: trainer was opened on and never re-derived. Derived, because the two
@@ -482,11 +492,17 @@ class Trainer(QMainWindow):
     def _library_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(14, 12, 14, 12)
-        layout.setSpacing(10)
+        layout.setContentsMargins(14, 12, 14, 8)
+        # 8, like every other card gap in this window: the two pages and the
+        # dialog were drifting apart one spacing value at a time, and "the
+        # cards keep one distance" is the whole rule now.
+        layout.setSpacing(8)
 
         title = QLabel("MISSILE DEFENSE · TRAINING CONSOLE")
         title.setProperty("role", "title")
+        # Unwrapped, like the run page's copy of this line (the note there says
+        # why): the splitter below is wider than the brand, so the brand is not
+        # what holds this page's minimum width.
         layout.addWidget(title)
 
         split = QSplitter(Qt.Orientation.Horizontal)
@@ -503,9 +519,16 @@ class Trainer(QMainWindow):
         self._league.peek_pair.connect(self._peek_side_by_side)
         split.addWidget(self._library)
         split.addWidget(self._league)
-        split.setStretchFactor(0, 3)
-        split.setStretchFactor(1, 2)
-        split.setSizes([760, 520])
+        # Half each, and staying half each as the window resizes. The 3:2 this
+        # used to be was tuned on a wide monitor; on the 1280-point display
+        # this console now targets, the league pane ended up too narrow for
+        # its own table while the run list held air.
+        split.setStretchFactor(0, 1)
+        split.setStretchFactor(1, 1)
+        split.setSizes([600, 600])
+        # The gutter is the same 8 every card keeps — it used to be two 10px
+        # pane margins plus the handle, three times what the run page had.
+        split.setHandleWidth(8)
         layout.addWidget(split, stretch=1)
         return page
 
@@ -513,17 +536,36 @@ class Trainer(QMainWindow):
         root = QWidget()
         layout = QVBoxLayout(root)
         layout.setContentsMargins(14, 12, 14, 8)
-        layout.setSpacing(10)
+        layout.setSpacing(8)
         layout.addLayout(self._header())
-        layout.addLayout(self._tiles())
+
+        # The tiles live inside the two columns rather than on a row of their
+        # own above the splitter: a fourth tile used to float over the sidebar
+        # with edges that matched nothing under it. Now update / eval score /
+        # mean return head the charts column and entropy heads the sidebar —
+        # and the splitter keeps each set flush with its column however it is
+        # dragged.
+        main = QWidget()
+        main_column = QVBoxLayout(main)
+        main_column.setContentsMargins(0, 0, 0, 0)
+        main_column.setSpacing(8)
+        main_column.addLayout(self._tiles())
+        main_column.addWidget(self._main_tabs(), stretch=1)
+        # The log lives under the charts, inside their column, not across the
+        # whole page: its height then comes out of the plots' stretch — which
+        # is what a person toggling the log has chosen to trade — instead of
+        # stacking under the sidebar's minimums, where opening it pushed the
+        # view into a scrollbar on a 752-point display. It is the run's
+        # stdout, so the run's charts are its company anyway.
+        main_column.addWidget(self._log_pane())
 
         split = QSplitter(Qt.Orientation.Horizontal)
-        split.addWidget(self._main_tabs())
+        split.addWidget(main)
         split.addWidget(self._side())
         split.setStretchFactor(0, 1)
         split.setSizes([980, 320])
+        split.setHandleWidth(8)  # the same gap the cards keep everywhere
         layout.addWidget(split, stretch=1)
-        layout.addWidget(self._log_pane())
         return root
 
     # ---- moving between the two levels ---------------------------------------
@@ -601,23 +643,15 @@ class Trainer(QMainWindow):
     def _play_game(self) -> None:
         """Go to the game — the `Play` button over the run list.
 
-        A window this trainer already opened is *not* replaced by a second one.
-        Raising it is the part that cannot be done from here: the game is a
-        separate process with no single-instance channel, and no portable way
-        exists to bring another process's window forward. So the honest
-        behaviour is to say it is already open rather than to quietly stack a
-        duplicate on top of it, which is what launching again would do.
+        Always a spawn, never a check: the game guards its own instances now
+        (`app/instance.cpp`), so a launch that finds the plain game already
+        open hands it the activation and exits, and the running window is
+        raised. That puts "is it open?" with the one process that can actually
+        answer *and act* — this trainer used to detect the duplicate and could
+        then only apologise for not being able to raise someone else's window.
+        A game older than the guard simply opens again, which is what every
+        launch did before it.
         """
-        if self._launcher.running:
-            QMessageBox.information(
-                self,
-                "Missile Defense is open",
-                "The game is already running — switch to its window.\n\n"
-                "This trainer cannot raise it for you: it is a separate process, "
-                "and bringing another program's window forward is not something "
-                "the desktop lets an application do to itself.",
-            )
-            return
         try:
             self._launcher.launch_game()
         except AppNotFound as error:
@@ -668,10 +702,33 @@ class Trainer(QMainWindow):
         except AppNotFound as error:
             QMessageBox.warning(self, "The game is not built", str(error))
 
-    def _header(self) -> QHBoxLayout:
+    def _header(self) -> QVBoxLayout:
+        """Two rows, deliberately, where there used to be one.
+
+        The single row held identity (Library, the brand, the version, which
+        run, against what) *and* every run control, and its minimum widths
+        summed past 2200px — wider than some entire displays: on the
+        1280-logical-point laptop that reported it (2026-07-29), a third of
+        the header sat past the screen's right edge. The two halves are
+        different kinds of thing anyway — where you are, versus what you can
+        do to the run — so the fold is a reading aid, not just a diet.
+
+        The deal: the top row is *place* — Library, the brand, the version,
+        and the run's status at the far right — and everything about the run
+        itself lives on the second row: which run, against what, the eval
+        cadence and the buttons. The first cut left the pickers crowding the
+        brand on the top row, which folded the title onto two lines and
+        scattered run-things across both rows.
+        """
         row = QHBoxLayout()
         title = QLabel("MISSILE DEFENSE · TRAINING CONSOLE")
         title.setProperty("role", "title")
+        # NOT word-wrapped, deliberately: Qt hands a wrapped label a heuristic
+        # preferred width well short of one line, so the brand folded onto two
+        # lines with half the row empty beside it. Unwrapped, its width is no
+        # longer this page's minimum anyway — the run row below is wider — and
+        # below that minimum the console scrolls (OverflowScroll) rather than
+        # folding the brand.
         # The version, always on screen rather than behind a menu: "which build
         # is this?" is the first question of every bug report, and the trainer is
         # the half most often installed from a package by someone with no
@@ -688,7 +745,9 @@ class Trainer(QMainWindow):
         # at is a thing you change often — often enough that it belongs in the
         # window rather than in the command that started it.
         self._picker = QComboBox()
-        self._picker.setMinimumWidth(220)
+        # 140, down from 220: enough to tell run names apart, and the header
+        # row's minimum is a sum this picker was the fourth-largest term of.
+        self._picker.setMinimumWidth(140)
         self._picker.currentIndexChanged.connect(self._picked)
         # And which run it is being *held against*. Beside the picker rather than
         # behind a button: "did that change help?" is asked of the same two runs
@@ -696,7 +755,7 @@ class Trainer(QMainWindow):
         versus = QLabel("vs")
         versus.setProperty("role", "caption")
         self._compare_picker = QComboBox()
-        self._compare_picker.setMinimumWidth(180)
+        self._compare_picker.setMinimumWidth(120)  # shrunk with self._picker, same reason
         self._compare_picker.currentIndexChanged.connect(self._compare_picked)
         self._status = QLabel("NO RUN")
         self._status.setProperty("role", "caption")
@@ -709,24 +768,35 @@ class Trainer(QMainWindow):
         row.addSpacing(10)
         row.addWidget(title)
         row.addWidget(self._about)
-        row.addSpacing(12)
-        row.addWidget(self._picker)
-        row.addSpacing(6)
-        row.addWidget(versus)
-        row.addWidget(self._compare_picker)
         row.addStretch(1)
-        row.addLayout(self._controls())
-        row.addSpacing(14)
         row.addWidget(self._status)
-        return row
+
+        run_row = QHBoxLayout()
+        run_row.setSpacing(6)
+        run_row.addWidget(self._picker)
+        run_row.addWidget(versus)
+        run_row.addWidget(self._compare_picker)
+        run_row.addStretch(1)
+        run_row.addLayout(self._controls())
+
+        rows = QVBoxLayout()
+        rows.setSpacing(8)
+        rows.addLayout(row)
+        rows.addLayout(run_row)
+        return rows
 
     def _controls(self) -> QHBoxLayout:
-        """Three affordances, not a dashboard of them.
+        """A few affordances, not a dashboard of them.
 
-        One primary button that changes meaning, Stop beside it, and Reset kept
-        at arm's length because it is the one that abandons a run. The eval
+        One primary button that changes meaning, Stop beside it. The eval
         interval sits with them because it is the same kind of thing: something
         you do *to* the run that is going, not a parameter you chose before it.
+
+        Reset… is withdrawn from this row. Its job — start a fresh run
+        directory with a name — is the library's New run… wearing different
+        words, and the console pointing away from the run it shows was the odd
+        affordance out. `_reset_pressed` below is untouched and still tested
+        end to end, so putting the button back is one line.
         """
         row = QHBoxLayout()
         row.setSpacing(6)
@@ -737,8 +807,6 @@ class Trainer(QMainWindow):
         self._primary.clicked.connect(self._primary_pressed)
         self._stop = QPushButton("Stop")
         self._stop.clicked.connect(self._stop_pressed)
-        self._reset = QPushButton("Reset…")
-        self._reset.clicked.connect(self._reset_pressed)
         # Beside Log, and deliberately the same size as it: the two are the pair
         # of read-only questions about a run — what it *printed*, and what it was
         # *started with*. Neither is watched, both are asked at odd moments, and
@@ -753,7 +821,7 @@ class Trainer(QMainWindow):
         self._log_toggle = QPushButton("Log")
         self._log_toggle.setCheckable(True)
         self._log_toggle.toggled.connect(self._show_log)
-        for button in (self._primary, self._stop, self._reset, self._parameters, self._log_toggle):
+        for button in (self._primary, self._stop, self._parameters, self._log_toggle):
             row.addWidget(button)
         return row
 
@@ -814,18 +882,24 @@ class Trainer(QMainWindow):
         self._log = QPlainTextEdit()
         self._log.setReadOnly(True)
         self._log.setMaximumBlockCount(2000)
-        self._log.setFixedHeight(150)
+        # Six lines or so — a tail to glance at, with scrollback for anything
+        # longer. Sized so that opening it still (just) fits a 752-point
+        # display instead of pushing the whole view into a scrollbar.
+        self._log.setFixedHeight(100)
         self._log.setVisible(False)
         return self._log
 
     def _tiles(self) -> QHBoxLayout:
         row = QHBoxLayout()
-        row.setSpacing(10)
+        row.setSpacing(8)
         self._tile_update = StatTile("update", "no run attached")
         self._tile_score = StatTile("eval score", "validation or held-out benchmark")
         self._tile_return = StatTile("mean return", "shaped, scaled — not a score")
+        # Built with its siblings, seated by _side(): entropy heads the
+        # sidebar, where its edges line up with the recordings and the meters
+        # below it rather than floating over their column.
         self._tile_entropy = StatTile("entropy", "how undecided the policy is")
-        for tile in (self._tile_update, self._tile_score, self._tile_return, self._tile_entropy):
+        for tile in (self._tile_update, self._tile_score, self._tile_return):
             row.addWidget(tile)
         return row
 
@@ -855,7 +929,7 @@ class Trainer(QMainWindow):
         panel = QWidget()
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(10)
+        layout.setSpacing(8)
 
         # The hero. Its rows carry protocol metadata; a ladder is drawn only
         # when every plotted score was produced on the block it was measured on.
@@ -872,12 +946,16 @@ class Trainer(QMainWindow):
         layout.addWidget(self._score, stretch=3)
 
         strip = QHBoxLayout()
-        strip.setSpacing(10)
+        strip.setSpacing(8)
         self._return = CurveView("mean return", theme.RETURN, value_format="%.1f")
         self._entropy = CurveView("entropy", theme.ENTROPY, value_format="%.2f")
         self._value = CurveView("value loss", theme.VALUE, value_format="%.3g")
         for curve in (self._return, self._entropy, self._value):
-            curve.setMinimumHeight(150)
+            # 110, down from 150: enough for the shape of a curve at a glance
+            # — these three are trend lights, the hero above carries the
+            # reading — and the 120px the row gives back is what lets a full
+            # run view fit a 752-point display without scrolling.
+            curve.setMinimumHeight(110)
             strip.addWidget(curve)
         layout.addLayout(strip, stretch=2)
         return panel
@@ -898,7 +976,9 @@ class Trainer(QMainWindow):
         panel = QWidget()
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(10)
+        layout.setSpacing(8)
+        # The fourth tile, first — _tiles() says why it lives here.
+        layout.addWidget(self._tile_entropy)
         self._model = ModelPanel()
         split = QSplitter(Qt.Orientation.Vertical)
         split.addWidget(self._recordings())
@@ -906,6 +986,7 @@ class Trainer(QMainWindow):
         split.setStretchFactor(0, 1)  # a taller window is more episodes, not more layers
         split.setStretchFactor(1, 0)
         split.setSizes([380, 180])
+        split.setHandleWidth(8)  # the same gap the cards keep everywhere
         # The machine's own row goes at the foot of this column rather than in
         # the tiles: this side had the space, and the curve is not allowed to
         # lose any.
@@ -991,9 +1072,11 @@ class Trainer(QMainWindow):
         # game twice, two windows playing the same episode.
         self._list.itemActivated.connect(self._open)
         self._list.itemSelectionChanged.connect(self._selection_changed)
-        # Four rows, so a network with many layers below cannot squeeze the list
-        # down to a scrollbar with one episode in it.
-        self._list.setMinimumHeight(140)
+        # A couple of rows, so a network with many layers below cannot squeeze
+        # the list down to a scrollbar with one episode in it. (Was four rows;
+        # they went to the entropy tile that now heads this column, and to the
+        # log pane fitting the display when open.)
+        self._list.setMinimumHeight(80)
         layout.addWidget(self._list, stretch=1)
         # A greyed-out list row is painted from the disabled palette, which under
         # this stylesheet is invisible; an empty state has to be a real widget.
@@ -1824,6 +1907,31 @@ def _ladder_colour(score: float, ladder: Ladder) -> str:
     return theme.AHEAD if remaining is None else theme.AMBER
 
 
+class _Activation(QObject):
+    """A twin's activation, carried from the claim's thread to Qt's.
+
+    :class:`missile_defense.ui.instance.SingleInstance` calls back on its own thread, where
+    touching a window is illegal. A Signal is the one thread crossing Qt
+    blesses without ceremony — emitted over there, delivered queued over
+    here — so the callback it is handed is simply ``request.emit``.
+    """
+
+    request = Signal()
+
+    def __init__(self, window: QMainWindow) -> None:
+        super().__init__(window)
+        self._window = window
+        self.request.connect(self._raise)
+
+    def _raise(self) -> None:
+        """Bring the window back to the person who just launched it again."""
+        window = self._window
+        window.setWindowState(window.windowState() & ~Qt.WindowState.WindowMinimized)
+        window.show()
+        window.raise_()
+        window.activateWindow()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Watch a Missile Defense training run.")
     parser.add_argument(
@@ -1840,6 +1948,20 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    # One trainer per library (missile_defense/ui/instance.py): if a twin is already
+    # watching the same runs, hand it the activation and exit before Qt gets
+    # expensive — the whole point of the duplicate is to cost milliseconds.
+    # `--self-test` stays out: it is a packaging probe, and forwarding it to a
+    # trainer somebody has open would silence the one line it exists to print.
+    library = paths.runs_dir(args.run_dir)
+    address = (
+        instance.endpoint(instance.trainer_key(library))
+        if instance.engaged() and not args.self_test
+        else None
+    )
+    if address is not None and instance.forward(address):
+        return 0
+
     # Before the QApplication, because Windows reads the AppUserModelID when the
     # first window is created and ignores it afterwards.
     branding.claim_taskbar_identity()
@@ -1852,7 +1974,7 @@ def main(argv: list[str] | None = None) -> int:
     app.setWindowIcon(QIcon(str(branding.ICON)))
     app.setDesktopFileName(branding.DESKTOP_ENTRY)
     app.setStyleSheet(theme.stylesheet())
-    window = Trainer(paths.runs_dir(args.run_dir))
+    window = Trainer(library)
     if args.self_test:
         # The trainer's answer to the game's `--report`, and it exists for the
         # same reason: an exit code cannot tell "started, read the run, drew it"
@@ -1869,12 +1991,29 @@ def main(argv: list[str] | None = None) -> int:
     # packaging check, and it wants an exception to be an exit code rather than a
     # line in a log pane nobody is looking at (python/tests/e2e/test_packages.py).
     sys.excepthook = window.report_unexpected
+
+    # The serving half of the single-instance channel, now that there is a
+    # window for an activation to raise. A refused claim means a twin appeared
+    # since the probe above — the person double-launched — so this copy hands
+    # over and leaves after all.
+    guard = None
+    if address is not None:
+        guard = instance.SingleInstance(address, _Activation(window).request.emit)
+        if not guard.claim():
+            guard = None
+            if instance.forward(address):
+                return 0
+
     # Roomy, but never bigger than the desktop it opens on — a window whose
     # status line is off-screen is a window with a bug in it.
     available = app.primaryScreen().availableSize()
     window.resize(min(1360, available.width() - 60), min(860, available.height() - 60))
     window.show()
-    return app.exec()
+    try:
+        return app.exec()
+    finally:
+        if guard is not None:
+            guard.release()  # before the interpreter starts tearing Qt down
 
 
 if __name__ == "__main__":

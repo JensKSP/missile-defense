@@ -3,6 +3,7 @@
 // Assisted-by: Claude Code (Anthropic)
 #include "data_dir.hpp"
 #include "game_window.hpp"
+#include "instance.hpp"
 
 #include <QGuiApplication>
 #include <QVersionNumber>
@@ -15,6 +16,7 @@
 #include <print>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #ifdef Q_OS_WIN
 // For the "no Vulkan driver" dialog — see report_no_vulkan().
@@ -307,6 +309,30 @@ void write_report(const md::GameWindow& window) {
 }
 
 int run(int argc, char** argv) {
+    // One window per thing (app/instance.hpp): if a twin is already showing
+    // what this command line asks for — the bare game, this replay, this
+    // model on this seed — hand it the activation and exit instead of opening
+    // it again. Decided before Qt and before Vulkan, because the duplicate's
+    // whole job is to exit and it should cost milliseconds; disengaged by any
+    // automation flag (`key` returns "") and by MD_SINGLE_INSTANCE=0, so the
+    // e2e harness and the capture tool never meet it.
+    const std::vector<std::string> arguments{argv + 1, argv + argc};
+    const char* solo = std::getenv("MD_SINGLE_INSTANCE");
+    const std::string identity = solo != nullptr && std::string_view{solo} == "0"
+                                     ? std::string{}
+                                     : md::instance::key(arguments);
+    md::instance::Server twin;
+    if (!identity.empty()) {
+        const std::string channel = md::instance::machine_endpoint(identity);
+        if (md::instance::forward(channel) == md::instance::Forward::Raised) {
+            return 0;
+        }
+        if (!twin.start(channel) &&
+            md::instance::forward(channel) == md::instance::Forward::Raised) {
+            return 0; // lost the claim to a twin born between the two lines above
+        }
+    }
+
     // No platform is chosen here. The session picks: Wayland where the user runs
     // Wayland, X11 where they run X11, which is what anyone would expect and for
     // a while was not what they got.
@@ -364,6 +390,34 @@ int run(int argc, char** argv) {
     const bool silent = std::any_of(
         argv + 1, argv + argc, [](const char* arg) { return std::string_view{arg} == "--silent"; });
     md::GameWindow window{silent};
+
+    // The twin guard lets go here, before the window it pokes destructs — on
+    // *every* path out of this function, the early `return 2`s included. The
+    // guard object itself is declared above the window (its claim predates
+    // Qt), so scope order alone would tear them down the wrong way round.
+    struct TwinRelease {
+        md::instance::Server& server;
+
+        ~TwinRelease() { server.detach(); }
+    } twin_release{twin};
+
+    twin.on_activate([&window] {
+        // On the server's thread here. The window may only be touched on the
+        // GUI thread, so the raise is posted, not performed — and a raise is
+        // what a *person* asked for by launching this thing again, so it
+        // un-minimises too, back to the mode the window would open in.
+        QMetaObject::invokeMethod(
+            &window,
+            [&window] {
+                if (window.windowStates().testFlag(Qt::WindowMinimized)) {
+                    window.setWindowStates(window.fullscreen() ? Qt::WindowFullScreen
+                                                               : Qt::WindowNoState);
+                }
+                window.raise();
+                window.requestActivate();
+            },
+            Qt::QueuedConnection);
+    });
     window.setVulkanInstance(&instance);
     window.resize(1280, 720);
     window.setTitle("Missile Defense");
