@@ -91,6 +91,18 @@ jobs:
         # format, lint, types, clang-tidy, tests (Debug + Release), coverage >=80%
         run: poe check
 
+      - name: Upload the gate's logs
+        # The gate echoes each failing stage's diagnostics and tail, but the
+        # full logs stay on the runner — and the runner is the one machine
+        # nobody can log into. Twice in one day the line naming a clang-tidy
+        # defect had scrolled out of the echoed tail; the artifact is how the
+        # next such line gets read instead of guessed at.
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: gate-logs
+          path: build/gate/
+
       - name: Build the Debian package
         run: poe deb
 

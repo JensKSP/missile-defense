@@ -38,6 +38,7 @@ otherwise make the gate faster *and* green while no longer checking anything.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 import threading
@@ -57,6 +58,19 @@ GATE_DIR = _util.PROJECT_ROOT / "build" / "gate"
 #: a compiler diagnostic or a pytest assertion, short enough that three failures
 #: do not bury the summary that follows them.
 TAIL_LINES = 25
+
+#: How many diagnostic-shaped lines are echoed from *before* the tail. The tail
+#: alone is not enough for a stage that runs children in parallel: run-clang-tidy
+#: under `-j` interleaves its files' output, so the one `error:` line can finish
+#: minutes before the log ends — twice in one day CI showed a traceback about
+#: the exit code and kept the defect itself on a runner nobody can log into.
+DIAGNOSTIC_LINES = 40
+
+#: What a line that *names* a diagnostic looks like, across the tools the gate
+#: runs: `path:line:col: error: …` from compilers and clang-tidy, `error:` /
+#: `warning:` from the linters. Matched anywhere in the log, however far from
+#: its end.
+DIAGNOSTIC = re.compile(r"\b(?:error|warning):")
 
 
 @dataclass(frozen=True)
@@ -110,6 +124,9 @@ class Result:
     #: an empty default would make "no tail captured" and "nothing to say"
     #: indistinguishable at the one place this is read.
     tail: list[str]
+    #: Diagnostic-shaped lines from the rest of the log — what the tail misses
+    #: when a parallel child printed the error minutes before the log ended.
+    diagnostics: list[str]
 
 
 def _run(stage: Stage, locks: dict[str, threading.Lock]) -> Result:
@@ -134,9 +151,15 @@ def _run(stage: Stage, locks: dict[str, threading.Lock]) -> Result:
     duration = int((time.monotonic() - start) * 1000)
     ok = completed.returncode == 0
     tail: list[str] = []
+    diagnostics: list[str] = []
     if not ok:
         lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
         tail = lines[-TAIL_LINES:]
+        diagnostics = [line for line in lines[:-TAIL_LINES] if DIAGNOSTIC.search(line)]
+        if len(diagnostics) > DIAGNOSTIC_LINES:
+            dropped = len(diagnostics) - DIAGNOSTIC_LINES
+            diagnostics = diagnostics[:DIAGNOSTIC_LINES]
+            diagnostics.append(f"[... {dropped} more diagnostic lines in the log ...]")
     status = "pass" if ok else "fail"
     print(
         f"{'PASS' if ok else 'FAIL'}  {stage.task:<14} {duration / 1000:6.1f}s"
@@ -144,7 +167,9 @@ def _run(stage: Stage, locks: dict[str, threading.Lock]) -> Result:
         file=sys.stderr,
         flush=True,
     )
-    return Result(stage.task, status, completed.returncode, duration, str(log_path), tail)
+    return Result(
+        stage.task, status, completed.returncode, duration, str(log_path), tail, diagnostics
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -190,9 +215,15 @@ def main(argv: list[str] | None = None) -> int:
     (GATE_DIR / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
 
     # The failures first and in full, because that is what the run is for. The
-    # summary goes last so it is what a terminal is left showing.
+    # summary goes last so it is what a terminal is left showing. Diagnostics
+    # before the tail: the line that names the defect outranks the lines that
+    # merely surround the exit.
     for result in failed:
         print(f"\n--- {result.stage} ---", file=sys.stderr)
+        for line in result.diagnostics:
+            print(line, file=sys.stderr)
+        if result.diagnostics and result.tail:
+            print("[...]", file=sys.stderr)
         for line in result.tail:
             print(line, file=sys.stderr)
 
