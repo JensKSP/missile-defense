@@ -481,7 +481,7 @@ class GameWindow : public QVulkanWindow {
     bool audio_on_ = true;
     bool music_on_ = true;    // looping FM-synth background music
     bool fullscreen_ = false; // windowed by default
-    int final_score_ = 0; // score captured at game over (for the entry screen)
+    int final_score_ = 0;     // score captured at game over (for the entry screen)
     std::array<char, 3> entry_initials_{{'A', 'A', 'A'}};
     int entry_slot_ = 0;
 };

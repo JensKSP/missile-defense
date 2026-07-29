@@ -194,8 +194,8 @@ struct PipeCloser {
 /// What a candidate says `sys.version_info` is, or nothing. See the Windows
 /// half above for why the question has to be asked by running it.
 std::optional<Interpreter> ask_version(const std::filesystem::path& candidate) {
-    const std::string command = '"' + candidate.string() + "\" -c \"" +
-                                std::string{version_probe} + "\" 2>/dev/null";
+    const std::string command =
+        '"' + candidate.string() + "\" -c \"" + std::string{version_probe} + "\" 2>/dev/null";
     const std::unique_ptr<std::FILE, PipeCloser> pipe{popen(command.c_str(), "r")};
     if (!pipe) {
         return std::nullopt;
