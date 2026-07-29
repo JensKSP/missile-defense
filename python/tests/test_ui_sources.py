@@ -13,6 +13,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -297,6 +298,11 @@ def test_a_neighbour_that_cannot_be_looked_into_is_not_a_run(tmp_path: Path) -> 
     # another user. `Path.exists()` inside one raises rather than answering, so a
     # trainer opened on a run in `/tmp` died building its picker — before it had
     # drawn anything, on a machine where nothing was wrong with the run.
+    if sys.platform == "win32":
+        # Unreachable past the skipif; written for the type checkers, whose
+        # Windows stubs rightly have no `os.geteuid` — `hasattr` above is a
+        # runtime fact they cannot narrow on, this line is one they can.
+        return
     if os.geteuid() == 0:
         pytest.skip("root can read anything, so there is no refusal to survive")
     _run_dir(tmp_path, "mine", 1000)

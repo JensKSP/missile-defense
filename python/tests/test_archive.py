@@ -46,7 +46,13 @@ def rewrite(source: Path, destination: Path, **entries: bytes) -> Path:
     keep.update(entries)
     with zipfile.ZipFile(destination, "w", zipfile.ZIP_DEFLATED) as out:
         for name, data in keep.items():
-            out.writestr(name, data)
+            # The name goes in *after* construction: ZipInfo.__init__ swaps
+            # os.sep for "/", so on Windows a hostile `x\..\evil.txt` was
+            # quietly sanitised into a mere `..` escape before it ever reached
+            # the zip — and the backslash refusal under test went unexercised.
+            info = zipfile.ZipInfo("placeholder")
+            info.filename = name
+            out.writestr(info, data)
     return destination
 
 
@@ -135,7 +141,12 @@ def test_a_backslash_escape_in_the_zip_itself_is_refused(tmp_path: Path) -> None
     """
     good = archive.create_archive(a_run(tmp_path), tmp_path / "good.zip")
     broken = rewrite(good, tmp_path / "zip-backslash.zip", **{"x\\..\\evil.txt": b"payload"})
-    with pytest.raises(archive.ArchiveError, match="backslash"):
+    # Which refusal fires depends on the platform's own stdlib: zipfile's
+    # reader flattens `\` to `/` wherever os.sep is `\` (Windows), so there
+    # the smuggled name arrives as a plain `..` escape and is refused as one;
+    # everywhere else the backslash survives to be refused by name. The
+    # promise under test is the refusal, not its spelling.
+    with pytest.raises(archive.ArchiveError, match=r"backslash|\.\."):
         archive.verify_archive(broken)
 
 

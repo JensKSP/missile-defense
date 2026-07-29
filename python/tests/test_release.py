@@ -69,7 +69,10 @@ def test_the_bump_writes_exactly_the_files_it_claims_to(tree: Path) -> None:
     before = {path: path.read_bytes() for path in tree.rglob("*") if path.is_file()}
     bump("0.2.0", root=tree, when=WHEN)
     touched = {
-        str(path.relative_to(tree))
+        # `as_posix`, because DECLARING_FILES speaks forward slashes and
+        # `str()` would answer in the host's — on Windows the two sets
+        # disagreed about every file while agreeing about every fact.
+        path.relative_to(tree).as_posix()
         for path in tree.rglob("*")
         if path.is_file() and before.get(path) != path.read_bytes()
     }

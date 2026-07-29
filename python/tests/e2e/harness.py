@@ -466,8 +466,20 @@ def run_app(
             report = json.loads(line)
             break
     run = AppRun(_exit_status(result.returncode, status_path), report, result.stdout, result.stderr)
-    if expect_report:
-        assert report, f"no --report line on stdout:\n{result.stdout}\n{result.stderr}"
+    if expect_report and not report:
+        # Windows loses a process to STATUS_DLL_NOT_FOUND *before* main() runs:
+        # both streams stay empty, and the bare "no --report line" below reads
+        # as a rendering mystery when the whole story is a PATH. A build-tree
+        # game finds Qt's DLLs through PATH (docs/WINDOWS.md), which a shell
+        # that only ever ran pytest may never have been given.
+        dll_not_found = 0xC0000135
+        if result.returncode in (dll_not_found, dll_not_found - 2**32):
+            raise AssertionError(
+                "the game exited with STATUS_DLL_NOT_FOUND before main() ran — a DLL "
+                "it links is not on PATH. For a build-tree binary that is Qt: put "
+                "<QT_ROOT_DIR>/bin on PATH for this shell (docs/WINDOWS.md)."
+            )
+        raise AssertionError(f"no --report line on stdout:\n{result.stdout}\n{result.stderr}")
     return run
 
 
