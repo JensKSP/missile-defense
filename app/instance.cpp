@@ -193,7 +193,7 @@ std::uint32_t greeted_pid(std::string_view reply) {
         if (c < '0' || c > '9') {
             break;
         }
-        pid = pid * 10 + static_cast<std::uint32_t>(c - '0');
+        pid = (pid * 10) + static_cast<std::uint32_t>(c - '0');
     }
     return pid;
 }
@@ -519,12 +519,7 @@ void Server::detach() {
         nudge(endpoint_);
         std::this_thread::sleep_for(poll_step);
     }
-    try {
-        thread_.join();
-    } catch (const std::system_error&) {
-        // Joining a thread that already ended is the only failure left once
-        // done_ is set, and the destructor this runs under must not throw.
-    }
+    thread_.join();
 #ifndef _WIN32
     if (listen_fd_ >= 0) {
         close(listen_fd_);

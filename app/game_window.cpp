@@ -1550,6 +1550,12 @@ void GameWindow::mousePressEvent(QMouseEvent* event) {
 /// the menu's EXIT, the compositor's close button, a window manager asking — and
 /// it is delivered immediately before `destroy()`, so nothing renders after it.
 bool GameWindow::event(QEvent* event) {
+    if (event->type() == activation_event()) {
+        // A twin handed its activation over (app/instance.cpp): the person
+        // launched this game again, so bring the window back to them.
+        raise_to_person();
+        return true;
+    }
     QVulkanInstance* detached = nullptr;
     VkSurfaceKHR orphaned = VK_NULL_HANDLE;
     if (event->type() == QEvent::Close && QGuiApplication::platformName() == "wayland") {
@@ -1580,6 +1586,17 @@ bool GameWindow::event(QEvent* event) {
         }
     }
     return handled;
+}
+
+void GameWindow::raise_to_person() {
+    if (windowStates().testFlag(Qt::WindowMinimized)) {
+        // Back to the mode the window would open in, not merely un-minimised:
+        // the person asked for the game, and the game they configured is the
+        // fullscreen one or the windowed one, remembered by fullscreen().
+        setWindowStates(fullscreen() ? Qt::WindowFullScreen : Qt::WindowNoState);
+    }
+    raise();
+    requestActivate();
 }
 
 void GameWindow::keyPressEvent(QKeyEvent* event) {

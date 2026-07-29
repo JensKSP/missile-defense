@@ -17,6 +17,7 @@
 #include "trainer.hpp"
 
 #include <QElapsedTimer>
+#include <QEvent>
 #include <QVulkanWindow>
 #include <array>
 #include <cstdint>
@@ -139,6 +140,20 @@ class GameWindow : public QVulkanWindow {
     /// which is why this suppresses persistence rather than just toggling the
     /// two flags the Options screen writes.
     void set_silent() noexcept;
+
+    /// The event a twin's activation arrives as (app/instance.hpp): posted from
+    /// the channel's thread, handled in `event()` on this one, where windows
+    /// may be touched. An event rather than `QMetaObject::invokeMethod`
+    /// because the functor form allocates inside Qt's own header, where the
+    /// static analyzer sees a leak nobody's NOLINT can reach; the event's
+    /// allocation sits on the caller's line, owned by Qt's queue from the
+    /// moment `postEvent` takes it. `QEvent::User` plainly: the game defines
+    /// exactly one event of its own.
+    [[nodiscard]] static constexpr QEvent::Type activation_event() { return QEvent::User; }
+
+    /// Bring the window back to the person who just launched this game again:
+    /// out of minimised into the mode it would open in, raised, focused.
+    void raise_to_person();
 
     /// Did anything reach the speakers at any point in this run?
     ///

@@ -400,22 +400,13 @@ int run(int argc, char** argv) {
             return 0; // lost the claim to a twin born during our own startup
         }
         twin.on_activate([&window] {
-            // On the server's thread here. The window may only be touched on
-            // the GUI thread, so the raise is posted, not performed — and a
-            // raise is what a *person* asked for by launching this thing
-            // again, so it un-minimises too, back to the mode the window
-            // would open in.
-            QMetaObject::invokeMethod(
-                &window,
-                [&window] {
-                    if (window.windowStates().testFlag(Qt::WindowMinimized)) {
-                        window.setWindowStates(window.fullscreen() ? Qt::WindowFullScreen
-                                                                   : Qt::WindowNoState);
-                    }
-                    window.raise();
-                    window.requestActivate();
-                },
-                Qt::QueuedConnection);
+            // On the server's thread here; the window may only be touched on
+            // the GUI thread, so the raise is posted, not performed —
+            // GameWindow::event answers with raise_to_person(). postEvent is
+            // one of the few Qt calls documented thread-safe, and it owns the
+            // event from the moment it takes it.
+            // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
+            QCoreApplication::postEvent(&window, new QEvent(md::GameWindow::activation_event()));
         });
     }
     window.setVulkanInstance(&instance);
