@@ -338,28 +338,26 @@ bool Server::start(const std::string& endpoint) {
 void Server::serve() {
     const std::wstring name{endpoint_.begin(), endpoint_.end()};
     HANDLE pipe = static_cast<HANDLE>(first_pipe_);
-    while (!stop_) {
-        if (pipe == INVALID_HANDLE_VALUE) {
-            pipe = pipe_instance(name, false);
-            if (pipe == INVALID_HANDLE_VALUE) {
-                break; // torn down under us: done serving
-            }
-        }
+    while (!stop_ && pipe != INVALID_HANDLE_VALUE) {
         const BOOL connected = ConnectNamedPipe(pipe, nullptr);
-        if (connected == 0 && GetLastError() != ERROR_PIPE_CONNECTED) {
-            CloseHandle(pipe);
-            pipe = INVALID_HANDLE_VALUE;
-            continue;
-        }
-        if (!stop_) {
+        const bool usable = connected != 0 || GetLastError() == ERROR_PIPE_CONNECTED;
+        // The successor is made *before* this connection is served and its
+        // instance closed. In the gap where the name has no instance at all,
+        // a duplicate's FIRST_PIPE_INSTANCE claim succeeds and two servers
+        // end up sharing the identity — CPython's PipeListener pre-creates
+        // for the same reason, and the unit test caught this one racing.
+        const HANDLE next = pipe_instance(name, false);
+        if (usable && !stop_) {
             write_all(pipe, std::format("{}{}\n", greeting_prefix, GetCurrentProcessId()));
             if (bounded_read(pipe).starts_with("activate")) {
                 notify();
             }
         }
-        DisconnectNamedPipe(pipe);
+        if (usable) {
+            DisconnectNamedPipe(pipe);
+        }
         CloseHandle(pipe);
-        pipe = INVALID_HANDLE_VALUE;
+        pipe = next; // INVALID when creation failed: torn down under us, done
     }
     if (pipe != INVALID_HANDLE_VALUE) {
         CloseHandle(pipe);
@@ -474,7 +472,7 @@ void nudge(const std::string& endpoint) {
 void Server::notify() {
     std::function<void()> callback;
     {
-        const std::lock_guard<std::mutex> lock{mutex_};
+        const std::scoped_lock lock{mutex_};
         if (callback_) {
             callback = callback_;
         } else {
@@ -492,7 +490,7 @@ void Server::notify() {
 void Server::on_activate(std::function<void()> callback) {
     bool fire = false;
     {
-        const std::lock_guard<std::mutex> lock{mutex_};
+        const std::scoped_lock lock{mutex_};
         callback_ = std::move(callback);
         fire = pending_ && static_cast<bool>(callback_);
         pending_ = false;
@@ -504,7 +502,7 @@ void Server::on_activate(std::function<void()> callback) {
 
 void Server::detach() {
     {
-        const std::lock_guard<std::mutex> lock{mutex_};
+        const std::scoped_lock lock{mutex_};
         callback_ = nullptr; // from here no activation can touch the window
     }
     if (!thread_.joinable()) {

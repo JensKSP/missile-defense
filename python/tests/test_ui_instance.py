@@ -13,7 +13,9 @@ also why the raise itself (a Qt signal in `app.main`) is not here.
 from __future__ import annotations
 
 import os
+import shutil
 import sys
+import tempfile
 import threading
 from multiprocessing import connection
 from pathlib import Path
@@ -131,19 +133,29 @@ def test_a_stranger_on_the_endpoint_is_left_alone() -> None:
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="pipes die with their process; no corpses")
-def test_a_crashed_twins_socket_is_swept_not_obeyed(tmp_path: Path) -> None:
+def test_a_crashed_twins_socket_is_swept_not_obeyed() -> None:
     # A corpse: the path exists, nobody listens. A crash cannot be staged in a
     # test, but what it leaves behind can — anything on the path that refuses
     # connections looks exactly like a dead socket to the claim.
-    address = str(tmp_path / "corpse.sock")
-    Path(address).touch()
-
-    raised = threading.Event()
-    guard = instance.SingleInstance(address, raised.set)
-    assert guard.claim(), "a corpse must be swept, not treated as a twin"
+    #
+    # A scratch directory of its own rather than pytest's tmp_path: sun_path
+    # holds ~104 bytes on macOS, and tmp_path nests this test's whole name
+    # under the runner's already-deep /var/folders — the bind then fails for
+    # *length*, which reads as an unsweepable corpse. The real endpoints never
+    # meet this: endpoint() builds short names directly under the runtime dir.
+    scratch = Path(tempfile.mkdtemp(prefix="md-corpse-"))
     try:
-        assert instance.forward(address) is True
-        assert raised.wait(5)
+        address = str(scratch / "corpse.sock")
+        Path(address).touch()
+
+        raised = threading.Event()
+        guard = instance.SingleInstance(address, raised.set)
+        assert guard.claim(), "a corpse must be swept, not treated as a twin"
+        try:
+            assert instance.forward(address) is True
+            assert raised.wait(5)
+        finally:
+            guard.release()
+        assert not Path(address).exists(), "release leaves the endpoint clean"
     finally:
-        guard.release()
-    assert not Path(address).exists(), "release leaves the endpoint clean"
+        shutil.rmtree(scratch, ignore_errors=True)
