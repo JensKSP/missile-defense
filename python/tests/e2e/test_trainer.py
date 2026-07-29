@@ -828,19 +828,46 @@ def test_the_memory_bar_goes_green_amber_red_with_what_the_run_asks_for(
     finally:
         cramped.close()
 
-    # No probe, no denominator: the bar goes away rather than drawing a
-    # proportion of a card nobody could measure. The sentence stays.
+    # No card, but a machine: the bar comes back drawn against system RAM,
+    # because a run with no usable card is a CPU run and RAM is where its
+    # tensors land. The words follow the denominator — "RAM", not "GPU
+    # memory", and not "card" in the tight line.
     #
     # Patched rather than passed, because `vram=None` is the constructor's "go
     # and ask" — and on a machine with a card it would ask and get an answer.
     from missile_defense.ui import forms as forms_module  # noqa: PLC0415
 
     monkeypatch.setattr(forms_module, "read_vram", lambda: None)
+    monkeypatch.setattr(
+        forms_module,
+        "read_system_ram",
+        lambda: forms_module.Vram(30 * footprint.GIB, 64 * footprint.GIB),
+    )
+    cpu_bound = dialog_with(None)
+    try:
+        assert cpu_bound._memory_bar is not None
+        assert cpu_bound._memory_bar.isVisibleTo(cpu_bound), (
+            "the bar is hidden on a machine whose RAM can be measured"
+        )
+        cpu_bound._presets.setCurrentIndex(cpu_bound._presets.findData("fast"))
+        text = present(cpu_bound._memory, "the memory label").text()
+        assert "GiB of RAM" in text
+        assert "GPU" not in text
+        assert cpu_bound._memory_bar._total == 64 * footprint.GIB
+        assert "GiB RAM" in cpu_bound._memory_bar.toolTip()
+    finally:
+        cpu_bound.close()
+
+    # No probe, no psutil, no denominator of any kind: only now does the bar
+    # go away rather than drawing a proportion of memory nobody could measure.
+    # The sentence stays — and says "memory", unqualified, because where the
+    # run would spend it is exactly what this machine cannot tell.
+    monkeypatch.setattr(forms_module, "read_system_ram", lambda: None)
     headless = dialog_with(None)
     try:
         assert headless._memory_bar is not None
         assert not headless._memory_bar.isVisibleTo(headless)
-        assert present(headless._memory, "the memory label").text() == "≈ 2.8 GiB of GPU memory"
+        assert present(headless._memory, "the memory label").text() == "≈ 2.8 GiB of memory"
     finally:
         headless.close()
 

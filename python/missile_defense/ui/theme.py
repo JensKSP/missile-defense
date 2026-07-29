@@ -214,6 +214,13 @@ def stylesheet() -> str:
         padding: 2px 9px;
         font-size: 11px;
     }}
+    /* Density is its own axis, deliberately apart from `role`: the library
+       and league action rows need every button slim — including the one that
+       is also role="primary", which a role of "compact" would overwrite. */
+    QPushButton[density="compact"] {{
+        padding: 3px 9px;
+        font-size: 11px;
+    }}
     /* The version stamp beside the title. It is a button because it opens
        About, and it is styled as a caption because it must not read as one:
        the control bar is three affordances and this is not a fourth. */

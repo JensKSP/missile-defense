@@ -82,7 +82,14 @@ class RunTable(QWidget):
         self._empty = QLabel(NOTHING_YET)
         self._empty.setProperty("role", "placeholder")
         self._empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        column.addWidget(self._empty)
+        # Wrapped for the same reason analysis.py wraps its placeholder: an
+        # unwrapped label's longest line becomes the window's minimum width.
+        self._empty.setWordWrap(True)
+        # The same stretch the table below carries: whichever of the two is
+        # visible fills the same region, so the empty state is the same shape
+        # as the populated one — and the same shape as the league pane beside
+        # it, whose action rows this pane's must line up with.
+        column.addWidget(self._empty, stretch=1)
 
         self._table = QTableWidget(0, len(COLUMNS))
         self._table.setHorizontalHeaderLabels(list(COLUMNS))
@@ -106,6 +113,9 @@ class RunTable(QWidget):
 
         actions = QHBoxLayout()
         actions.setSpacing(6)
+        # Not added to `actions`: LibraryView lifts this into its heading row,
+        # beside New run… — opening a run and starting one are the same kind
+        # of act, and the lift is what lets the row below stay a single line.
         self._open = QPushButton("&Open")
         self._open.setProperty("role", "primary")
         self._open.clicked.connect(self._open_selected)
@@ -113,10 +123,11 @@ class RunTable(QWidget):
         # between "that one won" and the model being in the game — and the
         # comparison that decides it happens *here*, with every run's best score
         # in one column. The dialog is the same one; only the way in is new.
-        self._promote = QPushButton("Enter Model &League…")
+        self._promote = QPushButton("Pro&mote…")
         self._promote.setToolTip(
-            "Copy this run's best checkpoint into the league as a .mdp, where it "
-            "outlives the run — and where the game finds it, under WATCH AI → MODELS"
+            "Enter the Model League: copy this run's best checkpoint into the "
+            "league as a .mdp, where it outlives the run — and where the game "
+            "finds it, under WATCH AI → MODELS"
         )
         self._promote.clicked.connect(self._promote_selected)
         self._rename = QPushButton("&Rename…")
@@ -138,8 +149,13 @@ class RunTable(QWidget):
         self._delete = QPushButton("&Delete…")
         self._delete.setToolTip("Remove this run and everything in it from disk, for good")
         self._delete.clicked.connect(self._delete_selected)
+        # One row again, but only after it earned the width back: it was two
+        # (seven buttons and the summary summed past what half of a
+        # 1280-logical-point display can hold), and it is one because Open
+        # moved into the heading, the summary moved beside the caption, and
+        # Promote… now says in one word what "Enter Model League…" said in
+        # three — the long version lives on in its tooltip.
         for button in (
-            self._open,
             self._promote,
             self._rename,
             self._note,
@@ -147,11 +163,13 @@ class RunTable(QWidget):
             self._storage,
             self._delete,
         ):
+            button.setProperty("density", "compact")
             actions.addWidget(button)
         actions.addStretch(1)
+        # Lifted into LibraryView's heading, like the Open button: a count of
+        # what the list holds belongs with the list's name, not with the verbs.
         self._summary = QLabel()
         self._summary.setProperty("role", "note")
-        actions.addWidget(self._summary)
         column.addLayout(actions)
 
         self._table.itemSelectionChanged.connect(self._selection_changed)
@@ -163,6 +181,14 @@ class RunTable(QWidget):
         self._selection_changed()
 
     # ---- feeding it ----------------------------------------------------------
+
+    def open_button(self) -> QPushButton:
+        """The primary Open, for LibraryView to seat in its heading row."""
+        return self._open
+
+    def summary_label(self) -> QLabel:
+        """The runs count and weight, for the heading — beside the list's name."""
+        return self._summary
 
     def focus_list(self) -> None:
         """Put the keyboard on the rows, selecting the first if none is.
@@ -409,13 +435,24 @@ class LibraryView(QWidget):
         self._root: Path | None = None
 
         column = QVBoxLayout(self)
-        column.setContentsMargins(0, 0, 10, 0)
+        # No inner margin against the splitter: the handle itself is the 8px
+        # gap every card keeps, and a margin on top of it made this gutter
+        # three times the others.
+        column.setContentsMargins(0, 0, 0, 0)
         column.setSpacing(10)
+
+        # Built before the heading, because the heading seats two of its
+        # widgets: the Open button and the summary. Lifting them up there is
+        # what lets the action row under the table stay one line on a
+        # 1280-point display.
+        self.table = RunTable()
 
         heading = QHBoxLayout()
         caption = QLabel("RUNS")
         caption.setProperty("role", "caption")
         heading.addWidget(caption)
+        heading.addSpacing(8)
+        heading.addWidget(self.table.summary_label())
         heading.addStretch(1)
         # Restore is withdrawn from this heading for now. It was the only
         # archive control at library level — the way *out*, `Storage… →
@@ -438,6 +475,10 @@ class LibraryView(QWidget):
             self._play.setToolTip("Open Missile Defense")
             self._play.clicked.connect(on_play)
             heading.addWidget(self._play)
+        # Open sits beside New run…: opening a run and starting one are the
+        # same kind of act — leaving this screen for a particular run — and
+        # the row under the table gets to stay one line for its trouble.
+        heading.addWidget(self.table.open_button())
         if on_new_run is not None:
             new_run = QPushButton("&New run…")
             new_run.setProperty("role", "primary")
@@ -445,7 +486,6 @@ class LibraryView(QWidget):
             heading.addWidget(new_run)
         column.addLayout(heading)
 
-        self.table = RunTable()
         self.table.opened.connect(self.opened)
         self.table.renamed.connect(self._renamed)
         self.table.changed.connect(self.refresh)

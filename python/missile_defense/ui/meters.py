@@ -107,12 +107,26 @@ class SystemPanel(QWidget):
         layout.addWidget(self._note)
         self.refresh()
 
+    def _say(self, text: str) -> None:
+        """Show `text` in the note, wrappable even where it holds a path.
+
+        A backslash is no break opportunity to Qt's line breaking, so a
+        Windows interpreter path is one unbreakable token — and the widest
+        token is the minimum width a word-wrapped QLabel still demands. This
+        note names `sys.executable`, which put a floor of the path's full
+        length under the whole console window: it could not be made narrower
+        than ~700px, on displays that had no ~700px to give (reported
+        2026-07-29). A zero-width space after each backslash is invisible,
+        changes nothing anyone reads or retypes, and lets the wrap do its job.
+        """
+        self._note.setText(text.replace("\\", "\\" + "\u200b"))
+
     def refresh(self) -> None:
         sample = self._monitor.sample()
         if sample is None:
             for meter in (self._cpu, self._memory, self._gpu, self._vram):
                 meter.set(None, "—")
-            self._note.setText(NO_PSUTIL)
+            self._say(NO_PSUTIL)
             return
         self._show(sample)
 
@@ -126,12 +140,12 @@ class SystemPanel(QWidget):
         if gpu is None:
             self._gpu.set(None, "—")
             self._vram.set(None, "—")
-            self._note.setText(self._monitor.gpu_note)
+            self._say(self._monitor.gpu_note)
             return
         busy = "—" if gpu.utilisation is None else f"{gpu.utilisation:.0f}%"
         self._gpu.set(gpu.utilisation, busy)
         self._vram.set(*_vram_reading(gpu))
-        self._note.setText(_gpu_detail(gpu))
+        self._say(_gpu_detail(gpu))
 
 
 def _vram_reading(gpu: GpuSample) -> tuple[float | None, str]:

@@ -76,6 +76,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSlider,
     QSpinBox,
@@ -90,7 +91,7 @@ from ..runs.sources import Checkpoint, human_age, human_size
 from . import params as params_module
 from . import reward as reward_module
 from . import theme
-from .params import GLOSSARY, GROUPS, Group, Param
+from .params import GROUPS, Group, Param
 
 #: Wide enough for a label, a slider with room to aim, and its readout.
 DIALOG_WIDTH = 680
@@ -101,7 +102,7 @@ READOUT_WIDTH = 92
 HELP_IDLE = "Point at a parameter, or tab to it, for what it does."
 #: Room for two wrapped lines of `role="note"`, reserved once. See `_help_strip`
 #: for why this is fixed rather than a minimum.
-HELP_STRIP_HEIGHT = 46
+HELP_STRIP_HEIGHT = 40
 #: About what two lines hold at that height and width. Approximate on purpose:
 #: the alternative is measuring with QFontMetrics on every mouse move to save a
 #: reader from an ellipsis that arrives one word early.
@@ -109,8 +110,10 @@ HELP_STRIP_CHARS = 200
 #: Room for the reward panel's busiest state — caption, two equation lines, and
 #: both notes — reserved whatever is currently shown. Switching a priced event
 #: on adds a line to each, and a panel that grows while you drag the slider
-#: causing it is the jump this avoids.
-EQUATION_PANEL_HEIGHT = 158
+#: causing it is the jump this avoids. 130 assumes the slimmer margins the
+#: panel wears since the whole dialog went on a height budget (2026-07-29);
+#: the busiest state still fits, with nothing over.
+EQUATION_PANEL_HEIGHT = 130
 
 
 #: Where a tooltip is folded. Qt does not wrap a plain-text tooltip at all — it
@@ -298,6 +301,29 @@ def read_vram() -> Vram | None:
     return Vram(max(sample.memory_total - sample.memory_used, 0), sample.memory_total)
 
 
+def read_system_ram() -> Vram | None:
+    """System memory, the denominator when no card can be read.
+
+    A machine without a readable card is not a machine without a memory limit —
+    it is (almost always) a machine that will train on the CPU, and a CPU run's
+    tensors land in RAM. Drawing the same bar against system memory keeps the
+    dialog's one visual answer — *how much of what I have is this* — on exactly
+    the machines that lost it when the estimate moved onto the card: no NVIDIA
+    library, an AMD card nothing on Windows can probe, no card at all.
+
+    psutil, because it is the library the System panel already reads RAM with,
+    and ``None`` when it is missing — the reading is optional the same way the
+    vendor probes are, and guessing a total would put a made-up denominator
+    under a real estimate.
+    """
+    try:
+        import psutil  # noqa: PLC0415 — optional, and the System panel's own dependency
+    except ImportError:
+        return None
+    memory = psutil.virtual_memory()
+    return Vram(free=int(memory.available), total=int(memory.total))
+
+
 #: Positions on every slider. Fine enough that dragging feels continuous, coarse
 #: enough that the readout beside it does not flicker through digits nobody asked
 #: for.
@@ -447,7 +473,12 @@ class BalanceBar(QWidget):
 
 
 class MemoryBar(QWidget):
-    """What this run will ask of the card, drawn against the card.
+    """What this run will ask of its memory, drawn against that memory.
+
+    The card's memory where a card can be read; the machine's RAM where none
+    can, because that is the memory a CPU-bound run actually spends
+    (:func:`read_system_ram` says why the fallback exists). The bar is the
+    same either way — only the word in the tooltip changes.
 
     The estimate was a sentence for a long time — "≈ 2.8 GiB of GPU memory ·
     22.7 GiB free" — which states both numbers and reports neither. The question
@@ -483,7 +514,7 @@ class MemoryBar(QWidget):
         self.setFixedHeight(12)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
-    def show_estimate(self, *, estimate: int, vram: Vram, level: str) -> None:
+    def show_estimate(self, *, estimate: int, vram: Vram, level: str, holder: str = "card") -> None:
         self._used = max(vram.total - vram.free, 0)
         self._estimate = estimate
         self._total = vram.total
@@ -494,7 +525,7 @@ class MemoryBar(QWidget):
         self.setToolTip(
             f"{self._used / footprint.GIB:.1f} GiB already in use  ·  "
             f"this run ≈ {estimate / footprint.GIB:.1f} GiB  ·  "
-            f"{self._total / footprint.GIB:.0f} GiB card\n"
+            f"{self._total / footprint.GIB:.0f} GiB {holder}\n"
             f"Coloured against the estimate plus "
             f"{round((footprint.HEADROOM - 1) * 100)}% headroom, which is what the "
             f"allocator reserves over what it allocates."
@@ -757,6 +788,67 @@ def _shown(field: Param) -> str:
     return field.default
 
 
+class _FlatLayout(QVBoxLayout):
+    """A box layout that keeps height-for-width to itself.
+
+    A resizable ``QScrollArea`` asks its widget's *layout* whether the content
+    trades height for width, and if it does, sizes the content to that
+    *preferred* height rather than to the viewport — for a stacked page
+    holding charts, hundreds of pixels past a small display, so the whole
+    console scrolled the moment any label in any page word-wrapped (word wrap
+    is what turns height-for-width on). Worse, a stacked widget answers for
+    its *tallest* page, so the library scrolled for heights only the run view
+    wanted. Denying the trait here keeps the wrapped labels and drops the
+    claim: content tracks the viewport, and the minimum size — which still
+    travels through this layout untouched — remains what decides when the
+    scrollbars genuinely have to appear.
+    """
+
+    def hasHeightForWidth(self) -> bool:  # noqa: N802 — Qt's spelling
+        return False
+
+
+class _ViewportBody(QWidget):
+    """The widget ``OverflowScroll`` actually resizes — see ``_FlatLayout``."""
+
+    def __init__(self, inner: QWidget) -> None:
+        super().__init__()
+        box = _FlatLayout(self)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.addWidget(inner)
+
+
+class OverflowScroll(QScrollArea):
+    """A viewport that scrolls only when the display cannot hold its widget.
+
+    Reports the widget's own ``sizeHint``, so on a screen large enough the
+    layout is exactly what it would be with no scroll area at all — the bars
+    exist for the display that cannot hold the content, where the alternative
+    is buttons and readouts past the screen's edge. Used by the run dialog's
+    whole body (vertical only) and by the console window (both directions).
+
+    The dialog once had a scroll area and deliberately removed it: that one
+    wrapped the status strip too, and the strip's height changing under the
+    cursor jumped the scroll position on every mouse move. The strip lives
+    outside the tabs now, so what is inside this viewport only changes height
+    when a fold is opened, which is a moment the reader caused.
+    """
+
+    def __init__(self, widget: QWidget, *, horizontal: bool = False) -> None:
+        super().__init__()
+        self.setWidget(_ViewportBody(widget))
+        self.setWidgetResizable(True)
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        if not horizontal:
+            self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+    def sizeHint(self) -> QSize:  # noqa: N802 — Qt's spelling
+        hint = self.widget().sizeHint()
+        # Room for the bar, so content that would just fit is not given a
+        # scrollbar that then covers the readouts it was meant to protect.
+        return QSize(hint.width() + self.verticalScrollBar().sizeHint().width(), hint.height())
+
+
 class ParameterDialog(QDialog):
     """Configure a run, then start it."""
 
@@ -792,6 +884,10 @@ class ParameterDialog(QDialog):
         #: Read once. A dialog is open for a minute, and a number that moved
         #: while you were choosing would only ever move for the worse.
         self._vram = read_vram() if vram is None else vram
+        #: The fallback denominator, read once for the same reason — and only
+        #: where it is the one that will be spent: with a readable card the
+        #: run goes there, and RAM is not asked about.
+        self._ram = read_system_ram() if self._vram is None else None
         #: Keyed by `Param.key` — owner *and* name. `gamma` is a field of two
         #: config classes, and keying by name alone gave them one editor between
         #: them, so only the last one read. `Shaping.gamma` is derived now and has
@@ -832,9 +928,25 @@ class ParameterDialog(QDialog):
 
         self.setWindowTitle("Start a training run")
         self.setMinimumWidth(DIALOG_WIDTH)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 14, 16, 12)
-        layout.setSpacing(10)
+        if not embedded:
+            # Never taller than the display this opens on. The layout's natural
+            # height is what a QDialog takes by default, and on a short laptop
+            # panel that put Start and Cancel below the bottom edge of the
+            # screen (reported 2026-07-29). Capped, the slack lands in the one
+            # viewport wrapped around the whole body, below. Embedded, the
+            # host window owns the height and this must not fight it.
+            self.setMaximumHeight(max(400, self.screen().availableGeometry().height() - 34))
+        # Everything except the buttons lives in one body behind one viewport:
+        # on a display too short even for the capped height, the WHOLE dialog
+        # scrolls as one page and the buttons stay pinned — rather than a
+        # scrollbar appearing inside whichever tab happens to be open, which
+        # was tried first and scrolled the wrong thing: the preset row and the
+        # preview, the parts that say what all the knobs amount to, left the
+        # screen the moment anyone scrolled the knobs.
+        body = QWidget()
+        layout = QVBoxLayout(body)
+        layout.setContentsMargins(16, 10, 16, 8)
+        layout.setSpacing(6)
 
         if not fields:
             # An installed trainer watching a synced directory has no missile_defense.training
@@ -861,8 +973,12 @@ class ParameterDialog(QDialog):
             layout.addWidget(self._resume_row(checkpoints, resume))
 
         if fields:
-            layout.addWidget(self._find_row())
-            layout.addWidget(self._tabs(fields), stretch=1)
+            tabs = self._tabs(fields)
+            # The find field rides in the tab bar's spare corner rather than on
+            # a row of its own: three tabs use a third of that bar's width, and
+            # a 752-point display cannot spare a whole row for the rest.
+            tabs.setCornerWidget(self._find_row(), Qt.Corner.TopRightCorner)
+            layout.addWidget(tabs, stretch=1)
             # One place the dialog explains itself, for parameters and for
             # jargon alike. A strip rather than a line under every row: thirty-odd
             # parameters carrying thirty-odd paragraphs is most of the height of
@@ -881,6 +997,7 @@ class ParameterDialog(QDialog):
         self._memory: QLabel | None = None
         self._memory_bar: MemoryBar | None = None
         self._schedule: QLabel | None = None
+        pinned: QWidget | None = None
         if fields:
             # The schedule stays in both: "2,000 updates -> 200 evals" is a fact
             # about the run either way. The memory estimate does not — it is a
@@ -888,30 +1005,37 @@ class ParameterDialog(QDialog):
             # finished is the dialog not knowing which question it is answering.
             self._schedule = QLabel()
             self._schedule.setProperty("role", "note")
-            layout.addWidget(self._schedule)
-            if not read_only:
+            if read_only:
+                layout.addWidget(self._schedule)
+            else:
+                # Pinned under the viewport with the buttons, not scrolled with
+                # the form: the bar answers the sliders *live* — drag `envs`
+                # and it moves — and feedback that has scrolled off the screen
+                # while the slider it answers is being dragged is no feedback.
+                #
                 # The bar above the words it belongs to, and hidden along with
-                # nothing: without a card to draw against there is no bar to
+                # nothing: without a reading to draw against there is no bar to
                 # draw, and the label below still states the estimate on its own.
                 self._memory_bar = MemoryBar()
-                layout.addWidget(self._memory_bar)
                 self._memory = QLabel()
                 self._memory.setProperty("role", "note")
                 self._memory.setWordWrap(True)
-                layout.addWidget(self._memory)
-
-        # The command alone is not quite runnable: `md` is imported from the
-        # checkout rather than installed, which the trainer arranges for its
-        # child. Say so, or "type it in a terminal yourself" is not true.
-        #
-        # Read-only leaves it out, along with the memory estimate above: both
-        # are advice for a run you are about to start, and a finished run being
-        # told it "is likely to run out of memory" is the dialog talking about
-        # something that already happened as though it had not.
-        if not read_only:
-            note = QLabel("run from the project root with python/ on PYTHONPATH")
-            note.setProperty("role", "note")
-            layout.addWidget(note)
+                pinned = QWidget()
+                column = QVBoxLayout(pinned)
+                column.setContentsMargins(16, 6, 16, 0)
+                column.setSpacing(6)
+                column.addWidget(self._memory_bar)
+                # One row for the two facts under the bar — the estimate reads
+                # left, the cadence right — because on a 752-point display the
+                # dialog's height budget is measured in single lines.
+                footer = QHBoxLayout()
+                footer.setSpacing(12)
+                footer.addWidget(self._memory, stretch=1)
+                footer.addWidget(
+                    self._schedule,
+                    alignment=Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight,
+                )
+                column.addLayout(footer)
 
         if embedded:
             # The host owns the buttons. Without this the window that embeds
@@ -932,8 +1056,17 @@ class ParameterDialog(QDialog):
             self._go.setDefault(True)
             buttons.accepted.connect(self.accept)
             buttons.rejected.connect(self.reject)
+        shell = QVBoxLayout(self)
+        shell.setContentsMargins(0, 0, 0, 0)
+        shell.setSpacing(0)
+        shell.addWidget(OverflowScroll(body), stretch=1)
+        if pinned is not None:
+            shell.addWidget(pinned)
         if buttons is not None:
-            layout.addWidget(buttons)
+            # Pinned under the viewport, never inside it: whatever the screen,
+            # Start and Cancel stay where a hand expects them.
+            buttons.setContentsMargins(16, 2, 16, 8)
+            shell.addWidget(buttons)
         # Last, so every editor exists to pour into. Not before the preview
         # either: what this fills in is exactly what the preview has to show.
         self._apply_initial(initial or {})
@@ -945,6 +1078,16 @@ class ParameterDialog(QDialog):
                 editor.setEnabled(False)
             for label in self._labels.values():
                 label.setEnabled(False)
+        if not embedded:
+            # Open at the height the display can give rather than at the
+            # layout's own idea of enough: the fields are the dialog — more
+            # height is more of them on screen at once — and a form column
+            # reads best narrow, so the width stays the content's own.
+            available = self.screen().availableGeometry()
+            self.resize(
+                min(max(DIALOG_WIDTH, self.sizeHint().width()), available.width() - 48),
+                self.maximumHeight(),
+            )
 
     # ---- presets ------------------------------------------------------------
     def _preset_row(self) -> QWidget:
@@ -952,8 +1095,8 @@ class ParameterDialog(QDialog):
         frame = QFrame()
         frame.setProperty("role", "panel")
         box = QVBoxLayout(frame)
-        box.setContentsMargins(14, 12, 14, 12)
-        box.setSpacing(8)
+        box.setContentsMargins(14, 8, 14, 8)
+        box.setSpacing(6)
 
         row = QHBoxLayout()
         row.setSpacing(8)
@@ -1160,6 +1303,9 @@ class ParameterDialog(QDialog):
 
         self._filter = QLineEdit()
         self._filter.setPlaceholderText("Find a parameter…")
+        # Wide enough to read what was typed; as a tab-bar corner widget the
+        # row no longer has a full dialog width to stretch into.
+        self._filter.setMinimumWidth(200)
         self._filter.setToolTip(
             _wrapped(
                 "Show only the parameters whose name or flag matches. A match opens "
@@ -1171,10 +1317,6 @@ class ParameterDialog(QDialog):
         self._filter.textChanged.connect(self._apply_filter)
         box.addWidget(self._filter, stretch=1)
 
-        glossary = QPushButton("Glossary")
-        glossary.setToolTip("What the abbreviations on this dialog mean")
-        glossary.clicked.connect(self._show_glossary)
-        box.addWidget(glossary)
         return row
 
     def _tabs(self, fields: list[Param]) -> QWidget:
@@ -1207,8 +1349,8 @@ class ParameterDialog(QDialog):
 
         page = QWidget()
         box = QVBoxLayout(page)
-        box.setContentsMargins(2, 8, 2, 2)
-        box.setSpacing(8)
+        box.setContentsMargins(2, 6, 2, 2)
+        box.setSpacing(6)
         for group in present:
             members = [by_name[name] for name in group.fields if name in by_name]
             # The Objective panel is the one that says what the numbers *mean*.
@@ -1230,12 +1372,10 @@ class ParameterDialog(QDialog):
         if any(g.domain == "reward" for g in present):
             box.addWidget(self._equation_panel())
         box.addStretch(1)
-        # No scroll area. One wrapped each tab and it was a mistake twice over:
-        # nothing needs scrolling once thirty-odd parameters are split across
-        # three tabs with the rarely-touched ones folded, and a viewport turns
-        # any height change *inside* it into a jump — which the status strip,
-        # growing and shrinking with the length of each explanation, produced on
-        # every mouse move.
+        # No scroll area of its own — the dialog wraps its whole body in one
+        # (see __init__), so a display too short for the form scrolls the form
+        # as a single page instead of hiding a scrollbar inside whichever tab
+        # is open. A per-tab viewport stood here briefly on the way to that.
         return page
 
     def _section(self, widget: QWidget, keys: tuple[tuple[str, str], ...]) -> QWidget:
@@ -1280,8 +1420,8 @@ class ParameterDialog(QDialog):
         frame.setFixedHeight(EQUATION_PANEL_HEIGHT)
         frame.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         box = QVBoxLayout(frame)
-        box.setContentsMargins(14, 10, 14, 10)
-        box.setSpacing(6)
+        box.setContentsMargins(14, 6, 14, 6)
+        box.setSpacing(4)
         caption = QLabel("WHAT THE AGENT IS PAID")
         caption.setProperty("role", "caption")
         box.addWidget(caption)
@@ -1328,8 +1468,8 @@ class ParameterDialog(QDialog):
         frame = QFrame()
         frame.setProperty("role", "panel")
         form = QFormLayout(frame)
-        form.setContentsMargins(14, 10, 14, 10)
-        form.setSpacing(6)
+        form.setContentsMargins(14, 6, 14, 6)
+        form.setSpacing(4)
         for field in fields:
             label, editor = self._row(field)
             form.addRow(label, self._with_ramp(field, editor))
@@ -1533,20 +1673,6 @@ class ParameterDialog(QDialog):
         # "there is more", and the full text is on the row's tooltip.
         self._help_text.setText(_elided(reason, HELP_STRIP_CHARS))
         self._help_text.setToolTip(_wrapped(reason))
-
-    def _show_glossary(self) -> None:
-        """Every abbreviation the dialog uses, in the game's terms.
-
-        A dialog rather than a hover: the terms are worth reading through once,
-        and a definition only reachable by pointing at the right word is one most
-        people never find.
-        """
-        body = "\n\n".join(f"{term}\n    {text}" for term, text in GLOSSARY.items())
-        box = QMessageBox(self)
-        box.setWindowTitle("Glossary")
-        box.setText("What the words on this dialog mean.")
-        box.setDetailedText(body)
-        box.exec()
 
     def _apply_filter(self, query: str) -> None:
         """Show only what matches, opening any fold that holds a match."""
@@ -1877,8 +2003,10 @@ class ParameterDialog(QDialog):
         "fits" was answering two questions with one word — a run that needs 30 of
         32 GiB fits, and also means the machine is unusable until it finishes.
         The bar carries the proportion, the line carries the numbers and what to
-        change; without a card the bar goes away and the line still states the
-        estimate.
+        change. Without a card both are drawn against system RAM — the memory a
+        CPU run actually spends (:func:`read_system_ram`) — and only with
+        nothing to read at all does the bar go away, the line still stating the
+        estimate on its own.
         """
         if self._memory is None:
             return
@@ -1890,27 +2018,36 @@ class ParameterDialog(QDialog):
         }
         estimate_bytes = footprint.estimate_bytes(**shape)
         estimate = estimate_bytes / footprint.GIB
-        vram = self._vram
-        if vram is None:
-            # No card to draw against, so no bar. The sentence still states the
-            # estimate: what a run costs is worth knowing even where nothing can
-            # say whether it fits.
+        on_card = self._vram is not None
+        against = self._vram if on_card else self._ram
+        # What the numbers are numbers *of*. Saying "GPU memory" on a machine
+        # whose run will spend RAM would be a fluent wrong answer.
+        unit = "GPU memory" if on_card else "RAM"
+        holder = "card" if on_card else "RAM"
+        if against is None:
+            # Nothing to draw against — no card, and no psutil to ask about
+            # RAM — so no bar. The sentence still states the estimate: what a
+            # run costs is worth knowing even where nothing can say whether it
+            # fits. "Memory", unqualified, because where it would be spent is
+            # exactly what this machine cannot tell.
             if self._memory_bar is not None:
                 self._memory_bar.setVisible(False)
-            self._memory.setText(f"≈ {estimate:.1f} GiB of GPU memory")
+            self._memory.setText(f"≈ {estimate:.1f} GiB of memory")
             self._memory.setProperty("role", "note")
         else:
-            free = vram.free / footprint.GIB
-            state = footprint.level(free_bytes=vram.free, total_bytes=vram.total, **shape)
+            free = against.free / footprint.GIB
+            state = footprint.level(free_bytes=against.free, total_bytes=against.total, **shape)
             if self._memory_bar is not None:
                 self._memory_bar.setVisible(True)
-                self._memory_bar.show_estimate(estimate=estimate_bytes, vram=vram, level=state)
+                self._memory_bar.show_estimate(
+                    estimate=estimate_bytes, vram=against, level=state, holder=holder
+                )
             if state == "over":
                 # Not disabled, only warned: the estimate is a model, the card may
                 # be freed by closing the game, and someone who knows better than
                 # this dialog must still be able to press Start.
                 self._memory.setText(
-                    f"⚠ ≈ {estimate:.1f} GiB of GPU memory, but only "
+                    f"⚠ ≈ {estimate:.1f} GiB of {unit}, but only "
                     f"{free:.1f} GiB is free — this run is likely to "
                     f"run out. More --minibatches costs nothing: same data, smaller pieces."
                 )
@@ -1920,12 +2057,12 @@ class ParameterDialog(QDialog):
                 # still usable" are different answers, and the old line gave the
                 # first one to both.
                 self._memory.setText(
-                    f"≈ {estimate:.1f} GiB of GPU memory · {free:.1f} GiB free — most of "
-                    f"the card, so nothing else will fit beside it."
+                    f"≈ {estimate:.1f} GiB of {unit} · {free:.1f} GiB free — most of "
+                    f"the {holder}, so nothing else will fit beside it."
                 )
                 self._memory.setProperty("role", "note")
             else:
-                self._memory.setText(f"≈ {estimate:.1f} GiB of GPU memory · {free:.1f} GiB free")
+                self._memory.setText(f"≈ {estimate:.1f} GiB of {unit} · {free:.1f} GiB free")
                 self._memory.setProperty("role", "note")
         # Qt caches the styled look; a role that changed has to be re-polished.
         style = self._memory.style()

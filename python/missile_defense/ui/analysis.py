@@ -98,6 +98,10 @@ class StatTile(QFrame):
         self._value.setProperty("role", "value")
         self._note = QLabel(stat.note)
         self._note.setProperty("role", "note")
+        # Wrapped: a tile is as wide as its longest unwrapped line, and four
+        # tiles of explanatory prose side by side put a ~1300px floor under
+        # the window (the placeholder note above says why minimums matter).
+        self._note.setWordWrap(True)
         self._delta = QLabel("")
         self._delta.setProperty("role", "note")
         self._delta.setVisible(False)
@@ -146,6 +150,10 @@ class AnalysisView(QWidget):
         self._empty = QLabel(NO_EVALS)
         self._empty.setProperty("role", "placeholder")
         self._empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # Wrapped, or the longest line is a *minimum width* the whole window
+        # inherits: an unwrapped QLabel refuses to be narrower than its text,
+        # and this one sat on the path of every resize (reported 2026-07-29).
+        self._empty.setWordWrap(True)
         column.addWidget(self._empty)
 
         self._body = QWidget()

@@ -222,7 +222,11 @@ GROUPS: tuple[Group, ...] = (
     Group(
         "Potential terms", "reward", ("base_weight", "city_weight", "ammo_weight"), essential=True
     ),
-    Group("Priced events", "reward", ("waste_penalty", "multikill_bonus"), essential=True),
+    # Folded, not open: both events default to 0 — off — and the caption's
+    # amber "changes the objective" tag is exactly the property that earns a
+    # deliberate unfolding. Open, the pair cost the Objective tab two slider
+    # rows it could not spare on a 752-point display.
+    Group("Priced events", "reward", ("waste_penalty", "multikill_bonus")),
     # `Shaping.gamma` is not here: it is derived from `PPOConfig.gamma`, which
     # the two dataclasses require to be equal (see SHARED_FLAGS). One control,
     # in Learning, writes both.
@@ -285,6 +289,9 @@ def domain_title(domain: str) -> str:
 #: abbreviation is never a dead end — and the same text is the whole glossary.
 #: Every one of these has to be *used* somewhere, which a test checks: a
 #: definition nobody can reach is a definition nobody maintains.
+#: No dialog shows this any more — the Glossary button left the parameter
+#: dialog on 2026-07-29 — but the terms still hold the vocabulary the `#:`
+#: help paragraphs lean on, and `test_ui_params` holds them to it.
 GLOSSARY: dict[str, str] = {
     "PPO": (
         "Proximal Policy Optimization — the training algorithm. It improves the "

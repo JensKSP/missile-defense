@@ -249,7 +249,8 @@ class LeagueView(QWidget):
         self._models: list[league.Model] = []
 
         column = QVBoxLayout(self)
-        column.setContentsMargins(10, 0, 0, 0)
+        # No inner margin against the splitter — library.py's pane says why.
+        column.setContentsMargins(0, 0, 0, 0)
         column.setSpacing(8)
 
         heading = QHBoxLayout()
@@ -265,7 +266,13 @@ class LeagueView(QWidget):
         self._empty = QLabel(NOTHING_PROMOTED)
         self._empty.setProperty("role", "placeholder")
         self._empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        column.addWidget(self._empty)
+        # Wrapped for the same reason analysis.py wraps its placeholder: an
+        # unwrapped label's longest line becomes the window's minimum width.
+        self._empty.setWordWrap(True)
+        # Stretched like the table it stands in for, and like the run list's
+        # placeholder beside it — the two panes' action rows sit at the same
+        # height exactly because both columns fill the same way.
+        column.addWidget(self._empty, stretch=1)
 
         self._table = QTableWidget(0, len(COLUMNS))
         self._table.setHorizontalHeaderLabels(list(COLUMNS))
@@ -282,8 +289,9 @@ class LeagueView(QWidget):
 
         actions = QHBoxLayout()
         actions.setSpacing(6)
-        self._watch = QPushButton("&Watch it play")
+        self._watch = QPushButton("&Watch")
         self._watch.setProperty("role", "primary")
+        self._watch.setToolTip("Open the game with this model at the controls")
         self._watch.clicked.connect(self._watch_selected)
         self._evaluate = QPushButton("&Evaluate")
         self._evaluate.setToolTip(
@@ -291,9 +299,10 @@ class LeagueView(QWidget):
             "protocol the league ranks on"
         )
         self._evaluate.clicked.connect(self._evaluate_selected)
-        self._versus = QPushButton("&Head-to-head…")
+        self._versus = QPushButton("&Versus…")
         self._versus.setToolTip(
-            "Play two models over the *same* seeds, then watch one of those episodes side by side"
+            "Head-to-head: play two models over the *same* seeds, then watch "
+            "one of those episodes side by side"
         )
         self._versus.clicked.connect(self._head_to_head)
         self._rename = QPushButton("Re&name…")
@@ -309,6 +318,10 @@ class LeagueView(QWidget):
             "Remove this model from the league, and so from the game's MODELS menu"
         )
         self._delete.clicked.connect(self._delete_selected)
+        # One row, like the run table's beside it — earned the same way: the
+        # two long labels shortened to their verb (Watch, Versus…) with the
+        # long version kept in the tooltip, and six short buttons fit where
+        # two rows used to be needed.
         for button in (
             self._watch,
             self._evaluate,
@@ -317,6 +330,7 @@ class LeagueView(QWidget):
             self._export,
             self._delete,
         ):
+            button.setProperty("density", "compact")
             actions.addWidget(button)
         actions.addStretch(1)
         column.addLayout(actions)
