@@ -168,6 +168,7 @@ int connect_to(const std::string& endpoint) {
         return -1;
     }
     std::memcpy(address.sun_path, endpoint.c_str(), endpoint.size() + 1);
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast) — the sockets API's own idiom
     if (connect(fd, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) != 0) {
         close(fd);
         return -1;
@@ -407,6 +408,7 @@ bool Server::start(const std::string& endpoint) {
     sockaddr_un address{};
     address.sun_family = AF_UNIX;
     std::memcpy(address.sun_path, endpoint_.c_str(), endpoint_.size() + 1);
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast) — the sockets API's own idiom
     if (bind(listen_fd_, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) != 0) {
         // A socket file, but whose? A live twin answers a connect; a crashed
         // one left a corpse that refuses it, and a corpse is swept, not obeyed.
@@ -418,6 +420,7 @@ bool Server::start(const std::string& endpoint) {
             return false;
         }
         unlink(endpoint_.c_str());
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast) — as above
         if (bind(listen_fd_, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) != 0) {
             close(listen_fd_);
             listen_fd_ = -1;
@@ -516,7 +519,12 @@ void Server::detach() {
         nudge(endpoint_);
         std::this_thread::sleep_for(poll_step);
     }
-    thread_.join();
+    try {
+        thread_.join();
+    } catch (const std::system_error&) {
+        // Joining a thread that already ended is the only failure left once
+        // done_ is set, and the destructor this runs under must not throw.
+    }
 #ifndef _WIN32
     if (listen_fd_ >= 0) {
         close(listen_fd_);

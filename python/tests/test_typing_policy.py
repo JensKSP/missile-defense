@@ -121,9 +121,7 @@ def _imports(source: str, package: str) -> bool:
     prefix = package + "."
     for node in ast.walk(ast.parse(source)):
         if isinstance(node, ast.Import):
-            if any(
-                alias.name == package or alias.name.startswith(prefix) for alias in node.names
-            ):
+            if any(alias.name == package or alias.name.startswith(prefix) for alias in node.names):
                 return True
         elif isinstance(node, ast.ImportFrom):
             module = node.module or ""
